@@ -1,31 +1,4 @@
 #!/usr/bin/env node
-/*
- * record-delegated-decision.js — record one delegated decision in one call:
- * post its `**Delegated decision:**` comment on the ticket, then append the
- * same entry to the repo's delegated-decision ledger, which the morning review
- * issue lists from (#2002; spec #1995). Clear calls are recorded too.
- *
- *   node scripts/record-delegated-decision.js <n> --question "<q>"
- *     --taken "<option>" --taken-figure 70%
- *     --runner-up "<option>" --runner-up-figure 30%
- *     --rung-rulings "<fact found>|none" --rung-web "<fact>|none"
- *     --rung-subagent "<fact>|none" --still-caught yes|no
- *     --reverse "<commit sha, or the runner-up's first step>"
- *
- * ORDER: every refusal, then the comment, then the ledger line.
- *
- * RE-RUN FINISHES ONLY WHAT IS MISSING: a comment by this account with the
- * same body is not posted again, and a ledger line already keyed to that
- * comment's URL is not appended again.
- * A ledger line is stamped when appended, not with its comment's time, so a
- * re-run's line reaches the next morning review rather than a filed one (#3827).
- * A second decision with every field identical on the same ticket is therefore
- * read as the re-run, not recorded twice.
- *
- * Joins no §N3 family: its exits are the ones #528 gives all three tracker
- * scripts — 0 done or already done, 1 a write did not land, 2 a usage error or
- * a refusal.
- */
 
 const { parseErrLine, gh } = require("./lib/gh.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -45,7 +18,7 @@ const io = scriptIo("record-delegated-decision");
  * @param {string} repo
  * @param {number} n
  * @param {string} comment
- * @returns {string} the comment's URL
+ * @returns {string}
  */
 function postOnce(repo, n, comment) {
 	let found;

@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * The panel's command line (#3873): what it refuses and when it exits at once. The
- * terminal path needs a pty, which vitest
- * has not; lib/refill-panel-terminal.test.ts covers it over injected streams.
- * Broken, a launcher's mistyped pid opens a panel nothing ever closes.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

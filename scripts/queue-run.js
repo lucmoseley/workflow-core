@@ -1,61 +1,4 @@
 #!/usr/bin/env node
-/*
- * queue-run.js — the suite queue for a runner other than vitest (#1776). It
- * waits in `run-vitest.js --queue`'s FIFO and on its gate (lib/suite-queue.js),
- * then runs the command.
- *
- * IT JOINS NO FAMILY (§G4, §N3): it gates nothing, so it is no `check-*`, and
- * it is not a hook, so it is no `guard-*`. Exit 2 is its refusal, before
- * anything queues; exit 1 a wait the memory rung still holds at the queue's
- * timeout, which runs nothing (#2421).
- *
- * IT RUNS ONLY WHAT lib/suite-launch.js's `isQueueable` TAKES, so a vitest launch
- * is sent to `--queue` and the guards never meet a suite they cannot see. A
- * classifier that will not run fails open: the command queues.
- *
- * THE MARKER IS HELD UNTIL THE COMMAND EXITS, stamped `spawned` once it is up,
- * as run-vitest.js holds its own. A signal kills a waiter at once and is passed
- * to a running command, whose exit this one then takes.
- *
- * Each wait is a `.suite-queue-exits.jsonl` line (lib/queue-exit-log.js) of
- * its slot's kind, `seat`, `tsc` or `gate`, or `other` with no slot flag.
- *
- * A COMMAND NAMING ITS TEST FILES WAITS AS A PART-SUITE (#5274, spec #5273
- * §7), as the guard counts it: it never takes or waits for the whole-suite
- * slot, and the memory rung still charges it a whole suite's workers.
- *
- * `--seat` HOLDS ONE PART-SUITE SEAT FOR A DRIVER (#2918), a mutation loop
- * that runs `run-vitest.js <file> --queue` once per mutant. It waits once, as
- * a part-suite, so it never takes the whole-suite slot, then runs the driver
- * with its marker in SEAT_ENV. Each `--queue` run inside the seat's process
- * tree skips the queue and waits on the memory rung alone
- * (lib/suite-queue.js `heldSeat`). A driver the classifier reads as a suite
- * itself is refused.
- *
- * `--tsc` HOLDS THE MACHINE-WIDE TYPE-CHECK SLOT (#3163): one `tsc` at a time,
- * on its own rung (lib/tsc-slot.js). It waits in a queue directory of its own,
- * never behind a suite, and its gate counts `tsc` off `ps`, so an unwrapped
- * one holds it too. A command the classifier reads as a suite is refused.
- * Under lib/tsc-slot.js's TSC_NO_WAIT_ENV it tries the slot once and exits
- * TSC_BUSY_EXIT, running nothing, where it is held (#3278). Its command
- * gets its marker in TSC_SLOT_ENV, and a `--tsc` launch inside that command's
- * process tree runs at once, in the slot it already holds (#3404).
- *
- * `--gate` HOLDS A GATE SEAT FOR A COMMIT GATE (#5274, spec #5273 §1): a
- * repo's declared test command run for one commit's verdict, taken by its
- * role and never read by the classifier: its words, joined, run through
- * `sh -c`, their stderr folded into stdout, the one stream both commit
- * launch points read. It waits in the suite queue's FIFO
- * for the whole-suite slot, priced whole on the memory rung, and is never
- * refused at the queue's wait bound, so a commit keeps its place. Waiting, it
- * prints its position, the slot's holder and the time waited on joining and
- * at each change. Its command runs in a process group of its own under the
- * suite ceiling, killed and red past it, with its marker in GATE_ENV, and
- * each run is a `.gate-runs.jsonl` line carrying its tree's PSS peak
- * (lib/gate-seat.js). A `--seat` or plain launch inside a gate seat's process
- * tree runs at once, in the slot the seat holds; a gate inside a running
- * suite's tree runs at once, in that suite's.
- */
 
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -142,7 +85,6 @@ or an npm test script that does not run run-vitest.js (#1776).
           under the suite ceiling (#5274), recorded against --tree, the sha
           of the tree it tests (#5448)`;
 
-/* Why lib/suite-launch.js's reading refuses the command; `queue` is absent. */
 const REFUSALS = {
 	queued: "the command is already a queue-run.js launch.",
 	vitest:
@@ -156,11 +98,7 @@ const SEAT_REFUSAL =
 const TSC_REFUSAL =
 	"--tsc holds the type-check slot, and this command is a suite; queue it without --tsc.";
 
-/**
- * What a `--tsc` wait prints in place of a suite's (#3163), on the rung of
- * the launch's own compiler (#4892).
- * @param {number} peakMb
- */
+/** @param {number} peakMb */
 const buildTscWaitText = (peakMb) => ({
 	waiting: `waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${rungMb(peakMb)} MB rung, or Windows' own free memory under what it draws (#4557)`,
 	cap: "one `tsc` runs at a time (#3163)",
@@ -168,11 +106,6 @@ const buildTscWaitText = (peakMb) => ({
 });
 
 /**
- * The type-check slot's gate, off the guard's own `ps` and MemAvailable
- * readers (#3163); an unread one is logged and fails open. `climbMb` is what
- * the suite queue's launches have yet to draw (#3416); `peakMb` the launch's
- * compiler's (#4892).
- *
  * @param {number} climbMb
  * @param {number} peakMb
  */
@@ -191,23 +124,11 @@ function tscGate(climbMb, peakMb) {
 	return tscDenial(rows, mb, climbMb, { windows, peakMb });
 }
 
-/* The weight a seat joins and asks the gate with: one test file, a part-suite
- * (#2918). */
 const SEAT_WEIGHT = { resolvedFiles: 1, wholeSlot: false };
 
-/* The weight a command naming its test files joins and asks the gate with
- * (#5274, spec #5273 §7): a part-suite, so it never takes or waits for the
- * whole-suite slot, its file count unread, so the rung charges it a whole
- * suite's workers and its marker its queue's peak. */
 const NAMED_FILES_WEIGHT = { resolvedFiles: null, wholeSlot: false };
 
 /**
- * lib/suite-launch.js's reading of the command: `queue` where this script
- * takes it, else a key of REFUSALS. A command already behind queue-run.js is
- * `queued` where its own command would queue, else that command's reading.
- * A reading that throws is `unread`, logged, and fails open (mantahostels#103
- * §6): queued, or under `--seat` seated.
- *
  * @param {string[]} words
  * @returns {string}
  */
@@ -233,9 +154,6 @@ function readingOf(words, ports) {
 	return READING_RANK.find((r) => readings.includes(r)) ?? "none";
 }
 
-/* The reading a command takes from its runs' readings, the first here any
- * run reads: each refusal before the launch this script takes; `none` where
- * every run reads none. */
 const READING_RANK = ["vitest", "queued", "queue"];
 
 /**
@@ -258,8 +176,6 @@ function runReading(inner, ports) {
 const VITEST_KINDS = ["npm-vitest", "npm-watch", "wrapper"];
 
 /**
- * Why a plain launch is refused, or null where it queues.
- *
  * @param {string[]} words
  * @returns {string | null}
  */
@@ -272,9 +188,6 @@ function plainRefusal(words) {
 }
 
 /**
- * A slot's refusal of a command that is itself a suite: `why`, or null where
- * the command runs none or will not read.
- *
  * @param {string} why
  * @returns {(words: string[]) => string | null}
  */
@@ -310,9 +223,6 @@ const suiteRefusedWith = (why) => (words) => {
 const STDERR = { write: (s) => writeFd(2, s) };
 
 /**
- * A child's exit status as a shell reports it: its code, or 128 + its
- * signal's number.
- *
  * @param {number|null} code
  * @param {NodeJS.Signals|null} signal
  * @returns {number}
@@ -332,13 +242,7 @@ const waitOn = (gate) => () => gate;
 
 const refusedRun = () => 1;
 
-/**
- * A `--tsc` try's wait under TSC_NO_WAIT_ENV (#3278): the gate's first answer
- * is final, and a rival admitted on the same poll reads as a held slot, so
- * the try refuses rather than sleep a poll.
- *
- * @param {{ gate: (climbMb: number) => import("./lib/suite-queue.js").GateDenial | null }} gate
- */
+/** @param {{ gate: (climbMb: number) => import("./lib/suite-queue.js").GateDenial | null }} gate */
 const tryOn = (gate) => (/** @type {Stamps} */ stamps) => {
 	let yielded = false;
 	return {
@@ -386,7 +290,6 @@ function sayTscHeld(err) {
  * }} Launch
  */
 
-// Only a gate seat prints its place.
 const sayNoPlace = noop;
 
 /**
@@ -410,10 +313,6 @@ const buildSeatWait = (options) => ({
 });
 
 /**
- * The launch is charged the peak of the compiler its `tsc` resolves to from
- * here, stamped on its marker for the suite queue's climb and on its exit
- * line for the replay (#4892).
- *
  * @param {Options} options
  * @param {string[]} words
  * @returns {SlotWait}
@@ -445,10 +344,6 @@ function buildTscWait(options, words) {
 }
 
 /**
- * A plain launch's wait: its marker carries the command's runner peak where
- * one is measured (#4648), and a command naming its test files joins as a
- * part-suite (#5274).
- *
  * @param {Options} options
  * @param {string[]} words
  * @returns {SlotWait}
@@ -458,8 +353,6 @@ function buildOtherWait(options, words) {
 		const mb = queuedRunnerPeakMb(inner);
 		return mb === undefined ? [] : [mb];
 	});
-	/* The heaviest run's: runs a `&` or `|` sets side by side are charged as
-	 * that one alone. */
 	const chargeMb = charges.length > 0 ? Math.max(...charges) : undefined;
 	const charged = chargeMb === undefined ? options : { ...options, chargeMb };
 	const part = isNamedFilesRun(words);
@@ -474,11 +367,6 @@ function buildOtherWait(options, words) {
 }
 
 /**
- * Whether the command is a part-suite as the guard reads it (#5274, spec
- * #5273 §7): every run in it the queue takes names its test files
- * (lib/suite-launch.js `hasNamedTestFiles`). A reading that throws is logged
- * and read whole, which waits for the slot rather than slip past it.
- *
  * @param {string[]} words
  * @returns {boolean}
  */
@@ -497,10 +385,6 @@ function isNamedFilesRun(words) {
 }
 
 /**
- * A gate seat's wait (#5274): the suite queue joined whole, role `gate`,
- * carrying who holds it and its charge, waiting with no bound, its place
- * printed on joining and at each change.
- *
  * @param {Options} options
  * @param {string[]} words
  * @returns {SlotWait}
@@ -620,9 +504,6 @@ function shortGateDenial(climbMb, peakMb) {
 }
 
 /**
- * This repo's gate-seat charge, off its config. A config that will not read
- * is named on `err` and the seat charged the default (#5274): the seat still
- * waits and runs, never charged nothing.
  * @param {Out} err
  * @returns {number}
  */
@@ -640,7 +521,6 @@ function readGateChargeMb(err) {
 }
 
 /**
- * The issue `session` holds, the newest claimed, or null.
  * @param {string | null} session
  * @returns {number | null}
  */
@@ -650,8 +530,6 @@ function readTicket(session) {
 		const { readClaimedIssues } = require("./lib/arbiter-issue-claims.js");
 		return readClaimedIssues(session)[0] ?? null;
 	} catch {
-		/* An unreadable claim store costs the record line its ticket, never the
-		 * commit (#5274). */
 		return null;
 	}
 }
@@ -660,9 +538,6 @@ function readTicket(session) {
 const asGiven = (words) => words;
 
 /**
- * One kind per slot flag and `other` for a launch with none (#2918, #3163,
- * #5274), "slot" naming the flag family, the gate seat among them.
- *
  * @satisfies {Record<string, {
  *   refusal: (words: string[]) => string | null,
  *   heldMarkerEnv: string,
@@ -687,14 +562,11 @@ const SLOT_KINDS = {
 		argv: asGiven,
 	},
 	gate: {
-		/* A gate's command is taken by its role, never by the classifier. */
 		refusal: () => null,
 		heldMarkerEnv: GATE_ENV,
 		runsAtOnceInSuite: (options) =>
 			(options.inSuite ?? (() => isInSuite(options)))(),
 		wait: buildGateWait,
-		/* A gate's command is one shell string, as spawnGate runs it, held or
-		 * not. */
 		argv: (words) => ["sh", "-c", words.join(" ")],
 	},
 	other: {
@@ -717,9 +589,6 @@ const SLOT_FLAG_SPEC = Object.fromEntries(
 );
 
 /**
- * The slot the flags ask for, `other` for none; undefined where they ask for
- * more than one.
- *
  * @param {Record<string, unknown>} flags
  * @returns {Slot | undefined}
  */
@@ -776,9 +645,6 @@ async function main(argv, options = {}) {
 }
 
 /**
- * Wait in the slot's queue, then run the command, holding the marker until it
- * exits.
- *
  * @param {string[]} words
  * @param {Slot} slot
  * @param {Options} options
@@ -799,19 +665,12 @@ async function run(words, slot, options, err) {
 	});
 
 	const kind = SLOT_KINDS[slot];
-	/* A slot held already in this process tree runs the command at once, in
-	 * that slot: a `--tsc` launch inside a `--tsc` command's tree, which would
-	 * otherwise wait behind it forever (#3404), and any other launch inside a
-	 * gate seat's tree (#5274). */
 	const held = heldMarker(kind.heldMarkerEnv, options) !== null;
 	const unseated = held || kind.runsAtOnceInSuite(options);
 	const slotted = kind.wait(options, words);
 	const { queue, join, wait, refused, exitExtra } = slotted;
 	/** @type {import("node:child_process").ChildProcess | null} */
 	let child = null;
-	/* A killed waiter exits on the spot: its poll would otherwise run on. Once
-	 * the wait has ended a signal is the command's to answer, and this process
-	 * exits on the command's exit. */
 	const seat = queueSeat({
 		queue,
 		join: unseated ? false : join,
@@ -852,11 +711,6 @@ async function run(words, slot, options, err) {
 }
 
 /**
- * The exit logger, carrying a slot's extra fields on each line where it has
- * any: a killed line keeps the charge the replay reads (#4921), but not
- * `noWait`, which marks a try's verdict, refused or opened, for
- * guard-typecheck-owed.js.
- *
  * @param {ReturnType<typeof queueExitLogger>} logExit
  * @param {{ noWait?: boolean, chargeMb: number } | undefined} exitExtra
  * @returns {ReturnType<typeof queueExitLogger>}
@@ -872,8 +726,6 @@ function withExitExtra(logExit, exitExtra) {
 }
 
 /**
- * Append one gate run's line to the record, its time, repo, command, session
- * and ticket filled in; a line that does not land is named on `err`.
  * @param {Options} options
  * @param {Out} err
  * @param {{ repo: string | null, session: string | null, command: string }} holder
@@ -900,15 +752,6 @@ function recordGateRun(options, err, holder, measured) {
 }
 
 /**
- * Start a gate seat's command (#5274): in a process group of its own, its
- * marker in GATE_ENV, under the suite ceiling, which kills the group and reads
- * red; its tree's PSS sampled for its peak from spawn (lib/admission.js
- * `sampleTreePeak`), each sample's pids on the seat's pid record
- * (lib/gate-seat.js); and, on its exit, one line on the gate-run record.
- * Run in the committing checkout, with no throwaway worktree's runner to
- * hand them, it hands this checkout's merge parents to the overlay a touched
- * run moves into (lib/merge-heads.js, #5334).
- *
  * @param {{
  *   seat: ReturnType<typeof queueSeat>,
  *   options: Options,
@@ -943,9 +786,6 @@ function spawnGate({ seat, options, err, finish, holder, tree, waitMs, part }) {
 			pids?.see(sample.pids);
 			return sample.kb;
 		} catch (error) {
-			/* An unreadable sample costs that sample, never the gate run
-			 * (#5274), and is named at the close: the peak is read by hand to
-			 * set `gateSeatMb`. */
 			unreadSamples += 1;
 			firstUnread ??= caught(error).message;
 			return 0;
@@ -1063,9 +903,6 @@ function makeGateSelectionFile(err) {
 }
 
 /**
- * Start `words`, handing the seat's ticket on in the `handed` variable, and
- * end with `finish` on its exit status: 127 where it would not start.
- *
  * @param {string[]} words
  * @param {{
  *   handed: string | null | undefined,

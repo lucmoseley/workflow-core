@@ -1,54 +1,4 @@
 #!/usr/bin/env node
-/*
- * retro-transcript.js — one session's JSONL log reduced to a line-numbered
- * text transcript a retro subagent can read (#962, spec #948 §Log reducer).
- *
- *   node scripts/retro-transcript.js <session.jsonl> [--out <path>]
- *
- * KEPT, one output line per item, each opening `L<n>` — the line of the log it
- * came from: founder messages; the refill loop's resume prompts, as LOOP;
- * another script's typed prompts, as SCRIPT; assistant text; each tool
- * call's name and a short input; each tool result's
- * error flag and its first 300 characters; hook feedback; compaction
- * boundaries; API errors. Everything else — thinking, the compaction summary,
- * task notifications, peer and plugin messages, and every bookkeeping record —
- * is dropped.
- *
- * SUBAGENT LOGS ARE FOLDED IN directly under the tool call that dispatched
- * them, matched on the `toolUseId` their `.meta.json` records and labelled by
- * its `description`, at the same reduction and one indent deeper. Their lines
- * carry their own file's numbers, prefixed with the agent id. A subagent whose
- * dispatching call is in no log read here is appended at the end, saying so.
- *
- * STREAMED, NEVER LOADED WHOLE: the log is read in fixed chunks and the output
- * written as each line is reduced. One log line is still held whole while it
- * is parsed.
- *
- * WRITES UNDER `.claude/tmp/` ONLY, by default to
- * `.claude/tmp/retro-transcripts/<log name>.txt`, in the session's own tree
- * (`worktreeRoot()`): a linked worktree's scratch where the session runs in one
- * (#5424). Any other
- * path, or a tracked one, is refused before the log is opened.
- *
- * Each streamed line is read by lib/jsonl.js's `parseJsonlRow`; one that is no
- * record is skipped and counted, never thrown on. NOT lib/transcript.js's
- * `mainChainRecords`, which takes the whole text: its skip count and sidechain
- * rule are restated in `parseLine` and `records` over streamed lines.
- *
- * TOKEN-SHAPED SUBSTRINGS ARE MASKED (#1031) to `[REDACTED:<rule>]` in every
- * line written, by `lib/token-shapes.js`, and so is each value the secrets
- * file holds, after an assignment to its name or, long enough, anywhere (#3821):
- * a token pasted into a session would otherwise reach every retro that reads
- * it, and the issues they file. Masked
- * before the per-item cut, so a token straddling it leaves no fragment.
- *
- * IN NO SCRIPT FAMILY (docs/code-standards-base.md §N3): a scratch writer. Exit 0
- * written, printing the output path, line count and any masked count; 1 the log,
- * a subagent log or the secrets file unreadable, or the secrets file's names too
- * many to compile, each of which leaves the output as it was; 2 bad usage or a
- * refused output path.
- */
-
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -78,8 +28,7 @@ transcript under .claude/tmp/. Default output:
 .claude/tmp/retro-transcripts/<log name>.txt`;
 
 const SCRATCH = path.join(".claude", "tmp");
-/* Bytes per read: a guess, unmeasured. Any size streams; this sets only how
- * many reads a log takes. */
+// #962 guess
 const CHUNK = 1 << 20;
 
 /**
@@ -88,8 +37,7 @@ const CHUNK = 1 << 20;
  * @typedef {{ file: string, agent: string, description: string }} Subagent
  */
 
-/* Characters kept per item. RESULT is the spec's ~300; the rest follow the
- * #883 trial's filter.py. */
+// #948 #883: RESULT is the spec's ~300, the rest the trial's filter.py, a guess
 const LIMIT = {
 	founder: 1500,
 	assistant: 1200,
@@ -99,10 +47,8 @@ const LIMIT = {
 	apiError: 300,
 };
 
-/* Substrings masked so far, reported in the stdout summary. */
 let masked = 0;
 
-/* The secrets file's masker, built by `main` before it opens the output. */
 /** @type {((text: string) => { text: string, count: number }) | undefined} */
 let masker;
 
@@ -127,11 +73,9 @@ function short(value, limit) {
 	return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
-/* A log that would not open: a subagent log can be a dangling link (#4047). */
 class UnreadableLog extends Error {}
 
 /**
- * Every line of a file, with its 1-based number, read CHUNK bytes at a time.
  * @param {string} file
  * @returns {Generator<{ n: number, line: string }>}
  */
@@ -164,15 +108,10 @@ function* readLines(file) {
 	}
 }
 
-/**
- * Whether a message's origin is the founder's: `human`, or none at all, which
- * is how older logs and the founder's `!` commands record him.
- * @param {string | undefined} kind
- */
+/** @param {string | undefined} kind */
 const isFounder = (kind) => kind === undefined || kind === "human";
 
 /**
- * A tool call's input, shortened to what identifies it.
  * @param {string} name
  * @param {TranscriptBlock["input"]} input
  */
@@ -191,9 +130,6 @@ function toolInput(name, input) {
  */
 
 /**
- * The reduced items of one parsed record: `[label, text]` pairs, plus the id of
- * each tool call it makes so a subagent can be folded under it.
- *
  * @param {TranscriptRecord} record
  * @param {"main" | "subagent"} tier
  * @returns {Reduced}
@@ -204,7 +140,6 @@ function reduce(record, tier) {
 }
 
 /**
- * Tool results, Stop hook feedback and the founder's prompt.
  * @param {TranscriptRecord} record
  * @param {"main" | "subagent"} tier
  * @returns {Reduced}
@@ -223,7 +158,6 @@ function reduceUser(record, tier) {
 			items.push(["HOOK Stop", short(text, LIMIT.hook)]);
 	} else if (typist) items.push([typist, short(text, LIMIT.founder)]);
 	else if (isFounder(kind))
-		/* A subagent's opening message is its dispatch prompt, not the founder. */
 		items.push([
 			tier === "main" ? "FOUNDER" : "PROMPT",
 			short(text, LIMIT.founder),
@@ -349,8 +283,6 @@ function reduceAttachment(record) {
 			short(parseContentText(a.prompt), LIMIT.founder),
 		]);
 	else if (isFounderQueued(a))
-		/* Typed while the session was busy, so logged only here, never as a
-		 * user record. A peer's queued message fails `isFounder`. */
 		items.push([
 			"FOUNDER queued",
 			short(parseContentText(a.prompt), LIMIT.founder),
@@ -362,12 +294,7 @@ function reduceAttachment(record) {
 const isPromptQueued = (a) =>
 	a.type === "queued_command" && a.commandMode === "prompt";
 
-/**
- * The label of a prompt the refill loop (#3381) or another script (#4844)
- * typed, read off its prefix since its origin is `human` too; null for any
- * other prompt.
- * @param {string} text
- */
+/** @param {string} text */
 function typistLabelOf(text) {
 	if (isLoopPrompt(text)) return "LOOP";
 	return isScriptPrompt(text) ? "SCRIPT" : null;
@@ -389,14 +316,9 @@ const REDUCERS = new Map([
 	["attachment", reduceAttachment],
 ]);
 
-/** A subagent log's file name; the group is its stem, `agent-<id>`. */
 const AGENT_LOG = /^(agent-.+)\.jsonl$/;
 
 /**
- * The subagent logs beside `log`, keyed on the tool call that dispatched each.
- * A log with no readable `.meta.json`, or none naming a call, keys on its own
- * path so it is still reported.
- *
  * @param {string} log
  * @returns {Map<string, Subagent>}
  */
@@ -408,8 +330,6 @@ function readSubagentsOf(log) {
 	try {
 		names = fs.readdirSync(dir).sort();
 	} catch {
-		/* No subagents directory is the usual case. An unreadable one reads the
-		 * same, the transcript then simply carrying no folds. */
 		return found;
 	}
 	for (const name of names) {
@@ -417,8 +337,7 @@ function readSubagentsOf(log) {
 		if (!m) continue;
 		const stem = requiredGroup(m, 1, AGENT_LOG);
 		const file = path.join(dir, name);
-		// Unread, it is keyed on its own path below, so the log is still reported.
-		/** @type {{ toolUseId?: string, description?: string }} the subagent's `.meta.json`, no transcript line */
+		/** @type {{ toolUseId?: string, description?: string }} */
 		const meta = orFallback(
 			() =>
 				JSON.parse(
@@ -435,16 +354,12 @@ function readSubagentsOf(log) {
 	return found;
 }
 
-/* Links followed before a path is refused as a loop: Linux's own limit (#4047). */
+// Linux follows at most 40 links resolving one path: https://man7.org/linux/man-pages/man7/path_resolution.7.html
 const MAX_LINKS = 40;
 
 /**
- * `file` with symlinks dereferenced as far as it exists: a path not yet made is
- * resolved through its nearest existing ancestor, so a refused one is never
- * created, and a dangling link through its target, which an open would create.
- * Throws on a link loop.
  * @param {string} file
- * @param {number} [links]  links followed so far
+ * @param {number} [links]
  * @returns {string}
  */
 function readRealPath(file, links = 0) {
@@ -471,14 +386,11 @@ function isLink(at) {
 	try {
 		return fs.lstatSync(at).isSymbolicLink();
 	} catch {
-		/* Nothing there to follow: the caller walks up to an ancestor, whose real
-		 * path the containment check still judges. */
 		return false;
 	}
 }
 
 /**
- * Where the transcript goes, or the reason it may not go there.
  * @param {string} root
  * @param {string} log
  * @param {string | undefined} requested
@@ -494,7 +406,6 @@ function outputPath(root, log, requested) {
 				`${path.basename(log, ".jsonl")}.txt`,
 			);
 	fs.mkdirSync(scratch, { recursive: true });
-	/* Real paths on both sides, so a symlink out of .claude/tmp/ is no way out. */
 	let real;
 	try {
 		real = readRealPath(out);
@@ -510,8 +421,6 @@ function outputPath(root, log, requested) {
 		});
 		return { refused: `${out} is a tracked file` };
 	} catch (e) {
-		/* Exit 1 is git's "not tracked". Anything else — no git, no repository —
-		 * leaves the question open, and an open question refuses. */
 		if (caught(e).status !== 1)
 			return { refused: `git cannot say whether ${out} is tracked` };
 	}
@@ -520,9 +429,6 @@ function outputPath(root, log, requested) {
 }
 
 /**
- * Every line of a log with its parsed record, or null for one walk skips: a
- * blank line, one that will not parse (reported to `onUnparseable`), and in the
- * main log a sidechain record.
  * @param {string} file
  * @param {"main" | "subagent"} tier
  * @param {() => void} onUnparseable
@@ -553,7 +459,7 @@ function parseLine(line, tier, onUnparseable) {
 }
 
 /**
- * @param {string} prefix  indent and agent tag
+ * @param {string} prefix
  * @param {number} n
  * @param {string} time
  * @param {[string, string]} item
@@ -583,7 +489,6 @@ function main() {
 		);
 		process.exit(2);
 	}
-	// Missing and unreadable answer alike.
 	const readable = orFallback(() => {
 		fs.accessSync(log, fs.constants.R_OK);
 		return fs.statSync(log).isFile();
@@ -598,7 +503,6 @@ function main() {
 
 	try {
 		const { names, values } = readStoredSecrets();
-		/* An object's text reaches `mask` JSON-escaped, so a value does both ways. */
 		masker = buildMasker(
 			names,
 			values.flatMap((v) => [v, JSON.stringify(v).slice(1, -1)]),
@@ -612,13 +516,11 @@ function main() {
 	}
 
 	const subagents = readSubagentsOf(log);
-	/** The aside's fd, set once `writeStreamAtomic` opens it. */
 	let fd = -1;
 	let written = 0;
 	let skipped = 0;
 	/** @param {string} text */
 	const emit = (text) => {
-		/* The few texts no `short` call cut — a subagent's description. */
 		fs.writeSync(fd, `${mask(text)}\n`);
 		written++;
 	};
@@ -631,8 +533,8 @@ function main() {
 	 * @param {string} file
 	 * @param {"main" | "subagent"} tier
 	 * @param {number} depth
-	 * @param {string} tag  the agent id a subagent's line numbers belong to
-	 * @returns {number}  the file's last line number
+	 * @param {string} tag
+	 * @returns {number}
 	 */
 	const walk = (file, tier, depth, tag) => {
 		const indent = "  ".repeat(depth);
@@ -651,10 +553,9 @@ function main() {
 	};
 
 	/**
-	 * Folds in, once each, the subagents the given tool calls dispatched.
 	 * @param {string[]} toolIds
-	 * @param {number} depth  the subagents' own indent level
-	 * @param {string} at  the dispatching line's reference
+	 * @param {number} depth
+	 * @param {string} at
 	 */
 	const foldDispatched = (toolIds, depth, at) => {
 		for (const id of toolIds) {
@@ -667,8 +568,8 @@ function main() {
 
 	/**
 	 * @param {Subagent} sub
-	 * @param {number} depth  the subagent's own indent level
-	 * @param {string} at  the dispatching line's reference
+	 * @param {number} depth
+	 * @param {string} at
 	 * @param {string} [note]
 	 */
 	const fold = (sub, depth, at, note = "") => {
@@ -681,9 +582,6 @@ function main() {
 		emit(`${indent}${at} └ end subagent ${sub.agent}`);
 	};
 
-	/* Written aside and renamed over the output once whole, so a fault midway
-	 * leaves the output as it was (#4047). A killed run leaves its aside in
-	 * .claude/tmp/, to the 24-hour sweep. */
 	try {
 		writeStreamAtomic(target.out, (opened) => {
 			fd = opened;

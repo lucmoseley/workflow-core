@@ -1,86 +1,4 @@
 #!/usr/bin/env node
-/*
- * repo-checks.js — the daily run of a repo's own state checks (#1548, spec
- * #1510): every check and reporter lib/repo-checks-registry.js lists.
- *
- * AT MOST ONE READING A DAY, through lib/periodic-reading.js: a stamp and a
- * lock in the git common directory, so worktrees of one repo share them, the
- * stamp written before the run, so a run that dies is retried the next day
- * and never at the next session start. The lock stays held while its run
- * lives, and the run's own 30-minute ceiling ends a hung one (#4016).
- *
- * AN ENTRY WHOSE GATE FAILS IS SKIP, its reason recorded, and is never
- * launched. The rest run ONE PROCESS AT A TIME, in the registry's order, each
- * killed at 300 s (an entry's `ceilingScale` multiplies it) and recorded
- * BROKEN; whatever the 30-minute run ceiling
- * leaves unreached is MISSING, as is a check reached that printed no
- * envelope. A reporter files or refreshes its own issue, as on CI.
- *
- * A `since` ENTRY IS WINDOWED (#1551): the start of each one's last
- * completed reading is kept in `.repo-checks-since.json` beside the stamp.
- * Residual: a since file that will not read or is not a JSON object
- * restarts every window at 30 days, so a gap longer than that behind it
- * loses findings; the error log names it.
- *
- * A `rescan` ENTRY RE-SCANS ITS LAST FINDINGS' ISSUES (#1600): the `#N` of
- * each key in its last completed reading, kept in `.repo-checks-rescan.json`
- * and moved with the window's start. Residual: one that will not read
- * re-scans nothing, so a finding the window has passed drops out; the error
- * log names it.
- *
- * THE RESULT is `.repo-checks.json` beside the stamp, one job per registry
- * entry, which `npm run status`'s tracker-sweep line reads
- * (scripts/check-tracker-sweep.js, #1557). A launch that exits BROKEN or
- * MISSING keeps its child's stderr in the job's `stderr` (#2480).
- *
- * THE NOTIFY REPORT (#1553) is `repo-checks.<repo>` in lib/notify-report.js's
- * store: a line per check that gained a key since its last delivery or is
- * BROKEN or MISSING, nothing for a standing or shrinking set. It carries a
- * 7-day maximum age and the launching session as its owner, so the delivery
- * mod hands it to that session while it lives; otherwise `npm run status`
- * shows it, a session start holding it back (#2038, re-ruling #1553's replay
- * there).
- *
- * FROM A LINKED WORKTREE IT READS THE MAIN CHECKOUT (#1555): it points
- * CLAUDE_PROJECT_DIR there for itself and every check it launches, so the
- * day's shared reading checks the main checkout, not a worktree's work. Its
- * notify report and error log land in the main checkout's store too: the
- * launching worktree session is never handed the report live, and its own
- * `npm run check:guard-errors` never shows the run's faults.
- *
- * THE STANDING ISSUE (#1554), `Repo checks: standing findings`, holds what
- * the notify report goes silent on: each check with findings, its outcome,
- * count and hand command. It is filed the first time a check holds a key,
- * labelled `takes:triage` and `origin:repo-checks-script` at filing, and found
- * again by its exact title
- * alone: triage moves the label, and a find by label would then file a
- * second. It is written only on a reading where some key set differs from
- * the sets it was last written with, kept in
- * `.repo-checks-issue.json` beside the stamp; a BROKEN or MISSING check
- * carries its recorded keys forward, so a broken day never reads as a clear
- * one. An all-clear reading refreshes an open issue and never files one.
- *
- * SETTLED KEYS ARE FILTERED (#1700): a key whose tag the registry entry lists
- * as `settled` is left out of the standing set and of the notify line's gain,
- * so a check holding only settled keys reads as clear. The merged result
- * keeps every key, so the hand route still lists them and the clobbers
- * re-scan still reaches their issues; the delivery stamp keeps them too.
- *
- * IT NEVER FIRES A WORKFLOW, PUSHES, COMMITS OR CLOSES AN ISSUE, and never
- * reads or writes `.sweep-autofire`: the 3-a-day `gh workflow run` budget is
- * not its to spend. It always exits 0: a fault — an unreadable config, a
- * stamp, lock or result it cannot write, a reporter that could not file, a
- * `gh` call that failed filing the standing issue — is
- * one line in the arbiter's error log, which `npm run check:guard-errors`
- * reports.
- *
- * IN NO SCRIPT FAMILY (§N3): it launches the families' members and keeps
- * their envelopes, so no one family's contract fits.
- *
- * WFC_REPO_CHECKS_CHECK_MS and WFC_REPO_CHECKS_RUN_MS stand in for the two
- * ceilings, and WFC_SCRIPT_ROOT for the core the scripts are launched from,
- * for tests only.
- */
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -90,7 +8,6 @@ const path = require("node:path");
 const { logError } = require("./lib/arbiter-core");
 const { errMessage, now } = require("./lib/check");
 const { parseEnvelope } = require("./lib/check-envelope");
-/* Aliased: lib/check.js exports a smaller MAX_BUFFER of its own. */
 const { parseErrLine, MAX_BUFFER: GH_MAX_BUFFER } = require("./lib/gh");
 const { adoptHostRoot } = require("./lib/host-root");
 const {
@@ -140,11 +57,10 @@ const ISSUE_SETS = ".repo-checks-issue.json";
 const ISSUE_TITLE = "Repo checks: standing findings";
 const ISSUE_LABELS = [takesLabel("triage"), originLabel("repo-checks-script")];
 const DAY_MS = 24 * 3_600_000;
-/* Spec #1510's chosen ceilings, §Cost and limits. */
+// #1510
 const CHECK_MS = 300_000;
 const RUN_MS = 30 * 60_000;
 const UNEXAMINED = "unexamined, not clean.";
-/* A guess, unmeasured: room for one error line, short of flooding a summary. */
 const STDERR_LINE_MAX_CHARS = 300;
 
 /**
@@ -156,19 +72,13 @@ const STDERR_LINE_MAX_CHARS = 300;
  * @typedef {import("./lib/repo-checks-registry").Host} Host
  */
 
-/**
- * A key's first field, the finding tag `settled` names.
- *
- * @param {string} key
- */
+/** @param {string} key */
 const tagOf = (key) => {
 	const tab = key.indexOf("\t");
 	return tab === -1 ? key : key.slice(0, tab);
 };
 
 /**
- * A job's keys less those its entry's `settled` tags name.
- *
  * @param {string} id
  * @param {{ keys?: unknown } | null | undefined} job
  * @returns {string[]}
@@ -178,12 +88,7 @@ function unsettledKeys(id, job) {
 	return keysOf(job).filter((k) => !settled.has(tagOf(k)));
 }
 
-/**
- * A check its gate let run. A reporter files its own issue, so neither the
- * notify line nor the standing issue judges it.
- *
- * @param {Job} j
- */
+/** @param {Job} j */
 const isJudgedCheck = (j) =>
 	entryOf(j.job).kind === "check" && isJudged(j.outcome);
 
@@ -205,23 +110,12 @@ const buildJob = ({ job, outcome, summary }) => ({
 	summary,
 });
 
-/* A stack frame, which names where a throw passed through and never what
- * failed (#2480). */
+// #2480
 const STACK_FRAME = /^at\s/;
-/* The line Node prints a throw's message on: `Error: …`, `TypeError: …`,
- * `Error [ERR_X]: …`. */
 const ERROR_LINE = /^(?:Uncaught\s+)?[A-Z]?\w*Error(?:\s\[[A-Z_]+\])?:/;
-/* A guess, unmeasured: a module-load stack in full, short of bloating the
- * reading. */
 const STDERR_KEPT_MAX_CHARS = 8000;
 
-/**
- * The child's error line, as a summary's tail: `: <line>`, or "" where it
- * wrote nothing. The first line a throw's message is on, else the last line
- * that is no stack frame, so a module that fails to load is named (#2480).
- *
- * @param {string | undefined} stderr
- */
+/** @param {string | undefined} stderr */
 function because(stderr) {
 	const lines = (stderr ?? "")
 		.split("\n")
@@ -242,9 +136,6 @@ const clip = (text, max) =>
 	text.length > max ? `${text.slice(0, max)}…` : text;
 
 /**
- * A failed job with the child's whole stderr kept beside its summary, so the
- * reading holds the stack the summary's one line was taken from (#2480).
- *
  * @param {Job} job
  * @param {string | undefined} stderr
  * @returns {Job}
@@ -259,13 +150,10 @@ function withStderr(job, stderr) {
 }
 
 /**
- * Run one entry and read what it left.
- *
  * @param {RepoCheck} entry
  * @param {string} root
- * @param {{ ms: number, by: string }} limit the ceiling that kills it, and
- *   which ceiling that is, for the summary
- * @param {string[]} extra arguments after the registry's own
+ * @param {{ ms: number, by: string }} limit
+ * @param {string[]} extra
  * @returns {Job}
  */
 function launch(entry, root, limit, extra) {
@@ -326,12 +214,8 @@ function launch(entry, root, limit, extra) {
 }
 
 /**
- * A JSON object kept beside the stamp, or null where none is. One that will
- * not read or is not an object is logged, naming `consequence`, and read as
- * null.
- *
  * @param {string} file
- * @param {string} consequence what the caller does instead, for the log line
+ * @param {string} consequence
  * @returns {Record<string, unknown> | null}
  */
 function readJsonObject(file, consequence) {
@@ -342,17 +226,14 @@ function readJsonObject(file, consequence) {
 		if (caught(e).code !== "ENOENT") logError(WHERE, e);
 		return null;
 	}
-	// Unparseable and a non-object are one fault: the line below.
 	const value = orFallback(() => JSON.parse(text), undefined);
 	if (value && typeof value === "object" && !Array.isArray(value)) return value;
 	logError(WHERE, `${file} is not a JSON object; ${consequence}`);
 	return null;
 }
 
+// #1551
 /**
- * Each `since` entry's last completed reading's start, by id. Fails open
- * (#1551) rather than skipping the check: the header's residual.
- *
  * @param {string} file
  * @returns {Record<string, unknown>}
  */
@@ -360,8 +241,6 @@ const readLastStarts = (file) =>
 	readJsonObject(file, `windows restart at ${FIRST_SINCE_DAYS} days`) ?? {};
 
 /**
- * Each `rescan` entry's issue numbers from its last completed reading, by id.
- *
  * @param {string} file
  * @returns {Record<string, unknown>}
  */
@@ -369,8 +248,6 @@ const readRescans = (file) =>
 	readJsonObject(file, "nothing is re-scanned") ?? {};
 
 /**
- * Every entry in order, gated, launched or left MISSING.
- *
  * @param {Host} host
  * @param {Kept} kept
  * @returns {Job[]}
@@ -409,8 +286,6 @@ function runAll(host, kept) {
 }
 
 /**
- * Write what this reading leaves for the next, beside the stamp.
- *
  * @param {{ starts: string, rescans: string }} files
  * @param {Kept} kept
  * @param {Job[]} jobs
@@ -431,7 +306,7 @@ function writeJson(file, value) {
 /**
  * @param {string} file
  * @param {Job[]} jobs
- * @param {string} repo repoKey()
+ * @param {string} repo
  */
 function writeResult(file, jobs, repo) {
 	const result = {
@@ -453,14 +328,7 @@ function tally(jobs) {
 		.join(", ");
 }
 
-/**
- * The host repo as a filename-safe key: its tracker slug, `owner.repo`, or
- * its project slug where no tracker resolves. It qualifies the notify report
- * and every delivery stamp (spec #1510 §Delivery records are per repo), so
- * two repos running a check of one id keep two delivery records.
- *
- * @param {Host} host
- */
+/** @param {Host} host */
 function repoKey(host) {
 	const tracker = host.tracker();
 	return (tracker ? tracker.replace("/", ".") : projectSlug(host.root)).replace(
@@ -469,17 +337,13 @@ function repoKey(host) {
 	);
 }
 
-/** @param {string} repo repoKey() @param {string} job */
+/**
+ * @param {string} repo
+ * @param {string} job
+ */
 const stampName = (repo, job) => `${reportName(repo)}.${job}`;
 
 /**
- * Each judged check through lib/key-delta.js's gate, for the header's notify
- * report.
- *
- * Every judged check carries a stamp, which the replay records once it has
- * shown the report (lib/delivery-stamp.js): a check left out of a shown
- * report would keep its older stamp, and re-show keys already seen.
- *
  * @param {Job[]} jobs
  * @param {string} repo
  * @param {number} startMs
@@ -495,8 +359,7 @@ function judgeGains(jobs, repo, startMs) {
 		const countedKeys = unsettledKeys(j.job, j);
 		const { stamp, added } = judgeKeys(j, {
 			countedKeys,
-			/* Logged, then read as nothing delivered: a repeat, never a silence
-			 * (#1553). */
+			// #1553
 			delivered: readDeliveredKeys(name, (s) =>
 				logError(
 					WHERE,
@@ -516,9 +379,6 @@ function judgeGains(jobs, repo, startMs) {
 }
 
 /**
- * Write this reading's notify report: empty where the gate is silent, so the
- * replay can tell a quiet reading from none.
- *
  * @param {Host} host
  * @param {Job[]} jobs
  * @param {{ startMs: number, result: string }} reading
@@ -549,10 +409,6 @@ function writeNotifyReport(host, jobs, { startMs, result }) {
 }
 
 /**
- * The key sets the standing issue was last written with, by check id, or
- * null where none is kept: an unreadable record rewrites the issue rather
- * than leaving it behind.
- *
  * @param {string} file
  * @returns {Record<string, unknown> | null}
  */
@@ -560,9 +416,6 @@ const readIssueSets = (file) =>
 	readJsonObject(file, "the standing issue is rewritten");
 
 /**
- * Each judged check's standing keys, settled ones left out: this reading's
- * where it completed, its recorded ones where it drew no conclusion.
- *
  * @param {Job[]} jobs
  * @param {Record<string, unknown> | null} recorded
  */
@@ -580,8 +433,6 @@ function standingSets(jobs, recorded) {
 }
 
 /** @param {Record<string, unknown>} a @param {Record<string, string[]>} b */
-/* A check with no keys and one not judged at all read alike, so a gate
- * switching a clear check off is no change. */
 const isSameSets = (a, b) => {
 	const held = (/** @type {Record<string, unknown>} */ sets) =>
 		JSON.stringify(
@@ -606,8 +457,6 @@ function buildStandingBody(jobs, sets, startMs) {
 	const held = jobs.flatMap((j) => {
 		const n = sets[j.job]?.length ?? 0;
 		if (n === 0) return [];
-		/* The check's own count where it completed with nothing settled, which
-		 * may count other than keys (lib/check.js); otherwise the keys left. */
 		const nothingSettled = isCompleted(j.outcome) && keysOf(j).length === n;
 		return [{ ...j, n: nothingSettled ? j.count : n }];
 	});
@@ -638,8 +487,6 @@ function buildStandingBody(jobs, sets, startMs) {
 }
 
 /**
- * A tracker-less repo has nowhere to file the standing issue.
- *
  * @param {Host} host
  * @param {Job[]} jobs
  * @param {{ file: string, startMs: number }} reading
@@ -670,9 +517,7 @@ function main() {
 	try {
 		const root = adoptHostRoot();
 		const dir = gitCommonDirOrThrow(root);
-		/* The standing issue's gh calls find the tracker from here, as the
-		 * reporters' do from the cwd they are launched in (#1554):
-		 * lib/tracking-issue.js's fileOrRefresh and refresh take no cwd. */
+		// #1554
 		process.chdir(root);
 		const result = resultFile(dir);
 		const startMs = now();
@@ -708,8 +553,7 @@ function main() {
 		);
 		writeFd(2, `${gate.ran ? gate.value : buildSkipLine(gate, "a day")}\n`);
 	} catch (e) {
-		/* Fails open (#1548): a detached run nobody waits on never fails a
-		 * session start; the next day's reading retries. */
+		// #1548
 		logError(WHERE, e);
 		writeFd(
 			2,

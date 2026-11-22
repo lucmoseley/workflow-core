@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * Pins place-new-issue.sh's asks after a `gh issue create`: placement once per
- * prompt, a type or `takes:` label for every issue, silence where it cannot
- * tell, and never a block (mantahostels#136, mantahostels#314).
- *
- * The hook is driven exactly as Claude Code drives it: a PostToolUse payload on
- * stdin, its output read back as the injected additionalContext. `gh` is stubbed
- * at WFC_GH.
- *
- * The fixture is the real miss (mantahostels#136): a session working mantahostels#130 — itself a
- * `wayfinder:task` child of the mantahostels#96 map — runs `gh issue create` and the new
- * issue lands unlabelled.
- *
- * TMPDIR is redirected per test because the hook rate-limits itself to one
- * injection per prompt with a marker file there; sharing it would make each test
- * depend on the order of the ones before it.
- *
- * It runs as a PostToolUse hook in `.claude/settings.json` on every Bash call:
- * loosen a case and an ad-hoc issue lands unplaced and unlabelled, routing to
- * nobody, or the hook nags on every call or blocks one.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -38,10 +17,6 @@ interface IssueView {
 	labels?: string[];
 }
 
-/**
- * Stub `gh issue view <n> --json …`, one fixture per issue number. An issue
- * absent from the map makes the stub exit non-zero — the "gh cannot answer" path.
- */
 const stubGh = (views: Record<number, IssueView>) => {
 	for (const [n, v] of Object.entries(views))
 		fs.writeFileSync(
@@ -57,10 +32,8 @@ const stubGh = (views: Record<number, IssueView>) => {
 	).gh;
 };
 
-/** A WFC_GH naming no file, where `command -v` fails. */
 const noSuchGh = () => path.join(dir, "no-such-gh");
 
-/** A session named after issue <n>, the way name-issue-session.sh writes it. */
 const sessionOn = (n: number | null) => {
 	const jobDir = path.join(dir, "job");
 	fs.mkdirSync(jobDir, { recursive: true });
@@ -80,7 +53,6 @@ const run = ({
 	noGh = false,
 	env = {},
 }: {
-	/** An array is one Bash call that created several issues, in that order. */
 	created?: number | number[];
 	command?: string;
 	views?: Record<number, IssueView>;
@@ -201,10 +173,6 @@ describe("takes: is asked per issue, not per prompt", () => {
 		expect(run({ promptId, created: 138, views }).stdout.trim()).toBe("");
 	});
 
-	/*
-	 * The cap bounds gh calls, not the asks: an issue it did not look up is still
-	 * named rather than dropped.
-	 */
 	it("names issues past the lookup cap without claiming to know their labels", () => {
 		const r = run({
 			created: [137, 138, 139, 140, 141],
@@ -214,11 +182,6 @@ describe("takes: is asked per issue, not per prompt", () => {
 		expect(r.context).toContain("Also created by this call: #139, #140, #141");
 	});
 
-	/*
-	 * `gh issue create && gh issue comment 900` puts a comment permalink in the
-	 * same output. Collecting every `/issues/N` match reads that as a second
-	 * issue this call created, and nags for a label on an issue it did not touch.
-	 */
 	it("ignores a comment permalink in the same output", () => {
 		const gh = stubGh({ 137: {}, 900: {} });
 		const payload = JSON.stringify({
@@ -259,16 +222,11 @@ describe("label prompt", () => {
 		expect(r.context).not.toContain("wayfinder:<type>");
 	});
 
-	// A child of a ticket is not itself required to be one.
 	it("stays silent when the session's issue is itself a kind:ticket", () => {
 		const r = run({ views: { 137: {}, 130: { labels: ["kind:ticket"] } } });
 		expect(r.context).not.toContain("carries no label");
 	});
 
-	/*
-	 * The family is decided before the already-labelled check, so a label from
-	 * the wrong family does not count as an answer.
-	 */
 	it("still asks for a type when the new issue carries only a kind: label", () => {
 		const r = run({
 			views: {
@@ -296,11 +254,10 @@ describe("label prompt", () => {
 				130: { labels: ["wayfinder:task"] },
 			},
 		});
-		expect(r.context).toContain("#137"); // placement still asked
+		expect(r.context).toContain("#137");
 		expect(r.context).not.toContain("carries no label");
 	});
 
-	// A roadmap card's issue takes no kind: and no wayfinder: type.
 	it("stays silent on a `<card-id> — ` title", () => {
 		const r = run({
 			views: {
@@ -322,10 +279,6 @@ describe("label prompt", () => {
 		expect(r.context).not.toContain("carries no label");
 	});
 
-	/*
-	 * gh unreachable must not read as "you forgot a label" — the hook never
-	 * looked.
-	 */
 	it("stays silent on the label when gh cannot answer", () => {
 		const r = run({ views: {} });
 		expect(r.status).toBe(0);
@@ -334,11 +287,6 @@ describe("label prompt", () => {
 	});
 });
 
-/*
- * The takes: ask is unconditional — an issue born outside a map needs one as
- * much as one born inside it, which is the gap the wayfinder:/kind: prompts
- * above leave open.
- */
 describe("takes: prompt", () => {
 	it("asks for a takes: when the session's issue fixes no family", () => {
 		const r = run({ views: { 137: {}, 130: { labels: ["Tech & Stack"] } } });
@@ -351,11 +299,6 @@ describe("takes: prompt", () => {
 		expect(r.context).toContain("carries no takes: label");
 	});
 
-	/*
-	 * An ask that omits a value sends the reader to a set that does not cover
-	 * their issue. The set itself is owned by docs/agents/triage-labels.md
-	 * §`takes:`.
-	 */
 	it("names every takes: value the reader may pick", () => {
 		const r = run({ views: { 137: {} } });
 		for (const v of [
@@ -372,7 +315,7 @@ describe("takes: prompt", () => {
 
 	it("stays silent when the new issue already carries one", () => {
 		const r = run({ views: { 137: { labels: ["takes:implement"] } } });
-		expect(r.context).toContain("#137"); // placement still asked
+		expect(r.context).toContain("#137");
 		expect(r.context).not.toContain("carries no takes: label");
 	});
 
@@ -393,7 +336,6 @@ describe("takes: prompt", () => {
 });
 
 describe("a backgrounded create, whose output carries no issue number", () => {
-	/** Drives the hook with an arbitrary tool_output, which `run` cannot express. */
 	const runWithOutput = (command: string, toolOutput: string) => {
 		const gh = stubGh({});
 		const r = spawnSync("bash", [HOOK], {
@@ -422,11 +364,9 @@ describe("a backgrounded create, whose output carries no issue number", () => {
 		return { status: r.status ?? -1, stdout, context };
 	};
 
-	/** The verbatim tool_result the harness returns for a backgrounded call. */
 	const jobStub =
 		"Command running in background with ID: bzyjmqn6o. Output is being written to: /tmp/claude-1000/x/tasks/bzyjmqn6o.output. You will be notified when it completes.";
 
-	/** The real mantahostels#442 command. */
 	const backgroundedCreate =
 		'cat "$CLAUDE_JOB_DIR/tmp/pre.md" | gh issue create --repo o/r --title "t" --body-file - --assignee @me 2>&1 | tail -3';
 
@@ -457,9 +397,6 @@ describe("a backgrounded create, whose output carries no issue number", () => {
 			expect(r.context).toContain(v);
 	});
 
-	// It has no number, so it must not invent one — a `mantahostels#137` here would send the
-	// reader to label an unrelated issue. The emptiness check is what keeps this
-	// from passing vacuously on a revert.
 	it("names no issue number at all, while still saying something", () => {
 		const r = runWithOutput(backgroundedCreate, jobStub);
 		expect(r.context).not.toBe("");
@@ -471,10 +408,6 @@ describe("a backgrounded create, whose output carries no issue number", () => {
 		expect(r.context).toContain("output file");
 	});
 
-	/*
-	 * "No number found" now injects, so the command-shape test in front of it is
-	 * the only thing keeping the hook quiet on every non-creating Bash call.
-	 */
 	it("stays silent on a command that creates nothing", () => {
 		expect(runWithOutput("ls -la", "a.txt b.txt").stdout.trim()).toBe("");
 		expect(runWithOutput("npm run test", "42 passed").stdout.trim()).toBe("");
@@ -488,7 +421,6 @@ describe("a backgrounded create, whose output carries no issue number", () => {
 		expect(r.stdout.trim()).toBe("");
 	});
 
-	/* Placement obeys ONCE PER PROMPT; the takes: ask does not. */
 	it("asks for placement once per prompt, but for a label every time", () => {
 		const promptId = "shared-prompt";
 		const call = () => {
@@ -524,11 +456,6 @@ describe("a backgrounded create, whose output carries no issue number", () => {
 		expect(second).toContain("takes:");
 	});
 
-	/*
-	 * A create that failed, and `--help`, both yield no issue URL too, and
-	 * nagging there sends the reader after a number that was never minted. The
-	 * job stub is the discriminator.
-	 */
 	it("stays silent on a create that failed rather than backgrounded", () => {
 		const r = runWithOutput(
 			'gh issue create --title "x" --body "y"',

@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * The corpus reading behind the rate guard-priced-options.js records for its
- * prose secret ask (#1817). Synthetic transcripts in a temp dir, read through
- * `--json` in process (#1369, §G6). Break the ending-message cut and the
- * recorded rate counts mid-turn text the guard never sees; break the dedupe
- * and a resumed session counts its flags twice.
- */
 
 import fs from "node:fs";
 import os from "node:os";

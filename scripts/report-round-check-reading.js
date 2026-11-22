@@ -1,75 +1,4 @@
 #!/usr/bin/env node
-/*
- * report-round-check-reading.js — the reading of the under-researched-round
- * check: whether sending a not-close round back once, when fewer than
- * MIN_CALLS tool calls ran since the founder last spoke (#1684), has cut how
- * often he sends rounds back for research or challenges their premise (spec
- * #1701, on #1691's rulings).
- *
- * EACH REPO AGAINST ITS OWN BASELINE, NEVER POOLED BLIND (#1691's captured
- * fact), because the below-10 send-back rate runs from 14% (workflow-core)
- * to 54% (mantahostels). A rate is pooled only over the repos that clear the
- * bar, against their baselines weighted to the window's mix of their rounds.
- *
- * FILES TWO READINGS, EACH ONCE, IN TURN (READINGS). A plain run at a
- * reading's point files it, `takes:wayfinder`; before it, and on `--dry-run`,
- * it prints the figures so far and files nothing. Once a reading's issue
- * exists, open or closed, it never files again (lib/log-reading.js's
- * `buildFiler`), and the next reading is the one read. The first is due as
- * POINT_FIGURES places it; the second (#3978 Q1 (A)) at the SECOND_TARGETth
- * refused-then-answered round classed (a)–(c) or still to class.
- *
- * RUNS DETACHED AT EVERY SESSION START, from scripts/session-start-sweeps.sh:
- * the logs and transcripts are machine-local. A plain run walks them at most
- * daily, and never beside another run's walk (#3220, buildFiler's
- * `readDaily`). WORKFLOW-CORE ONLY: in an adopter it prints a SKIP and exits
- * 0, as one reading covers every repo.
- *
- * CORPUS. The round-check log (lib/round-check.js) of every repo the baseline
- * has rows for, each root found from the first `cwd` a transcript of it
- * records; every seat's transcripts, for the founder's replies; and the
- * baseline, BASELINE.
- *
- * ROUNDS, NOT QUESTIONS, because the baseline counts a round and his reply to
- * it. A reply counts once, under its round's kind: refused-then-answered where
- * any question in it passed after a refusal and was re-sent; at the cap where
- * any passed at the cap; unrefused where they passed at MIN_CALLS or more. A
- * question the passing send left out (`resent: false`) or whose count the
- * transcript could not give (`callsBefore: null`) makes no round of its own.
- * A refused question the close-rivals limb then took counts as refused, in
- * every line: this check refused it first, so research the close-rivals limb's
- * refusal then asked for is part of what this one set off, and it clears
- * only under this check's own rule (#2244).
- *
- * CLASSING (#1691). A bare accept, ACCEPT, is (a). Every other reply that
- * feeds a figure is listed to class with #1682's six classes; `--classes
- * <file>` reads them back, so a re-run decides the lines that waited on them.
- * A reading's classes, once ruled on, are committed as a CLASSED file the
- * next reading starts from; `--classes` wins over it. The rate is (b)+(c)
- * over (a)+(b)+(c). A line an unclassed reply could still tip reads
- * undecided, with the range its rate lies in.
- *
- * STOPPED ROUNDS (#3995), which line 1 cannot see, as it counts only refused
- * rounds he then answered: in one session, between two of the founder's
- * messages, refused questions none of which a passing send then carried —
- * every pass `resent: false`, or no pass before his next message. A raw
- * count, each case listed to read by hand.
- *
- * A REPO IS KEPT OUT OF A POOL, and named, where the baseline has no rows for
- * its side of the MIN_CALLS line, or the window holds fewer than MIN_REPO_ROUNDS
- * answered rounds of that kind from it.
- *
- * THE READING POINT, lib/log-reading.js's POINT_FIGURES, with its clock
- * started at the first log line in any repo and its answered count taken over
- * refused-then-answered rounds.
- *
- * Exit 0 whether or not it files, SKIP included; exit 2 for a log, baseline
- * or classes file that will not read, `gh` refusing, an unreadable WFC_NOW,
- * or a command line lib/cli-args.js refuses. Exit 2 fails no build, as no
- * build runs it: the launcher discards the code, and a hand run needs to see
- * a corpus it could not read. A transcript that will not read
- * leaves its rounds unanswered, and the run says how many.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -121,17 +50,14 @@ const BASELINE = "docs/data/round-sendbacks-2026-10-14/rounds.json";
 
 const CLASSED = "docs/data/round-check-reading-2026-11-02/classes.json";
 
-/* #3978 Q1 (A)'s 130, its rounding of the 131 rated rounds that tell 6.9%
- * from 13.7% at 80% power, one-sided, alpha 0.05, normal approximation. */
+// #3978 guess: a power calculation's 131 rated rounds, to tell 6.9% from 13.7% at 80% power, rounded
 const SECOND_TARGET = 130;
 
 const SECOND_TITLE = `Round-check second reading, at ${SECOND_TARGET} rated rounds: keep the refusal of under-researched rounds, or drop it?`;
 
-/* Untraced (#1701's Values): a repo with fewer answered rounds of a kind in
- * the window stays out of that kind's pool. */
+// #1701 guess
 const MIN_REPO_ROUNDS = 10;
 
-/* #1691 Q1 (A)'s four failure lines. */
 const NOT_WORKING_SHARE = 0.5;
 const PADDED_LINE = 0.25;
 const PADDED_MAX_CALLS = 2;
@@ -139,24 +65,19 @@ const THRESHOLD_LINE = 0.2;
 const THRESHOLD_LOW = MIN_CALLS;
 const THRESHOLD_HIGH = MIN_CALLS + 2;
 const CAP_LINE = 0.2;
-/* The limb's own cap of refusals a session (#1684). */
 const CAP_SLOTS = limbOf(ROUND_CHECK_PREFIX).cap;
 const CAP_MIN_ROUNDS = 10;
 
-/* #1691: over the baseline fortnight, refusing every round as well would have
- * cost FLIP_REFUSALS refusals to save r of the FLIP_SENDBACKS send-backs at
- * MIN_CALLS or more, so FLIP_COST ÷ r refusals per send-back saved. */
+// #1691 measured 432 refusals and 40 send-backs over the baseline fortnight
 const FLIP_REFUSALS = 432;
 const FLIP_SENDBACKS = 40;
 const FLIP_COST = FLIP_REFUSALS / FLIP_SENDBACKS;
 
-/* A reply that is only "accept recommendation(s)", hand-classed (a) (#1691). */
 const ACCEPT =
 	/^\s*accept\s+(?:all\s+)?(?:the\s+)?recommendations?\s*(?:[.!]\s*)?$/i;
 
 const CLASSES = ["a", "b", "c", "d", "e", "f"];
 
-/* Printed under a file that will not read. */
 const REMEDY =
 	"Correct the file named above — `git restore` it where it is tracked, fix the line where it is a log or a --classes file — then re-run `node " +
 	scriptPath("report-round-check-reading.js") +
@@ -165,30 +86,17 @@ const SENT_BACK = new Set(["b", "c"]);
 
 /**
  * @typedef {import("./lib/log-reading").Reply} Reply
- * @typedef {import("./lib/round-check").RoundCheckLine &
- *   { at: string, session: string, repo: string }} RoundEvent
- *   a round-check log line
+ * @typedef {import("./lib/round-check").RoundCheckLine & { at: string, session: string, repo: string }} RoundEvent
  * @typedef {"refused" | "cap" | "unrefused"} RoundKind
- * @typedef {{ key: string, kind: RoundKind, repo: string,
- *   callsBefore: number | null, reply: Reply, cls: string | null }} Round
- *   one answered round; `cls` its class, null while unclassed
+ * @typedef {{ key: string, kind: RoundKind, repo: string, callsBefore: number | null, reply: Reply, cls: string | null }} Round
  * @typedef {{ sent: number, rated: number, unclassed: number }} Rate
- *   (b)+(c), (a)+(b)+(c), and the replies not yet classed
  * @typedef {{ sent: number, rated: number }} Base
  * @typedef {{ below: Base, atOrAbove: Base }} RepoBase
- * @typedef {{ byRepo: Map<string, RepoBase>, firstDrafts: number,
- *   atThreshold: number }} Baseline
+ * @typedef {{ byRepo: Map<string, RepoBase>, firstDrafts: number, atThreshold: number }} Baseline
  * @typedef {import("./lib/log-reading").Verdict} Verdict
  */
 
-/**
- * Each repo's send-back counts on either side of the MIN_CALLS line, over
- * not-close rounds classed (a)–(c), and the share of all not-close rounds
- * first asked from MIN_CALLS to THRESHOLD_HIGH calls.
- *
- * @returns {Baseline}
- * @throws where the dataset will not read
- */
+/** @returns {Baseline} */
 function readBaseline() {
 	const file = path.join(hostRoot(), BASELINE);
 	const data = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -221,11 +129,8 @@ function readBaseline() {
 }
 
 /**
- * The classes a classes file names, keyed as the listing keys a reply.
- *
  * @param {string} file
  * @returns {Map<string, string>}
- * @throws where the file will not read or holds a class outside (a)–(f)
  */
 function readClasses(file) {
 	const data = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -243,11 +148,8 @@ function readClasses(file) {
 }
 
 /**
- * Each repo's round-check log lines, and when each repo went live.
- *
  * @param {Map<string, string>} roots
  * @returns {{ events: RoundEvent[], live: Map<string, number> }}
- * @throws as readLogs does
  */
 function readRoundLogs(roots) {
 	const { events, live } = readLogs(roots, (r) => logPath(r, ROUND_CHECK_LOG));
@@ -258,8 +160,6 @@ function readRoundLogs(roots) {
 const isResend = (e) => e.kind === "passed-after-refusal" && e.resent !== false;
 
 /**
- * The kind of round one Stop's answered questions make, or null where none
- * of them counts.
  * @param {RoundEvent[]} events
  * @returns {RoundKind | null}
  */
@@ -280,7 +180,6 @@ function roundKind(events) {
 }
 
 /**
- * The answered questions grouped into rounds, one per reply.
  * @param {{ event: RoundEvent, reply: Reply }[]} answered
  * @param {Map<string, string>} classes
  * @returns {Round[]}
@@ -311,12 +210,7 @@ function roundsOf(answered, classes) {
 	});
 }
 
-/**
- * @typedef {{ session: string, at: string, repo: string, questions: string[],
- *   sent: boolean }} Stopped
- *   a stopped round: its first refusal, and `sent` where a passing send came
- *   before his next message, leaving every question out
- */
+/** @typedef {{ session: string, at: string, repo: string, questions: string[], sent: boolean }} Stopped */
 
 /**
  * @param {RoundEvent} e
@@ -335,18 +229,9 @@ function isPassIn(e, s) {
 }
 
 /**
- * The refused rounds in the window none of whose questions reached the
- * founder, and how many refused rounds there were: one round per session per
- * stretch between two of his messages.
- *
- * A session whose transcript will not read is left out, and counted: with no
- * messages of his to bound a stretch, any refusal in it would read stopped.
- *
- * @param {RoundEvent[]} events every log line, so a pass after the cutoff
- *   still settles a refusal before it
- * @param {Map<string, string>} transcripts session id → transcript
+ * @param {RoundEvent[]} events
+ * @param {Map<string, string>} transcripts
  * @param {{ at: import("./lib/log-reading").ReadingAt, repos: string[] }} scope
- *   the window, and line 1's pooled repos
  * @returns {{ stopped: Stopped[], refused: number, unread: number }}
  */
 function stoppedRounds(events, transcripts, { at, repos }) {
@@ -355,7 +240,6 @@ function stoppedRounds(events, transcripts, { at, repos }) {
 	const byStretch = new Map();
 	/** @type {Map<string, number[] | null>} */
 	const spoke = new Map();
-	/** His messages' times in a session, null where its transcript will not read. */
 	const timesOf = (/** @type {string} */ id) => {
 		if (!spoke.has(id))
 			spoke.set(
@@ -406,7 +290,7 @@ function stoppedRounds(events, transcripts, { at, repos }) {
 
 /**
  * @param {ReturnType<typeof stoppedRounds>} counted
- * @param {number} days the window's length
+ * @param {number} days
  * @returns {string}
  */
 const buildStoppedLine = ({ stopped, refused, unread }, days) =>
@@ -447,8 +331,6 @@ function rateOf(rounds) {
 }
 
 /**
- * The least and most the rate can be once every unclassed reply is classed:
- * all of them (a), or all (b) or (c). Null with nothing to rate.
  * @param {Rate} rate
  * @returns {[number, number] | null}
  */
@@ -473,10 +355,9 @@ function buildRateText(rate) {
 }
 
 /**
- * A rate's verdict against a line it fires at or over.
  * @param {Rate} rate
  * @param {number} line
- * @param {string} fired the words for a fired line
+ * @param {string} fired
  * @returns {Verdict}
  */
 function lineVerdict(rate, line, fired) {
@@ -491,11 +372,7 @@ function lineVerdict(rate, line, fired) {
 }
 
 /**
- * One side of the MIN_CALLS line, matched by repo: the repos in its pool, each
- * against its own baseline, and every other repo read named with why it is
- * out.
- *
- * @param {Round[]} rounds this kind's answered rounds in the window
+ * @param {Round[]} rounds
  * @param {{ base: Baseline, repos: string[] }} read
  * @param {"below" | "atOrAbove"} side
  */
@@ -533,8 +410,6 @@ function repoPool(rounds, { base, repos }, side) {
 		);
 		pooled.push(...own);
 		kept.push(repo);
-		/* Weighted as the pooled rate is counted: by replies (a)–(c), an
-		 * unclassed one counting until it is classed (d)–(f). */
 		const weight = rate.rated + rate.unclassed;
 		weighted += weight * (b.sent / b.rated);
 		weights += weight;
@@ -570,12 +445,7 @@ const buildReadingBody = (intro, steps) => (reading) =>
 
 /**
  * @typedef {import("./lib/log-reading").Point} Point
- * @typedef {{ heading: string, filer: ReturnType<typeof buildFiler>,
- *   place: (live: Map<string, number>, rounds: Round[], base: Baseline) =>
- *     { point: Point, sentence: string } | null,
- *   thin: (rounds: Round[], pooled: Round[]) => string | null,
- *   skewed: boolean }} Reading
- *   `place` is null while no repo is live
+ * @typedef {{ heading: string, filer: ReturnType<typeof buildFiler>, place: (live: Map<string, number>, rounds: Round[], base: Baseline) => { point: Point, sentence: string } | null, thin: (rounds: Round[], pooled: Round[]) => string | null, skewed: boolean }} Reading
  */
 
 /** @param {Round[]} rounds */
@@ -585,14 +455,11 @@ const refusedTimes = (rounds) =>
 		.map((r) => Date.parse(r.reply.at))
 		.sort((a, b) => a - b);
 
-/** @param {Round} r classed (a)–(c) or not yet classed */
+/** @param {Round} r */
 const isRatedOrOpen = (r) =>
 	r.cls === null || r.cls === "a" || SENT_BACK.has(r.cls);
 
 /**
- * The refused-then-answered rounds the second reading counts toward its
- * point: in repos line 1 would pool over every round so far, classed (a)–(c)
- * or not yet classed.
  * @param {Round[]} rounds
  * @param {Baseline} base
  */
@@ -617,7 +484,6 @@ const READINGS = [
 		filer: buildFiler({
 			title: TITLE,
 			label: takesLabel("wayfinder"),
-			/* Named outside every marker sweep family, as the round-check log is. */
 			record: ".round-check-reading-filed",
 			script: "report-round-check-reading.js",
 			buildIssueBody: buildReadingBody(
@@ -698,7 +564,6 @@ const SKEW_LINE =
 	"Every baseline below is skewed: rounds reaching the founder fell 72% between the baseline fortnight and the first reading (#3978), when the refusal and the written rule shipped together, so a rate set against one is confounded by which rounds still reach him.";
 
 /**
- * The warnings that the reading is thin or partly unread.
  * @param {string | null} thin
  * @param {number} unreadHeads
  * @param {number} unreadSessions
@@ -722,10 +587,7 @@ function buildCaveatLines(thin, unreadHeads, unreadSessions, strayClasses) {
 	return lines.length > 0 ? [...lines, ""] : [];
 }
 
-/**
- * Line 1, the refusal not working, and what r it implies.
- * @param {ReturnType<typeof repoPool>} below
- */
+/** @param {ReturnType<typeof repoPool>} below */
 function buildNotWorkingLine(below) {
 	const head = `1. Refusal not working: refused-then-answered rounds against each repo's baseline below ${MIN_CALLS} calls.`;
 	if (below.baseRate === null)
@@ -755,12 +617,8 @@ function buildNotWorkingLine(below) {
 	};
 }
 
-/**
- * Line 2, gaming at the re-send: passing re-sends after only 1–2 tool calls.
- * @param {RoundEvent[]} counted
- */
+/** @param {RoundEvent[]} counted */
 function buildPaddedLine(counted) {
-	/* One send per Stop: questions refused together share their count. */
 	const sends = new Map();
 	for (const e of counted)
 		if (isResend(e) && typeof e.sinceRefusal === "number")
@@ -782,8 +640,6 @@ function buildPaddedLine(counted) {
 }
 
 /**
- * Line 3, gaming at the threshold: first drafts piling up from MIN_CALLS to
- * THRESHOLD_HIGH calls.
  * @param {RoundEvent[]} counted
  * @param {Baseline} base
  */
@@ -802,10 +658,7 @@ function buildThresholdLine(counted, base) {
 	};
 }
 
-/**
- * Line 4, the cap: rounds let through at the cap sent back.
- * @param {Round[]} capRounds
- */
+/** @param {Round[]} capRounds */
 function buildCapLine(capRounds) {
 	const rate = rateOf(capRounds);
 	const head = `4. Cap: rounds let through at the cap of ${CAP_SLOTS} sent back: ${buildRateText(rate)}. Baseline 14 of 40 4th-and-later rounds (35%, #1691). Line ${pct(CAP_LINE)}`;
@@ -823,11 +676,8 @@ function buildCapLine(capRounds) {
 }
 
 /**
- * r, the share of send-backs the limb removes, and the price of refusing
- * every round, FLIP_COST ÷ r refusals per send-back saved; each a range while
- * replies are unclassified.
- * @param {Rate | null} rate the below-threshold pool's
- * @param {number | null} baseRate its repo-matched baseline
+ * @param {Rate | null} rate
+ * @param {number | null} baseRate
  * @returns {string}
  */
 function buildRLine(rate, baseRate) {
@@ -844,8 +694,6 @@ function buildRLine(rate, baseRate) {
 }
 
 /**
- * r, its price, and whether #1684's flip is put to the founder: where the
- * limb works and the rate at MIN_CALLS or more stays within its band.
  * @param {ReturnType<typeof buildNotWorkingLine>} notWorking
  * @param {ReturnType<typeof repoPool>} below
  * @param {ReturnType<typeof repoPool>} atOrAbove
@@ -897,9 +745,8 @@ function buildFlipLines(notWorking, below, atOrAbove) {
 }
 
 /**
- * The unclassed replies that feed a figure: the two pools' and the cap's.
  * @param {Round[]} rounds
- * @param {number} leftOut unclassed replies in repos kept out of a pool
+ * @param {number} leftOut
  * @returns {string[]}
  */
 function buildClassifyLines(rounds, leftOut) {
@@ -949,7 +796,6 @@ function main() {
 		);
 		return;
 	}
-	/* Both filed, a dry run still reads the last (#3995). */
 	const { reading, filed } =
 		due ?? /** @type {(typeof filings)[number]} */ (filings.at(-1));
 	const nowMs = now();
@@ -965,12 +811,7 @@ function main() {
 	reading.filer.readDaily(run, () => readAndPublish(run));
 }
 
-/**
- * Walk the corpus and publish the reading.
- *
- * @param {{ reading: Reading, nowMs: number, dryRun: boolean,
- *   filed: string | null, seats: string[], classesFile: string | undefined }} run
- */
+/** @param {{ reading: Reading, nowMs: number, dryRun: boolean, filed: string | null, seats: string[], classesFile: string | undefined }} run */
 function readAndPublish({ reading, nowMs, dryRun, filed, seats, classesFile }) {
 	/** @type {Baseline} */
 	let base;
@@ -991,7 +832,7 @@ function readAndPublish({ reading, nowMs, dryRun, filed, seats, classesFile }) {
 	const repos = [...base.byRepo.keys()].sort();
 
 	const { files } = readSeatTranscripts(seats);
-	/** @type {Map<string, string>} session id → transcript */
+	/** @type {Map<string, string>} */
 	const transcripts = new Map(
 		files.map((f) => [path.basename(f, ".jsonl"), f]),
 	);
@@ -1036,7 +877,6 @@ function readAndPublish({ reading, nowMs, dryRun, filed, seats, classesFile }) {
 	const atOrAbove = repoPool(ofKind("unrefused"), { base, repos }, "atOrAbove");
 	const capRounds = ofKind("cap");
 	const listed = [...below.pooled, ...atOrAbove.pooled, ...capRounds];
-	/* --classes alone: the committed classes key earlier readings' rounds. */
 	const stray = [...given.keys()].filter(
 		(k) => !rounds.some((r) => r.key === k),
 	).length;

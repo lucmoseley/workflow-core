@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-session-cost.js — re-derive the per-session cost table the capped
- * launch reads (`docs/data/session-cost-table.json`, #371 items 1-2, #372).
- *
- * Usage: node scripts/measure-session-cost.js [--write] [--config-dir <dir>]...
- *
- * Every dispatch ledger entry is matched to its transcript by job-id prefix on
- * any seat, plus that session's subagent transcripts, and priced by
- * `lib/session-spend.js`. Only sessions whose dominant model is in its price
- * table are kept, both models pooled, as #371 ruled. Without
- * `--write` it prints the summary and writes nothing.
- *
- * Seats: `lib/seat-args.js`. Never run at launch.
- *
- * SHIPS IN THE PLUGIN (#1734): each host prices its own ledger, so an adopter
- * builds its own table — init and upgrade, where none exists or none this
- * version reads (#2925, `lib/core-owned-files.js`), and this command by hand
- * to refresh it.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -40,10 +21,7 @@ const { worktreeRoot } = require("./lib/host-root.js");
 /** 41 points, every 2.5%: a first guess at "small" (#371 item 2), not tuned. */
 const QUANTILE_STEPS = 40;
 
-/**
- * The job id: the last run of 6+ hex characters.
- * @param {unknown} raw
- */
+/** @param {unknown} raw */
 function jobPrefix(raw) {
 	if (typeof raw !== "string") return null;
 	const m = raw.match(/[0-9a-f]{6,}/g);
@@ -67,16 +45,12 @@ function findByPrefix(seats, prefix) {
 		const hit = names.find((n) => n.startsWith(prefix) && n.endsWith(".jsonl"));
 		if (hit) hits.push(path.join(dir, hit));
 	}
-	// A session resumed on another seat has a copy on each; the largest is whole.
 	return oneCopyEach(hits)[0] ?? null;
 }
 
 const MODEL = /"model":"([^"]+)"/;
 
-/**
- * The model most of a transcript's assistant records ran on.
- * @param {string} file
- */
+/** @param {string} file */
 function readDominantModel(file) {
 	/** @type {Record<string, number>} */
 	const counts = {};
@@ -91,9 +65,6 @@ function readDominantModel(file) {
 	return top ? top[0] : null;
 }
 
-/** Where the landed share is read, in hours from a session's first request:
- * a first guess, not tuned (#2925). `landedShare` holds the last mark's
- * share past it, out to a week. */
 const LANDED_HOURS = [0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 24];
 
 const round = (/** @type {number} */ x) => Math.round(x * 100) / 100;
@@ -120,9 +91,6 @@ function buildTable(sessions) {
 		n,
 		meanUsd: round(totalUsd / n),
 		quantilesUsd,
-		// Under 40 sessions u is the maximum and no tail exists to measure: the
-		// mean is a stated guess, where 0 would read a session past u as
-		// finished (#370).
 		tailRemainderUsd: round(
 			tail.length === 0
 				? totalUsd / n
@@ -133,9 +101,6 @@ function buildTable(sessions) {
 }
 
 /**
- * Per `LANDED_HOURS` mark, the share of all sessions' spend that landed within
- * it of each session's first stamped request; an unstamped request counts as
- * landed at once.
  * @param {import("./lib/session-spend").SpendEvent[][]} sessions
  * @param {number} totalUsd
  * @returns {Array<[number, number]>}
@@ -152,11 +117,7 @@ function landedCurve(sessions, totalUsd) {
 	});
 }
 
-/**
- * Written under this script's own arbiter claim: the claim guard sees Write
- * and Edit only, never a script's write.
- * @param {string} body
- */
+/** @param {string} body */
 function writeClaimed(body) {
 	const table = tablePath(worktreeRoot());
 	const claim = claimByArbiter(table);
@@ -164,8 +125,6 @@ function writeClaimed(body) {
 		writeFd(2, `not written — the arbiter's claim failed:\n${claim.why}\n`);
 		return 1;
 	}
-	// A live neighbour holding the table too is warned of, and the write goes
-	// ahead (#4249).
 	if (claim.warning) writeFd(2, `${claim.warning}\n`);
 	try {
 		fs.mkdirSync(path.dirname(table), { recursive: true });

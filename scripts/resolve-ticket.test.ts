@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * resolve-ticket.js, driven through its command line (#534; the seam ruled on
- * #500, Q1 (A)).
- *
- * Every refusal also asserts that nothing was written — no comment, no close,
- * no map edit, the claim still standing.
- *
- * It runs in-process inside a sandbox repo with a real arbiter store, and `gh`
- * is a stub holding the ticket and its parent map as files, so every write the
- * script would make to the tracker is read back from disk. No hook sees a `gh`
- * call a script makes, so the script is the only guard on its own closes:
- * loosen a refusal here and a ticket closes with owed work unnamed, or a
- * card's issue closes around `/card-close`.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -55,15 +41,6 @@ const put = (name: string, value: string | object) => {
 };
 const read = (name: string) => fs.readFileSync(state(name), "utf8");
 
-/**
- * `gh` over one ticket (#534) and its parent (#528), kept in files under
- * STUB_DIR, answered by one long-lived server for the whole file (#5189).
- * Levers: `close-fails` and `edit-fails` make that write fail;
- * `comments-fail` makes reading the comments fail;
- * `subs.json` is the ticket's sub-issues, none where it is absent;
- * `clobber` is written over the map right after the first map edit — a rival
- * writing from a base older than the neighbour's line.
- */
 const HANDLER = `${GRAPHQL_FAKE}
 const fs = require("node:fs");
 const path = require("node:path");
@@ -155,7 +132,6 @@ const setUp = ({
 	issueClaims.claimIssue(534, { sessionId: ME });
 };
 
-/** The resolution lines every completed close owes, ending at **Values:**'s value. */
 const TRAILER =
 	"**Bound:** read it all.\n**Practice:** ran — docs/practice/test-design-and-reliability.md\n**Values:** ";
 
@@ -188,7 +164,6 @@ const readWrites = () =>
 	readCalls().filter((c) => /^issue (comment|close|edit)/.test(c));
 const posted = () => JSON.parse(read("comments.json")).length;
 const claimed = () => issueClaims.readIssueClaims(534).length > 0;
-/** This session's acts ledger (#2308). */
 const readActs = () => store.readActsBy(ME, [sb.repo]).acts;
 const readMapLines = () =>
 	read("map.md")
@@ -595,7 +570,6 @@ describe("refusals, all before any write", () => {
 		expect(run(DECISION).status).toBe(0);
 	});
 
-	/* #1640: keyed on the criteria section, whatever the labels. */
 	const labellings: [string, string[]][] = [
 		["a kind:ticket", ["takes:implement", "kind:ticket"]],
 		["an issue without kind:ticket", ["takes:implement", "wayfinder:task"]],
@@ -1259,7 +1233,6 @@ describe("a review record in the close comment (#3846)", () => {
 	it("adds no comments read for a close that names no record", () => {
 		setUp();
 		expect(run(DECISION).status).toBe(0);
-		/* The one read is the check against posting twice. */
 		expect(readCalls().filter((c) => c.includes("/comments"))).toHaveLength(1);
 	});
 });
@@ -1303,12 +1276,10 @@ describe("a re-run after a partial failure", () => {
 			1,
 		);
 		expect(readMapLines()).toHaveLength(1);
-		// The one close is the one act: a re-run on the closed issue adds none.
 		expect(readActs()).toEqual(["close acme/widgets#534"]);
 	});
 });
 
-/* The per-unit log the backstop report reads (#4410). */
 describe("the **Compactions:** line", () => {
 	const lastPosted = () => JSON.parse(read("comments.json")).at(-1).body;
 	const compacted = (keys: string[]) => {

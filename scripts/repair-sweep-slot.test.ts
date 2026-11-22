@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the refill tick's repair of a dropped sweep slot (#4447): a slot with no
- * run past the grace is fired once, a slot GitHub delivers late inside the
- * grace is not doubled, and the dispatch carries the title the ledger reads as
- * that slot's run. Drives the real script against a stub `gh`.
- *
- * Loosen a case and the refill tick either leaves a dropped slot missed or
- * fires the same slot again every tick, spending the day's three sweeps.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

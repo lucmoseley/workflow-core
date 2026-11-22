@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/start-lander-on-push.js (#2405): the boundary set, run as the
- * harness runs it — that a push to a queue ref starts the lander detached, the
- * hook returning before the start does. Which pushes count is
- * lib/lander-on-push.test.ts's (#2785). A stub `node` ahead on
- * PATH stands in for start-lander.js: it waits for a gate file, then records
- * its launch; any other node call goes to the real one.
- *
- * Loosen it and a queue ref sits untested until some later session
- * starts, or a push elsewhere starts a lander nobody asked for.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -19,13 +8,8 @@ import { buildBashPayload, spawnGuard } from "./lib/pretool-guard-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const HOOK = path.resolve(__dirname, "start-lander-on-push.js");
-/* Guesses, each far above the hook's sub-second run: the hook's own ceiling,
- * and how long a detached launch is awaited on the real clock. */
 const HOOK_TIMEOUT_MS = 20_000;
 const LAUNCH_WAIT_MS = 10_000;
-/* The stub's gate poll, which gives up after a minute: above any one case's
- * run, so only a stub stranded past its test reaches it (#2675). It also ends
- * once teardown removes `dir`. */
 const STUB_POLL_S = 0.05;
 const STUB_POLLS = 60 / STUB_POLL_S;
 
@@ -52,8 +36,6 @@ const readLaunches = () =>
 		? fs.readFileSync(launches, "utf8").split("\n").filter(Boolean)
 		: [];
 
-/* Crosses the real clock: the launch is a detached child, so its record is
- * awaited. */
 const launchRecorded = async () => {
 	for (
 		let waited = 0;
@@ -130,8 +112,6 @@ it("starts nothing after a push to another ref or a dry run", async () => {
 		"git push --dry-run origin HEAD:queue/q1",
 	])
 		expect(run(command).status, command).toBe(0);
-	/* A control launch after them all: once its record lands, any launch the
-	 * pushes above made has had its chance to land first. */
 	expect(run("git push origin HEAD:queue/q1").status).toBe(0);
 
 	expect(await launchRecorded()).toHaveLength(1);

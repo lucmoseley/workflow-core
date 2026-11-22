@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/push-review-owed.sh through lib/push-review.js (#2785): whether the
- * code a push carries owes a review no valid marker covers (#1163), read by
- * lib/code-signal.sh's review_uncovered over HEAD, in a real repo with a real
- * ledger.
- *
- * Break it and a session pushes unreviewed code unwarned, or is told of a
- * neighbour's.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -66,8 +57,6 @@ describe("what the adapter answers (#1163)", () => {
 		["a docs-only push", () => commitBy("docs/a.md", "word ".repeat(200))],
 		["code below the churn floor", () => commitBy("scripts/mine.ts", code(5))],
 		[
-			// A ledger entry of this session's own, so the attribution filter, and
-			// not the empty-ledger exit, is what keeps it silent.
 			"a neighbour's code, which this session did not write",
 			() => {
 				commitBy("scripts/mine.ts", code(1));
@@ -89,7 +78,6 @@ describe("what the adapter answers (#1163)", () => {
 		expect(owed()).toBeNull();
 	});
 
-	// #2390: an edit through an inline interpreter leaves no write-ledger line.
 	it("bills code this session committed with no write-ledger line, and not a neighbour's", () => {
 		commitUnwritten("scripts/theirs.ts", "parallel-session");
 		expect(owed()).toBeNull();
@@ -97,7 +85,6 @@ describe("what the adapter answers (#1163)", () => {
 		expect(owed()?.files).toBe("scripts/mine.ts");
 	});
 
-	// #1618: a one-line migration is billed, where code(1) is not.
 	it("names the escalated tier, the area and the marker lines it owes for a range touching a declared glob, at any size", () => {
 		declareRls();
 		commitBy("supabase/migrations/001_rls.sql", "create policy p on t;\n");
@@ -112,7 +99,6 @@ describe("what the adapter answers (#1163)", () => {
 		);
 	});
 
-	// #4049: the hold refuses a narrowing under the area's name, so the warning owes it too.
 	it("names the escalated tier and the area for a range narrowing the declaration", () => {
 		const DeclarationPath = ".claude/workflow-core.json";
 		declareRls();
@@ -154,7 +140,6 @@ describe("what the adapter answers (#1163)", () => {
 		expect(o?.files).toBe(DeclarationPath);
 	});
 
-	// #1696: a standard review's marker never passes for an escalated one.
 	it.each([
 		["no tier= line", "", "it has no tier= line"],
 		["tier=standard", "tier=standard\nareas=RLS\n", "its tier= is 'standard'"],
@@ -186,7 +171,6 @@ describe("what the adapter answers (#1163)", () => {
 		},
 	);
 
-	// #1748: the hold refuses nothing in a worktree, so this warn is its only signal.
 	it("reads an escalated range committed in a worktree from there, rejecting a standard review's marker", () => {
 		const rel = "supabase/migrations/001_rls.sql";
 		declareRls(f.worktree);
@@ -198,7 +182,6 @@ describe("what the adapter answers (#1163)", () => {
 		expect(o?.passFault).toContain("its tier= is 'standard'");
 	});
 
-	// #4615: the globs matched are the session tree's, as skill load reads them.
 	it("matches a worktree's own declared globs, not the shared tree's", () => {
 		declareRls();
 		declareArea(f.worktree, "money", ["app/money/**"]);
@@ -215,8 +198,6 @@ describe("what the adapter answers (#1163)", () => {
 		expect(o?.tierLine).not.toContain("RLS");
 	});
 
-	// #1840 F1: a staged review's base= is newer than the start point, and only
-	// its paths= bounds what it vouches for.
 	it.each([
 		["the shared tree", () => f.shared],
 		["a worktree", () => f.worktree],
@@ -254,8 +235,6 @@ describe("what the adapter answers (#1163)", () => {
 		expect(owed()).toBeNull();
 	});
 
-	// #3088's shape: the session's own edit to the neighbour's file was taken
-	// back out, so its review's paths= never names that file.
 	it("is silent where paths= leaves out a path this session wrote whose only change since the start point is a neighbour's ledgered commit", () => {
 		commitBy("scripts/shared.ts", code(1), "parallel-session");
 		ledgerHead("parallel-session");
@@ -276,7 +255,6 @@ describe("what the adapter answers (#1163)", () => {
 
 	it.each([
 		["ledgered", false],
-		// A rebase gives the session's own commit a sha no ledger names (#3108).
 		["rebased", true],
 	])(
 		"rejects a marker whose base= follows this session's own %s commit, though paths= names its path, naming its base= as ahead of the start point",
@@ -297,8 +275,6 @@ describe("what the adapter answers (#1163)", () => {
 		},
 	);
 
-	// #1925: in a worktree the hold is skipped, so a staged review's first-commit
-	// marker reaches the push with base= at the start point.
 	it("rejects a worktree's first-commit marker at the start point with tree= and no paths=, naming the missing paths= line", () => {
 		commitBy("scripts/mine.ts", code(PAST_FLOOR), ME, f.worktree);
 		const tree = git(f.worktree, "rev-parse", "HEAD^{tree}").trim();
@@ -333,11 +309,8 @@ describe("what the adapter answers (#1163)", () => {
 });
 
 describe("how its answer is read back", () => {
-	/** Seven fields, as the adapter prints them, tier first. */
 	const fieldCount = 7;
 	const fields = (n: number) => `${"x\0".repeat(n)}`;
-	/* reviewOwed spawns `bash` off PATH, so a stub there stands in for the
-	 * adapter and prints `out` verbatim. */
 	const answering = (out: string) => {
 		const bin = path.join(f.dir, "bin");
 		fs.mkdirSync(bin);
@@ -376,17 +349,7 @@ describe("how its answer is read back", () => {
 	});
 });
 
-/*
- * The helper (mantahostels#2068) leak-checks every instantiate() call itself,
- * so the fixture's beforeEach already throws were the copy still pointing at
- * the template. What is left is the BEHAVIOURAL isolation a leak would cause:
- * a write made in the instantiated copy must not reach a second, independent
- * instantiation of the same template.
- */
 describe("the copied fixture is isolated from its template (mantahostels#2168)", () => {
-	// Asserted on the WORKTREE, not `shared`: a worktree shares its parent's
-	// object store, so a stale gitdir pointer left by a naive copy writes into
-	// the template rather than failing loudly.
 	it("a commit made in the copied worktree leaves the template untouched", () => {
 		fs.writeFileSync(path.join(f.worktree, "c.md"), "c\n");
 		git(f.worktree, "add", "c.md");

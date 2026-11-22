@@ -1,75 +1,4 @@
 #!/usr/bin/env node
-/*
- * spec-commits.js — the commits a spec's whole-spec review reads: every commit
- * on HEAD citing the spec or one of its tickets (#892, ruled at #880), and
- * every one a closed ticket's resolution names by sha (#3612).
- *
- *   node scripts/spec-commits.js <spec> [--since <sha>] [--json]
- *
- * Run on a ticket with no sub-issues, it lists the commits citing that
- * ticket: `/implement`'s closing review over one build unit (#4410).
- *
- * Prints the commits oldest first, the files they touched, the one `git show`
- * that is their combined diff, and the newest one's sha for the triage
- * comment's `**Reviewed through:**` line. No commit at all is a decision-only
- * spec, and the review is skipped, unless a child's sub-issues went unread.
- *
- * --since <sha> lists only the commits after that sha on HEAD: a spec back at
- * triage with its findings' fixes reviews those, not the whole spec again
- * (#897). The sha is the earlier triage comment's `**Reviewed through:**`.
- *
- * TWINS OF REVIEWED COMMITS ARE MARKED (#3240). `--since` is ancestry, and a
- * rebased copy merged back onto HEAD descends from neither copy, so a landed
- * twin of a commit behind the sha would read as new. A commit whose
- * `git patch-id` matches a spec commit behind the sha is marked already
- * reviewed and left out of the `git show`; one sharing only its subject is
- * marked rebased, so the reviewer reads the landed form. The printed
- * `**Reviewed through:**` names a sha main keeps: run this on main once the
- * spec's commits have landed.
- * Residual: a twin whose rebase changed its own lines and its subject or
- * author date reads as new.
- *
- * NOT A RANGE. A spec's commits interleave with other sessions' work, so
- * `<first>^..<last>` would review a neighbour's commits as the spec's.
- *
- * ONLY COMMITS SINCE THE SPEC WAS FILED. Commits from before the tracker split
- * cite the inherited tracker's issues bare, under the same numbers, so an
- * older bare `#N` is the inherited tracker's issue N, not ours.
- *
- * GENERATED FILES ARE MARKED, NOT DROPPED: a file docs/doc-map-classes.json
- * classes `generated-only` or `derived` is reviewed at its generator.
- *
- * TWO ROUTES FIND A COMMIT, and each listed one says which.
- * - Citation: `#N` in its message, not preceded by a word character, `/`,
- *   `#` or `-`, so `mantahostels#N` and `design-vault#N` are not ours. A
- *   commit that only mentions a ticket is listed too; the reviewer drops it.
- * - Named: a sha in a closed ticket's resolution — every comment carrying a
- *   `**Door:**` line, which resolve-ticket.js demands of any close naming a
- *   sha, else a hand close's last comment naming one. A sha cited only for
- *   reference is listed too; the reviewer drops it. Words resolve as lib/unlanded-commits.js resolves a close's. A
- *   named commit HEAD lacks is matched to its landed twin on HEAD, one of the
- *   same author date and subject, as a cherry-pick between `main` and
- *   `landing` keeps them; one with neither, or a sha-shaped word naming no
- *   commit in this clone, is printed as a NOTE and not reviewed. A word of a
- *   census digest's length naming no commit is a digest, so no NOTE (#4087).
- *   Residual: a real sha abbreviated to that length and absent here goes
- *   unnoted, and any other hex word naming no commit, an id or a fixture, still
- *   prints the NOTE.
- *
- * AN ARCHIVE CONTAINER'S TICKETS ARE THE SPEC'S OWN (#4087). A spec past the
- * 100-child cap holds its closed tickets in the container
- * archive-closed-children.js made, which holds no work itself, so its children
- * stand in its place, for both routes.
- *
- * ANY OTHER CHILD WITH SUB-ISSUES IS NOTED, NOT EXPANDED (#4100). A hand-made
- * container, a sub-spec and a ticket with a follow-up all look alike on the
- * tracker, so nothing tells whose work their sub-issues are.
- *
- * IN NO SCRIPT FAMILY (docs/code-standards-base.md §N3): a read-only lister. Exit 0
- * listed (none found included), 1 the tracker or git unreadable, 2 bad usage
- * or a --since sha not on HEAD.
- */
-
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
@@ -96,8 +25,7 @@ const { caught } = require("./lib/caught.js");
 const USAGE = `usage: node ${scriptPath("spec-commits.js")} <spec> [--since <sha>] [--json]`;
 
 const GENERATED = new Set(["generated-only", "derived"]);
-/* The whole history's log was 4.6 MB at 5,560 commits (8 Oct 2026); node's
- * 1 MB default would already throw on it. */
+// spawnSync's maxBuffer defaults to 1 MB: https://nodejs.org/api/child_process.html#child_processspawnsynccommand-args-options
 const LOG_MAX_BUFFER = 64e6;
 const SHORT_SHA = 12;
 const HEX_WORDS_RE = new RegExp(HEX_WORD_RE.source, "g");
@@ -111,9 +39,7 @@ const short = (sha) => sha.slice(0, SHORT_SHA);
 const cite = (ns) => ns.map((x) => `#${x}`).join(" ");
 
 /**
- * `git log` records — sha, author date, subject, body, touched files — oldest
- * first.
- * @param {string} raw output of the format `logArgs` asks for
+ * @param {string} raw
  * @returns {{ sha: string, authored: string, subject: string, message: string, files: string[] }[]}
  */
 function parseLog(raw) {
@@ -136,7 +62,10 @@ function parseLog(raw) {
 		});
 }
 
-/** @param {string} filedAt ISO date @param {string} range revision range */
+/**
+ * @param {string} filedAt
+ * @param {string} range
+ */
 const logArgs = (filedAt, range) => [
 	"log",
 	"--reverse",
@@ -146,8 +75,7 @@ const logArgs = (filedAt, range) => [
 	range,
 ];
 
-/** The full sha of `rev` where it is a commit HEAD contains, else null.
- *  @param {string} rev */
+/** @param {string} rev */
 function ancestorOfHead(rev) {
 	const sha = commitSha(process.cwd(), rev);
 	if (sha === null) return null;
@@ -157,14 +85,11 @@ function ancestorOfHead(rev) {
 		});
 		return sha;
 	} catch {
-		/* Not on HEAD, or git failing alike. */
 		return null;
 	}
 }
 
-/** Whether `sha` is on main, or null where no `main` branch resolves or git
- *  faults.
- *  @param {string} sha */
+/** @param {string} sha */
 function isOnMain(sha) {
 	if (commitSha(process.cwd(), VERIFIED_BRANCH) === null) return null;
 	try {
@@ -175,8 +100,7 @@ function isOnMain(sha) {
 	} catch (e) {
 		const { status, stderr, message } = caught(e);
 		if (status === 1) return false;
-		/* A fault is no answer, so it prints no false "not on main" warning
-		 * (#3240). */
+		// #3240
 		process.stderr.write(
 			`spec-commits: could not tell whether ${sha} is on ${VERIFIED_BRANCH}: ${(stderr ?? message).trim()}\n`,
 		);
@@ -188,23 +112,14 @@ function isOnMain(sha) {
 const twinKey = (c) => `${c.authored} ${c.subject}`;
 
 /**
- * @typedef {{ by: "cites" } | { by: "named", ticket: number }
- *   | { by: "twin", ticket: number, of: string }} Route
+ * @typedef {{ by: "cites" } | { by: "named", ticket: number } | { by: "twin", ticket: number, of: string }} Route
  * @typedef {ReturnType<typeof parseLog>[number] & { ticket: number }} NamedElsewhere
- *   a named commit HEAD does not hold under its own hash
  * @typedef {{ ticket: number, sha: string, subject: string | null }} Missing
- *   a named commit HEAD holds under no hash, `subject` null where this clone
- *   holds no commit by the sha
- * @typedef {{ onHead: Map<string, number>, elsewhere: NamedElsewhere[],
- *   unresolved: Missing[] }} Named
+ * @typedef {{ onHead: Map<string, number>, elsewhere: NamedElsewhere[], unresolved: Missing[] }} Named
  * @typedef {{ number: number, title: string, total: number }} Unexpanded
- *   a ticket holding `total` sub-issues, read as one ticket
  */
 
 /**
- * The tickets of spec `n`, each archive container replaced by what it holds, and
- * those holding sub-issues of their own. A sub-issue in another repo is not cited
- * bare from this one.
  * @param {number} n
  * @param {string} repositoryUrl
  * @returns {{ tickets: { number: number, state: string }[], unexpanded: Unexpanded[] }}
@@ -228,9 +143,6 @@ function readTickets(n, repositoryUrl) {
 }
 
 /**
- * Each closed ticket's resolution text: every comment carrying a `**Door:**`
- * line, a reopened ticket's earlier close included, else its last comment
- * naming a sha.
  * @param {{ number: number, state: string }[]} tickets
  * @returns {{ ticket: number, text: string }[]}
  */
@@ -251,10 +163,7 @@ function readCloses(tickets) {
 		});
 }
 
-/**
- * Whether HEAD contains `sha`; throws where git cannot tell.
- * @param {string} sha
- */
+/** @param {string} sha */
 function isOnHead(sha) {
 	try {
 		execGit(["merge-base", "--is-ancestor", sha, "HEAD"], {
@@ -274,8 +183,6 @@ function isOnHead(sha) {
 const isDigestLength = (word) => word.length === DIGEST_HEX_LENGTH;
 
 /**
- * The commits `closes` name, through lib/unlanded-commits.js's resolver.
- * Throws where git would not answer.
  * @param {{ ticket: number, text: string }[]} closes
  * @returns {Named}
  */
@@ -299,8 +206,6 @@ function resolveNamed(closes) {
 }
 
 /**
- * Files `sha` under `named`: on HEAD by its hash, else with the author date
- * and subject its landed twin would keep.
  * @param {Named} named
  * @param {string} sha
  * @param {number} ticket
@@ -315,8 +220,6 @@ function placeNamed(named, sha, ticket) {
 }
 
 /**
- * The commits citing any of `numbers` or named by a close, each with the
- * route that found it.
  * @param {ReturnType<typeof parseLog>} log
  * @param {Set<number>} numbers
  * @param {Named} named
@@ -339,10 +242,8 @@ function specCommits(log, numbers, named) {
 }
 
 /**
- * The named commits HEAD holds under neither their hash nor a twin's.
  * @param {Named} named
- * @param {ReturnType<typeof specCommits>} listed every commit listed, reviewed
- *   ones included
+ * @param {ReturnType<typeof specCommits>} listed
  * @returns {Missing[]}
  */
 function missingNamed(named, listed) {
@@ -361,10 +262,6 @@ function missingNamed(named, listed) {
  */
 
 /**
- * Each of `commits` with its twin among `reviewed`: a patch-id match
- * first, else a commit with the same subject and author date whose patch
- * differs. `twinsRead` is false
- * where git will not give patch-ids, so nothing is marked.
  * @param {ReturnType<typeof specCommits>} commits
  * @param {ReturnType<typeof specCommits>} reviewed
  * @returns {{ commits: Listed[], twinsRead: boolean }}
@@ -404,13 +301,13 @@ function markTwins(commits, reviewed) {
 	return { commits: marked, twinsRead: true };
 }
 
-/** A twin with the same patch was reviewed already: nothing to read.
- *  @param {Listed} c */
+/** @param {Listed} c */
 const isUnreviewed = (c) => c.twin === null || c.twin.patchDiffers;
 
-/** `null` where the class register is unreadable: the listing still stands,
- *  so it fails open, and says so in the output (#892).
- *  @param {string[]} files @returns {Set<string> | null} */
+/**
+ * @param {string[]} files
+ * @returns {Set<string> | null}
+ */
 function generatedOf(files) {
 	/** @type {Record<string, { class: string }>} */
 	let classes;
@@ -431,8 +328,6 @@ function generatedOf(files) {
 }
 
 /**
- * The spec number, --json and the resolved --since sha, or the exit code
- * where the arguments do not stand.
  * @param {string[]} argv
  * @returns {{ json: boolean, n: number, after: string | null } | number}
  */
@@ -509,11 +404,8 @@ function buildJsonReport(v) {
 }
 
 /**
- * The `**Reviewed through:**` line, under the rule that it names a sha main
- * keeps.
  * @param {string | null} sha
- * @param {boolean | null} onMain null where no `main` branch resolves or git
- *   faults
+ * @param {boolean | null} onMain
  */
 const buildReviewedThroughLines = (sha, onMain) => [
 	"  (a sha main keeps: one from a worktree not yet landed is rebased away, and the next --since reads its landed twin as new)",
@@ -566,7 +458,7 @@ const buildNotes = (open, missing, unexpanded) => [
  * @param {number} n
  * @param {string | null} after
  * @param {string} cites
- * @param {boolean} hasUnread a child's sub-issues went unread
+ * @param {boolean} hasUnread
  */
 function buildNoCommitLine(n, after, cites, hasUnread) {
 	if (after)
@@ -700,7 +592,6 @@ function main(argv) {
 		unread.length > 0
 			? `git show ${unread.map((c) => short(c.sha)).join(" ")}`
 			: null;
-	/* With nothing new, the last pass's sha still stands. */
 	const newest = commits.at(-1);
 	const reviewedThrough = newest === undefined ? after : newest.sha;
 

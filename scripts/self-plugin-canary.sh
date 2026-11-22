@@ -31,26 +31,17 @@ set -uo pipefail
 here="${BASH_SOURCE[0]%/*}"
 [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 fault=""
-# The root a marker records where it is not the main checkout's self-plugin.
 loaded=""
-# Set where the marker records no root.
 unrooted=""
 
-# main_checkout — the parent of git's common dir for CLAUDE_PROJECT_DIR,
-# symlinks resolved, never a worktree: a marketplace registered at a worktree
-# breaks once the worktree is deleted (#2461). DUPLICATED BY HAND from
-# lib/main-checkout.js's mainCheckout, since this runs with no node. Prints
-# nothing where git names no common dir ending in .git.
+# #2461
 main_checkout() {
   local at="${CLAUDE_PROJECT_DIR:-}" common
-  # Not gr_root alone: in a worktree it runs git itself, a second process on
-  # every allowed call, for a common dir the call below reads from any tree.
   [[ -n "$at" ]] || at="$(gr_root)"
   common="$(git -C "$at" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" &&
     [[ "$common" == */.git ]] && gr_physical "${common%/.git}"
 }
 
-# shellcheck disable=SC2329 # invoked by the EXIT trap below, which shellcheck does not follow
 refuse() {
   local main dir word setup quoter_fault=""
   main="$(main_checkout 2>/dev/null)"
@@ -60,12 +51,10 @@ refuse() {
   if source "$here/lib/script-path.sh" 2>/dev/null && declare -F sp_shell_word >/dev/null; then
     word="$(sp_shell_word "$dir")"
   else
-    # DUPLICATED BY HAND from sp_shell_word's quoted arm, always taken here, so
-    # a plain path prints quoted: a broken install is what this reports (#3798).
+    # #3798
     word="'${dir//\'/\'\\\'\'}'"
     quoter_fault=$'\n\nlib/script-path.sh did not load, so this install is broken.'
   fi
-  # DUPLICATED BY HAND as lib/core-hooks.js's selfPluginSetup.
   setup="claude plugin marketplace add $word --scope user"
   [[ -n "$fault" ]] && printf 'The self-plugin canary could not check this session (%s), so it refuses as if the self-plugin had not loaded.\n\n' "$fault" >&2
   if [[ -n "$unrooted" ]]; then
@@ -111,7 +100,7 @@ spm_marker_path marker || {
   exit
 }
 [[ -e "$marker" ]] || exit
-# Braced so 2>/dev/null covers the read's own error line (#2626).
+# #2626
 { body="$(<"$marker")"; } 2>/dev/null || {
   fault="$marker unreadable"
   exit
@@ -121,8 +110,6 @@ spm_marker_path marker || {
   exit
 }
 main="$(main_checkout)"
-# A checkout whose common dir is not named .git, a --separate-git-dir one or a
-# submodule, is refused with a valid marker too (#4712).
 [[ -n "$main" ]] || {
   fault="git named no main checkout for this session's project directory"
   exit
@@ -134,4 +121,3 @@ if [[ "${body##*/}" != self-plugin || "$(gr_physical "${body%/*}")" != "$main" ]
 fi
 
 trap - EXIT
-exit 0

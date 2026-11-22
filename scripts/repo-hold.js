@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-/*
- * repo-hold.js — raise, attach to, list and lift this checkout's repo holds, for
- * sessions and the founder (#3857, #3858, spec #3597). What a hold is,
- * lib/repo-holds.js says.
- *
- * Joins no §N3 family: a command that writes the hold store, not a checker or a guard.
- *
- * A SESSION MAY NOT SET A COMMAND. The loop would run it each tick outside every
- * guard on a session's own Bash calls, the `main`-rewind guard among them. The
- * refusal stops the accident, not a session determined to write a record itself.
- *
- * Exit codes: 0; 1 where the store would not read or write, no open hold has the
- * id, or the hold has no issue yet to attach on; 2 on a command line it refuses.
- */
 
 const { buildErrorText, caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
@@ -35,10 +21,7 @@ const USAGE = `usage: node ${scriptPath("repo-hold.js")} raise | attach | list |
   list                                         this checkout's open holds
   lift <id>                                    end a hold, whatever its clear check reads`;
 
-/**
- * Whether this runs inside a Claude session rather than the founder's terminal.
- * @param {NodeJS.ProcessEnv} env
- */
+/** @param {NodeJS.ProcessEnv} env */
 const isSession = (env) =>
 	fromEnv(env) !== null || parseJobDir(env.CLAUDE_JOB_DIR) !== null;
 
@@ -54,11 +37,7 @@ const refuse = (line, code = /** @type {1|2} */ (2)) => {
 	return code;
 };
 
-/**
- * The line in the loop's log, beside the tick's own. A log that will not take
- * it leaves the act done, and says so (#3857).
- * @param {string} line
- */
+/** @param {string} line */
 function logLine(line) {
 	try {
 		appendLoopLog(line);
@@ -114,12 +93,7 @@ function raise({ flags }) {
 	return 0;
 }
 
-/**
- * The ending that parks an attached session: lib/round-holds.js's refusal stops
- * at this command. It leaves out the hold's
- * act, whose own words could read to the stop guards as a question or an option.
- * @param {holds.RepoHold} hold
- */
+/** @param {holds.RepoHold} hold */
 const buildEndingText = (hold) =>
 	[
 		"Post no round. Post your hand-off on your own ticket, then end with this, its number for <yours>:",
@@ -197,7 +171,6 @@ const COMMANDS = { raise, attach, list, lift };
 function main(argv = process.argv.slice(2)) {
 	const parsed = parseOrCode(argv, CLI);
 	if (typeof parsed === "number") return parsed;
-	/* cli-args.js refuses a command not declared, so one is always named. */
 	const command = /** @type {keyof typeof COMMANDS} */ (parsed.command);
 	return COMMANDS[command](parsed);
 }

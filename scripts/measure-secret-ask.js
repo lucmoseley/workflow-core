@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-secret-ask.js — how often the guard's secret-ask cue, read over a
- * whole ending message rather than a round option alone, fires on the
- * session logs on disk (#1817).
- *
- * WHAT IS COUNTED. Every ending message of every main-session transcript under
- * `projects/` of `~/.claude`, `~/.claude2` and `~/.claude3` (or each `--dir`):
- * the assistant text after the last user record of any kind, taken where the
- * next record is a founder's prompt or the file ends — what a Stop hook reads.
- * Subagent transcripts are skipped, no Stop guard reading them. A message
- * replayed by a resumed or forked transcript counts once. `--until` drops a
- * message whose last text is stamped after that day (UTC), so a recorded rate
- * re-runs to the same count while its logs stay on disk.
- *
- * Each message is read by `lib/secret-ask.js`'s `proseAsk`, the guard's own
- * call. Every flag is printed with its file and line, for judging by hand: the
- * script counts firings, never false positives.
- *
- * IN NO §N3 FAMILY. It gates nothing and writes no file; it exits 1 only when
- * no transcript directory is readable, which must not read as a zero count,
- * or on an unhandled throw.
- */
 
 const fs = require("node:fs");
 const os = require("node:os");
@@ -46,7 +24,6 @@ const CLI = {
 };
 
 /**
- * Every main-session transcript one directory deep under `dir`.
  * @param {string} dir
  * @returns {string[]}
  */
@@ -63,14 +40,11 @@ function readTranscripts(dir) {
 }
 
 /**
- * What one transcript line does to the message being gathered: nothing, clear
- * it (a tool result), end it (a founder's prompt), or add text to it.
  * @param {string} raw
  * @returns {{ kind: "skip" | "reset" | "prompt" } | { kind: "text", texts: string[], at: string }}
  */
 function classifyRecord(raw) {
 	const user = raw.includes('"type":"user"');
-	/* An assistant record without a text part adds nothing and ends nothing. */
 	if (!user && !raw.includes('"type":"text"')) return { kind: "skip" };
 	if (user && raw.includes('"tool_result"')) return { kind: "reset" };
 	const rec = /** @type {TranscriptRecord | null | undefined} */ (
@@ -89,8 +63,6 @@ function classifyRecord(raw) {
 }
 
 /**
- * Each ending message in one transcript, with the line and timestamp of its
- * last text.
  * @param {string} file
  * @returns {AsyncGenerator<{ text: string, line: number, at: string }>}
  */
@@ -119,7 +91,6 @@ async function* readEndingMessages(file) {
 }
 
 /**
- * The flag for one message, or undefined where the cue is silent.
  * @param {string} text
  * @param {string} file
  * @param {number} line
@@ -136,7 +107,7 @@ function flagOf(text, file, line) {
 
 /**
  * @param {string[]} dirs
- * @param {string | undefined} until the last day counted, `YYYY-MM-DD`
+ * @param {string | undefined} until
  * @returns {Promise<{ messages: number, flags: NonNullable<ReturnType<typeof flagOf>>[] }>}
  */
 async function scan(dirs, until) {

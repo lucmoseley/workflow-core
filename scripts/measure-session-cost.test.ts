@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The cost-table instrument, run end to end over a fixture ledger and seat:
- * job-id matching on either ledger spelling, the dominant-model filter, and
- * the summary it prints without `--write` (#371, #372).
- *
- * The ledger and seats are temp dirs built per test and the script runs
- * in-process as its CLI, so no real ledger or transcript is read and
- * `docs/data/session-cost-table.json` is never written. The `--write` case
- * claims the table from the real arbiter, inside the testkit sandbox.
- *
- * That table is what the capped launch in `scripts/dispatch-sessions.js`
- * projects running sessions' spend from: a mismatched or mis-filtered row
- * sizes a set against the wrong remaining spend.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -70,7 +56,6 @@ const run = (seats = [seat], form = (s: string) => ["--config-dir", s]) =>
 
 describe("measure-session-cost.js", () => {
 	it("prices every matched session on either ledger spelling, skipping an unpriced model", () => {
-		// $10/Mtok Sonnet output: 100k → $1, 300k → $3.
 		transcript("aaaaaa11-0000", [turn("r1", "claude-sonnet-5", 100_000)]);
 		transcript("bbbbbb22-0000", [turn("r1", "claude-sonnet-5", 300_000)]);
 		transcript("cccccc33-0000", [turn("r1", "claude-haiku-4-5", 900_000)]);
@@ -90,7 +75,6 @@ describe("measure-session-cost.js", () => {
 	it("prices a session held on two seats once, from the larger copy (#382)", () => {
 		const seat2 = path.join(dir, "seat2");
 		transcript("aaaaaa11-0000", [turn("r1", "claude-sonnet-5", 100_000)]);
-		// Resumed on the second seat: its copy holds the whole session.
 		transcript(
 			"aaaaaa11-0000",
 			[
@@ -131,8 +115,6 @@ describe("measure-session-cost.js", () => {
 					usage: { output_tokens: output },
 				},
 			});
-		// $1 at once and $1 two hours on; $5 all at once. u is $5's own cost,
-		// so no session lies past it and the tail falls back to the mean.
 		transcript("aaaaaa11-0000", [
 			at("r1", "2026-10-25T09:00:00Z", 100_000),
 			at("r2", "2026-10-25T11:00:00Z", 100_000),

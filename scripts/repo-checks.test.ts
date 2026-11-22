@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * repo-checks.test.ts — the daily repo-checks run (#1548, spec #1510). Break
- * it and a check runs where its repo never adopted what it reads, two
- * sessions both sweep, a hung check stops the rest, an unexamined check reads
- * as clean, the run spends the sweep-fire budget, or a repo's standing
- * findings issue is filed twice or rewritten on a still day (#1554).
- *
- * Driven through `runInProcess` against a throwaway git repo per case, the
- * core's scripts replaced through WFC_SCRIPT_ROOT by stubs that log their
- * argv and print what the case tells them to, and `gh` by a fake tracker.
- * Each case asserts only what the run leaves behind. The window and re-scan
- * arithmetic across a run of readings is lib/repo-checks-carry.test.ts's.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -28,15 +15,11 @@ import { REPO_CHECKS } from "./lib/repo-checks-registry";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "repo-checks.js");
-/* The names the runner uses, restated so a rename fails here. */
 const STAMP = ".repo-checks-read";
 const LOCK = ".repo-checks-read.lock";
 const RESULT = ".repo-checks.json";
 const NOW = "2026-10-13T06:00:00Z";
-/* A node launch costs a few hundred ms here, so a case that needs no more
- * runs the four roadmap entries alone. */
 const ROADMAP_ONLY = { contract: 1, founder: "F", modules: ["roadmap"] };
-/* Every gate open, so every entry launches. */
 const ALL = {
 	contract: 1,
 	founder: "F",
@@ -53,11 +36,9 @@ const ALL_INPUTS = [
 
 interface Stub {
 	envelope?: object | null;
-	/** Printed instead of `envelope` on a launch passed --rescan. */
 	onRescan?: object;
 	exit?: number;
 	sleepMs?: number;
-	/** Written to stderr in place of the one diagnostic line. */
 	stderr?: string;
 }
 const sourceLiteral = (envelope: object) =>
@@ -93,9 +74,7 @@ function fixture(
 		config?: Record<string, unknown>;
 		inputs?: string[];
 		stubs?: Record<string, Stub>;
-		/** Whether the host is workflow-core itself; ALL makes it so. */
 		core?: boolean;
-		/** Paths written and added to the index. */
 		tracked?: string[];
 	} = {},
 ) {
@@ -156,9 +135,6 @@ function fixture(
 	};
 	for (const { id } of REPO_CHECKS) restub(id, opts.stubs?.[id] ?? {});
 
-	/* A tracker of one repo: `issue list` serves the issues `issue create`
-	 * filed, narrowed by `--label` and `--state open`, `issue view` the body the
-	 * fake writer last wrote, and every call fails while `gh-fails` exists. */
 	const ghLog = path.join(base, "gh.log");
 	const issues = path.join(base, "issues.json");
 	const ghFails = path.join(base, "gh-fails");
@@ -222,8 +198,6 @@ function fixture(
 }
 type Fixture = ReturnType<typeof fixture>;
 
-/* vitest.setup.ts injects WFC_MODULES, which would replace the fixture's
- * declared modules. */
 function fixtureEnv(f: Fixture, dir: string, env: Record<string, string>) {
 	const { WFC_MODULES: _, ...inherited } = process.env;
 	return {
@@ -431,8 +405,6 @@ describe("repo-checks: the merged result", () => {
 		expect(log[0]).toContain("repo-checks");
 		expect(log[0]).toContain("cycle-review exited 2");
 	});
-	/* Node's own shape for a require that fails at load: the message line
-	 * first, the frames after it, the last line a frame (#2480). */
 	const loadFailure = [
 		"node:internal/modules/cjs/loader:1228",
 		"  throw err;",
@@ -483,7 +455,6 @@ describe("repo-checks: ceilings", () => {
 		});
 		const started = Date.now();
 		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "1000" } });
-		// §X9: a kill: the ceiling kills a real stub process, and the check after it still has to run.
 		expect(Date.now() - started).toBeLessThan(8000);
 		expect(job(f, "digest-version")).toMatchObject({
 			outcome: "BROKEN",
@@ -498,8 +469,6 @@ describe("repo-checks: ceilings", () => {
 			config: { contract: 1, founder: "F", tracker: "o/r", modules: [] },
 			stubs: { cycles: { sleepMs: 1200 }, clobbers: { sleepMs: 1200 } },
 		});
-		/* A real kill, so the real clock: clobbers' 2 s ceiling leaves 800 ms
-		 * past its 1.2 s sleep for node's start-up, measured at ~49 ms (#4511). */
 		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "1000" } });
 		expect(job(f, "cycles")).toMatchObject({
 			outcome: "BROKEN",
@@ -563,8 +532,6 @@ describe("repo-checks: the clobbers window", () => {
 		expect(readGuardErrorsLog(f.config)).toContain(sinceFile);
 	});
 
-	/* #1600: an unfixed clobber on an issue nobody edits again would drop out
-	 * once the window passed it. */
 	const rescans = (f: Fixture) =>
 		clobbersArgv(f).map((argv) =>
 			argv.includes("--rescan") ? argv[argv.indexOf("--rescan") + 1] : null,
@@ -745,8 +712,6 @@ describe("repo-checks: the notify report (#1553)", () => {
 		return { dir, file, report: JSON.parse(fs.readFileSync(file, "utf8")) };
 	}
 
-	/* The real replay, as `npm run status` runs it: it shows and spends, a
-	 * session start holding the report back (#2038). */
 	const replay = (f: Fixture, env: Record<string, string> = {}) => {
 		const r = runInProcess(replayScript, ["--status"], {
 			cwd: f.root,
@@ -756,7 +721,6 @@ describe("repo-checks: the notify report (#1553)", () => {
 		return r.stderr;
 	};
 
-	/* The run always exits 0, a fault included. */
 	const runOk = (f: Fixture, opts: Parameters<typeof run>[1] = {}) =>
 		expect(run(f, opts).status).toBe(0);
 
@@ -771,7 +735,6 @@ describe("repo-checks: the notify report (#1553)", () => {
 		]);
 		expect(report.maxAgeMs).toBe(7 * 24 * 3_600_000);
 		expect(report.owner).toBe(sessionId);
-		/* Three roadmap checks; the reporter is not judged. */
 		expect(Object.keys(report.stamps)).toHaveLength(3);
 	});
 
@@ -788,14 +751,10 @@ describe("repo-checks: the notify report (#1553)", () => {
 			wt,
 		]);
 		runOk(f, { dir: wt });
-		/* The fixture's config is untracked, so only the main checkout holds
-		 * it: a reading of the worktree would skip every roadmap entry. */
 		expect(ids(f.launched())).toEqual(ROADMAP_IDS);
 		expect(replay(f)).toContain("digest-version — 1 new finding(s)");
 	});
 
-	/* A silent reading spends no stamp, so a key that drained and came back
-	 * unshown is not news: the delivered set still holds it. */
 	it("is silent on a standing or a shrinking set once delivered, and names only what was gained", () => {
 		const f = fixture({ stubs: stubsWith(["k1", "k2"]) });
 		runOk(f);
@@ -887,8 +846,6 @@ describe("repo-checks: the notify report (#1553)", () => {
 		expect(readStoredReport(a, a.config).report.text).toBe("");
 	});
 
-	/* #1700: a settled key is no news, but the stamp keeps it, so the hand
-	 * route's --notify, sharing the stamp, is not told of it either. */
 	it("names no gained settled key, while a gained unsettled key on the same check still speaks", () => {
 		const f = fixture({
 			config: { contract: 1, founder: "F", tracker: "o/r", modules: [] },
@@ -929,8 +886,6 @@ describe("repo-checks: the notify report (#1553)", () => {
 		);
 	});
 
-	/* #1600: the window has moved past the clobber's issue, so only the
-	 * re-scan still finds it — under the same key, so not as news. */
 	it("keeps a clobber the re-scan holds out of the report and in the standing issue", () => {
 		const key = "CLOBBERED\t#8\t2026-10-01T06:00:00Z";
 		const f = fixture({
@@ -981,7 +936,6 @@ describe("repo-checks: the standing issue (#1554)", () => {
 	const day = (n: number) =>
 		`2026-10-${String(13 + n).padStart(2, "0")}T07:00:00Z`;
 
-	/* The daily stamp is lifted, so each call is a fresh reading. */
 	function reading(f: Fixture, n: number) {
 		fs.rmSync(path.join(f.common, STAMP), { force: true });
 		const r = run(f, { env: { WFC_NOW: day(n) } });
@@ -1143,7 +1097,6 @@ describe("repo-checks: the standing issue (#1554)", () => {
 		expect(f.issues()).toHaveLength(1);
 	});
 
-	/* #1700: settled keys stay in the merged result and the hand route. */
 	it("leaves settled keys off the body, counting only what is left, and writes the all-clear when only they remain", () => {
 		const trackerOnly = {
 			contract: 1,

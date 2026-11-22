@@ -1,50 +1,4 @@
 #!/usr/bin/env node
-/*
- * write-review-marker.js — write this session's `.codereview-pass-<sid>`
- * marker, only once the review it vouches for has left its artefacts (#2040).
- *
- *   node scripts/write-review-marker.js --base <rev> --findings <n>
- *     [--no-spec] [--skipped deletion|rename]
- *     [--tier escalated|mission-critical --areas <a,b>]
- *     [--paths <p,q> [--patch <file>]]
- *
- * A session told to write the marker lines itself looks, to the auto-mode
- * classifier, like an agent forging its own gate stamp, and is refused; this
- * script is the narrow command an allow rule can name instead.
- *
- * Refuses, writing nothing, unless `.claude/tmp/review-standards-<sid8>.md`
- * and `.claude/tmp/review-spec-<sid8>.md` both exist and are non-empty —
- * the Artefact paths the code-review skill gives its two axes. `--tier`
- * adds the runs that tier dispatches: the focus artefact, and at
- * mission-critical the attack artefact. `--no-spec` drops the spec artefact.
- * `--skipped` is the pure-deletion or mechanical-rename route, which runs no
- * review.
- *
- * `--paths` writes both `paths=` and its `tree=`, as the review hold rejects
- * a marker holding one without the other. Under `--patch` it names the patched
- * files too, and the tree is built with those left to the patch.
- *
- * MID-MERGE (MERGE_HEAD set, #4426), `tree=` is the index's, which git commits
- * whole, and `--paths` names the paths the hold's refusal named: those no
- * merged-in side carries, the only ones it asks `paths=` for. `--patch` is
- * refused there, as git takes no partial commit of a merge.
- *
- * FROM A LINKED WORKTREE (#3714), `--base`, `--paths` and the tree read that
- * worktree, where the commit is made, and an artefact counts in it or in the
- * host, wherever the run's working directory put it. The marker stays in the
- * host's store, which the hold, the nag and the warning read. The host is the
- * one the commit's hook is handed, so a shell with `CLAUDE_PROJECT_DIR` unset
- * finds the same store (#3830).
- *
- * AFTER A RESUME UNDER A NEW ID (#4101), an artefact also counts under a past
- * id of this session: one the refill loop's launch row names, and whose session
- * the oracle says has ended. Doubt about either counts nothing. Stderr names each
- * one taken for the session to judge.
- *
- * Joins no §N3 family: it writes a marker, not a file `generate-*` owns, and
- * its exits are its own — 0 written, 1 the write or the tree failed, 2 a
- * usage error or a refusal.
- */
 
 const { spawnSync } = require("node:child_process");
 const { scriptPath } = require("./lib/script-path.js");
@@ -106,7 +60,7 @@ function fullSha(root, rev) {
 
 /**
  * @param {{noSpec: boolean, tier?: string}} o
- * @returns {string[]} the review axes owed
+ * @returns {string[]}
  */
 function axesOwed({ noSpec, tier }) {
 	const axes = noSpec ? ["standards"] : ["standards", "spec"];
@@ -123,7 +77,7 @@ const artefactPath = (axis, sid) =>
 	path.join(".claude", "tmp", `review-${axis}${reviewSuffix(sid)}.md`);
 
 /**
- * @param {string[]} roots the trees an artefact counts in
+ * @param {string[]} roots
  * @param {string} axis
  * @param {string} sid
  */
@@ -137,8 +91,6 @@ const hasArtefact = (roots, axis, sid) =>
 	});
 
 /**
- * The ids session `sid` ran under before a refill-loop resume, newest first,
- * as its launch row names them.
  * @param {string} sid
  * @returns {string[]}
  */
@@ -149,8 +101,6 @@ function readPastIds(sid) {
 }
 
 /**
- * What past ids of `sid` cover of `axes`: the artefact taken for each axis one
- * covers, and a sentence on each id that left one but is not counted.
  * @param {string[]} roots
  * @param {string} sid
  * @param {string[]} axes
@@ -190,11 +140,10 @@ function pastCoverage(roots, sid, axes) {
 }
 
 /**
- * @param {string[]} roots the trees an artefact counts in
+ * @param {string[]} roots
  * @param {string} sid
  * @param {{noSpec: boolean, tier?: string}} o
- * @returns {{missing: string[], taken: string[], uncountedNotes: string[]}} the
- *   artefacts still owed, those taken from past ids, and why any past id's are not
+ * @returns {{missing: string[], taken: string[], uncountedNotes: string[]}}
  */
 function readArtefacts(roots, sid, o) {
 	const absent = axesOwed(o).filter((axis) => !hasArtefact(roots, axis, sid));
@@ -211,8 +160,6 @@ function readArtefacts(roots, sid, o) {
 }
 
 /**
- * The files `patch` touches, which `--tree` takes from the patch and refuses
- * named whole after `--`, though `paths=` must still name them for the hold.
  * @param {string} root
  * @param {string} patch
  * @returns {Set<string>}
@@ -231,10 +178,6 @@ function readPatchOrFail(root, patch) {
 }
 
 /**
- * Each `--paths` entry in the repo-relative spelling commit-paths.js and the
- * hold's exact `paths=` match both take: `./a.js` and `scripts/` become
- * `a.js` and `scripts`. Resolved against `root`, not the cwd, as `--tree`
- * runs there. Refuses one outside the repository.
  * @param {string} root
  * @param {string[]} paths
  * @returns {string[]}
@@ -252,10 +195,9 @@ function repoRelative(root, paths) {
 }
 
 /**
- * The tree id a tree-building command printed, or a failure naming `what`.
  * @param {import("node:child_process").SpawnSyncReturns<string>} r
  * @param {string} what
- * @param {string} [remedy] a sentence on the way out
+ * @param {string} [remedy]
  */
 function treeOrFail(r, what, remedy) {
 	const tree = String(r.stdout ?? "").trim();
@@ -287,20 +229,14 @@ function readTreeOf(root, paths, patch) {
 	return treeOrFail(r, "commit-paths.js --tree");
 }
 
-/**
- * Whether `root`'s checkout is mid-merge, its next commit the merge's.
- * @param {string} root
- */
+/** @param {string} root */
 const isMerging = (root) =>
 	spawnGitSync(["rev-parse", "-q", "--verify", "MERGE_HEAD"], {
 		cwd: root,
 		encoding: "utf8",
 	}).status === 0;
 
-/**
- * The tree a merge's commit carries: the index, whole.
- * @param {string} root
- */
+/** @param {string} root */
 const readIndexTree = (root) =>
 	treeOrFail(
 		spawnGitSync(["write-tree"], { cwd: root, encoding: "utf8" }),

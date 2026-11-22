@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The CLI's own suite: stdout shapes the hook actually reads, exit codes the
- * shell scripts branch on, argv parsing, and the once-per-PROCESS behaviour a
- * direct call on the store cannot exercise.
- *
- * The store is imported here only to ARRANGE state.
- *
- * The subcommands are the arbiter's whole production interface
- * (mantahostels#158), so cases run the CLI in-process inside a sandbox repo
- * and spawn a real process only where once-per-process or liveness is the
- * point. `scripts/lib/file-claim.js`'s `PreToolUse` core and
- * `.husky/post-commit` branch on this output: loosen a case and a live
- * neighbour's file is clobbered unrefused, or every guarded write is refused.
- */
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -52,7 +38,6 @@ import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { writeSystemdRun } from "./lib/systemd-run-fake";
 
-/* The breadcrumb directory, from the module that owns it (mantahostels#3382). */
 const { gh } = createRequire(__filename)("./lib/gh.js");
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
 const markerRoot = createRequire(__filename)("./lib/marker-root.js");
@@ -66,11 +51,8 @@ const { attributeDirty } = createRequire(__filename)("./lib/own-selection.js");
 
 const sb = freshSandbox();
 
-/** A fakeGh route table answering every call with a closed issue's state. */
 const CLOSED = { "*": ghPrinted('{"state":"CLOSED"}\n') };
 
-/** A `claude` at `bin` whose `agents --json` answers `answer`, appending each
- * call to `callLog` where given. */
 const writeOracle = (bin: string, answer: AgentsAnswer, callLog?: string) => {
 	fs.mkdirSync(path.dirname(bin), { recursive: true });
 	return writeClaudeStub(bin, [buildAgentsBranch(answer, {}, callLog)]);
@@ -88,12 +70,6 @@ const out = (args: string[]) => {
 	return r.stdout;
 };
 
-/**
- * What the recovery command inside `context` gets back, run as printed.
- *
- * `prune` collects every unreferenced object first, so a version that comes
- * back proves the PIN holds it and not merely that `hash-object -w` wrote it.
- */
 const readRecoveredBlob = (context: string, prune = false) => {
 	const sha = context.match(/git cat-file -p ([0-9a-f]{40,64})/)?.[1];
 	expect(sha).toBeTruthy();
@@ -119,17 +95,9 @@ const readRefs = () =>
 const inRepo = (rel: string) => path.join(sb.repo, rel);
 
 describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
-	// What `stubOracles` (lib/arbiter-testkit.ts) exists to hold, driven through
-	// the CLI: every assertion here is on what the arbiter did, never on the
-	// environment the testkit set two lines earlier.
-
 	const sandboxOf = (name: string) => path.join(sb.dir, "stubs", name);
 
 	it("answers the liveness oracle with no shim of the case's own, rather than refusing", () => {
-		// agent-liveness.js reads an empty listing as a refusal, and refuses
-		// again unless the list names the caller (mantahostels#319). A stub echoing `[]`
-		// would send every unshimmed case down that branch — this case is what
-		// catches that.
 		const listed = listedSessionIds();
 		expect(listed.why).toBeUndefined();
 		expect([...listed.ids]).toEqual(["sandbox"]);
@@ -146,8 +114,6 @@ describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 	});
 
 	it("still lets fakeGh take the gh seam from the default", () => {
-		// stubOracles claims WFC_GH in the sandbox's own beforeEach, and a case
-		// arranging its own `gh` must still win.
 		const stub = fakeGh(sb, CLOSED);
 		expect(process.env.WFC_GH).toBe(stub);
 		expect(ghCallCount(sb)).toBe(0);
@@ -237,8 +203,6 @@ describe("the CLI, as the hook and the scripts invoke it", () => {
 	});
 
 	it("says nothing when the file is free", () => {
-		// An UNREGIONED guarded path: a whole-file write to the doc map is never
-		// silent (mantahostels#2334).
 		registerSession(sb, "a", process.pid);
 		expect(out(["check", inRepo("docs/other.md"), "a"])).toBe("");
 	});
@@ -252,7 +216,6 @@ describe("the CLI, as the hook and the scripts invoke it", () => {
 		const said = json.hookSpecificOutput.additionalContext;
 		expect(said).toContain("docs/doc-map.md is also held by session alice");
 		expect(said).toContain("likely meet a merge conflict");
-		// The neighbour keeps its claim; the writer takes none.
 		expect(store.readHeldBy("bob")).toEqual([]);
 		expect(store.readHeldBy("alice")).toEqual(["docs/doc-map.md"]);
 	});
@@ -278,20 +241,11 @@ describe("the CLI, as the hook and the scripts invoke it", () => {
 	});
 
 	it("exits 0 when its registry is unreachable, but says the write is unprotected", () => {
-		// Fail-open is house style (mantahostels#103 §6): exit 0, no deny, the write proceeds.
-		// It never goes SILENT: a broken guard would look exactly like one finding
-		// nothing wrong (mantahostels#174).
-		// ENOTDIR — a directory path whose parent is a file. Deliberately NOT
-		// a /proc path: mkdirSync(recursive) under /proc blocks forever on
-		// this kernel instead of raising, so that shape tests the hang
-		// defence in lib/file-claim-host.js, not this fail-open path.
 		const r = cli(["check", inRepo("docs/doc-map.md"), "a"], {
 			CLAUDE_CONFIG_DIR: "/dev/null/nope",
 		});
 		expect(r.status).toBe(0);
 		const json = JSON.parse(r.stdout);
-		// The hook must not refuse the write over a store it cannot reach, or one
-		// bad path halts every session at once.
 		expect(json.hookSpecificOutput.permissionDecision).toBeUndefined();
 		expect(json.hookSpecificOutput.additionalContext).toMatch(
 			/store is unreadable/,
@@ -299,12 +253,6 @@ describe("the CLI, as the hook and the scripts invoke it", () => {
 	});
 
 	it("the hook fails open when the arbiter hangs", () => {
-		// The exception handler cannot catch a hang, so lib/file-claim-host.js
-		// bounds the arbiter's process. Without it a wedged arbiter would stall
-		// every guarded write in every session for the full hook timeout. This is
-		// the real hang shape: mkdirSync(recursive) under an unreadable /proc path
-		// blocks forever on this kernel rather than raising. The arbiter inherits
-		// it from this process's environment, which the sandbox restores.
 		vi.stubEnv("CLAUDE_CONFIG_DIR", "/proc/nonexistent/nope");
 		const file = inRepo("docs/doc-map.md");
 		const r = runCore(
@@ -316,7 +264,6 @@ describe("the CLI, as the hook and the scripts invoke it", () => {
 			},
 			{ root: sb.repo },
 		);
-		// The record is what separates the bound firing from any other exit.
 		expect(r.output).toBeNull();
 		expect(r.logs).toEqual([
 			`arbiter timed out on ${file} — write allowed unchecked`,
@@ -324,20 +271,8 @@ describe("the CLI, as the hook and the scripts invoke it", () => {
 	}, 40_000);
 });
 
-/*
- * The core lib/file-claim.js has its own suite (mantahostels#149):
- * lib/file-claim.test.ts.
- *
- * One hook test stays above — "the hook fails open when the arbiter hangs"
- * drives the real hang shape, an unreadable CLAUDE_CONFIG_DIR under /proc. The
- * other suite stubs the hang, so neither stands in for the other and both pay
- * the host's 5s bound.
- */
-
 describe("logging once across PROCESSES, not once per process", () => {
 	it("says a sessionless run takes no claims once, not on every write", () => {
-		// The arbiter is a fresh process per guarded write, so a pid-keyed marker
-		// would log every write for exactly the sessionless case this bounds.
 		for (let i = 0; i < 2; i++) {
 			cli(["check", inRepo("docs/doc-map.md"), ""], {
 				CLAUDE_CODE_SESSION_ID: "",
@@ -352,8 +287,6 @@ describe("logging once across PROCESSES, not once per process", () => {
 });
 
 describe("the release CLI, as the skill loops invoke it", () => {
-	// `sid` goes in the environment, which is where the release subcommand takes
-	// its caller from; it accepts no positional session id.
 	const run = (args: string[], sid: string) =>
 		cli(args, { CLAUDE_CODE_SESSION_ID: sid });
 	const docMap = () => inRepo("docs/doc-map.md");
@@ -367,18 +300,11 @@ describe("the release CLI, as the skill loops invoke it", () => {
 		const ok = run(["release", docMap()], "alice");
 		expect(ok.status).toBe(0);
 		expect(ok.stdout).toContain("Released docs/doc-map.md");
-		// Silent, not just zero: an unguarded path is the one release outcome that
-		// says nothing (docs/agents/guard-registry.md §Conventions, the release rule).
 		const unguarded = run(["release", inRepo("app/page.tsx")], "alice");
 		expect(unguarded.status).toBe(0);
 		expect(unguarded.stdout).toBe("");
 	});
 
-	/* A claim standing on an EXEMPT path — one minted before mantahostels#2103 dropped
-	 * `.claude/tmp/` out of both tiers. Nothing takes a new claim there, but the
-	 * old ones must still be droppable: gating release on isWatched alone would
-	 * exit 0 having dropped nothing, and the stranded-claim report would name
-	 * them for ever (mantahostels#2053). */
 	it("still drops a claim standing on an exempt path", () => {
 		const scratch = ".claude/tmp/review-standards.md";
 		store.acquire(scratch, live(sb, "alice"));
@@ -421,8 +347,6 @@ describe("the release CLI, as the skill loops invoke it", () => {
 	it.skipIf(AS_ROOT)(
 		"exits 1 rather than reporting no claim when the store cannot be read (mantahostels#174)",
 		() => {
-			// "No claim on docs/doc-map.md" against a store that would not open tells
-			// alice her claim is gone when it is still on disk.
 			fs.chmodSync(store.paths.locksDir(), 0o000);
 			try {
 				const r = run(["release", docMap()], "alice");
@@ -437,8 +361,6 @@ describe("the release CLI, as the skill loops invoke it", () => {
 
 	it("re-claims on the holder's next write, so a premature release self-heals", () => {
 		run(["release", docMap()], "alice");
-		// Since mantahostels#2334 the write carries the whole-file notice, and a notice is not a
-		// refusal.
 		const reclaim = JSON.parse(run(["check", docMap()], "alice").stdout);
 		expect(reclaim.hookSpecificOutput.permissionDecision).toBeUndefined();
 		expect(reclaim.hookSpecificOutput.additionalContext).toContain(
@@ -454,16 +376,10 @@ describe("the release CLI, as the skill loops invoke it", () => {
 	});
 });
 
-/*
- * mantahostels#2774: a background session that has ENDED — done, failed or stopped — keeps
- * its process until the reaper takes it, so `holderAlive` reads it alive and
- * the row said HELD.
- */
 describe("list tells an ENDED holder from a running one", () => {
 	const rel = "docs/doc-map.md";
 	const claudeBin = () => path.join(sb.dir, "bin", "claude");
 
-	/** A `claude` stand-in listing alice in `state`, and bob working. */
 	const fakeClaude = (state: string) =>
 		writeOracle(claudeBin(), [
 			state === "failed" || state === "stopped"
@@ -496,8 +412,6 @@ describe("list tells an ENDED holder from a running one", () => {
 		expect(listAs("bob").stdout).toMatch(/HELD .*docs\/doc-map\.md/);
 	});
 
-	/* DISPLAY WORDING, NEVER A RELEASE (mantahostels#318). The row stays in the default
-	 * view — which filters on `alive` — and the guard still denies on it. */
 	it("keeps the ENDED row in the default view and hides nothing", () => {
 		fakeClaude("failed");
 		const printed = listAs("bob").stdout;
@@ -505,7 +419,6 @@ describe("list tells an ENDED holder from a running one", () => {
 		expect(printed).not.toContain("stale claim(s) hidden");
 	});
 
-	/* Degrades to today's two labels: a refusal must not call a live holder ended. */
 	it("falls back to HELD where the oracle refuses", () => {
 		writeOracle(claudeBin(), { exit: 3 });
 		expect(listAs("bob").stdout).toMatch(/HELD .*docs\/doc-map\.md/);
@@ -528,7 +441,6 @@ describe("list", () => {
 	});
 
 	describe("the default view is live claims only (mantahostels#1814)", () => {
-		/** One live claim and one dead one — the pair the filter has to separate. */
 		const bothKinds = () => {
 			registerSession(sb, "alice", process.pid);
 			store.acquire("docs/a-live.md", store.identify("alice"));
@@ -558,8 +470,6 @@ describe("list", () => {
 		it.skipIf(AS_ROOT)(
 			"warns that a STALE row may be live when the registry will not open",
 			() => {
-				// #273: the alive column is a boolean, so a holder resumed onto a
-				// fresh process reads STALE and the default view then hides it.
 				bothKinds();
 				const dir = store.paths.sessionsDir();
 				fs.chmodSync(dir, 0o000);
@@ -567,7 +477,6 @@ describe("list", () => {
 					const printed = out(["list"]);
 					expect(printed).toContain("The sessions registry could not be read");
 					expect(printed).toContain("may be a live holder resumed");
-					// Once for the run, not once per lock, and above every row.
 					expect(
 						printed.split("The sessions registry could not be read"),
 					).toHaveLength(2);
@@ -581,8 +490,6 @@ describe("list", () => {
 		);
 
 		it.skipIf(AS_ROOT)("warns under --all too, which hides nothing", () => {
-			// --all is where the hidden-count line sends a reader, so it is the one
-			// view with a STALE row on screen that may still be live.
 			bothKinds();
 			const dir = store.paths.sessionsDir();
 			fs.chmodSync(dir, 0o000);
@@ -663,10 +570,6 @@ describe("list", () => {
 	});
 
 	it("marks a RESUMED holder HELD, not STALE (mantahostels#359)", () => {
-		// A lock freezes its holder's pid, so a session resumed onto a fresh host
-		// reads dead from the lock alone. Printing STALE is what tells the person
-		// reading this list the file is free — and nothing refuses the Bash-route
-		// write they then make over a live editor.
 		registerSession(sb, "resumed", process.pid);
 		store.acquire("docs/b-dead.md", {
 			sessionId: "resumed",
@@ -684,8 +587,6 @@ describe("list", () => {
 	it.skipIf(AS_ROOT)(
 		"refuses to call an unreadable store empty (mantahostels#174)",
 		() => {
-			// This is the command a person runs to decide whether a file is free, so
-			// "No files are claimed." is the reading most likely to be acted on.
 			registerSession(sb, "alice", process.pid);
 			store.acquire("docs/a-live.md", store.identify("alice"));
 			fs.chmodSync(store.paths.locksDir(), 0o000);
@@ -702,8 +603,6 @@ describe("list", () => {
 });
 
 describe("naming a holder by its session name, not its id (mantahostels#1196)", () => {
-	// `docs/working-contract.md`: "Report a session by its name, never its id or
-	// pid".
 	const rel = "docs/doc-map.md";
 	const claudeBin = () => path.join(sb.dir, "bin", "claude");
 	const calls = () => path.join(sb.dir, "claude-calls");
@@ -715,10 +614,8 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 				? buildListedRow({ sessionId, name })
 				: buildUnrecordedRow({ sessionId }),
 		);
-	/** A `claude` stand-in listing `[sessionId, name]` pairs, recording each call. */
 	const fakeClaude = (agents: Named[]) =>
 		writeOracle(claudeBin(), rowsOf(agents), calls());
-	/** One that lists them and then fails. */
 	const failClaude = (agents: Named[] = []) =>
 		writeOracle(claudeBin(), { exit: 3, rows: rowsOf(agents) }, calls());
 
@@ -748,8 +645,6 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 	});
 
 	it("renders the holder in full: name, id, pid and claimed-at (mantahostels#2452)", () => {
-		// The WHOLE shape, not a substring of it. The pid-and-claimed-at trailer is
-		// the part a refactor of describeSession could silently drop.
 		fakeClaude([
 			["alice", "Wayfinder 1162"],
 			["bob", "Implement 1104"],
@@ -771,8 +666,6 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 	});
 
 	it("names the holder from the sessions registry when the oracle cannot be read (#3557)", () => {
-		// Its own pid file: the registry is keyed by pid, so bob's entry on
-		// process.pid has overwritten alice's.
 		registerSession(sb, "alice", process.ppid, { name: "Wayfinder 1162" });
 		failClaude();
 		const r = runAs(["claim", inRepo(rel)], "bob");
@@ -842,9 +735,6 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 });
 
 describe("versions — the pull-mode reader for the holder's own clobber (mantahostels#438)", () => {
-	// The one clobber nothing reports: a `cp` the HOLDER runs is trusted by the
-	// post-Bash refresh, which re-pins the clobbered bytes. mantahostels#329 declined a
-	// detector on precision, so the shas are kept and asked for instead.
 	const rel = "scripts/evidence-audit.py";
 
 	beforeEach(() => {
@@ -853,7 +743,6 @@ describe("versions — the pull-mode reader for the holder's own clobber (mantah
 		registerSession(sb, "alice", process.pid);
 	});
 
-	/** One write by alice: the PreToolUse check, then the PostToolUse record. */
 	const aliceWrites = (text: string) => {
 		out(["check", inRepo(rel), "alice"]);
 		fs.writeFileSync(inRepo(rel), text);
@@ -862,7 +751,7 @@ describe("versions — the pull-mode reader for the holder's own clobber (mantah
 
 	it("prints each version newest first with a recovery command that works", () => {
 		aliceWrites("alice's uncommitted work\n");
-		aliceWrites("restored from a backup\n"); // the holder's own clobber
+		aliceWrites("restored from a backup\n");
 
 		const printed = out(["versions", inRepo(rel)]);
 		expect(printed).toContain(rel);
@@ -883,9 +772,6 @@ describe("versions — the pull-mode reader for the holder's own clobber (mantah
 	});
 
 	it("prints no recovery command for a version git has already pruned", () => {
-		// Only the current version is pinned, so a prior lives on git's two-week
-		// default. A `cat-file` line naming a swept object is an instruction that
-		// fails, which is worse than saying the version is gone.
 		aliceWrites("v1\n");
 		aliceWrites("v2\n");
 		execFileSync("git", ["gc", "--prune=now", "-q"], { cwd: sb.repo });
@@ -902,8 +788,6 @@ describe("versions — the pull-mode reader for the holder's own clobber (mantah
 		expect(r.stdout).toContain("No claim on");
 	});
 
-	/** The fail-open mantahostels#2333 covers: a write whose PreToolUse check never ran, so
-	 * no lock was minted and the pin sits under the observation's obsId. */
 	const unguardedWrite = (text: string) => {
 		fs.writeFileSync(inRepo(rel), text);
 		out(["record", inRepo(rel), "alice"]);
@@ -911,7 +795,7 @@ describe("versions — the pull-mode reader for the holder's own clobber (mantah
 
 	it("reports an unclaimed writer's own pinned bytes, which the rule text sends it here for (mantahostels#2374)", () => {
 		unguardedWrite("alice's unclaimed work\n");
-		fs.writeFileSync(inRepo(rel), "restored from a backup\n"); // the clobber
+		fs.writeFileSync(inRepo(rel), "restored from a backup\n");
 
 		const r = cli(["versions", inRepo(rel)], {
 			CLAUDE_CODE_SESSION_ID: "alice",
@@ -956,7 +840,6 @@ describe("versions — the pull-mode reader for the holder's own clobber (mantah
 		expect(shas).toContain("bob's uncommitted work\n");
 	});
 
-	/* A RECORD THAT WILL NOT READ IS NOT NO RECORD (mantahostels#2382). */
 	const corrupt = (file: string) => fs.writeFileSync(file, "{not json");
 
 	it("says the CLAIM record would not read rather than reporting no claim (mantahostels#2382)", () => {
@@ -964,7 +847,6 @@ describe("versions — the pull-mode reader for the holder's own clobber (mantah
 		corrupt(store.paths.lock(rel));
 
 		const r = cli(["versions", inRepo(rel)]);
-		// 1, not 0: the answer is incomplete, and mantahostels#174 bars a fault exiting clean.
 		expect(r.status).toBe(1);
 		expect(r.stdout).not.toContain("No claim on");
 		expect(r.stdout).toContain("WOULD NOT READ (unparseable)");
@@ -1025,7 +907,7 @@ describe("versions — the pull-mode reader for the holder's own clobber (mantah
 		registerSession(sb, "bob", process.ppid);
 		aliceWrites("alice's uncommitted work\n");
 		fs.writeFileSync(inRepo(rel), "bob's unclaimed work\n");
-		out(["record", inRepo(rel), "bob"]); // bob holds no lock: an observation
+		out(["record", inRepo(rel), "bob"]);
 		corrupt(store.paths.lock(rel));
 
 		const r = cli(["versions", inRepo(rel)], {
@@ -1038,8 +920,6 @@ describe("versions — the pull-mode reader for the holder's own clobber (mantah
 	});
 
 	it("adds nothing to a write, a check or a release — it is pull-mode only", () => {
-		// mantahostels#288 and mantahostels#329 both rule the mechanism report-only, so this build must be
-		// silent in normal operation.
 		aliceWrites("v1\n");
 		const before = cli(["check", inRepo(rel), "alice"]);
 		aliceWrites("v2\n");
@@ -1051,9 +931,6 @@ describe("versions — the pull-mode reader for the holder's own clobber (mantah
 });
 
 describe("the second signal — dirty, but claimed by nobody", () => {
-	// mantahostels#99's signal 2 names no session, so it can only warn (mantahostels#103): uncommitted work
-	// with no live holder is a finished session's or a hand edit's, and overwriting
-	// it unread is how that work is lost.
 	const warning = (sessionId: string, file: string) => {
 		const printed = out(["check", file, sessionId]);
 		return printed === ""
@@ -1076,14 +953,11 @@ describe("the second signal — dirty, but claimed by nobody", () => {
 	});
 
 	it("stays quiet when the file is clean", () => {
-		// An UNREGIONED guarded path, per "says nothing when the file is free".
 		registerSession(sb, "a", process.pid);
 		expect(out(["check", inRepo("docs/other.md"), "a"])).toBe("");
 	});
 
 	it("names the holder rather than an unclaimed diff when a live session holds the dirty file", () => {
-		// A holder is the stronger signal: naming them beats telling the session to
-		// go and read a diff.
 		registerSession(sb, "alice", process.pid);
 		store.acquire("docs/doc-map.md", store.identify("alice"));
 		fs.writeFileSync(inRepo("docs/doc-map.md"), "alice's work\n");
@@ -1094,31 +968,20 @@ describe("the second signal — dirty, but claimed by nobody", () => {
 		expect(said).not.toContain("no live session claims");
 	});
 
-	// mantahostels#122 kept this warning on the ground that it fires at most once per file per
-	// session: the gate is a FRESH claim, so later writes to a file the session
-	// already holds are reentrant and silent. A renamed verdict would turn it into
-	// a per-write nag.
 	it("says it once, not on every write the session makes to the file", () => {
 		registerSession(sb, "a", process.pid);
 		const file = inRepo("docs/doc-map.md");
 		fs.writeFileSync(file, "someone's work\n");
 		expect(warning("a", file)).toContain("Read the diff");
-		// Still dirty, still unclaimed by anyone else — only the claim has changed.
 		fs.writeFileSync(file, "someone's work, edited\n");
 		expect(warning("a", file)).toBe("");
 	});
 
 	it("holds its tongue for the claimant only, not for the file", () => {
-		// Were the silence keyed by file, the first write of the day would spend the
-		// warning and every session after it would overwrite the abandoned work in
-		// silence.
 		registerSession(sb, "a", process.pid);
 		const file = inRepo("docs/doc-map.md");
 		fs.writeFileSync(file, "a session's work\n");
-		expect(warning("a", file)).toContain("Read the diff"); // and claims it
-		// Kill the holder in the lock it left behind: a session that ends leaves its
-		// claim on disk for the next claimant to break. The registry entry cannot
-		// carry the death, being keyed by pid — "next" below overwrites "a"'s.
+		expect(warning("a", file)).toContain("Read the diff");
 		const lock = store.paths.lock("docs/doc-map.md");
 		fs.writeFileSync(
 			lock,
@@ -1133,19 +996,11 @@ describe("the second signal — dirty, but claimed by nobody", () => {
 	});
 });
 
-/*
- * mantahostels#135. An empty list means "this session wrote nothing", so
- * returning it when the ledger could not be read disowns the session's own
- * files.
- */
 describe("writes — an unreadable ledger is not an empty one", () => {
 	const record = (rel: string, sessionId: string) =>
 		store.recordWrite(inRepo(rel), sessionId);
 
 	it("a session that has written nothing answers empty, and succeeds", () => {
-		// recordWrite mints the ledger on the first write, so no file at all is the
-		// honest empty answer — not an error, for the read-only sessions that are
-		// most of them.
 		const r = cli(["writes", "never-wrote"]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("");
@@ -1173,8 +1028,6 @@ describe("writes — an unreadable ledger is not an empty one", () => {
 		expect(fs.readFileSync(store.errorLog(), "utf8")).toContain("writes alice");
 	});
 
-	/* A real commit, so a dropped committed path shows in stdout: git skips a
-	 * sha it does not have. */
 	const commitAsAlice = () => {
 		gitRepo(sb);
 		fs.writeFileSync(inRepo("docs/b.md"), "committed\n");
@@ -1210,7 +1063,6 @@ describe("writes — an unreadable ledger is not an empty one", () => {
 	);
 
 	it("no session id at all is unavailable, not empty", () => {
-		// Neither argv nor CLAUDE_CODE_SESSION_ID names a session.
 		const env = { ...process.env };
 		delete env.CLAUDE_CODE_SESSION_ID;
 		const r = runInProcess(SCRIPT, ["writes"], { cwd: sb.repo, env });
@@ -1266,8 +1118,6 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 		expect(r.stderr).toContain(`usage: session-arbiter.js ${usage}\n`);
 	});
 
-	/* #1346: each fell to store.claimKey(undefined), whose TypeError main's
-	 * fail-open catch logged before exiting 0 with nothing said. */
 	it.each([
 		[["claim"], "claim <path> [session-id] [--generator]"],
 		[["release"], "release [--generator] [--not-mine] <path>"],
@@ -1311,7 +1161,6 @@ describe("the argument reader — the caller's own flags parsed, the hook's free
 		);
 	});
 
-	/* Every flag a caller in scripts/, .claude/, hooks/ or .husky/ passes (#1137); prune-markers --detach is its own describe's, as it spawns. */
 	it.each([
 		[["claim", "docs/a.md", "--generator"]],
 		[["release", "docs/a.md", "--generator"]],
@@ -1355,7 +1204,6 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		".selection-sum-nagged-",
 	];
 	const hour = 60 * 60 * 1000;
-	/** Both spellings hook-record.js writes, guard name and all. */
 	const crumbPrefixes = [
 		".hook-ran-guard-priced-options-",
 		".hook-ran-guard-selection-sum-",
@@ -1374,7 +1222,6 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		prefixes.filter((p) =>
 			fs.existsSync(path.join(markerRoot.markersDir(sb.repo), p + sessionId)),
 		);
-	/** Breadcrumbs for one session, all at the same age. */
 	const crumbs = (sessionId: string, ms: number) => {
 		fs.mkdirSync(hookRecord.recordsDir(sb.repo), { recursive: true });
 		for (const p of crumbPrefixes)
@@ -1384,10 +1231,6 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		crumbPrefixes.filter((p) =>
 			fs.existsSync(path.join(hookRecord.recordsDir(sb.repo), p + sessionId)),
 		);
-	/*
-	 * One of guard-entry.js's rule latches: `.rule-injected-<id>-<agent>-<sid>`, where
-	 * <agent> is `main` for a parent session and `a<agent_id>` under a subagent.
-	 */
 	const latch = (id: string, agent: string, sessionId: string, ms: number) => {
 		fs.mkdirSync(markerRoot.markersDir(sb.repo), { recursive: true });
 		const full = path.join(
@@ -1423,12 +1266,6 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 			expect(fs.existsSync(path.join(sb.repo, `${p}ghost`))).toBe(false);
 	});
 
-	/*
-	 * The whole point of mantahostels#1278's per-family age. At 25 hours a marker is gone and
-	 * a breadcrumb must not be: mantahostels#1291's sample takes longer than a day to
-	 * accumulate, so a shared day-long clock would delete the evidence before it
-	 * could be read. The rates are on mantahostels#1278 and in lib/arbiter-markers.js.
-	 */
 	it("spares a dead session's breadcrumb past the marker age but under a week", () => {
 		markers("ghost");
 		crumbs("ghost", 25 * hour);
@@ -1449,11 +1286,6 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		expect(crumbsLeft("ghost")).toEqual([]);
 	});
 
-	/*
-	 * The guard name sits between the prefix and the id and contains hyphens, so
-	 * this only passes if liveness is matched on the filename's suffix rather than
-	 * by slicing a fixed-length prefix.
-	 */
 	it("spares a live session's breadcrumb however old, past the guard name's hyphens", () => {
 		crumbs("alice", 30 * 24 * hour);
 		live(sb, "alice");
@@ -1463,7 +1295,6 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		expect(crumbsLeft("alice")).toEqual(crumbPrefixes);
 	});
 
-	/* A live id must match the whole trailing segment, not merely appear in it. */
 	it("does not spare a breadcrumb whose id is only a prefix of a live id", () => {
 		crumbs("alic", 8 * 24 * hour);
 		live(sb, "alice");
@@ -1473,8 +1304,6 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		expect(crumbsLeft("alic")).toEqual([]);
 	});
 
-	/* And it must be the whole segment, not a tail of a longer one: without the
-	 * separator, live "alice" would spare a breadcrumb belonging to "xalice". */
 	it("does not spare a breadcrumb whose id merely ends with a live id", () => {
 		crumbs("xalice", 8 * 24 * hour);
 		live(sb, "alice");
@@ -1484,11 +1313,6 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		expect(crumbsLeft("xalice")).toEqual([]);
 	});
 
-	/*
-	 * The rule latches, through the CLI the SessionStart hook actually runs
-	 * (mantahostels#1804). The matcher is pinned in lib/arbiter-markers.test.ts. Delete these
-	 * before adding to them.
-	 */
 	it("sweeps a finished session's aged rule latch", () => {
 		const f = latch("one", "main", "ghost", 25 * hour);
 		live(sb, "someone-else");
@@ -1498,7 +1322,6 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		expect(fs.existsSync(f)).toBe(false);
 	});
 
-	/* Sweeping this one would re-inject a rule the session has already been given. */
 	it("spares a live session's rule latch however old, past the agent segment", () => {
 		const f = latch("one", "main", "alice", 30 * 24 * hour);
 		live(sb, "alice");
@@ -1508,11 +1331,6 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		expect(fs.existsSync(f)).toBe(true);
 	});
 
-	/*
-	 * A subagent's PreToolUse payload carries its PARENT's session_id, so the
-	 * parent's liveness is the only liveness there is to read for a latch keyed
-	 * under `a<agent_id>`.
-	 */
 	it("spares a subagent's rule latch under the live parent it is keyed to", () => {
 		const f = latch("one", "aac7cb4a45383cc850", "alice", 30 * 24 * hour);
 		live(sb, "alice");
@@ -1522,22 +1340,11 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		expect(fs.existsSync(f)).toBe(true);
 	});
 
-	/*
-	 * sweepAged walks the whole repo root, so the spare predicate is the only
-	 * thing standing between this and deleting tracked files. An unrelated file
-	 * older than both clocks must be untouched by either pass.
-	 */
 	it("never touches a file outside the swept families, however old", () => {
-		// Weakest first: an unrelated file; a real root dotfile, which a defect
-		// confined to dotfiles would still reach; and a near-miss sharing fifteen
-		// characters with `.concision-base-`, differing only at the separator.
 		fs.mkdirSync(markerRoot.markersDir(sb.repo), { recursive: true });
 		const bystanders = [
 			path.join(sb.repo, "package.json"),
 			path.join(sb.repo, ".gitignore"),
-			// Under the markers directory itself, not the repo root: since F8
-			// (mantahostels#3515, #2) that is where the near-miss actually has
-			// to be spared to prove anything.
 			path.join(markerRoot.markersDir(sb.repo), ".concision-baseline-keep"),
 		];
 		for (const b of bystanders) aged(b, 400 * 24 * hour);
@@ -1548,12 +1355,6 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		expect(bystanders.filter((b) => !fs.existsSync(b))).toEqual([]);
 	});
 
-	/*
-	 * The breadcrumb pass keeps its prefix test inside its own directory (mantahostels#3382),
-	 * so a file in there under another name is spared, not swept (mantahostels#3394). The
-	 * near-misses share `.hook-ran` and a dead session's suffix, one carrying the
-	 * whole prefix mid-name; the dead crumbs prove the pass still ran.
-	 */
 	it("never touches a non-breadcrumb file in the breadcrumb directory, however old", () => {
 		crumbs("ghost", 400 * 24 * hour);
 		const strays = [
@@ -1570,17 +1371,10 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		expect(crumbsLeft("ghost")).toEqual([]);
 	});
 
-	/*
-	 * All three sweeps read one liveness answer, so an unreadable registry must
-	 * stop every one of them.
-	 */
 	it("sweeps no family when the sessions registry cannot be read", () => {
 		markers("ghost");
 		crumbs("ghost", 8 * 24 * hour);
 		const stuckLatch = latch("one", "main", "ghost", 25 * hour);
-		// A file where the directory should be: readdirSync throws ENOTDIR, which
-		// is the "cannot tell live from finished" branch rather than ENOENT's
-		// "nothing registered yet".
 		const sessions = path.join(sb.home, "sessions");
 		fs.rmSync(sessions, { recursive: true, force: true });
 		fs.writeFileSync(sessions, "");
@@ -1590,15 +1384,11 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		expect(surviving("ghost")).toEqual(prefixes);
 		expect(crumbsLeft("ghost")).toEqual(crumbPrefixes);
 		expect(fs.existsSync(stuckLatch)).toBe(true);
-		// The log is the branch's only visibility: check-guard-errors reports it
-		// under `npm run status`, so deleting the call must fail a test, not pass one.
 		expect(fs.readFileSync(store.errorLog(), "utf8")).toContain("pruneMarkers");
 	});
 });
 
 describe("the clobber report — a write by a route no hook watches (mantahostels#295)", () => {
-	// Report-only, on both tiers. mantahostels#288 followed check-stale-claims.js's doctrine:
-	// "THIS SCRIPT NEVER WRITES … the machine displays it, a person acts."
 	const auditScript = "scripts/evidence-audit.py";
 
 	beforeEach(() => {
@@ -1612,7 +1402,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 	const notes = (stdout: string) =>
 		stdout ? JSON.parse(stdout).hookSpecificOutput : {};
 
-	/** One tool write by alice: the PreToolUse check, then the PostToolUse record. */
 	const aliceWrites = (rel: string, text: string) => {
 		const pre = out(["check", inRepo(rel), "alice"]);
 		write(rel, text);
@@ -1623,7 +1412,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 	it("warns and names the recovery command, and never denies", () => {
 		aliceWrites(auditScript, "alice's uncommitted work\n");
 
-		// The incident's own shape: a whole-file write from outside this session.
 		write(auditScript, "restored from a backup\n");
 
 		const seen = notes(out(["check", inRepo(auditScript), "alice"]));
@@ -1642,10 +1430,8 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 	});
 
 	it("refreshes after a Bash write, so the claimant's own sed is not a clobber", () => {
-		// The 42% class, end to end. `refresh` is what the PostToolUse Bash hook
-		// runs; without it this same sequence reports a clobber.
 		aliceWrites("docs/doc-map.md", "v1.35\n");
-		write("docs/doc-map.md", "v1.36\n"); // sed -i '3s/v1.35/v1.36/'
+		write("docs/doc-map.md", "v1.36\n");
 		out(["refresh", "alice"]);
 		expect(out(["check", inRepo("docs/doc-map.md"), "alice"])).toBe("");
 	});
@@ -1657,8 +1443,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 		write("docs/bob.md", "bob's\n");
 		out(["record", inRepo("docs/bob.md"), "bob"]);
 
-		// Alice's refresh must not re-record bob's claim — doing so would erase the
-		// evidence bob is owed the moment somebody clobbers HIS file.
 		write("docs/bob.md", "clobbered\n");
 		out(["refresh", "alice"]);
 		expect(
@@ -1667,16 +1451,12 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 	});
 
 	it("watches the detect-only tier and refuses nothing on it", () => {
-		// mantahostels#287 put scripts/ in a second tier: the recorder keys off the union, the
-		// refusal keys off the refusing tier alone. Keying refusals off the union
-		// would impose a per-file mutex on the repo's busiest directory.
 		aliceWrites(auditScript, "alice's\n");
 		registerSession(sb, "bob", process.pid);
 		expect(
 			notes(out(["check", inRepo(auditScript), "bob"])).permissionDecision,
 		).toBeUndefined();
 
-		// And the claim really was taken, or there is nothing to compare against.
 		expect(
 			store.listLocks().some((l: { path: string }) => l.path === auditScript),
 		).toBe(true);
@@ -1691,9 +1471,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 	});
 
 	it("keeps the detect-only tier quiet about dirt nobody claims", () => {
-		// The dirty-and-unclaimed warn stays on the refusing tier: on scripts/, the
-		// repo's busiest directory, it would fire on most writes — noise mantahostels#287
-		// declined to buy.
 		write(auditScript, "uncommitted, unclaimed\n");
 		expect(out(["check", inRepo(auditScript), "alice"])).toBe("");
 
@@ -1714,13 +1491,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 	});
 
 	it("lets a script claim a detect-only path, and never aborts it there", () => {
-		// cmdClaim is the helper a SCRIPT calls for itself. The CLAIM spans the
-		// watched union, so a script writing a scripts/ file gets a content record;
-		// the held-file warning stays on the guarded tier, the noise on the repo's
-		// busiest directory being what mantahostels#287 declined.
-		//
-		// Alice takes both claims BEFORE bob is registered: the registry is keyed by
-		// pid, so registering bob replaces alice's entry and alice can take no more.
 		fs.writeFileSync(inRepo("scripts/tool.js"), "alice's\n");
 		expect(cli(["claim", inRepo("scripts/tool.js"), "alice"]).status).toBe(0);
 		expect(
@@ -1737,14 +1507,12 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 		expect(r.status).toBe(0);
 		expect(r.stderr).not.toContain("is held by session");
 
-		// The guarded tier warns, and goes on (#4249).
 		const guarded = cli(["claim", inRepo("docs/doc-map.md"), "bob"]);
 		expect(guarded.status).toBe(0);
 		expect(guarded.stderr).toContain("is also held by session");
 	});
 
 	describe("a second writer's own baseline on the detect-only tier (mantahostels#363)", () => {
-		/** One tool write by bob to a path alice holds: check, write, record. */
 		const bobWrites = (rel: string, text: string) => {
 			const pre = out(["check", inRepo(rel), "bob"]);
 			write(rel, text);
@@ -1757,17 +1525,14 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 		});
 
 		it("reports the clobber to the second writer, naming ITS bytes to recover", () => {
-			// The bug the one-line fix would have shipped: reading the lock alice holds
-			// gives bob alice's blob, so the recovery command hands bob a neighbour's
-			// content as his own last write.
 			expect(notes(bobWrites(auditScript, "bob's uncommitted work\n"))).toEqual(
 				{},
 			);
 
-			write(auditScript, "restored from a backup\n"); // the clobber, by any route
+			write(auditScript, "restored from a backup\n");
 
 			const seen = notes(out(["check", inRepo(auditScript), "bob"]));
-			expect(seen.permissionDecision).toBeUndefined(); // still nothing refused
+			expect(seen.permissionDecision).toBeUndefined();
 			expect(seen.additionalContext).toContain(
 				"has changed since this session",
 			);
@@ -1796,13 +1561,12 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 
 		it("refreshes after a Bash write, so the second writer's own sed is not a clobber", () => {
 			bobWrites(auditScript, "v1.35\n");
-			write(auditScript, "v1.36\n"); // sed -i, which no PostToolUse write hook sees
+			write(auditScript, "v1.36\n");
 			out(["refresh", "bob"]);
 			expect(out(["check", inRepo(auditScript), "bob"])).toBe("");
 		});
 
 		it("reports and drops the second writer's record on release, and still refuses", () => {
-			// The verdict is unchanged — a claim bob never took is not bob's to drop.
 			bobWrites(auditScript, "bob's uncommitted work\n");
 			write(auditScript, "restored from a backup\n");
 
@@ -1818,7 +1582,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 	});
 
 	describe("a writer that took no claim at all (mantahostels#2333, mantahostels#2353)", () => {
-		/** A tool write whose PreToolUse check never ran — the fail-open. */
 		const unguardedWrite = (text: string) => {
 			write(auditScript, text);
 			out(["record", inRepo(auditScript), "alice"]);
@@ -1827,10 +1590,10 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 		it("reports the clobber, and the command it prints recovers ITS bytes", () => {
 			unguardedWrite("alice's unclaimed work\n");
 
-			write(auditScript, "restored from a backup\n"); // the clobber, by any route
+			write(auditScript, "restored from a backup\n");
 
 			const seen = notes(out(["check", inRepo(auditScript), "alice"]));
-			expect(seen.permissionDecision).toBeUndefined(); // still nothing refused
+			expect(seen.permissionDecision).toBeUndefined();
 			expect(seen.additionalContext).toContain(
 				"has changed since this session",
 			);
@@ -1872,8 +1635,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			cli(["release", inRepo(rel)], { CLAUDE_CODE_SESSION_ID: "alice" });
 
 		it("warns on the way out with a command that recovers the work, drops the claim anyway, and exits 0", () => {
-			// The window the next-write report cannot see: the clobber lands after
-			// alice's last write.
 			aliceWrites(auditScript, "alice's work\n");
 			commit();
 			write(auditScript, "restored from a backup\n");
@@ -1884,14 +1645,10 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			expect(r.stdout).toContain("Released scripts/evidence-audit.py");
 			expect(r.stderr).toContain("has changed since this session");
 
-			// Released, not merely reported: a refusal here strands the claim for the
-			// holder's whole process, the wedge mantahostels#104 forbids.
 			expect(
 				store.listLocks().some((l: { path: string }) => l.path === auditScript),
 			).toBe(false);
 
-			// The pin is dropped with the claim, so the id is only worth printing
-			// while the loose object survives.
 			const sha = r.stderr.match(/git cat-file -p ([0-9a-f]{40,64})/)?.[1];
 			expect(
 				execFileSync("git", ["cat-file", "-p", sha as string], {
@@ -1912,19 +1669,16 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 
 		it("stays silent on a claim never recorded — unknown is not changed", () => {
 			write(auditScript, "alice's work\n");
-			out(["check", inRepo(auditScript), "alice"]); // claimed, never recorded
+			out(["check", inRepo(auditScript), "alice"]);
 			commit();
 
 			expect(release(auditScript).stderr).toBe("");
 		});
 
 		it("carries the clobber into the dirty refusal, which still refuses (mantahostels#337)", () => {
-			// The commoner shape: the clobbering write is left uncommitted, so the
-			// refusal fires first and the session is told only "commit or discard" —
-			// and committing puts the neighbour's bytes under its own message (mantahostels#63).
 			aliceWrites(auditScript, "alice's work\n");
 			commit();
-			write(auditScript, "restored from a backup\n"); // the clobber, uncommitted
+			write(auditScript, "restored from a backup\n");
 
 			const r = release(auditScript);
 			expect(r.status).toBe(1);
@@ -1932,12 +1686,10 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 				/has uncommitted changes, and nothing here could prove .*, so the claim stands/,
 			);
 			expect(r.stderr).toContain("has changed since this session");
-			// Recovery before the instruction that would bury it.
 			expect(r.stderr.indexOf("has changed since this session")).toBeLessThan(
 				r.stderr.indexOf("has uncommitted changes"),
 			);
 
-			// The claim stands, so the pin stands with it.
 			expect(
 				store.listLocks().some((l: { path: string }) => l.path === auditScript),
 			).toBe(true);
@@ -1951,9 +1703,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 		});
 
 		it("carries the clobber into the uncheckable refusal, which still refuses (mantahostels#420)", () => {
-			// The partial git failure: with .git/HEAD gone `status` exits 128 while
-			// `hash-object` still answers, so cleanliness is unproven and the clobber
-			// is knowable at once.
 			aliceWrites(auditScript, "alice's work\n");
 			commit();
 			write(auditScript, "restored from a backup\n");
@@ -1966,7 +1715,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			expect(r.stderr.indexOf("has changed since this session")).toBeLessThan(
 				r.stderr.indexOf("could not read git status"),
 			);
-			// The pin keeps with the claim, off git's fortnight clock.
 			expect(r.stderr).toContain("the claim and its pin both stand");
 			expect(
 				store.listLocks().some((l: { path: string }) => l.path === auditScript),
@@ -1985,10 +1733,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 		});
 
 		it("carries the clobber into the contended refusal (mantahostels#420)", () => {
-			// The swap has to land between the store's read of the lock and its drop,
-			// and the only window inside that span is a `git` call — so a stub at WFC_GIT
-			// rewrites the claimId as `git status` runs, exactly as a neighbour
-			// retaking the file would.
 			aliceWrites(auditScript, "alice's work\n");
 			commit();
 			write(auditScript, "restored from a backup\n");
@@ -2016,8 +1760,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 		});
 
 		it("refuses dirty in silence on the session's own unfinished edit", () => {
-			// Nothing to report on the claimant's own edit (mantahostels#288), so the refusal
-			// prints alone.
 			aliceWrites(auditScript, "alice's work\n");
 			commit();
 			aliceWrites(auditScript, "alice's next edit\n");
@@ -2032,10 +1774,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 	});
 
 	describe("the third reporting site — a claim broken while its holder lived (mantahostels#349)", () => {
-		/**
-		 * Alice's process ends, or her registry entry is pruned: the lock is left
-		 * recording a pid that is gone, and nothing can repoint it onto a live one.
-		 */
 		const aliceDisappears = () => {
 			const lock = core.readRecord(store.paths.lock(auditScript));
 			fs.writeFileSync(
@@ -2051,8 +1789,8 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			aliceDisappears();
 
 			registerSession(sb, "bob", process.pid);
-			out(["check", inRepo(auditScript), "bob"]); // the break
-			write(auditScript, "bob's replacement\n"); // the clobber
+			out(["check", inRepo(auditScript), "bob"]);
+			write(auditScript, "bob's replacement\n");
 
 			registerSession(sb, "alice", process.pid);
 			const seen = notes(out(["check", inRepo(auditScript), "alice"]));
@@ -2071,8 +1809,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 		});
 
 		it("carries the news ahead of the held-file warning, where the loser is most often standing", () => {
-			// On the guarded tier the breaker holds the file, so the loser's next
-			// write meets it as the neighbour.
 			aliceWrites("docs/doc-map.md", "alice's work\n");
 			const lock = core.readRecord(store.paths.lock("docs/doc-map.md"));
 			fs.writeFileSync(
@@ -2100,7 +1836,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			registerSession(sb, "bob", process.pid);
 			out(["check", inRepo(auditScript), "bob"]);
 
-			// The claim is gone, so the lock store alone would collect the pin here.
 			out(["prune-markers"]);
 			expect(readRefs()).toEqual([`refs/arbiter/${broken.claimId}`]);
 
@@ -2127,11 +1862,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 		expect(readRefs()).toEqual([]);
 	});
 
-	/*
-	 * The pins go in ONE `update-ref --stdin`, which is atomic: a batch built
-	 * wrong rejects whole and collects NOTHING, so a single-orphan test would
-	 * pass over the very failure batching introduced (mantahostels#1899).
-	 */
 	it("collects a whole backlog of pins, not just the first", () => {
 		for (const rel of ["docs/doc-map.md", "AGENTS.md", "CLAUDE.md"])
 			aliceWrites(rel, `alice on ${rel}\n`);
@@ -2143,12 +1873,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 	});
 });
 
-/*
- * The SessionStart registration (mantahostels#1899). The sweep's cost tracks the record
- * backlog rather than the session, so it cannot be held to the hook's 10s
- * budget — `--detach` hands it to a child and returns. The child still has to
- * do the whole job, which is what these prove.
- */
 describe("prune-markers --detach, the SessionStart form", () => {
 	const docMap = "docs/doc-map.md";
 
@@ -2157,7 +1881,6 @@ describe("prune-markers --detach, the SessionStart form", () => {
 		registerSession(sb, "alice", process.pid);
 	});
 
-	/** One tool write by alice, which is what mints the pin swept below. */
 	const aliceWrites = (rel: string, text: string) => {
 		out(["check", inRepo(rel), "alice"]);
 		fs.writeFileSync(inRepo(rel), text);
@@ -2177,16 +1900,12 @@ describe("prune-markers --detach, the SessionStart form", () => {
 
 		expect(cli(["prune-markers", "--detach"]).status).toBe(0);
 
-		/* Polled, not slept: the child is a separate process and nothing here can
-		 * wait on it. A `--detach` that spawned nothing runs this out. */
 		const deadline = Date.now() + 20_000;
 		while (readRefs().length > 0 && Date.now() < deadline)
 			await new Promise((r) => setTimeout(r, 100));
 		expect(readRefs()).toEqual([]);
 	}, 30_000);
 
-	/* So a short session's end neither kills the sweep nor leaves it
-	 * unbounded (#4706). */
 	it("launches its sweep outside the session's scope, as no session, owned by the starter, capped", async () => {
 		const fake = writeSystemdRun(fs.mkdtempSync(path.join(sb.dir, "sdr-")));
 		const r = cli(["prune-markers", "--detach"], {
@@ -2216,7 +1935,6 @@ describe("release — the oracle read it pays for (mantahostels#317)", () => {
 	const claudeBin = () => path.join(sb.dir, "bin", "claude");
 	const calls = () => path.join(sb.dir, "claude-calls");
 
-	/** A `claude` stand-in listing these sessions, recording each call. */
 	const fakeClaude = (ids: string[]) =>
 		writeOracle(
 			claudeBin(),
@@ -2240,7 +1958,6 @@ describe("release — the oracle read it pays for (mantahostels#317)", () => {
 	});
 
 	it("makes no oracle call on a release that succeeds", () => {
-		// ~465 ms per call (mantahostels#317). The ordinary release is run by every skill loop.
 		fakeClaude(["alice"]);
 		expect(run(["release", inRepo(rel)], "alice").status).toBe(0);
 		expect(oracleCalls()).toBe(0);
@@ -2256,9 +1973,6 @@ describe("release — the oracle read it pays for (mantahostels#317)", () => {
 });
 
 describe("the Bash-only writer, end to end — refresh scans, check reports (mantahostels#419)", () => {
-	// mantahostels#364's gap, closed: a session that reaches a watched file only through
-	// `sed -i` attempts no claim, so before this it had no baseline, and a
-	// neighbour's clobber of its work was both unreportable and unrecoverable.
 	const auditScript = "scripts/evidence-audit.py";
 	const guarded = "docs/doc-map.md";
 
@@ -2269,7 +1983,6 @@ describe("the Bash-only writer, end to end — refresh scans, check reports (man
 	const notes = (stdout: string) =>
 		stdout ? JSON.parse(stdout).hookSpecificOutput : {};
 
-	/** One Bash call by alice: the write no hook sees, then the PostToolUse refresh. */
 	const aliceSeds = (rel: string, text: string) => {
 		write(rel, text);
 		out(["refresh", "alice"]);
@@ -2285,7 +1998,7 @@ describe("the Bash-only writer, end to end — refresh scans, check reports (man
 
 	it("names alice's own bytes as recoverable after a route no hook watches", () => {
 		aliceSeds(auditScript, "alice's version bump\n");
-		write(auditScript, "restored from a backup\n"); // the clobber, by any route
+		write(auditScript, "restored from a backup\n");
 
 		const seen = notes(out(["check", inRepo(auditScript), "alice"]));
 		expect(seen.permissionDecision).toBeUndefined();
@@ -2323,8 +2036,6 @@ describe("the Bash-only writer, end to end — refresh scans, check reports (man
 	});
 
 	it("says nothing on a session's very first Bash call, whatever the tier holds (mantahostels#158)", () => {
-		// A migration that read the pre-session tree as changed would open every
-		// session with a wall of clobber reports.
 		registerSession(sb, "carol", process.pid);
 		write(auditScript, "changed long before carol started\n");
 		out(["refresh", "carol"]);
@@ -2351,7 +2062,6 @@ describe("release-issue on an unfinished build unit, and move-issue (#4535, on #
 			body,
 		},
 	});
-	/** `sid` claims #645 and, unless `started` is false, commits citing it. */
 	const claimAs = (
 		sid: string,
 		{ started = true, cites = "Refs #645" } = {},
@@ -2586,7 +2296,6 @@ describe("claim-issue / release-issue — the selection claim (mantahostels#645)
 		});
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/No claim of this session's on #645/);
-		// Bob's still stands: release drops the caller's record and no other.
 		expect(out(["issue-claims"])).toMatch(/bob/);
 	});
 
@@ -2623,12 +2332,7 @@ describe("claim-issue / release-issue — the selection claim (mantahostels#645)
 		expect(r.stdout).toMatch(/#645\talice\tsince /);
 	});
 
-	/*
-	 * The prune reads `claude agents --json` as well as the sessions registry
-	 * (mantahostels#704), so the sweep needs a stand-in for it.
-	 */
 	const pruneBin = () => path.join(sb.dir, "prunebin", "claude");
-	/** The sweeper's env over a `claude` listing `ids`, or failing where null. */
 	const fakePrune = (ids: string[] | null) => {
 		writeOracle(
 			pruneBin(),
@@ -2666,11 +2370,6 @@ describe("claim-issue / release-issue — the selection claim (mantahostels#645)
 		expect(fs.existsSync(f)).toBe(true);
 	});
 
-	/*
-	 * The production shape, which the three above never build (mantahostels#710): this runs
-	 * as a SessionStart hook, where the starting session is not yet registered,
-	 * so the oracle lists everything EXCEPT the sweeper.
-	 */
 	it("sweeps when the oracle does not list the sweeping session (mantahostels#710)", () => {
 		const f = aged();
 		expect(cli(["prune-markers"], fakePrune(["someone-else"])).status).toBe(0);
@@ -2685,15 +2384,12 @@ describe("claim-issue / release-issue — the selection claim (mantahostels#645)
 		expect(fs.existsSync(f)).toBe(true);
 	});
 
-	/* The caller added back is the sweeper's own: its claim must survive a list
-	 * that omits it. */
 	it("spares the sweeping session's own aged claim (mantahostels#710)", () => {
 		registerSession(sb, "sweeper", process.pid, { procStart: "999999999" });
 		cli(["claim-issue", "710"], { CLAUDE_CODE_SESSION_ID: "sweeper" });
 		const f = path.join(store.paths.issueClaimsDir(), "710-sweeper.json");
 		const t = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000;
 		fs.utimesSync(f, t, t);
-		// Something else must be sweepable, or the prune never reaches the oracle.
 		aged();
 		expect(cli(["prune-markers"], fakePrune(["someone-else"])).status).toBe(0);
 		expect(fs.existsSync(f)).toBe(true);
@@ -2713,23 +2409,11 @@ describe("claim-issue / release-issue — the selection claim (mantahostels#645)
 	});
 });
 
-/*
- * Region claims on docs/doc-map.md (mantahostels#848 ruled, mantahostels#970 built). Driven through the
- * CLI because the anchor arrives as argv from lib/file-claim-host.js, and the
- * whole point is what two SESSIONS see of each other.
- */
 describe("region claims — a §B entry, not the whole file", () => {
 	const docMap = "docs/doc-map.md";
 
-	/*
-	 * A SECOND live pid. The sessions registry is keyed by pid, so registering
-	 * two sessions on process.pid leaves only the second — and the first then
-	 * reads as undurable and silently takes no lock at all, which looks exactly
-	 * like the region claim working.
-	 */
 	const neighbourPid = process.ppid;
 
-	/** A map fixture with two entries, each holding a distinctive line. */
 	const writeMap = () =>
 		fs.writeFileSync(
 			inRepo(docMap),
@@ -2751,7 +2435,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 			].join("\n"),
 		);
 
-	/** The same fixture plus a third entry no straddling edit touches. */
 	const writeMapWithThird = () =>
 		fs.appendFileSync(
 			inRepo(docMap),
@@ -2762,7 +2445,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 
 	beforeEach(writeMap);
 
-	/** What lib/file-claim.js runs: path, session, anchor. */
 	const check = (session: string, anchor?: string) =>
 		out([
 			"check",
@@ -2771,7 +2453,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 			...(anchor === undefined ? [] : [anchor]),
 		]);
 
-	/** The held-file warning a write was given (#4249); a deny fails the case. */
 	const warning = (raw: string): string => {
 		const { hookSpecificOutput: hso } = JSON.parse(raw);
 		expect(hso.permissionDecision).toBeUndefined();
@@ -2797,10 +2478,8 @@ describe("region claims — a §B entry, not the whole file", () => {
 		expect(reason).toContain(`${docMap}#B1`);
 	});
 
-	/** An anchor running out of B1's body into B2's heading. */
 	const straddling = "Body of the first entry.\n\n### B2 \u00b7 The second";
 
-	/** Every subject held right now, so a test can say which regions were taken. */
 	const paths = () => store.listLocks().map((l: { path: string }) => l.path);
 
 	it("claims BOTH regions a straddling edit touches, not the file entire (mantahostels#1685)", () => {
@@ -2812,13 +2491,10 @@ describe("region claims — a §B entry, not the whole file", () => {
 	});
 
 	it("leaves a neighbour's OTHER region claimable after a straddling edit", () => {
-		// The whole point: the escalated whole-file claim blocked every region on
-		// the map, this one blocks only the two it rewrites.
 		writeMapWithThird();
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
 		check("alice", straddling);
-		// Nothing to say at all: the claim was free, so the hook prints no JSON.
 		expect(check("bob", "Body of the third entry.")).toBe("");
 		expect(paths()).toContain(`${docMap}#B3`);
 	});
@@ -2851,8 +2527,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 	});
 
 	it("still claims the file entire when the anchor is stale", () => {
-		// The other four arms are untouched: the extent of THIS write is unknown,
-		// so the whole file remains the only honest lock.
 		registerSession(sb, "alice", process.pid);
 		const json = JSON.parse(check("alice", "text that is not in the map"));
 		expect(paths()).toContain(docMap);
@@ -2869,8 +2543,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 	});
 
 	it("tells a Write it took the WHOLE map, and how to release it (mantahostels#2334)", () => {
-		// The claim is right — a Write does rewrite the file — but it was silent,
-		// so its holder never learned it was blocking every other session.
 		registerSession(sb, "alice", process.pid);
 		const notice = JSON.parse(check("alice")).hookSpecificOutput
 			.additionalContext;
@@ -2880,16 +2552,12 @@ describe("region claims — a §B entry, not the whole file", () => {
 	});
 
 	it("says the whole-file notice ONCE per session, not on every write", () => {
-		// mantahostels#122's rule, and the reason the gate is a fresh claim: a session writing
-		// the map five times holds one claim and needs telling once.
 		registerSession(sb, "alice", process.pid);
 		expect(check("alice")).toContain("claims the WHOLE of");
 		expect(check("alice")).toBe("");
 	});
 
 	it("says it for the SIDECAR too, the other regioned path", () => {
-		// mantahostels#1848: the sidecar's keys parse under a different reader, and coverage
-		// that names only docs/doc-map.md has hidden it before.
 		const sidecar = "docs/doc-map-classes.json";
 		registerSession(sb, "alice", process.pid);
 		fs.writeFileSync(inRepo(sidecar), "{}\n");
@@ -2899,7 +2567,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 	});
 
 	it("says nothing to a Write on an unregioned path", () => {
-		// Nothing outside REGIONED has a whole-file/one-region choice to report.
 		registerSession(sb, "alice", process.pid);
 		fs.writeFileSync(inRepo("docs/other.md"), "### B1 · x\n\nBody A.\n");
 		expect(out(["check", inRepo("docs/other.md"), "alice"])).toBe("");
@@ -2915,7 +2582,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 	});
 
 	it("does not LOG the anchorless whole-file claim, which is no fault", () => {
-		// The fallback logs because the anchor could not be placed.
 		registerSession(sb, "alice", process.pid);
 		check("alice");
 		const log = fs.existsSync(sb.errorLog())
@@ -2927,7 +2593,7 @@ describe("region claims — a §B entry, not the whole file", () => {
 	it("warns a region write while a neighbour holds the whole file, naming the HELD subject", () => {
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
-		check("alice"); // whole-file Write
+		check("alice");
 		const reason = warning(check("bob", "Body of the first entry."));
 		expect(reason).toContain(`${docMap} is also held by session alice`);
 		expect(reason).toContain(`it covers ${docMap}#B1`);
@@ -2939,8 +2605,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 		check("alice", "Body of the first entry.");
 		const reason = warning(check("bob"));
 		expect(reason).toContain("alice");
-		// And bob's own lock did not survive the back-off, or alice could never be
-		// released either.
 		const held = store.listLocks().map((l: { path: string }) => l.path);
 		expect(held).toEqual([`${docMap}#B1`]);
 	});
@@ -2974,8 +2638,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 	});
 
 	it("leaves every other guarded path on the whole-file claim", () => {
-		// mantahostels#848 refused a general mechanism at 35%: the other debts were spread over
-		// four different files, so per-region claims there would buy nothing.
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
 		fs.writeFileSync(inRepo("docs/other.md"), "### B1 · x\n\nBody A.\n");
@@ -2987,11 +2649,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 		expect(warning(raw)).toContain("docs/other.md is also held by session");
 	});
 
-	/**
-	 * Release refuses a dirty path, so the map has to be committed first — an
-	 * untracked fixture reads as an uncommitted change and every release below
-	 * would refuse for a reason that is nothing to do with regions.
-	 */
 	const commitMap = () => {
 		gitRepo(sb);
 		execFileSync("git", ["add", "--", docMap], { cwd: sb.repo });
@@ -3014,8 +2671,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 	});
 
 	it("leaves a neighbour's region alone when a bare path is released", () => {
-		// Walking every lock on the file earned a "not by this session" refusal for
-		// a claim the caller never asked about.
 		commitMap();
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
@@ -3032,14 +2687,10 @@ describe("region claims — a §B entry, not the whole file", () => {
 	});
 
 	it("releases the whole-file claim too when the session holds both", () => {
-		// A Write with no anchor then an Edit with one leaves a session holding
-		// both. Stopping at the regions left the file-wide claim standing behind a
-		// release that printed nothing but successes — a claim outliving a
-		// successful release is what mantahostels#121/mantahostels#126 built the command to end.
 		commitMap();
 		registerSession(sb, "alice", process.pid);
-		check("alice"); // whole file
-		check("alice", "Body of the first entry."); // one region
+		check("alice");
+		check("alice", "Body of the first entry.");
 		expect(store.listLocks()).toHaveLength(2);
 		const r = cli(["release", inRepo(docMap)], {
 			CLAUDE_CODE_SESSION_ID: "alice",
@@ -3063,7 +2714,6 @@ describe("region claims — a §B entry, not the whole file", () => {
 describe("alloc-entry — the next free B<n>, taken atomically", () => {
 	const docMap = "docs/doc-map.md";
 
-	/** A second live pid, for the registry's reason above. */
 	const neighbourPid = process.ppid;
 
 	beforeEach(() =>
@@ -3104,8 +2754,6 @@ describe("alloc-entry — the next free B<n>, taken atomically", () => {
 	});
 
 	it("gives a second session the NEXT id, not the same one", () => {
-		// The whole reason it exists: two sessions reading the file in the same
-		// second both write `### B8`, and mantahostels#892 forbids renumbering it away.
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
 		expect(alloc("alice").stdout.trim()).toBe("B8");
@@ -3113,17 +2761,6 @@ describe("alloc-entry — the next free B<n>, taken atomically", () => {
 	});
 
 	it("gives every id out once under real concurrency", async () => {
-		/*
-		 * The claim that carries this whole subcommand: the store's hard-link
-		 * create is mutually exclusive ACROSS PROCESSES. Measured directly at mantahostels#970
-		 * — twelve processes racing 200 shared names produced exactly 200 winners,
-		 * never two and never none — and asserted here through the CLI, because an
-		 * in-process loop would prove nothing about two node processes.
-		 *
-		 * Each session needs a live pid of its own: the registry is keyed by pid,
-		 * so six sessions sharing one leave five undurable, taking no lock and
-		 * colliding for a reason that has nothing to do with atomicity.
-		 */
 		const hosts = Array.from({ length: 6 }, () => spawn("sleep", ["30"]));
 		try {
 			const sessions = hosts.map((h, i) => {
@@ -3242,16 +2879,12 @@ describe("claim validates the region id it is handed (mantahostels#1313)", () =>
 	});
 
 	it("tells a poll loop the refusal is fatal, not contention", () => {
-		// CLAUDE.md prescribes `claim` in a poll loop, on "exits non-zero while
-		// held". Exit 2 is non-zero too, so a loop written to that recipe spins on
-		// a typo for ever unless the text tells it to stop.
 		registerSession(sb, "alice", process.pid);
 		const r = claim(`${docMap}#A`);
 		expect(r.stderr).toContain("RETRYING WILL NEVER CLEAR IT");
 		expect(r.stderr).toContain("exit 2");
 	});
 
-	/** A map whose §B runs from B1 to `last`. */
 	const bigMap = (last: number) => {
 		const many = ["# doc map", "", "v1.0 · 21 August 2026", "", "## Section B"];
 		for (let n = 1; n <= last; n++)
@@ -3270,8 +2903,6 @@ describe("claim validates the region id it is handed (mantahostels#1313)", () =>
 	});
 
 	it("shows the entries AROUND a mistyped entry id, not the first twelve", () => {
-		// B50 is a gap below the high-water mark, so it is a typo rather than an
-		// append slot.
 		registerSession(sb, "alice", process.pid);
 		bigMap(40);
 		fs.appendFileSync(inRepo(docMap), "\n### B60 · The last\n\nBody.\n");
@@ -3294,18 +2925,11 @@ describe("claim validates the region id it is handed (mantahostels#1313)", () =>
 	});
 
 	it("still claims an append slot alloc-entry handed out (mantahostels#970)", () => {
-		// B2 is not in the document: alloc-entry allocates it BEFORE the entry is
-		// written, and a session re-running the claim by hand must not be refused.
 		registerSession(sb, "alice", process.pid);
 		expect(claim(`${docMap}#B2`).status).toBe(0);
 		expect(heldPaths()).toEqual([`${docMap}#B2`]);
 	});
 
-	/*
-	 * §A of the map is rendered from the sidecar and hand-edited by nobody, so
-	 * asking for it by name is refused and routed to the sidecar — the generator
-	 * excepted, which says so (mantahostels#2422).
-	 */
 	it("refuses `#section-a` on the map, routing the caller to the sidecar and its generator, and taking no claim", () => {
 		registerSession(sb, "alice", process.pid);
 		const r = claim(`${docMap}#section-a`);
@@ -3335,9 +2959,6 @@ describe("claim validates the region id it is handed (mantahostels#1313)", () =>
 	});
 
 	it("still mints `section-a` on the write hook's own route, which is ungated", () => {
-		// The refusal above is by-NAME only. An Edit that really lands in §A —
-		// its hand-written prose, which shares the id with the derived rows —
-		// takes the claim from its own anchor and pins the bytes it replaces.
 		registerSession(sb, "alice", process.pid);
 		cli(["check", inRepo(docMap), "alice", "Rows."], {
 			CLAUDE_CODE_SESSION_ID: "alice",
@@ -3385,8 +3006,6 @@ describe("claim validates the region id it is handed (mantahostels#1313)", () =>
 	});
 
 	it("refuses a B<n> BELOW the next free id that no entry uses, naming it, offering alloc-entry and taking no claim", () => {
-		// A gap is a retired id, not a free slot (mantahostels#892): B<n> below the high-water
-		// mark names an entry that was there and is not, so it is a typo.
 		registerSession(sb, "alice", process.pid);
 		fs.appendFileSync(inRepo(docMap), "\n### B5 · The last\n\nBody.\n");
 		const r = claim(`${docMap}#B3`);
@@ -3404,9 +3023,6 @@ describe("claim validates the region id it is handed (mantahostels#1313)", () =>
 	});
 
 	it("SAYS the claim went unvalidated when the map cannot be read", () => {
-		// Silence here reads as an id that was checked and passed, which is the
-		// mantahostels#1313 misreading arriving by a second route (§N5: a fail-open is printed
-		// where a human reads the output).
 		registerSession(sb, "alice", process.pid);
 		fs.rmSync(inRepo(docMap));
 		const r = claim(`${docMap}#B1`);
@@ -3421,7 +3037,6 @@ describe("claim validates the region id it is handed (mantahostels#1313)", () =>
 	});
 
 	it("leaves a `#` in an unregioned path alone", () => {
-		// `#` is legal in a filename, and only docs/doc-map.md takes region claims.
 		registerSession(sb, "alice", process.pid);
 		expect(claim("docs/plan#1.md").status).toBe(0);
 		expect(heldPaths()).toEqual(["docs/plan#1.md"]);
@@ -3429,9 +3044,6 @@ describe("claim validates the region id it is handed (mantahostels#1313)", () =>
 });
 
 describe("warns when a regioned path is claimed with no region (mantahostels#1856)", () => {
-	// A bare `claim docs/doc-map.md` is legitimate — the whole file is a real
-	// subject — and stays exit 0. What it never said is that it denies every
-	// region claim on the file for as long as it is held (mantahostels#1846).
 	const docMap = "docs/doc-map.md";
 	const sidecar = "docs/doc-map-classes.json";
 	const whole = "takes the WHOLE file";
@@ -3483,7 +3095,6 @@ describe("warns when a regioned path is claimed with no region (mantahostels#185
 		const { stderr } = claim(docMap);
 		expect(stderr).toContain("section-a");
 		expect(stderr).toContain("2 `B<n>` entries, B1 to B2");
-		// The map's §A row carries no region of its own (mantahostels#2422).
 		expect(stderr).not.toContain("register row");
 	});
 
@@ -3492,8 +3103,6 @@ describe("warns when a regioned path is claimed with no region (mantahostels#185
 	});
 
 	it("reads the sidecar's keys, which parse under a different reader (mantahostels#1848)", () => {
-		// parseRegions needs `rel` to pick the JSON-key parser. Without it the
-		// sidecar yields the single region `head` and the listing is a lie.
 		fs.writeFileSync(
 			inRepo(sidecar),
 			JSON.stringify(
@@ -3509,8 +3118,6 @@ describe("warns when a regioned path is claimed with no region (mantahostels#185
 	});
 
 	it("offers alloc-entry only where `B<n>` entries exist", () => {
-		// cmdAllocEntry gates on isRegioned alone, so the line is not inert on the
-		// sidecar: pasting it hands out a B1 the JSON file can never carry.
 		fs.writeFileSync(
 			inRepo(sidecar),
 			JSON.stringify({ "docs/alpha.md": { class: "x" } }, null, 2),
@@ -3557,9 +3164,6 @@ describe("warns when a regioned path is claimed with no region (mantahostels#185
 	});
 
 	it("leaves a misspelt region exit 2, naming it, and does NOT also warn", () => {
-		// The two are different verdicts: a misspelt region is fatal (mantahostels#1313), an
-		// omitted one is a legitimate claim. Printing both would read as one
-		// message contradicting itself.
 		const r = claim(`${docMap}#sektion-a`);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("has no region `sektion-a`");
@@ -3574,7 +3178,6 @@ describe("warns when a regioned path is claimed with no region (mantahostels#185
 	});
 
 	it("still takes the claim when the map cannot be read", () => {
-		// Fail open (mantahostels#103 §6): listing the regions is a courtesy, the claim is not.
 		fs.rmSync(inRepo(docMap));
 		const r = claim(docMap);
 		expect(r.status).toBe(0);
@@ -3599,9 +3202,6 @@ describe("warns when a regioned path is claimed with no region (mantahostels#185
 		});
 
 		it("warns once per offending subject, not once per call, naming the sidecar in its own warning", () => {
-			// The gap that hid mantahostels#1848's sidecar from this warning entirely: paired only
-			// with an UNREGIONED neighbour, a `break` after the first warning fails
-			// nothing. docs/doc-map-classes.json is the second regioned path.
 			fs.writeFileSync(
 				inRepo(sidecar),
 				JSON.stringify({ "docs/alpha.md": { class: "x" } }, null, 2),
@@ -3619,8 +3219,6 @@ describe("warns when a regioned path is claimed with no region (mantahostels#185
 		});
 
 		it("keeps the misspelt-region refusal ahead of the warn", () => {
-			// The set is rejected whole at exit 2, so no subject is claimed and the
-			// warn would describe a claim that was never taken.
 			const r = claimAll(docMap, `${docMap}#sektion-a`);
 			expect(r.status).toBe(2);
 			expect(r.stderr).toContain("has no region `sektion-a`");
@@ -3629,15 +3227,6 @@ describe("warns when a regioned path is claimed with no region (mantahostels#185
 	});
 });
 
-/*
- * The unallocated-id warning (mantahostels#1424). `alloc-entry` already hands out a `B<n>`
- * and claims its append slot atomically; what nothing could see was whether a
- * session used it, because a hand-written `### B<n>` takes a claim on whatever
- * the edit anchor landed in and no id-level protection at all.
- *
- * Driven through the CLI, because the ids arrive as a sixth argv entry from
- * lib/file-claim-host.js.
- */
 describe("warns on a `### B<n>` this session never allocated (mantahostels#1424)", () => {
 	const docMap = "docs/doc-map.md";
 
@@ -3659,7 +3248,6 @@ describe("warns on a `### B<n>` this session never allocated (mantahostels#1424)
 		),
 	);
 
-	/** What lib/file-claim.js runs: path, session, anchor, length, new ids. */
 	const check = (session: string, ids: string, anchor = "Body.") =>
 		out(["check", inRepo(docMap), session, anchor, String(anchor.length), ids]);
 
@@ -3682,23 +3270,17 @@ describe("warns on a `### B<n>` this session never allocated (mantahostels#1424)
 	});
 
 	it("says nothing when the write introduces no heading", () => {
-		// An edit inside an entry the session already holds is the common case,
-		// and the one this must not shout at.
 		registerSession(sb, "alice", process.pid);
 		expect(check("alice", "")).toBe("");
 	});
 
 	it("says nothing while this session holds the file whole", () => {
-		// alloc-entry refuses outright against a whole-file holder, so its holder
-		// has already excluded the neighbour a duplicate id needs.
 		registerSession(sb, "alice", process.pid);
 		store.acquire(docMap, store.identify("alice"));
 		expect(context(check("alice", "B8"))).not.toContain("B8");
 	});
 
 	it("warns rather than denying, even on an id nobody allocated", () => {
-		// The check cannot tell an unallocated id from one the session is
-		// legitimately re-typing, so a refusal would block real work.
 		registerSession(sb, "alice", process.pid);
 		const json = JSON.parse(check("alice", "B8"));
 		expect(json.hookSpecificOutput.permissionDecision).toBeUndefined();
@@ -3712,7 +3294,6 @@ describe("warns on a `### B<n>` this session never allocated (mantahostels#1424)
 	});
 
 	it("ignores ids forwarded for a path that takes no region claims", () => {
-		// Only docs/doc-map.md has entry ids to allocate (mantahostels#848).
 		registerSession(sb, "alice", process.pid);
 		expect(
 			out(["check", inRepo("docs/other.md"), "alice", "", "0", "B8"]),
@@ -3743,8 +3324,6 @@ describe("list says when a claim is one region, not the file (mantahostels#1313)
 	});
 
 	it("leaves the path column a bare subject, greppable by filename", () => {
-		// `session-arbiter list | grep doc-map.md` is a documented move, so the
-		// marker rides after the holder rather than inside the path.
 		registerSession(sb, "alice", process.pid);
 		store.acquire(`${docMap}#B190`, store.identify("alice"));
 		const line = out(["list"]).trim().split("\n")[0];
@@ -3753,8 +3332,6 @@ describe("list says when a claim is one region, not the file (mantahostels#1313)
 });
 
 describe("releasing a region the rest of the file's dirt no longer pins (mantahostels#1434)", () => {
-	// mantahostels#1404 end to end: two regions committed cleanly, release refusing both on a
-	// neighbour's uncommitted edit elsewhere in the file.
 	const docMap = "docs/doc-map.md";
 
 	const doc = (b196: string, b197: string) =>
@@ -3807,9 +3384,6 @@ describe("releasing a region the rest of the file's dirt no longer pins (mantaho
 	});
 
 	it("drops a claim on a region that has vanished from the document", () => {
-		// The wedge a refusal here would create: nothing can ever make a region
-		// that exists in neither revision clean, and force and plain release both
-		// reach the same test. It has no bytes to hand anyone, so it goes.
 		store.acquire(`${docMap}#B999`, alice());
 		expect(release(`${docMap}#B999`).status).toBe(0);
 		expect(store.listLocks()).toEqual([]);
@@ -3820,21 +3394,14 @@ describe("release-committed — the claim goes back when the commit lands (manta
 	const docMap = "docs/doc-map.md";
 	const sidecar = "docs/doc-map-classes.json";
 
-	/*
-	 * A SECOND live pid, for the region suite's reason: the sessions registry is
-	 * keyed by pid, so registering a neighbour on process.pid would evict alice
-	 * and leave her undurable, taking no lock at all.
-	 */
 	const neighbourPid = process.ppid;
 
-	/** post-commit's call: the landed commit's paths, no positional session. */
 	const releaseCommitted = (sid: string, paths: string[]) =>
 		cli(["release-committed", ...paths], { CLAUDE_CODE_SESSION_ID: sid });
 
 	const held = (subject: string) =>
 		store.listLocks().some((l: { path: string }) => l.path === subject);
 
-	/** A committed path that takes no regions. */
 	const environment = () => {
 		const other = "docs/environment.md";
 		fs.writeFileSync(inRepo(other), "notes\n");
@@ -3977,7 +3544,6 @@ describe("release-committed — the claim goes back when the commit lands (manta
 
 		const r = releaseCommitted("alice", [docMap]);
 
-		// One line, unlike `release`, which prints the whole recovery ladder.
 		expect(r.status).toBe(0);
 		expect(r.stdout.trim().split("\n")).toHaveLength(1);
 		expect(r.stdout).toMatch(new RegExp(`^Kept ${docMap} — `));
@@ -3995,15 +3561,9 @@ describe("release-committed — the claim goes back when the commit lands (manta
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("");
 		expect(held(docMap)).toBe(true);
-		// The fail-open log, not stderr: identify()'s "no live session entry for
-		// (no session id)" goes through sayOnce, which writes there — so returning
-		// ahead of it is what keeps a person's terminal commits out of a log
-		// `npm run status` reports on.
 		expect(fs.existsSync(sb.errorLog())).toBe(false);
 	});
 
-	/** One tool write by alice: the PreToolUse check, then the PostToolUse record,
-	 * which is what pins the bytes a later clobber is reported against. */
 	const aliceWrites = (rel: string, text: string) => {
 		out(["check", inRepo(rel), "alice"]);
 		fs.writeFileSync(inRepo(rel), text);
@@ -4014,8 +3574,6 @@ describe("release-committed — the claim goes back when the commit lands (manta
 		live(sb, "alice");
 		aliceWrites(docMap, "alice's work\n");
 		commitAll(sb, "alice");
-		// A write by a route no hook watches, left uncommitted: `release` refuses on
-		// the dirt, and this is the last run that still holds the pin.
 		fs.writeFileSync(inRepo(docMap), "restored from a backup\n");
 
 		const r = releaseCommitted("alice", [docMap]);
@@ -4023,7 +3581,6 @@ describe("release-committed — the claim goes back when the commit lands (manta
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("has changed since this session");
 		expect(held(docMap)).toBe(true);
-		// The pin survives the refusal, so the recovery command still resolves.
 		const sha = r.stderr.match(/git cat-file -p ([0-9a-f]{40,64})/)?.[1];
 		expect(
 			execFileSync("git", ["cat-file", "-p", sha as string], {
@@ -4041,10 +3598,6 @@ describe("release-committed — the claim goes back when the commit lands (manta
 
 		const r = releaseCommitted("alice", [docMap]);
 
-		// The refusal keeps the claim, so `dropContentRef` never ran: a reader told
-		// git's fortnight had started may skip the diff, or treat a recoverable
-		// version as expiring. Asserted on the OPENER, not on "both stand", which
-		// the two `release`-path closings also carry.
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("Nothing was released here");
 		expect(r.stderr).not.toContain("dropped either way");
@@ -4054,7 +3607,6 @@ describe("release-committed — the claim goes back when the commit lands (manta
 	it("keeps the released branch's closing, where the pin really did go", () => {
 		live(sb, "alice");
 		aliceWrites(docMap, "alice's work\n");
-		// The file is clean, so unlike the refusal above the release goes through.
 		fs.writeFileSync(inRepo(docMap), "restored from a backup\n");
 		commitAll(sb, "clobbered");
 
@@ -4075,18 +3627,11 @@ describe("release-committed — the claim goes back when the commit lands (manta
 	});
 });
 
-/*
- * #2148: a holder whose own hunks have all landed gives the file back, even
- * where a neighbour's uncommitted hunks still sit in it — and only then.
- */
 describe("releasing once the holder's own hunks have landed (#2148)", () => {
 	const notes = "docs/notes.md";
 	const seed = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\n";
-	/** A neighbour's hunk, on disk and uncommitted before alice ever writes. */
 	const theirs = seed.replace("one", "ONE");
-	/** Alice's write: the neighbour's hunk plus one of her own, far from it. */
 	const both = theirs.replace("nine", "NINE");
-	/** HEAD once alice has committed her hunk alone. */
 	const herHunkOnly = seed.replace("nine", "NINE");
 
 	const git = (...args: string[]) =>
@@ -4095,14 +3640,12 @@ describe("releasing once the holder's own hunks have landed (#2148)", () => {
 	const held = () =>
 		store.listLocks().some((l: { path: string }) => l.path === notes);
 
-	/** One tool write by alice: the PreToolUse check, then the PostToolUse record. */
 	const aliceWrites = (text: string) => {
 		out(["check", inRepo(notes), "alice"]);
 		fs.writeFileSync(inRepo(notes), text);
 		out(["record", inRepo(notes), "alice"]);
 	};
 
-	/** Commit `text` as the file's next version, leaving the disk as it was. */
 	const commitOnly = (text: string) => {
 		const disk = fs.readFileSync(inRepo(notes), "utf8");
 		fs.writeFileSync(inRepo(notes), text);
@@ -4162,10 +3705,6 @@ describe("releasing once the holder's own hunks have landed (#2148)", () => {
 		expect(held()).toBe(true);
 	});
 
-	/*
-	 * #2539: the overlay reads the release's verdict, so a file the release
-	 * left with only the neighbour's dirt is no longer this session's to carry.
-	 */
 	describe("the overlay's attribution after it", () => {
 		const mine = () => attributeDirty([notes], { sessionId: "alice" }).mine;
 		const releaseCommitted = () =>
@@ -4247,7 +3786,6 @@ describe("releasing once the holder's own hunks have landed (#2148)", () => {
 		git("add", "--", notes);
 		aliceWrites(both);
 		commitOnly(herHunkOnly);
-		// commitOnly committed the index; stage the FIVE hunk again over it.
 		fs.writeFileSync(inRepo(notes), herHunkOnly.replace("five", "FIVE"));
 		git("add", "--", notes);
 		fs.writeFileSync(inRepo(notes), both);
@@ -4259,7 +3797,6 @@ describe("releasing once the holder's own hunks have landed (#2148)", () => {
 	it("counts a write no hook re-pinned as the holder's own, and keeps the claim without offering --not-mine", () => {
 		aliceWrites(both);
 		commitOnly(herHunkOnly);
-		// Most often the holder's own `sed -i`, which mints no record.
 		fs.writeFileSync(inRepo(notes), both.replace("five", "FIVE"));
 
 		const r = release("--not-mine");
@@ -4319,7 +3856,6 @@ describe("releasing once the holder's own hunks have landed (#2148)", () => {
 			},
 		]);
 
-		// A hand release names no commit.
 		cli(["release-committed", notes], { CLAUDE_CODE_SESSION_ID: "alice" });
 		expect(rows()[1]).toMatchObject({ path: notes, commit: null });
 		release("--not-mine");
@@ -4340,7 +3876,6 @@ describe("releasing once the holder's own hunks have landed (#2148)", () => {
 
 	it("takes no preBlob where the file holds an earlier edit of the session's own — a resumed retake (mantahostels#63)", () => {
 		aliceWrites(both.replace("five", "FIVE"));
-		// The process ends and its lock goes; the resumed session writes again.
 		fs.rmSync(core.paths.lock(notes));
 		aliceWrites(both.replace("five", "FIVE"));
 		commitOnly(herHunkOnly);
@@ -4352,14 +3887,9 @@ describe("releasing once the holder's own hunks have landed (#2148)", () => {
 	});
 });
 
-/*
- * #383: every seat keeps its claims in the first seat's store, so a hold taken
- * on one plan refuses a session on another.
- */
 describe("one claim store across seats (#383)", () => {
 	const seat = (name: string) => path.join(path.dirname(sb.home), name);
 
-	/** Run the CLI as a session registered under `dir` alone. */
 	const runOn = (dir: string, sessionId: string, args: string[]) => {
 		fs.mkdirSync(path.join(dir, "sessions"), { recursive: true });
 		fs.writeFileSync(
@@ -4412,10 +3942,6 @@ describe("one claim store across seats (#383)", () => {
 	});
 });
 
-/*
- * Spawned, not run in-process: runInProcess returns only once the script
- * exits, and the release, death and signal cases act WHILE the wait runs.
- */
 describe("wait: one call waits on an issue claim (#540)", () => {
 	const waitAs = (
 		sid: string,
@@ -4453,20 +3979,17 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 		return { child, done };
 	};
 
-	/** What `list` says `sid` is waiting on, or null where it names no wait. */
 	const wantOf = (sid: string) =>
 		cli(["list"], { CLAUDE_CODE_SESSION_ID: sid })
 			.stdout.split("\n")
 			.find((l) => l.startsWith(`WAITING  ${sid} wants `)) ?? null;
 
-	/** Until the wait has registered its want. */
 	const started = async (sid: string) => {
 		for (let i = 0; i < 200 && wantOf(sid) === null; i++)
 			await new Promise((r) => setTimeout(r, 25));
 		expect(wantOf(sid)).not.toBeNull();
 	};
 
-	/** alice claims issue 540, and bob is live to wait on it. */
 	const aliceHolds = () => {
 		const alice = live(sb, "alice");
 		expect(store.claimIssue(540, alice).status).toBe("claimed");
@@ -4474,9 +3997,6 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 		return alice;
 	};
 
-	/* A pipe can be non-blocking — a module this process loads that touches
-	 * process.stdout sets that on the pipe itself, which the preload stands in
-	 * for. */
 	it("waits out a full non-blocking stdout pipe, keeping its verdict and its exit code (#1635)", () => {
 		live(sb, "bob");
 		const preload = path.join(sb.dir, "touch-stdout.js");
@@ -4541,14 +4061,8 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 		expect(r.status).toBe(4);
 	});
 
-	/*
-	 * #542: the oracle's early exits. The stand-in logs each call, so the
-	 * 30 s read ceiling is asserted on a count.
-	 */
 	describe("HOLDER-ENDED and DEADLOCK (#542)", () => {
 		const calls = () => path.join(sb.dir, "oracle-calls");
-		/** The oracle listing alice in `aliceState` and `others` working, then
-		 * exiting `exit`. */
 		const oracleSays = (aliceState: string, others = ["bob"], exit = 0) => {
 			const rows = [
 				buildListedRow({ sessionId: "alice", state: aliceState }),
@@ -4595,9 +4109,6 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 			expect(oracleReads()).toBe(1);
 		});
 
-		/* #3561: each later waiter starts once
-		 * the first has published, past any single-flight overlap, so only the
-		 * shared reading saves its listing. */
 		it("starts one listing between three staggered waiters inside one TTL", async () => {
 			aliceHolds();
 			live(sb, "carol");

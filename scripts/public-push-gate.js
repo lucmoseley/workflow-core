@@ -29,7 +29,6 @@
  * refuses, a clone with no fetched remote naming the tracker included: the
  * leak is one-way.
  */
-
 const { resolveKey } = require("./lib/workflow-core-config.js");
 const {
 	names,
@@ -44,28 +43,18 @@ const { execGit, spawnGitSync } = require("./lib/git.js");
 
 const REFUSE = 2;
 
-/**
- * Printed where a fault stops the judgement before the gate knows the code
- * repo is apart, and the push goes through (#1954).
- */
 const unchecked = buildUnchecked(
 	"public-push-gate",
 	"tracker history in the push",
 );
 
-/**
- * The local shas the ref list pushes, deletions left out.
- * @param {string} stdin
- */
+/** @param {string} stdin */
 const parsePushedShas = (stdin) =>
 	parseRefLines(stdin)
 		.map(({ sha }) => sha)
 		.filter((sha) => !isZeroSha(sha));
 
-/**
- * Every remote-tracking ref of `remotes`. Throws where git cannot list them.
- * @param {string[]} remotes
- */
+/** @param {string[]} remotes */
 const readRefsOf = (remotes) =>
 	execGit(
 		[
@@ -79,8 +68,6 @@ const readRefsOf = (remotes) =>
 		.filter(Boolean);
 
 /**
- * Whether `sha` shares an ancestor with any of `refs`. merge-base exits 1
- * where there is none; any other failure (a bad object, no git) throws.
  * @param {string} sha
  * @param {string[]} refs
  */
@@ -94,18 +81,14 @@ function hasSharedHistory(sha, refs) {
 	throw new Error(`git merge-base ${sha} exited ${status}`);
 }
 
-/**
- * Refuse, naming why and the way out.
- * @param {string[]} lines
- */
+/** @param {string[]} lines */
 function refuse(lines) {
 	writeFd(2, [...lines, ""].join("\n"));
 	return REFUSE;
 }
 
 /**
- * The refusal where no tracker history is on hand to compare against.
- * @param {string[]} remotes the remotes naming the tracker, none fetched
+ * @param {string[]} remotes
  * @param {string} tracker
  * @param {string} url
  */
@@ -118,8 +101,8 @@ function refuseUnfetched(remotes, tracker, url) {
 
 /**
  * @param {string} stdin
- * @param {string} url the remote's url, as git hands it to the hook
- * @param {string} tree the pushing tree
+ * @param {string} url
+ * @param {string} tree
  * @returns {number}
  */
 function judge(stdin, url, tree) {
@@ -145,7 +128,8 @@ function judge(stdin, url, tree) {
 	let leaking;
 	try {
 		const remotes = readTrackerRemotes(tracker);
-		// for-each-ref given no pattern lists every ref, not none.
+		// `git for-each-ref` with no pattern lists every ref:
+		// https://git-scm.com/docs/git-for-each-ref
 		const refs = remotes.length === 0 ? [] : readRefsOf(remotes);
 		if (refs.length === 0) return refuseUnfetched(remotes, tracker, url);
 		leaking = shas.filter((sha) => hasSharedHistory(sha, refs));

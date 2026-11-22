@@ -1,46 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-spare-warm.js — how long the daemon's replacement bg-spare takes to
- * become resident after a `claude --bg` launch claims one.
- *
- * WHAT IT IS FOR (mantahostels#2588). `dispatch-sessions.js` sleeps
- * WFC_DISPATCH_STAGGER_SECONDS between launches so the NEXT member's
- * admission re-read counts the pair the previous member's launch caused. This
- * is the measurement behind that interval.
- *
- * THE EVENT IT KEYS OFF is the daemon's own log line, not a process scan:
- *   [<iso>] [bg] bg spare spawned host pid=<n>
- * written the moment a claim is served, ~15 ms after the `claimed-spare` line
- * above it. A `ps` sweep would find the same process a poll interval late and
- * could not say when it started; the log timestamp is exact.
- *
- * WHAT IT REPORTS is seconds from that line to the PAIR's RSS holding still —
- * STABLE_SAMPLES consecutive readings within STABLE_MB of each other.
- * A plateau, not a completion: a spare that is claimed mid-measurement keeps
- * growing and is reported as such rather than timed out silently.
-
- *
- * TWO MODES, AND ONLY ONE OF THEM IS FREE:
- *   --watch   waits for the next spawn ANY session on this machine causes and
- *             times it. Costs nothing and starts nothing.
- *   --probe   fires one `claude --bg` itself to cause the spawn. That is a real
- *             background session against a real allowance — a founder call,
- *             never something to run unasked (mantahostels#2553). Refused where
- *             its auth would not bill the subscription (lib/launch-auth.js).
- *
- * IT MEASURES, IT NEVER WRITES. Setting WFC_DISPATCH_STAGGER_SECONDS's
- * default from what this prints is a hand edit to dispatch-sessions.js.
- *
- * Usage: `USAGE` below, which `--help` prints.
- *
- * Mutated at mantahostels#2588, four of them, each failing exactly its own test: timing the
- * logged host pid alone rather than the pair, which reports a plateau before
- * the memory lands; reading ppid off the FIRST `)` in `stat` rather than the
- * last, which a comm field containing one breaks; dropping the carried partial
- * line, so a spawn split across two reads is never seen; and returning an exit
- * code without setting `process.exitCode`, which reads as 0 through every
- * in-process caller.
- */
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
@@ -55,26 +13,13 @@ const { requiredGroup } = require("./lib/regex-group");
 const { readParentOf } = require("./lib/proc-stat.js");
 const { procRoot } = require("./lib/proc-root.js");
 
-/** Sampling interval, in ms. Fast enough to resolve a one-second plateau. */
 const SAMPLE_MS = 250;
-/** Consecutive samples within STABLE_MB that count as a plateau: 6 x 250 ms =
- * 1.5 s of stillness, chosen so a pause between two allocation bursts is not
- * read as the end of growth. A GUESS against the shape of the curve, not a
- * measurement — the first real run is what tells whether it is long enough. */
 const STABLE_SAMPLES = 6;
-/** MB of drift two consecutive samples may show and still count as still. A
- * GUESS: 2 MB is ~0.4% of the ~500 MB pair this measures, small enough that
- * real growth breaks it and large enough to ride out GC noise. */
 const STABLE_MB = 2;
-/** Seconds a `--watch` run waits for a spawn before reporting none. 900 s is a
- * ceiling on the WAIT, not on the thing measured: the plateau itself is
- * expected in seconds. */
 const DEFAULT_TIMEOUT_S = 900;
 
-/** The line the daemon writes when it refills the pool. */
 const SPAWN_LINE = /^\[([^\]]+)\].*bg spare spawned host pid=(\d+)/;
 
-/** Every daemon.log on this machine. */
 function daemonLogs() {
 	return configDirs()
 		.map((d) => path.join(d, "daemon.log"))
@@ -87,20 +32,12 @@ function daemonLogs() {
 		});
 }
 
-/**
- * A pid's RSS in MB, or null once it is gone.
- * @param {number} pid
- */
+/** @param {number} pid */
 function readRssMb(pid) {
 	try {
 		const statm = fs
 			.readFileSync(`${procRoot()}/${pid}/statm`, "utf8")
 			.split(/\s+/);
-		/* Field 2 is resident pages. `os.constants` carries no page size; 4096 is
-		 * this machine's (mantahostels#2588). It is NOT inert if wrong: STABLE_MB is a
-		 * tolerance in the MB computed here,
-		 * so a 16 KiB page would make it 8 MB of real RSS and declare the
-		 * plateau early. Re-check it before trusting a reading off another box. */
 		return Math.round((Number(statm[1]) * 4096) / (1024 * 1024));
 	} catch {
 		return null;
@@ -108,7 +45,6 @@ function readRssMb(pid) {
 }
 
 /**
- * Every process whose parent is `pid`, from the process tree.
  * @param {number} pid
  * @returns {number[]}
  */
@@ -123,24 +59,14 @@ function readChildrenOf(pid) {
 	}
 	for (const e of entries) {
 		if (!/^\d+$/.test(e)) continue;
-		/* Unread where the process exited between readdir and read. */
 		if (readParentOf(e) === pid) kids.push(Number(e));
 	}
 	return kids;
 }
 
 /**
- * THE PAIR'S RSS, not the logged process's (mantahostels#2588). `bg spare spawned host
- * pid=` names the `bg-pty-host`, which settles near-instantly at ~70-110 MB;
- * the `bg-spare` forked beneath it is the 150-520 MB half, and it is the pair
- * that admission prices and the stagger must wait for. Timing the host alone
- * would report a plateau seconds before the memory actually lands.
- *
- * The child set is re-read every sample: at the first sample the fork may not
- * have happened yet, and a pair whose child appears late must not be timed as
- * if it never will.
  * @param {number} hostPid
- * @returns {number | null} null once the host itself is gone
+ * @returns {number | null}
  */
 function pairRssMb(hostPid) {
 	const host = readRssMb(hostPid);
@@ -156,19 +82,10 @@ function pairRssMb(hostPid) {
 const sleep = (/** @type {number} */ ms) =>
 	new Promise((r) => setTimeout(r, ms));
 
-/**
- * The next `spare spawned` line written to any daemon log after this call, as
- * `{pid, at, log}` — or null on timeout. Polls the logs' tails rather than
- * watching them: a rotated or truncated log would break a watcher, and a poll
- * at this cadence costs a stat and a short read.
- * @param {number} deadline epoch ms to give up at
- */
+/** @param {number} deadline */
 async function nextSpawn(deadline) {
 	const offsets = readStartOffsets();
 	if (offsets.size === 0) return null;
-	/* The tail of the last read, per log, carried forward: a read ends wherever
-	 * the daemon happened to be writing, so a spawn line can be split across two
-	 * of them and would otherwise be dropped as two non-matches. */
 	/** @type {Tails} */
 	const tails = { offsets, partial: new Map(), vanished: new Set() };
 	while (Date.now() < deadline) {
@@ -181,11 +98,7 @@ async function nextSpawn(deadline) {
 	return null;
 }
 
-/**
- * Every daemon log's current size, the offset its first read starts from —
- * 0 where it will not stat.
- * @returns {Map<string, number>}
- */
+/** @returns {Map<string, number>} */
 function readStartOffsets() {
 	const offsets = new Map();
 	for (const f of daemonLogs()) {
@@ -198,16 +111,10 @@ function readStartOffsets() {
 	return offsets;
 }
 
-/**
- * Per log: the offset read up to, the carried partial line, and whether it
- * has already been reported gone.
- * @typedef {{ offsets: Map<string, number>, partial: Map<string, string>, vanished: Set<string> }} Tails
- */
+/** @typedef {{ offsets: Map<string, number>, partial: Map<string, string>, vanished: Set<string> }} Tails */
 
 /**
- * Read one log from `from` on, and return the first spawn line in what it
- * added, or null.
- * @param {Tails} tails accumulator: the watch's tail state, advanced past what was read
+ * @param {Tails} tails
  * @param {string} f
  * @param {number} from
  * @returns {{ pid: number, at: number, log: string } | null}
@@ -215,11 +122,7 @@ function readStartOffsets() {
 function pollLog(tails, f, from) {
 	const size = readCurrentSize(tails.vanished, f);
 	if (size === null) return null;
-	/* Back after a rotation: read it from the start, and let it say so
-	 * again if it goes a second time. */
 	tails.vanished.delete(f);
-	/* A shrunken file was rotated or truncated: re-baseline rather than
-	 * read a negative length, which would throw and lose the whole run. */
 	if (size < from) {
 		tails.offsets.set(f, size);
 		return null;
@@ -228,15 +131,12 @@ function pollLog(tails, f, from) {
 	const text = readSpan(f, from, size);
 	tails.offsets.set(f, size);
 	const lines = ((tails.partial.get(f) || "") + text).split("\n");
-	/* The last element is whatever followed the final newline — empty on a
-	 * clean boundary, a half-written line otherwise. Either way it is not a
-	 * complete line yet, so it waits for the next read. */
 	tails.partial.set(f, lines.pop() ?? "");
 	return firstSpawn(lines, f);
 }
 
 /**
- * @param {Set<string>} vanished accumulator: a log found gone is added, and said once
+ * @param {Set<string>} vanished
  * @param {string} f
  * @returns {number | null}
  */
@@ -244,9 +144,6 @@ function readCurrentSize(vanished, f) {
 	try {
 		return fs.statSync(f).size;
 	} catch {
-		/* Rotated away, or the config dir went. Said once rather than
-		 * skipped in silence: a run whose ONLY log vanished spins to the
-		 * deadline and reports "no spare was spawned". */
 		if (!vanished.has(f)) {
 			vanished.add(f);
 			writeFd(2, `daemon log gone mid-watch, no longer read: ${f}\n`);
@@ -272,9 +169,8 @@ function readSpan(f, from, size) {
 }
 
 /**
- * The first complete spawn line with a parseable timestamp, or null.
  * @param {string[]} lines
- * @param {string} f the log they came from
+ * @param {string} f
  */
 function firstSpawn(lines, f) {
 	for (const line of lines) {
@@ -288,12 +184,9 @@ function firstSpawn(lines, f) {
 }
 
 /**
- * Sample `pid` until its RSS holds still, and report the wait from `spawnedAt`.
- * `verdict` is `plateau`, `gone` (the process exited before settling — a spare
- * claimed or reaped mid-measurement) or `timeout`.
  * @param {number} pid
- * @param {number} spawnedAt epoch ms the daemon logged the spawn at
- * @param {number} deadline epoch ms to give up at
+ * @param {number} spawnedAt
+ * @param {number} deadline
  */
 async function timeToPlateau(pid, spawnedAt, deadline) {
 	/** @type {{t: number, mb: number}[]} */
@@ -307,8 +200,6 @@ async function timeToPlateau(pid, spawnedAt, deadline) {
 		const prev = samples.at(-2);
 		steady = prev && Math.abs(mb - prev.mb) <= STABLE_MB ? steady + 1 : 0;
 		if (steady >= STABLE_SAMPLES) {
-			/* The plateau began at the FIRST of the steady samples, not the last:
-			 * the run after it is what proved the plateau, not what reached it. */
 			const first = samples.at(-1 - steady);
 			if (first === undefined)
 				throw new Error(
@@ -332,7 +223,6 @@ async function timeToPlateau(pid, spawnedAt, deadline) {
 	};
 }
 
-/** The one-turn throwaway session `--probe` spends. */
 const PROBE_PROMPT = "Reply with the single word ok. Do nothing else.";
 
 function launchProbe(/** @type {string} */ prompt) {
@@ -347,19 +237,13 @@ function launchProbe(/** @type {string} */ prompt) {
 const USAGE =
 	"usage: node scripts/measure-spare-warm.js (--watch | --probe) [--timeout-seconds <n>] [--prompt <text>] [--json]";
 
-/* The exit code is SET as well as returned. `runInProcessAsync` reads it off
- * `process.exitCode` and never off what main returned, so a script that only
- * returns one is untestable through that seam — it reads 0 on every path. */
 async function main() {
 	const code = await runMain();
 	process.exitCode = code;
 	return code;
 }
 
-/**
- * The options, or the exit code a bad command line ends on.
- * @returns {number | { json: boolean, probe: boolean, timeoutS: number, prompt: string }}
- */
+/** @returns {number | { json: boolean, probe: boolean, timeoutS: number, prompt: string }} */
 function readOptions() {
 	const parsed = parseOrCode(process.argv.slice(2), {
 		usage: USAGE,
@@ -416,8 +300,6 @@ async function runMain() {
 	}
 	const deadline = Date.now() + timeoutS * 1000;
 
-	/* The watcher is armed BEFORE the probe launches, so the spawn the probe
-	 * causes cannot land in the window between the two. */
 	const pending = nextSpawn(deadline);
 	let probeBin = null;
 	if (probe) probeBin = launchProbe(prompt);

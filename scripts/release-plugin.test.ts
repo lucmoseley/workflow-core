@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins release-plugin.js: the tag it cuts holds the tree rendered from HEAD,
- * and each refusal holds, among them a dirty tree, a red core, a marketplace
- * pinned elsewhere, a missing or malformed migration note, and a Verify that
- * fails against a dry-run adopter.
- *
- * Each release is cut in a throwaway repo with hooks off, and gh is a stub, so
- * no tag or issue reaches GitHub. Every case drives the program in-process
- * through its CLI; none imports a helper, which §G6 forbids exporting for a
- * test alone (#1369).
- *
- * A release is what every adopter installs, so loosening a refusal ships a
- * broken tag to all of them (#4, #6).
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -36,13 +22,8 @@ const write = (rel: string, body: string) => {
 	fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
 	fs.writeFileSync(path.join(dir, rel), body);
 };
-/* Main holds HEAD unless a case says otherwise: a release ships only a commit
- * `origin/main` holds. */
 const landed = () => git("update-ref", "refs/remotes/origin/main", "HEAD");
-/* The clock every cut reads, so a gap since a prior tag is exact. */
 const NOW = Date.parse("2026-11-15T12:00:00Z");
-/* A prior release tag at HEAD, cut `daysAgo` before now: past the 7-day
- * cadence by default, so only the cadence cases meet its refusal (#5231). */
 const priorRelease = (tag: string, daysAgo = 8) =>
 	execFileSync("git", ["tag", "-a", tag, "-m", "prior release", "HEAD"], {
 		cwd: dir,
@@ -99,8 +80,6 @@ const buildMigrationNote = (verify: string, residue = "{}") =>
 		"```",
 		"",
 	].join("\n");
-/* The `--dry-run-adopter` tests below each need a second checkout pinning
- * plugin `p` at some ref — only the ref differs between them. */
 const adopterFixture = (tmp: string, ref: string) => {
 	const adopter = path.join(tmp, "adopter");
 	fs.mkdirSync(path.join(adopter, ".claude"), { recursive: true });
@@ -193,8 +172,6 @@ describe("release-plugin", () => {
 		expect(
 			JSON.parse(git("show", "v2.3.4:.claude-plugin/plugin.json")).version,
 		).toBe("2.3.4");
-		// #117: the shipped marketplace.json must pin the tag actually cut, not
-		// just exist — `claude plugin marketplace add <url>#v2.3.4` reads this.
 		const shippedMarketplace = JSON.parse(
 			git("show", "v2.3.4:.claude-plugin/marketplace.json"),
 		);
@@ -411,7 +388,6 @@ describe("release-plugin", () => {
 		git("commit", "-qm", "declare a failing test command");
 		const r = run();
 		expect(r.status).toBe(1);
-		// A suite's verdict is on stdout, which once reached the refusal blank (#1268).
 		expect(r.stderr).toMatch(/the core's suite failed.*\n3 tests failed/);
 		expect(git("tag", "--list")).toBe("");
 	});
@@ -568,9 +544,6 @@ describe("release-plugin", () => {
 	});
 
 	it("refuses when a given adopter's own upgrade() call returns non-zero, passing on its reason", () => {
-		// The adopter's pin (v9.9.9) is newer than the release under test
-		// (v2.3.4), so upgrade() takes its own pin-ahead-of-install refusal
-		// (upgrade.js).
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dry-run-adopter-"));
 		try {
 			const adopter = adopterFixture(tmp, "v9.9.9");
@@ -585,10 +558,6 @@ describe("release-plugin", () => {
 		}
 	});
 
-	/*
-	 * The Verify passes `pluginInstall: false`; the registry-isolation lever
-	 * for a caller that does install is lib/materialise-plugin.test.ts's.
-	 */
 	it("shells out to claude not at all during a cut, leaving the caller's registry byte-identical (#117)", () => {
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dry-run-adopter-"));
 		try {
@@ -607,9 +576,6 @@ describe("release-plugin", () => {
 				fs.readFileSync(path.join(callerConfig, "plugins", f)),
 			);
 
-			/* Writes into whatever CLAUDE_CONFIG_DIR it is handed, as the real
-			 * CLI does, so a call that did happen would show in both the log
-			 * and the bytes below. */
 			const log = path.join(tmp, "claude-calls.log");
 			const stub = path.join(tmp, "claude");
 			fs.writeFileSync(
@@ -640,11 +606,6 @@ describe("release-plugin", () => {
 		}
 	});
 
-	/*
-	 * Without this the walk line reads "passed" for a run that did nothing
-	 * — upgrade() returns 0 for a skip as readily as for a real pass (#117
-	 * review F1).
-	 */
 	it("reports the adopter upgrade's own output under the walk line (#117)", () => {
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dry-run-adopter-"));
 		try {
@@ -652,7 +613,6 @@ describe("release-plugin", () => {
 			const r = dryRunAdopter(adopter);
 			expect(r.status).toBe(0);
 			const verify = r.stdout.slice(r.stdout.indexOf("adopter walk: passed"));
-			/* Indented continuation lines, i.e. upgrade() actually said something. */
 			expect(
 				verify.split("\n").filter((l) => l.startsWith("  ")).length,
 			).toBeGreaterThan(0);
@@ -661,11 +621,6 @@ describe("release-plugin", () => {
 		}
 	});
 
-	/*
-	 * #291: upgrade() passed no `dryRun`, so `--dry-run-adopter` really
-	 * upgraded the adopter — re-pointing its `.husky/*` at a temp `outDir`
-	 * the cut then deletes, and advancing its `walkedTo`.
-	 */
 	it("leaves the adopter's own tree byte-identical (#291)", () => {
 		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
@@ -715,10 +670,6 @@ describe("release-plugin", () => {
 		}
 	});
 
-	/*
-	 * The note's Verify logs its cwd, so the log counts how many times it
-	 * really ran: once for the core's own check, once for the adopter walk.
-	 */
 	it("runs the note's own Verify against the adopter copy (#296)", () => {
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dry-run-adopter-"));
 		try {
@@ -743,8 +694,6 @@ describe("release-plugin", () => {
 			const cwds = fs.readFileSync(log, "utf8").trim().split("\n");
 			expect(cwds).toHaveLength(2);
 			expect(cwds[0]).toBe(fs.realpathSync(dir));
-			/* The second run is the COPY the cut made under its own tmpdir,
-			 * not the adopter. */
 			expect(cwds[1]).not.toBe(adopter);
 			expect(cwds[1]).toMatch(/plugin-release-[^/]+\/adopter$/);
 		} finally {
@@ -752,13 +701,9 @@ describe("release-plugin", () => {
 		}
 	});
 
-	/* #780: the negation case is the one a plain read of `.gitignore` would
-	 * have passed. */
 	it("gives the adopter copy a git repository, so a Verify's git check-ignore reads the copy's .gitignore (#780)", () => {
 		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
-		/* Not a path the core's own `.gitignore` block names: every run writes
-		 * that block into the copy (#1501), which would ignore it either way. */
 		write(".gitignore", "notes/\n");
 		write(
 			"migrations/v2.0.0.md",
@@ -785,13 +730,6 @@ describe("release-plugin", () => {
 		}
 	});
 
-	/*
-	 * #296 review F1: cpSync's defaults copy a symlink AS a symlink and
-	 * rewrite a relative target to an absolute one pointing back into the
-	 * ORIGINAL, so re-pointing the copy's `.husky/pre-commit` wrote the
-	 * caller's real file — #291 reopened, and invisible to the #291 test
-	 * above, whose fixture has no symlink.
-	 */
 	it("follows an adopter's symlinks into the copy, not back out (#296)", () => {
 		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
@@ -811,8 +749,6 @@ describe("release-plugin", () => {
 				path.join(adopter, ".claude/workflow-core.json"),
 				JSON.stringify({ founder: "F" }),
 			);
-			/* The real hook lives outside .husky, which holds a RELATIVE
-			 * symlink to it — the shape that rewrites to an absolute target. */
 			fs.mkdirSync(path.join(adopter, "hooks"), { recursive: true });
 			const real = path.join(adopter, "hooks/pre-commit");
 			const body = "#!/bin/sh\nWFC_PLUGIN_ROOT=/some/old/checkout\nexit 0\n";
@@ -835,12 +771,6 @@ describe("release-plugin", () => {
 		}
 	});
 
-	/*
-	 * #296 review F2: with `dryRun` gone, every upgrade syncs labels on the
-	 * adopter's own tracker — a live write to a real GitHub repo, which no
-	 * dry run may make. The walk turns the labels off instead, so the declared
-	 * `tracker` stays in the copy (#1501).
-	 */
 	it("makes no gh label call for an adopter's labels, and keeps its declared tracker (#296, #1501)", () => {
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dry-run-adopter-"));
 		const record = path.join(tmp, "calls.txt");
@@ -884,8 +814,6 @@ describe("release-plugin", () => {
 		try {
 			priorRelease("v1.0.0");
 			manifests("2.0.0", "v2.0.0");
-			/* Passes against the core, which has a package.json, and fails
-			 * against the adopter copy, which does not. */
 			write(
 				"migrations/v2.0.0.md",
 				buildMigrationNote(
@@ -899,7 +827,6 @@ describe("release-plugin", () => {
 			const r = dryRunAdopter(adopter);
 			expect(r.status).toBe(1);
 			expect(r.stderr).toMatch(/dry-run adopter walk failed/);
-			// The Verify's own output, under the one-line reason (#1268).
 			expect(r.stderr).toMatch(
 				/v2\.0\.0 Verify failed.*\nno package\.json here/,
 			);
@@ -919,8 +846,6 @@ describe("release-plugin", () => {
 
 	describe("the adopter's helper check (#464)", () => {
 		const resolverPath = path.resolve(__dirname, "lib/resolve-core.js");
-		/* `answer` is what the shipped helper exports; the adopter's check
-		 * passes only on 42, so any other value fails it against the render. */
 		const helperFixture = (tmp: string, declared: boolean, answer = 42) => {
 			write(
 				"scripts/lib/helper-surface.json",
@@ -978,10 +903,6 @@ describe("release-plugin", () => {
 				);
 			}));
 
-		/* A render MISSING the entry point does not reach this check —
-		 * buildTree refuses it first (lib/surface-closure.js) — so the failing
-		 * check is one the render answers wrongly, its output riding under the
-		 * refusal. */
 		it("refuses the cut where the same check fails against the render, carrying its output", () =>
 			withTmp((tmp) => {
 				const adopter = helperFixture(tmp, true, 41);
@@ -994,11 +915,6 @@ describe("release-plugin", () => {
 			}));
 	});
 
-	/* The link writer's reads (lib/link-writer.js): issue n's id is n*100, as
-	 * `bump` gives it, save the new bump #100's, which is the create's 9100;
-	 * the wait graph has no links; and a blocked issue's list names each
-	 * blocker the record shows POSTed to it, 9100 read as #100 save on #100
-	 * itself. */
 	const buildLinkReadsStub = (record: string) => `${LINKS_GRAPHQL_FAKE}
 const fs = require("node:fs");
 const a = process.argv.slice(2);
@@ -1014,11 +930,6 @@ const posted = fs.readFileSync(${JSON.stringify(record)}, "utf8").split("\\n")
 process.stdout.write(JSON.stringify([posted]));
 `;
 
-	/* Answers as gh does for each bump-filing step: the open-issue listing
-	 * (`listed`, one page as a JSON array, slurped) and the create's
-	 * `{number, id}`, and the link writer's reads above. A tracker named
-	 * `forbidden-repo` refuses the create; one named `garbled-repo` lists a
-	 * page that is not JSON. */
 	const bumpStub = (stubDir: string, record: string, listed = "[]") => {
 		const reads = path.join(stubDir, "link-reads.js");
 		fs.writeFileSync(reads, buildLinkReadsStub(record));
@@ -1028,9 +939,6 @@ process.stdout.write(JSON.stringify([posted]));
 		);
 	};
 
-	/* A home of adopter checkouts, one per `repos` entry in order, each
-	 * declaring that tracker; `null` declares none, a `core:` prefix makes
-	 * that checkout workflow-core itself, and `worktree:` a linked worktree. */
 	const adopterHome = (repos: (string | null)[]) => {
 		const home = fs.mkdtempSync(path.join(os.tmpdir(), "bump-home-"));
 		repos.forEach((tracker, i) => {
@@ -1104,7 +1012,6 @@ process.stdout.write(JSON.stringify([posted]));
 				"api --method POST repos/lucmoseley/workflow-core-dryrun-adopter/issues",
 			);
 			expect(calls()).toContain("title=Bump workflow-core to v2.3.4");
-			// the bump session runs the install itself (#5230)
 			expect(calls()).toContain("run the install commands and the accept");
 			expect(calls()).toContain("labels[]=takes:implement");
 			expect(calls()).toContain("labels[]=urgent");
@@ -1128,7 +1035,6 @@ process.stdout.write(JSON.stringify([posted]));
 			expect(r.stdout).toContain(
 				"adopter-b/forbidden-repo (gh: HTTP 403: Resource not accessible)",
 			);
-			// the way out (§X3, docs/code-standards-base.md)
 			expect(r.stdout).toContain(
 				"retry: gh api --method POST repos/adopter-b/forbidden-repo/issues",
 			);

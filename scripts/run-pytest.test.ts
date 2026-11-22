@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * The `npm run test:py` wrapper that leaves pytest's suite marker (mantahostels#1256).
- *
- * Run in process through runInProcessAsync (§X3), its python3 a fake injected at
- * WFC_PYTHON (§N7: the fake feeds chosen hand-offs) — all but the case that
- * spawns the wrapper as a script against a real pytest, and the module cases
- * on `lib/pytest-child.js`: `runPytest`, which fire the ceiling on an event
- * (#3520), and `ceilingKillRow`.
- *
- * The unasked-rerun guard reads the certificate it leaves: loosen a case and
- * a red or dead run leaves one counted as attesting.
- */
 
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -35,13 +23,10 @@ const SCRIPT = path.join(__dirname, "run-pytest.js");
 
 const dirs: string[] = [];
 
-/* Each wait on an event here polls every 50 ms for up to 5 s, half the 10 s
- * test timeout, so an event that never comes fails on the case's own
- * assertion, not the timeout. */
+// #3520 guess: 100 polls span half the 10 s test timeout
 const POLL_MS = 50;
 const POLL_TRIES = 100;
 
-/** Whether this machine can run the wrapper's real child: pytest plus xdist. */
 function hasPytest(): boolean {
 	return (
 		spawnSync("python3", ["-m", "pytest", "-n", "0", "--version"], {
@@ -50,8 +35,6 @@ function hasPytest(): boolean {
 	);
 }
 
-/** A git repo with one commit, so `readTreeSnapshot` and `repoRoot` both
- * answer: at `at`, else a fresh temp dir. */
 function repo(at?: string) {
 	const dir =
 		at ?? fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runpy-")));
@@ -93,19 +76,10 @@ interface PytestCall {
 }
 
 interface Hang {
-	/** What it writes where the plugin keeps the tests in flight. */
 	inflight?: unknown;
-	/** Whether it forks a child of its own before hanging. */
 	grandchild?: boolean;
 }
 
-/**
- * A stand-in for python, run as `python -m pytest …`: records its arguments,
- * the environment it was handed, the stdout it inherited and the deadline
- * file it found, writes `result` where the plugin would have written its
- * verdict, and exits on `status` — killing itself where `status` is null.
- * Given `hang`, it never exits at all, as a pytest past the ceiling.
- */
 function fakePytest(
 	result: unknown,
 	status: number | null = 0,
@@ -163,7 +137,6 @@ else ${status === null ? 'process.kill(process.pid, "SIGKILL");' : `process.exit
 	return [bin, readCalls];
 }
 
-/** The wrapper run as `npm run test:py -- --full` runs it, rooted at `root`. */
 function wrap(
 	python: string,
 	root: string,
@@ -198,9 +171,6 @@ describe("what it hands pytest", () => {
 		]);
 	});
 
-	// `root` is a temp repo here, so the host's `scripts/` and the wrapper's own
-	// directory differ, as in a plugin install, where only the second holds the
-	// plugin (#1285).
 	it("puts the host's scripts/ then the wrapper's own directory on PYTHONPATH, since conftest has not run yet when the plugin loads", async () => {
 		const [python, readCalls] = fakePytest(undefined, 0);
 		const root = repo();
@@ -223,11 +193,9 @@ describe("what it hands pytest", () => {
 	});
 });
 
-// A bare run hands pytest the session's touched tests alone (#2934).
 describe("a bare run", () => {
 	const Bare = { WFC_MODULES: "", CLAUDE_CODE_SESSION_ID: "" };
 
-	/** The run ledger's lines at `root`. */
 	const readLedger = (root: string) => {
 		const file = path.join(root, ".claude/tmp/markers/.test-runs.jsonl");
 		return fs.existsSync(file)
@@ -239,7 +207,6 @@ describe("a bare run", () => {
 			: [];
 	};
 
-	/** `repo(at)` holding a module, its test and an unrelated test, committed. */
 	function pyRepo(at?: string) {
 		const root = repo(at);
 		fs.mkdirSync(path.join(root, "scripts"));
@@ -310,8 +277,6 @@ describe("a bare run", () => {
 	});
 
 	describe("selects from HEAD only inside a live commit-gate seat (#5320, #5273)", () => {
-		/** `pyRepo()` with verified main at its tip, then `scripts/scan.py`
-		 * committed as own work and `scripts/test_other.py` edited. */
 		function branch() {
 			const root = pyRepo();
 			spawnSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], {
@@ -322,8 +287,6 @@ describe("a bare run", () => {
 			fs.appendFileSync(path.join(root, "scripts/test_other.py"), "# edit\n");
 			return root;
 		}
-		/** A temp root whose suite queue holds one spawned gate seat,
-		 * `holder`'s. */
 		function tempRoot(holder: number) {
 			const dir = fs.realpathSync(
 				fs.mkdtempSync(path.join(os.tmpdir(), "runpy-tmp-")),
@@ -350,7 +313,6 @@ describe("a bare run", () => {
 			});
 		});
 
-		/* On the real 1 s ceiling, as the ceiling-kill cases below. */
 		it("records `head` on a gate run's ceiling kill, which carries no scope (#5321)", async () => {
 			const root = branch();
 			const [python] = fakePytest({ passed: true, scope: scope() }, 0, {});
@@ -367,8 +329,6 @@ describe("a bare run", () => {
 
 		it("takes `merge-base` with only the seat's variable set and a live seat outside its ancestry", async () => {
 			const root = branch();
-			/* A live seat this process is not under: its holder is a child, its
-			 * 30 s any span that outlives the case, which kills it. */
 			const stranger = spawn("sleep", ["30"], { stdio: "ignore" });
 			onTestFinished(() => {
 				stranger.kill();
@@ -398,13 +358,10 @@ describe("a bare run", () => {
 	describe("with a checker-only file in the session's diff (#4967)", () => {
 		const Anchors = "scripts/instruction-surface-anchors.json";
 		const Reader = "scripts/test_anchors.py";
-		/** `pyRepo()` with the anchors file, its checker test and a pytest
-		 * file naming it, the anchors file then regenerated. */
 		function regenerated() {
 			const root = pyRepo();
 			fs.mkdirSync(path.join(root, "docs"));
 			for (const [f, text] of Object.entries({
-				/* A readable manifest: the fallback narrows nothing. */
 				"docs/test-read-edges.json": '{ "edges": {} }\n',
 				[Anchors]: "{}\n",
 				"scripts/check-instruction-surface.test.ts": "export {};\n",
@@ -462,13 +419,10 @@ describe("a bare run", () => {
 		});
 	});
 
-	/* The write ledger, in the sandbox's config dir, says which dirt is whose. */
 	describe("with a session id, in the shared tree", () => {
 		const sb = freshSandbox();
 		const Own = { ...Bare, CLAUDE_CODE_SESSION_ID: "me" };
 
-		/** `pyRepo` at the sandbox, `scan.py` edited by this session and a
-		 * neighbour's edit and new test beside it. */
 		function sharedTree() {
 			const root = pyRepo(fs.realpathSync(sb.repo));
 			fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
@@ -564,7 +518,6 @@ describe("a bare run", () => {
 });
 
 describe("the exit code", () => {
-	// 5 is pytest's "no tests collected", standing for every code above 1.
 	it.each([1, 5])(
 		"is 1 where pytest exits %i, so a red run is red on one listed code (#4779)",
 		async (code) => {
@@ -596,7 +549,6 @@ describe("the marker it records", () => {
 		expect(markers[0].scope.modulesTotal).toBe(20);
 		expect(markers[0].sha).toMatch(/^[0-9a-f]{40}$/);
 		expect(markers[0].dirtyAtStart).toBe(false);
-		// pytest has no `--isolated` path: every run reads the shared tree.
 		expect(markers[0].isolated).toBe(false);
 		expect(markers[0].treeAtEnd).toMatch(/^[0-9a-f]{40}$/);
 	});
@@ -610,9 +562,6 @@ describe("the marker it records", () => {
 
 	it("records nothing where pytest exited non-zero, however green the plugin said it was", async () => {
 		const root = repo();
-		// `pytest_terminal_summary` runs before teardown and interpreter
-		// shutdown, so an INTERNALERROR after it — or earlyoom killing python
-		// between the two — leaves `passed: true` behind a non-zero exit.
 		const [python] = fakePytest({ passed: true, scope: scope() }, 3);
 		expect((await wrap(python, root)).status).toBe(1);
 		expect(readMarkers({ root })).toEqual([]);
@@ -671,8 +620,6 @@ describe("what it says out loud", () => {
 		expect(r.status).toBe(1);
 	});
 
-	// EAGAIN cannot be provoked without exhausting the machine's process
-	// table, so each code's advice is pinned on the remedy itself.
 	const Remedies = [
 		["ENOENT", "Install python3"],
 		["EACCES", "not executable by you"],
@@ -709,21 +656,13 @@ describe("what it says out loud", () => {
 		const said = (await wrap(python, repo())).stdout;
 		expect(said).toContain("FILTERED RUN");
 		expect(said).toContain("1 of 20 files");
-		// pytest's filter arrives carrying its own flag; vitest's `-t` prefix
-		// would print `-t -k corpus`.
 		expect(said).toContain("-k corpus");
 		expect(said).not.toContain("-t -k");
 	});
 
-	// Needs a real pytest WITH xdist, since the wrapper passes `-n 2`. The dev
-	// machine has both from requirements-dev.txt; the `Lint and tests` CI job has
-	// neither — it is a Node job with no setup-python and no pip install. It is
-	// skipped there because the `Python` job drives the same wrapper as a
-	// process for real, via `npm run test:py`.
 	it.skipIf(!hasPytest())(
 		"runs as a script, passing its arguments through to a real pytest",
 		() => {
-			// `--collect-only` runs no tests and records no marker.
 			const checkout = path.join(__dirname, "..");
 			const r = keptSpawn("fd").spawnSync(
 				process.execPath,
@@ -741,8 +680,6 @@ describe("what it says out loud", () => {
 	);
 });
 
-// Timings come through the fake's hand-off (base §X9). `repo()` has no
-// origin/main, so the base is HEAD.
 describe("the run-cost report (#1884)", () => {
 	function changedRepo() {
 		const root = repo();
@@ -849,17 +786,13 @@ describe("the hand-off file", () => {
 	});
 });
 
-// The fake hangs past the ceiling. Each case waits on the kill itself,
-// not on elapsed time (docs/practice/test-design-and-reliability.md).
 describe("the suite ceiling (#2702)", () => {
-	/** Lowered still, but far past any fake's exit. */
 	const FarCeiling = "60000";
 	const lowered = (dir: string) => ({
 		[CEILING_ENV]: "1000",
 		[DEADLINE_ENV]: path.join(dir, "deadline"),
 	});
 
-	/** Whether `pid` has gone, polled since init reaps it on its own clock. */
 	async function gone(pid: number): Promise<boolean> {
 		for (let i = 0; i < POLL_TRIES; i++) {
 			try {
@@ -872,12 +805,6 @@ describe("the suite ceiling (#2702)", () => {
 		return false;
 	}
 
-	/**
-	 * `runPytest` with its ceiling fired once the hanging fake has recorded
-	 * its call, so the kill never races node's start (#3520). Unrecorded once
-	 * the poll runs out, it fires anyway, for the assertions to name what is
-	 * missing.
-	 */
 	async function killedOnceRecorded(
 		python: string,
 		readCalls: () => PytestCall[],
@@ -888,7 +815,6 @@ describe("the suite ceiling (#2702)", () => {
 			WFC_PYTHON: python,
 		}))
 			vi.stubEnv(key, value);
-		/* A line read mid-append is no record yet. */
 		const recorded = () => {
 			try {
 				return readCalls().length > 0;
@@ -905,8 +831,6 @@ describe("the suite ceiling (#2702)", () => {
 			let timer = setTimeout(poll, 0);
 			return () => clearTimeout(timer);
 		};
-		/* runInProcessAsync captures a whole program's streams; this is one
-		 * module call. */
 		const stderr = spyStderr();
 		try {
 			const result = await runPytest([], root, {
@@ -1071,10 +995,6 @@ describe("the suite ceiling (#2702)", () => {
 		expect(r.stderr).toContain("Finished: 3 test(s).");
 	});
 
-	/* The whole wrapper on the real 1 s timer, which none of these can lose: a
-	 * fake killed before it starts writes no verdict and reports no tests in
-	 * flight. RESIDUAL: such a kill leaves the green case unable to tell a
-	 * green verdict refused from none written. */
 	it("exits 1 and records no marker on a ceiling kill, though the plugin said green", async () => {
 		const root = repo();
 		const [python] = fakePytest({ passed: true, scope: scope() }, 0, {});
@@ -1104,7 +1024,6 @@ describe("the suite ceiling (#2702)", () => {
 
 	it("writes the deadline and pytest's group where the environment names a file, and drops it once the run settles", async () => {
 		const root = repo();
-		// No kill to race the fake's record (#3516).
 		const env = {
 			[CEILING_ENV]: FarCeiling,
 			[DEADLINE_ENV]: path.join(root, "deadline"),
@@ -1133,7 +1052,6 @@ describe("the suite ceiling (#2702)", () => {
 describe("the task cap (#3401)", () => {
 	const { probeUserScope } = require("./lib/user-scope.js");
 
-	/** This process's test-run scopes the manager still has. */
 	const units = () =>
 		spawnSync(
 			"systemctl",
@@ -1159,9 +1077,6 @@ describe("the task cap (#3401)", () => {
 				fs.mkdtempSync(path.join(os.tmpdir(), "forkchain-")),
 			);
 			dirs.push(dir);
-			/* Each link starts the next, then sleeps; at the cap a fork is
-			 * refused and the chain stops growing. The first leaves pytest's
-			 * process group, so only the scope's kill can reach the chain. */
 			const link = path.join(dir, "link.sh");
 			fs.writeFileSync(link, '#!/bin/sh\n"$0" &\nsleep 30\n', {
 				mode: 0o755,
@@ -1179,7 +1094,6 @@ describe("the task cap (#3401)", () => {
 			expect(r.stderr).toContain("TASK CAP");
 			expect(r.stderr).toContain("cap at 16 tasks");
 			expect(readMarkers({ root })).toHaveLength(0);
-			/* cgroup.kill's SIGKILLs land asynchronously; 5 s is a guess. */
 			for (let i = 0; i < 50 && (running(dir).length > 0 || units()); i++)
 				await new Promise((done) => setTimeout(done, 100));
 			expect(running(dir)).toEqual([]);

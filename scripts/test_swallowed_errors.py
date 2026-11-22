@@ -1,12 +1,3 @@
-"""test_swallowed_errors.py — the cases of the base §N5 walk every repo's
-pre-commit runs (`swallowed_errors.py`, #1830, #5487): what a swallow is, and
-the keys the judge counts by.
-
-Loosen one and a swallow lands unrefused in every repo the plugin runs in. The
-core's whole tree is the python CI job's
-`node scripts/check-swallowed-errors.js --all`, through the gate's own routing.
-"""
-
 import json
 import subprocess
 import sys

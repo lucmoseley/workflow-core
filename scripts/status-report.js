@@ -1,36 +1,4 @@
 #!/usr/bin/env node
-/*
- * status-report.js — run the repo-health checkers that do not fire at
- * SessionStart, on demand.
- *
- * Usage:  npm run status  [-- --only <substring>] [-- --serial] [-- --write]
- *
- * `--serial` runs the checkers one at a time; a checker's own children are its
- * own, and check-primitives.js still counts four checks at once.
- *
- * TWO WERE KEPT ON SessionStart and are not listed here: `check-ci-status.js`,
- * a red `main` being a correctness signal, and `check-orphan-wait-loops.js`,
- * whose report names the `kill` for a shell holding memory against a 10 GB cap.
- * Four more run at SessionStart for other work but print their report only
- * here (#2038): `check-orphaned-edits.js` files there, `audit-escape-lines.js`
- * starts its judging batch, `check-self-throttling.js` reads its state, and
- * `replay-notify-reports.js` injects every report but the ones `--status` shows.
- *
- * A HAND RUN IS NOT THE HOOK RUN, deliberately. Without `--notify` a checker
- * writes to stderr rather than stdout, prints its `OK:`/`SKIP:` summary line
- * instead of suppressing it, and exits non-zero on a fault (`lib/check.js`).
- * Two go further: `check-capture-drain.js` calls `gh` rather than reading its
- * state file, and `check-hook-liveness.js` adds its `settings` assertion.
- *
- * READ-ONLY UNLESS `--write` (#4449). No checker here writes to the tracker
- * or the tree on a bare run; `--write` is passed on to the checkers in
- * WRITERS, which then file, refresh or record as their own headers say.
- *
- * EXIT CODE. Always 0 for any checker's own verdict — this reports, a human
- * decides — so a fault never breaks a caller. Only this runner crashing exits
- * 1, and it names itself when it does.
- */
-
 const { spawn } = require("node:child_process");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
@@ -40,64 +8,11 @@ const { hostRoot } = require("./lib/host-root.js");
 const { pool } = require("./lib/pool.js");
 const { render } = require("./lib/status-render.js");
 
-/* Core content: every checker below ships beside this script, so its path is
- * named from THIS DIRECTORY (#1) — a plugin install keeps it beside the
- * caller. */
 const CORE_SCRIPTS = __dirname;
 
-/*
- * Concurrency: several of these shell out to `gh`, and the machine caps at
- * 10 GB across every live session (CLAUDE.md §Machine limits). Four is a first
- * guess, not a measurement — nothing has profiled this fan-out.
- */
 const POOL_WIDTH = 4;
 
-/**
- * Every on-demand checker. check-seat-utilisation.js is absent: it runs at
- * SessionStart, and running in both places doubles its daily recording
- * (mantahostels#2680). `history-trim`: a checker that reports a corpus shrink no
- * session can repair belongs on the same on-demand surface as the rest
- * (mantahostels#2617). `gates` is here rather than at SessionStart because its
- * readings drift on every run — a growing sample count, a wall-clock time — so
- * it has no silence condition to be quiet on, and because it costs up to a
- * minute per over-budget check (mantahostels#2656). `skill-body-size` fires in
- * .husky/pre-commit scoped to the bodies a commit touches and here censuses
- * them all (mantahostels#3136). `release-pin` cannot be a commit gate at all: the
- * tag it asks about does not resolve until after the bump is committed (#257).
- * `band-drift` (#487), `citation-ceiling` (#726), `orphaned-edits` (#813),
- * `git-locks` (#1193), `output-style` (#1944) and `husky-shim` (#3172) were
- * built for this surface. `primitives` (#3451) runs at commit with
- * `--paths-only`, and here prints the count line.
- * `throttling` is a 10-19 s live sweep. `harness-canary` (#2037)'s start hook
- * prints only a red verdict: here it also shows a version not yet probed and
- * a probe that could not run. `concurrency` (#3317) prints a standing, never a fault.
- * `interop-latency` (#3564) also runs at SessionStart, which prints only a
- * degraded bridge: here a healthy one prints its latency. `kernel-stall` (#4092)
- * also runs at SessionStart, silent on a clock it cannot read: here that is a WARN.
- * `file-ci-time` (#4292) also runs in the scheduled sweep, and downloads the
- * last few sweeps' vitest reports, ~11 MB each; `contract-live` (#5408) each
- * sweep's not yet read, the 30 listed on its first run (5.5 min measured).
- * `compaction-backstop` (#4410)
- * reads one comment page per ticket closed in its window, so it is among the
- * slowest. `release-lag` (#4448) also runs at SessionStart, which prints only a
- * lag past its threshold or an install not at its pin: here every reading is a standing.
- * `main-checkout-cutover` (#4688) also runs at SessionStart, where it cuts the
- * main checkout over (#5276): here it only reports, and an OK or SKIP shows too.
- * `orphan-reaps` (#4342) reads the reaper's kill logs rather than running the
- * reaper, which kills.
- * `session-draw` (#5274) reads every served repo's config.
- * `peak-tripwire` (#5367) reads the tripwire's state file, never the journal.
- * `adopter-boundary` (#5294) also runs in .husky/pre-commit, and SKIPs in an
- * adopter, which holds no boundary page.
- * `effort-guide-routing` (#5033) also runs in .husky/pre-commit, on a commit
- * staging the guide, the routing file or the generator.
- *
- * `jev-flags` takes `--notify`, the one hook-style run here: it shows only the
- * flags logged since the last one it showed, and records them — a hand run
- * would list every flag ever logged.
- *
- * @type {ReadonlyArray<readonly [string, string, ...string[]]>}
- */
+/** @type {ReadonlyArray<readonly [string, string, ...string[]]>} */
 const CHECKS = [
 	["guard-errors", "check-guard-errors.js"],
 	["hook-liveness", "check-hook-liveness.js"],
@@ -158,11 +73,6 @@ const CHECKS = [
 	["peak-tripwire", "check-peak-tripwire.js"],
 ];
 
-/**
- * The checkers that write under `--write`, and only then. harness-canary
- * takes `--write` too but is absent: only its `--probe` runs comment, never
- * the hand run listed here.
- */
 const WRITERS = new Set(["band-drift", "history-trim", "orphaned-edits"]);
 
 /** @typedef {import("./lib/status-render.js").Result} Result */
@@ -174,7 +84,7 @@ function fail(msg) {
 
 /**
  * @param {readonly [string, string, ...string[]]} entry
- * @param {boolean} write  pass `--write` on to a checker in WRITERS
+ * @param {boolean} write
  * @returns {Promise<Result>}
  */
 function run(entry, write) {
@@ -194,11 +104,6 @@ function run(entry, write) {
 			},
 		);
 		let out = "";
-		/*
-		 * setEncoding, not string concatenation of raw Buffers: checker output
-		 * carries `—`, `▸` and `…`, and a multibyte character split across a
-		 * chunk boundary decodes to U+FFFD without it.
-		 */
 		child.stdout.setEncoding("utf8");
 		child.stderr.setEncoding("utf8");
 		child.stdout.on("data", (d) => {

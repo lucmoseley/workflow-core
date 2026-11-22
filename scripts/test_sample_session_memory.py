@@ -1,18 +1,3 @@
-"""Tests for scripts/sample_session_memory.py — the judgements under #333's figures.
-
-The /proc readers and the sampling loop are exercised by a live run, not here.
-What is tested is what turns rows into the published figures — how a
-command is named, which repo a session belongs to, the percentile, which
-process instances count as spikes, which processes make a session's pair and
-which its descendants (admission's unit, #2231) — and which `claude` binary the
-oracle runs.
-
-Each judgement is fed literal rows, or a temp CSV, rather than a live sample.
-The sampler is run by hand; loosen a case and its per-repo figures misstate
-what a session and the processes it starts cost, the figure #333 sizes
-admission on.
-"""
-
 import gzip
 import os
 from collections import Counter
@@ -162,13 +147,10 @@ def test_an_unparsable_session_list_is_none_and_named(stub_bin, monkeypatch, cap
     )
 
 
-# Above pid_max, so no live process owns it.
 GONE = 99_999_999
 
 
 def test_a_pid_gone_before_its_stat_reads_is_left_out_of_the_table(monkeypatch, capsys):
-    # A pid exiting between /proc's listing and its stat read is a race no
-    # fixture can time.
     monkeypatch.setattr(m.os, "listdir", lambda _: [str(GONE)])
     assert m.read_proc_table() == {}
     assert capsys.readouterr().err == ""
@@ -242,7 +224,6 @@ def test_a_pair_reads_unknown_where_a_half_is_gone_reused_or_unreadable():
 
 
 def test_a_live_gate_seat_and_its_subtree_are_left_out_of_the_session():
-    # session 1 → hook 2 → gate holder 3 → sh 4 → runner 5; 6 is a sibling
     children = {1: [2, 6], 2: [3], 3: [4], 4: [5]}
     procs = {1: (0, 10), 2: (1, 20), 3: (2, 30), 4: (3, 40), 5: (4, 50), 6: (1, 60)}
     env = {4: "/q/gate.json", 5: "/q/gate.json"}
@@ -257,7 +238,6 @@ def test_a_live_gate_seat_and_its_subtree_are_left_out_of_the_session():
 
 
 def test_a_process_carrying_the_seat_outside_the_holders_tree_still_counts():
-    # 6 inherited the variable but is no descendant of holder 3
     procs = {1: (0, 10), 2: (1, 20), 3: (2, 30), 6: (1, 60)}
     seats = m.gate_seat_pids(
         [2, 3, 6],
@@ -280,9 +260,9 @@ def test_a_dead_reused_or_unreadable_seat_marker_leaves_nothing_out():
         )
 
     assert seats({"pid": 3, "start": 30}) == {3}
-    assert seats({"pid": 99}) == set()  # holder gone
-    assert seats({"pid": 3, "start": 31}) == set()  # pid reused
-    assert seats(None) == set()  # marker unread or torn
+    assert seats({"pid": 99}) == set()
+    assert seats({"pid": 3, "start": 31}) == set()
+    assert seats(None) == set()
 
 
 def test_a_pid_not_ours_to_read_is_left_out_of_the_table(monkeypatch, capsys):
@@ -293,7 +273,6 @@ def test_a_pid_not_ours_to_read_is_left_out_of_the_table(monkeypatch, capsys):
             raise PermissionError(13, "Permission denied", path)
         return real_open(path, *a, **kw)
 
-    # hidepid lists another user's /proc/<pid> but refuses its stat.
     monkeypatch.setattr(m.os, "listdir", lambda _: [str(GONE)])
     monkeypatch.setattr("builtins.open", opener)
     assert m.read_proc_table() == {}

@@ -73,20 +73,12 @@ const { monotonicMs } = require("./lib/clock.js");
 const { sweepDeadRunRoots } = require("./lib/run-temp-root.js");
 const { runPytest, ceilingKillRow } = require("./lib/pytest-child.js");
 
-/* Resolved through the host-root seam (#1), never `__dirname`: the pytest suite,
- * its `scripts/` on PYTHONPATH and the tree-drift snapshot all belong to the
- * tree under test — the host repo, or the linked worktree of it the run was
- * launched in (#2940) — and in a plugin install `__dirname` would name the
- * plugin cache instead. */
+// #2940
 const TREE_ROOT = worktreeRoot();
 
-/* No cause, unlike run-vitest.js's `--full=<cause>` (#182): the whole pytest
- * suite takes seconds, so nothing rations it. */
 const FULL = "--full";
 
 /**
- * Sets the exit code rather than returning it, the shape runInProcessAsync
- * reads.
  * @param {string[]} [argv]
  * @returns {Promise<void>}
  */
@@ -103,7 +95,7 @@ async function main(argv = process.argv.slice(2)) {
  */
 async function runAndRecord(plan, root) {
 	const { args } = plan;
-	// Before the spawn, so the marker's duration covers the whole run (mantahostels#1953).
+	// lucmoseley/mantahostels#1953
 	const startedAtMs = Date.now();
 	const startedAtMono = monotonicMs();
 	const before = readTreeSnapshot(root);
@@ -113,7 +105,6 @@ async function runAndRecord(plan, root) {
 		? path.join(path.dirname(handOff), "inflight.json")
 		: null;
 	const run = await runPytest(args, root, { handOff, inflightFile });
-	// Set only when the spawn itself fails; a failing pytest sets status instead.
 	if (run.error)
 		writeFd(
 			2,
@@ -133,10 +124,7 @@ async function runAndRecord(plan, root) {
 	const moved = format(drifted);
 	if (moved) writeFd(2, `${moved}\n`);
 
-	// BOTH verdicts, never the plugin's alone. `pytest_terminal_summary` runs
-	// before teardown and interpreter shutdown, so an INTERNALERROR after it —
-	// or earlyoom killing python between the two — leaves `passed: true` behind
-	// a non-zero exit, and that must not read as a pass.
+	// pytest_terminal_summary runs before teardown and interpreter shutdown: https://docs.pytest.org/en/stable/reference/reference.html#pytest.hookspec.pytest_terminal_summary
 	if (!run.forcedRed && run.status === 0 && result?.passed === true && after) {
 		record(
 			markerFrom(before, after, drifted, {
@@ -144,9 +132,7 @@ async function runAndRecord(plan, root) {
 				suite: "pytest",
 				startedAtMs,
 				elapsedMs: monotonicMs() - startedAtMono,
-				// pytest has no `--isolated` path (mantahostels#2187): every run
-				// reads the working tree, at `root` — the same directory the
-				// identity below is taken in.
+				// lucmoseley/mantahostels#2187
 				isolated: false,
 				treeAtEnd: endOfRunTreeIdentity(root),
 			}),
@@ -156,8 +142,7 @@ async function runAndRecord(plan, root) {
 		if (line) writeFd(1, `${line}\n`);
 	}
 
-	// Red or green, since it reports cost and never a verdict (#1884). No
-	// hand-off, as under `--collect-only` or an interrupt, gets no report.
+	// #1884
 	if (result?.fileSeconds !== undefined) {
 		const lines = reportForRun(root, result.fileSeconds, {
 			unit: "worker-seconds",
@@ -169,13 +154,10 @@ async function runAndRecord(plan, root) {
 }
 
 /**
- * Leaves the kill's row in the fail store; a row that cannot land is said,
- * never failing the run.
- *
  * @param {string} root
  * @param {import("./lib/pytest-child.js").CeilingKill} kill
  * @param {{ sha: string|undefined, startedAtMs: number, argv: string[],
- *   touchedBase: import("./lib/touched-tests.js").TouchedBase|null }} run
+ *    touchedBase: import("./lib/touched-tests.js").TouchedBase|null }} run
  */
 function recordCeilingKill(
 	root,
@@ -196,10 +178,6 @@ function recordCeilingKill(
 }
 
 /**
- * The plugin's scope, marked touched with its file count on a touched run, so
- * the run ledger keys its kind on them (#2958), and carrying the tests the
- * run left to the lander (#4967) and the base its selection took (#5320).
- *
  * @param {import("./lib/test-pass-marker.js").Scope|null|undefined} scope
  * @param {Plan["touched"]} touched
  */
@@ -211,19 +189,11 @@ function runScope(scope, touched) {
 
 /**
  * @typedef {{ args: string[], touched: { resolvedFiles: number,
- *   leftOut: string[],
- *   touchedBase: import("./lib/touched-tests.js").TouchedBase }|null }} Plan
- *   what pytest is handed and, on a touched run (null on a run as typed),
- *   its file count, the tests it left to the lander and the base its
- *   selection took
+ *    leftOut: string[],
+ *    touchedBase: import("./lib/touched-tests.js").TouchedBase }|null }} Plan
  */
 
 /**
- * What pytest is handed: `argv` as typed, none for a lone `--full`, or a
- * bare run's touched files, its banner printed. A number is the exit code of a run that
- * spawns nothing: 0 on an empty selection, 1 where the changed paths could
- * not be read (#2698).
- *
  * @param {string[]} argv
  * @param {string} root
  * @returns {Plan|number}
@@ -237,8 +207,6 @@ function pytestPlan(argv, root) {
 	const sessionId = idSeam.fromEnv();
 	const from = readTouchedBase();
 	try {
-		/* Under `head` the commit's changes over HEAD are the set: no range
-		 * to read own work across. */
 		const ownWork =
 			sessionId && from === "merge-base"
 				? ownDefaultWork(root, sessionId)
@@ -279,7 +247,6 @@ function pytestPlan(argv, root) {
 	}
 }
 
-/** Where the plugin should write its verdict, or null where tmp will not have it. */
 function handOffPath() {
 	try {
 		return path.join(
@@ -291,8 +258,6 @@ function handOffPath() {
 	}
 }
 
-/** The plugin's verdict, or null where it never wrote one — an interrupted run,
- * a pytest too old to load it, an unreadable temp dir. */
 /** @param {string} file */
 function readHandOff(file) {
 	try {
@@ -306,8 +271,7 @@ function readHandOff(file) {
 
 module.exports = { main };
 
-/* exitCode, never process.exit: an exit straight after a write to a pipe
- * can drop it (mantahostels#1943). */
+// process.exit can cut a pending stdout write on a pipe short: https://nodejs.org/api/process.html#processexit
 if (require.main === module) {
 	sweepDeadRunRoots("pytest");
 	main().catch((e) => {

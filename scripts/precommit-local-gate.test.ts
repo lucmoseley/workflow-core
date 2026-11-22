@@ -1,18 +1,5 @@
 // @vitest-environment node
 
-/*
- * Pins the load point for the adopter's own pre-commit gates,
- * `.husky/pre-commit.local` (#437, #426): sourced last and only if present, a
- * failing command refuses the commit, and a `scripts/` or `.claude/` script it
- * names but the repo lacks refuses every commit.
- *
- * The block is cut from the real hook and run under `sh -e` in a throwaway
- * repo, so a case stages into its own index and never the shared tree's.
- *
- * Breaking it costs every adopter's own gates: a red local gate commits
- * unrefused, or one whose script has gone missing passes every commit silently.
- */
-
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -28,11 +15,9 @@ import {
 
 const temps = registerTempCleanup();
 
-/** The refusal's way out, which every missing-script case must print. */
 const WAY_OUT =
 	"Every commit is refused until it exists or the local file stops naming it";
 
-/** A repo with one commit, `files` written into it and `staged` staged. */
 function fixture(opts: {
 	local?: string;
 	files?: Record<string, string>;
@@ -154,8 +139,7 @@ describe("the pre-commit.local load point", () => {
 			"node scripts/mine.js",
 			'node "$WFC_PLUGIN_ROOT"/scripts/y.js --check || :',
 			"node $WFC_PLUGIN_ROOT/scripts/z.js --check || :",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
-			'node "${WFC_PLUGIN_ROOT}/scripts/w.cjs" || :',
+			`node "\${WFC_PLUGIN_ROOT}/scripts/w.cjs" || :`,
 			"grep -q '^scripts/arming\\.js$' /dev/null || :",
 			"echo local-ok",
 		].join("\n");
