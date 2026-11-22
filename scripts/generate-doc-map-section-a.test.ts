@@ -9,8 +9,8 @@ import {
 	core,
 	freshSandbox,
 	gitRepo,
+	listedLocks,
 	live,
-	store,
 } from "./lib/arbiter-testkit";
 import {
 	syntheticDocMap,
@@ -144,10 +144,9 @@ describe("the claim it gives back, against the real arbiter (mantahostels#2428)"
 	});
 
 	const heldSubjects = () =>
-		store
-			.listLocks()
-			.filter((l: { path: string }) => l.path.startsWith("docs/doc-map.md"))
-			.map((l: { path: string }) => l.path);
+		listedLocks()
+			.map((l) => l.path)
+			.filter((p) => p.startsWith("docs/doc-map.md"));
 
 	const realRun = (...args: string[]) =>
 		runInProcess(SCRIPT, ["--map", repoMap, "--data-file", repoData, ...args]);

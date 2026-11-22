@@ -23,34 +23,36 @@ BROAD = {
 }
 
 
-def reporters(tree):
+def imported_names(tree, module, wanted):
     out = {}
     for n in ast.walk(tree):
-        if (
-            isinstance(n, ast.ImportFrom)
-            and (n.module or "").split(".")[-1] == "fail_open"
-        ):
+        if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[-1] == module:
             for a in n.names:
-                if a.name in REPORTERS:
+                if a.name in wanted:
                     out[a.asname or a.name] = a.name
         if isinstance(n, ast.Import):
             for a in n.names:
-                if a.name.split(".")[-1] == "fail_open":
-                    for r in REPORTERS:
-                        out[f"{a.asname or a.name}.{r}"] = r
+                if a.name.split(".")[-1] == module:
+                    for w in wanted:
+                        out[f"{a.asname or a.name}.{w}"] = w
     return out
 
 
-def specific(handler):
-    if handler.type is None:
-        return False
-    types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
-    return all(
+def narrow(types):
+    return bool(types) and all(
         isinstance(t, (ast.Name, ast.Attribute))
         and ast.unparse(t).endswith("Error")
         and ast.unparse(t) not in BROAD
         and ast.unparse(t).split(".")[-1] not in BROAD
         for t in types
+    )
+
+
+def specific(handler):
+    if handler.type is None:
+        return False
+    return narrow(
+        handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
     )
 
 
@@ -70,13 +72,9 @@ def reports(handler, names):
     return False
 
 
-def fails_loudly(handler, names):
+def reports_or_ends(handler, names):
     if reports(handler, names):
         return True
-    prints = any(
-        isinstance(n, ast.Call) and ast.unparse(n.func) == "print"
-        for n in ast.walk(handler)
-    )
     for n in ast.walk(handler):
         if isinstance(n, ast.Raise):
             return True
@@ -86,15 +84,23 @@ def fails_loudly(handler, names):
                 name.endswith(".error") and name.split(".")[0] in PARSERS
             ):
                 return True
-        if (
-            prints
-            and isinstance(n, ast.Return)
-            and isinstance(n.value, ast.Constant)
-            and type(n.value.value) is int
-            and n.value.value != 0
-        ):
-            return True
     return False
+
+
+def fails_loudly(handler, names):
+    if reports_or_ends(handler, names):
+        return True
+    nodes = list(ast.walk(handler))
+    prints = any(
+        isinstance(n, ast.Call) and ast.unparse(n.func) == "print" for n in nodes
+    )
+    return prints and any(
+        isinstance(n, ast.Return)
+        and isinstance(n.value, ast.Constant)
+        and type(n.value.value) is int
+        and n.value.value != 0
+        for n in nodes
+    )
 
 
 def owners(tree):
@@ -113,21 +119,74 @@ def owners(tree):
     visit(tree, [])
     for fn in names:
         for n in ast.walk(fn):
-            if isinstance(n, ast.ExceptHandler):
+            if n is not fn:
                 owner[n] = fn
     return owner, names
+
+
+SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
+def own_blocks(fn):
+    stack = [fn]
+    while stack:
+        node = stack.pop()
+        for _, value in ast.iter_fields(node):
+            children = value if isinstance(value, list) else [value]
+            if children and all(isinstance(c, ast.stmt) for c in children):
+                yield children
+            stack.extend(
+                c
+                for c in children
+                if isinstance(c, ast.AST) and not isinstance(c, SCOPES)
+            )
+
+
+def catches(stmt):
+    return (
+        isinstance(stmt, ast.Return)
+        and stmt.value is not None
+        and not (isinstance(stmt.value, ast.Constant) and not stmt.value.value)
+    )
+
+
+def exit_swallows(fn, names):
+    if fn.name not in ("__exit__", "__aexit__"):
+        return None
+    params = [*fn.args.posonlyargs, *fn.args.args]
+    bound = params[-2].arg if len(params) >= 3 else None
+    for block in own_blocks(fn):
+        for at, stmt in enumerate(block):
+            path = ast.ExceptHandler(type=None, name=bound, body=block[: at + 1])
+            if catches(stmt) and not reports_or_ends(path, names):
+                return stmt.lineno, f"{fn.name} returning {ast.unparse(stmt.value)}"
+    return None
 
 
 def breaches(src):
     tree = ast.parse(src)
     owner, names = owners(tree)
-    via = reporters(tree)
+    via = imported_names(tree, "fail_open", REPORTERS)
+    suppressors = imported_names(tree, "contextlib", ("suppress",))
     out = []
-    for h in ast.walk(tree):
-        if not isinstance(h, ast.ExceptHandler) or fails_loudly(h, via):
-            continue
-        caught = ast.unparse(h.type) if h.type else "<bare>"
-        out.append((h.lineno, names.get(owner.get(h), "<module>"), caught))
+
+    def where(n):
+        return names.get(owner.get(n), "<module>")
+
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ExceptHandler) and not fails_loudly(n, via):
+            caught = ast.unparse(n.type) if n.type else "<bare>"
+            out.append((n.lineno, where(n), f"except {caught}"))
+        if (
+            isinstance(n, ast.Call)
+            and ast.unparse(n.func) in suppressors
+            and not narrow(n.args)
+        ):
+            out.append((n.lineno, where(n), ast.unparse(n)))
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            swallow = exit_swallows(n, via)
+            if swallow:
+                out.append((swallow[0], names[n], swallow[1]))
     return sorted(out)
 
 

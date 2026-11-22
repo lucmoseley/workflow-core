@@ -77,7 +77,7 @@ const takeover = (args: string[] = ["--issue", String(N)]) => {
 		if (`${verb} ${sub}` !== "issue comment") return;
 		const held = issueClaims
 			.readIssueClaims(N)
-			.map((e: { record: { sessionId: string } }) => e.record.sessionId)
+			.map((e) => e.record.sessionId)
 			.sort();
 		log.push(`claim held by ${held.join(",")}`);
 		posted = input ?? "";
@@ -92,9 +92,7 @@ const takeover = (args: string[] = ["--issue", String(N)]) => {
 const stopped = () => readLog().some((e) => e.startsWith("stop "));
 const commented = () => readLog().includes("gh issue comment");
 const readHolders = () =>
-	issueClaims
-		.readIssueClaims(N)
-		.map((e: { record: { sessionId: string } }) => e.record.sessionId);
+	issueClaims.readIssueClaims(N).map((e) => e.record.sessionId);
 
 describe("takeover: a headless overflow holder (#2608)", () => {
 	it("refuses by name with exit 2, sends no `claude stop` and adopts nothing", async () => {

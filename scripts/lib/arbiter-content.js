@@ -11,7 +11,7 @@ const lockFiles = require("./arbiter-lock-files.js");
 
 const BLOB_REF_PREFIX = "refs/arbiter/";
 
-/** @param {string} claimId */
+/** @param {string|undefined} claimId */
 function blobRef(claimId) {
 	return typeof claimId === "string" &&
 		/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(claimId)
@@ -38,7 +38,7 @@ function readRegionHash(subject, hash) {
 
 /**
  * @param {string} rel
- * @param {string} claimId
+ * @param {string|undefined} claimId
  */
 function pinContent(rel, claimId) {
 	const ref = blobRef(claimId);
@@ -119,7 +119,7 @@ function recordSubjectContent(rel, me) {
 
 /**
  * @param {string} rel
- * @param {LockRecord} lock
+ * @param {{blob: string|null}|null} lock
  * @returns {ContentState}
  */
 function contentState(rel, lock) {

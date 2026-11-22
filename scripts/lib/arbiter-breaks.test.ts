@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { assert, beforeEach, describe, expect, it } from "vitest";
 import {
 	breaks,
 	core,
@@ -86,6 +86,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 
 	it("keeps the pin, so the lost version survives a gc after the break", () => {
 		const { blob, lock } = staleClaim("alice's work\n");
+		assert(blob);
 		locks.breakStale(rel, lock, durably("bob"));
 		fs.writeFileSync(abs(), "bob's replacement\n");
 
