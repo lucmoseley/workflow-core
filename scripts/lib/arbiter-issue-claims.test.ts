@@ -225,7 +225,7 @@ describe("issue claims — which session is working which issue (mantahostels#64
 			);
 		});
 
-		it("sweeps nothing when no oracle is passed at all", () => {
+		it("sweeps nothing when the oracle is undefined", () => {
 			finished(sb, "bob");
 			store.claimIssue(645, me("bob"));
 			age(645, "bob", 8 * 24 * 60 * 60 * 1000);
