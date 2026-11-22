@@ -70,7 +70,7 @@ const SPEC = {
 				'  Fix: `vi.stubEnv("NAME", value)`, or `vi.stubEnv("NAME", undefined)` to unset, and delete any hand-written save and restore of it. A stub is undone before each test, so one at module scope or in beforeAll moves into a beforeEach.',
 			);
 			ctx.say(
-				"  To swap the whole environment around one call: `withOnlyEnv` in scripts/lib/scoped-env.ts. To leave every child of the file untraced by the read audit: `untraceChildren()` in scripts/lib/untraced-children.js (#4982).",
+				"  To swap the whole environment around one call: `withOnlyEnv` in scripts/lib/scoped-env.ts.",
 			);
 		}
 		return {

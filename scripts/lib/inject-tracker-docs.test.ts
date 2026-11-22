@@ -9,7 +9,7 @@ import { initGitRepo } from "./git-fixture";
 import { readGuardErrorsLog } from "./guard-errors-log";
 import { takesPort, tierPort } from "./inject-tracker-docs-testkit";
 import { runInProcess } from "./run-in-process.js";
-import { withOnlyEnv } from "./scoped-env";
+import { withStubbedEnv } from "./scoped-env";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const { injectTrackerDocs } =
@@ -49,9 +49,8 @@ const runRaw = (
 	env: Record<string, string> = {},
 	ports: Partial<Ports> = {},
 ): string =>
-	withOnlyEnv(
+	withStubbedEnv(
 		{
-			...process.env,
 			// #448
 			CLAUDE_PROJECT_DIR: ROOT,
 			WFC_OUTPUT_STYLE: undefined,

@@ -13,7 +13,6 @@ import { ignoreFailure } from "./caught.js";
 import { REAL_PROC } from "./proc-root.js";
 import { isDead } from "./process-fixture";
 import { shellQuote } from "./sh-quote.js";
-import { untraceChildren } from "./untraced-children.js";
 
 const { TEST_TIMEOUT_MS } = require("./test-ceiling.js");
 
@@ -50,11 +49,13 @@ export function readProcessesUnder(dir: string) {
 	});
 }
 
-untraceChildren();
+// #4982
+export const UNTRACED = { WFC_READ_AUDIT_UNTRACED: "1" };
 
 export function env(extra: Record<string, string> = {}) {
 	return {
 		...process.env,
+		...UNTRACED,
 		WFC_BG_ROOT: root,
 		// lucmoseley/mantahostels#2691
 		WFC_BG_KILL_LOG: join(root, "kills.jsonl"),
@@ -210,7 +211,10 @@ export function createDirLate(dir: string, withStatus: boolean) {
 	if (withStatus)
 		cmds.push(`printf 'exit=0\\n' >${shellQuote(`${tmp}/status`)}`);
 	cmds.push(`mv ${shellQuote(tmp)} ${shellQuote(dir)}`);
-	spawn("sh", ["-c", cmds.join(" && ")], { stdio: "ignore" }).unref();
+	spawn("sh", ["-c", cmds.join(" && ")], {
+		env: { ...process.env, ...UNTRACED },
+		stdio: "ignore",
+	}).unref();
 }
 
 export let root: string;
