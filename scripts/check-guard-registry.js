@@ -1583,6 +1583,7 @@ function targetWarning(g, describedBy, implicitScripts, { anchors, fresh }) {
 
 const REPRINT_SHINGLE = 5;
 const REPRINT_MIN_WORDS = 12;
+// measured: 2 of 8 known reprints, no false positive, lucmoseley/mantahostels#1032
 const REPRINT_COVERAGE = 0.6;
 
 const DENY_TIMING_RE =

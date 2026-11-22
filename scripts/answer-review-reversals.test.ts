@@ -29,6 +29,7 @@ const {
 } = morningReviewFixture(sb, SCRIPT);
 const { run: runFiling } = morningReviewFixture(sb, FILING);
 
+// guess: a node start and its gh reads on a loaded machine, #3815
 const HOLDER_START_MS = 30_000;
 const HOLDER_TEST_MS = 2 * HOLDER_START_MS;
 

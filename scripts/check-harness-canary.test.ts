@@ -93,6 +93,7 @@ function seedUnprobed(agoMs: number) {
 	);
 }
 
+// guess: a 10 s ceiling on a one-file stub, #2819
 const POLLS = 100;
 const POLL_MS = 100;
 async function until(done: () => boolean) {

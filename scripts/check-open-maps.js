@@ -11,7 +11,9 @@ const {
 } = require("./lib/gh");
 const { takesLabel } = require("./lib/takes-label");
 
+// GitHub refuses a 101st sub-issue: https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues
 const GITHUB_SUB_ISSUE_CAP = 100;
+// guess, #76
 const NEAR_CAP = GITHUB_SUB_ISSUE_CAP - 10;
 
 const ROUTED_LABELS = ["to-spec", "wayfinder", "triage"].map(takesLabel);

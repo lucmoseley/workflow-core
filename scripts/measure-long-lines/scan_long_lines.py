@@ -44,6 +44,7 @@ SKIP_EXT = {
     ".webp",
 }
 
+# guess, lucmoseley/mantahostels#1431
 NEEDLE_STEPS = (32, 48, 64, 96, 128, 192)
 NEEDLE_MIN = NEEDLE_STEPS[0]
 
@@ -209,6 +210,7 @@ def sizes_by_date(cands, start, end, tally):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--window", nargs=2, default=["2026-08-20", "2026-08-25"])
+    # guess, lucmoseley/mantahostels#1431
     ap.add_argument("--min-line", type=int, default=4000)
     ap.add_argument("--list-only", action="store_true")
     ap.add_argument(

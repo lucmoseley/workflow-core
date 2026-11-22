@@ -35,8 +35,10 @@ const trackerVars = () => {
 	return trackerCache;
 };
 
+// guess, lucmoseley/mantahostels#283
 const SUBSTANTIAL = 40;
 
+// guess from three events, lucmoseley/mantahostels#141
 const SUSPECT_WINDOW_MIN = 15;
 
 const REV_PAGE = 20;
@@ -185,6 +187,7 @@ function classify(A, B, C, live) {
 			? (new Date(C.at).getTime() - new Date(B.at).getTime()) / 60_000
 			: null;
 
+	// measured: the threshold the rule was tested at, lucmoseley/mantahostels#283
 	const clobbered = lost.length === added.length && aKept >= 0.99 && cAdded > 0;
 
 	if (!clobbered && !(gapMin !== null && gapMin <= SUSPECT_WINDOW_MIN))

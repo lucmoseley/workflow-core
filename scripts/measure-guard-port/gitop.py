@@ -208,6 +208,7 @@ def timed_call(fx: Fixture, reap) -> dict:
         "denies": int(done.returncode != 0),
         "exit": done.returncode,
         "detached": detached,
+        # guess, #5208
         "stderr": done.stderr[-400:].decode(errors="replace"),
     }
 

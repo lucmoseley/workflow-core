@@ -246,6 +246,7 @@ def main() -> None:
     ap.add_argument(
         "--days",
         type=int,
+        # measured: seven days, lucmoseley/mantahostels#1127
         default=7,
         help="window for headroom, concurrency and command counts",
     )

@@ -44,6 +44,7 @@ def count_claude(ps_output: str, cwd_of=live_cwd) -> tuple[int, int]:
 
 def ps_snapshot() -> str:
     try:
+        # guess: a 10 s ps timeout, lucmoseley/mantahostels#1127
         return subprocess.run(
             [bin_path("ps"), *PS_ARGS], capture_output=True, text=True, timeout=10
         ).stdout
@@ -56,7 +57,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description="Sample CPU, load, headroom and session count while the machine works."
     )
+    # guess, lucmoseley/mantahostels#1127
     ap.add_argument("--seconds", type=int, default=720, help="how long to sample")
+    # guess, lucmoseley/mantahostels#1127
     ap.add_argument("--interval", type=int, default=10)
     args = ap.parse_args()
 
