@@ -253,14 +253,8 @@ function readTrackedDeletions(deleted, ctx, tree) {
 
 /** @param {() => Tree} tree */
 function isSelectionReader(tree) {
-	const { readText } = tree();
-	let text;
-	try {
-		text = readText("package.json");
-	} catch {
-		return false;
-	}
-	return text !== null && /"test": *"[^"]*run-vitest\.js/.test(text);
+	const got = tree().read("package.json");
+	return got.state === "read" && /"test": *"[^"]*run-vitest\.js/.test(got.data);
 }
 
 /**
