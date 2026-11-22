@@ -110,6 +110,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const hookBlock = require("./lib/hook-block");
+const { isBackgroundJob } = require("./lib/background-start");
 const { INVENTORY } = require("./lib/inventory-format");
 const { requiredGroup } = require("./lib/regex-group");
 const selectionMarker = require("./lib/selection-marker");
@@ -815,7 +816,7 @@ function buildOwedClosingWaveReason(marker) {
 function judge({ sessionId, message }) {
 	const marker = selectionMarker.read(REPO_ROOT, sessionId);
 	const { shape, consequential, wave } = review(message, marker, {
-		backgroundJob: Boolean(process.env.CLAUDE_JOB_DIR),
+		backgroundJob: isBackgroundJob(process.env),
 	});
 
 	/* ONE BLOCK CARRYING BOTH TIERS' DEFECTS, EACH TIER CHARGING ITS OWN COUNTER

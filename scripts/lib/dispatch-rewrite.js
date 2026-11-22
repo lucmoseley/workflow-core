@@ -73,6 +73,7 @@
  */
 
 const path = require("node:path");
+const { isBackgroundJob } = require("./background-start.js");
 const { caught } = require("./caught.js");
 const { injectArtefact, buildWatchNote } = require("./dispatch-artefact.js");
 const { tierDeparture, untrackedSearch } = require("./dispatch-rules.js");
@@ -283,7 +284,7 @@ function decide(_prompt, ctx) {
 			burn,
 			home: ctx.env.HOME,
 			inherited,
-			job: Boolean(ctx.env.CLAUDE_JOB_DIR),
+			job: isBackgroundJob(ctx.env),
 			table,
 		});
 	} catch (e) {

@@ -17,13 +17,30 @@ import { afterAll, describe, expect, it } from "vitest";
 import { writeJobRecord } from "./background-start-testkit";
 
 const require_ = createRequire(__filename);
-const { isFounderNoticeHeld } = require_("./background-start.js") as {
+const { isBackgroundJob, isFounderNoticeHeld } = require_(
+	"./background-start.js",
+) as {
+	isBackgroundJob: (env: NodeJS.ProcessEnv) => boolean;
 	isFounderNoticeHeld: (
 		checker: string,
 		source: string | undefined,
 		env: NodeJS.ProcessEnv,
 	) => boolean;
 };
+
+describe("isBackgroundJob (#5518)", () => {
+	it("reads a set job dir as a job", () => {
+		expect(isBackgroundJob({ CLAUDE_JOB_DIR: "/jobs/abc" })).toBe(true);
+	});
+
+	it.each([
+		["a print-mode run", { CLAUDE_CODE_ENTRYPOINT: "sdk-cli" }],
+		["an empty job dir", { CLAUDE_JOB_DIR: "" }],
+		["no harness variables", {}],
+	])("reads %s as no job", (_, env) => {
+		expect(isBackgroundJob(env)).toBe(false);
+	});
+});
 
 describe("what counts as a background start", () => {
 	it("holds the notice at a print-mode run", () => {

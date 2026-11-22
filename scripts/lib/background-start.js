@@ -35,8 +35,10 @@ const { readJobRecordIn } = require("./job-paths.js");
 const isPrintMode = (env) => env.CLAUDE_CODE_ENTRYPOINT === "sdk-cli";
 
 /** @param {NodeJS.ProcessEnv} env */
-const isBackgroundStart = (env) =>
-	Boolean(env.CLAUDE_JOB_DIR) || isPrintMode(env);
+const isBackgroundJob = (env) => Boolean(env.CLAUDE_JOB_DIR);
+
+/** @param {NodeJS.ProcessEnv} env */
+const isBackgroundStart = (env) => isBackgroundJob(env) || isPrintMode(env);
 
 /**
  * Whether a job record is one the founder launched from the agents view. A
@@ -54,9 +56,8 @@ function isHisJobRecord(record) {
  * @param {NodeJS.ProcessEnv} env
  */
 function isHisOwnJob(env) {
-	const jobDir = env.CLAUDE_JOB_DIR;
-	if (!jobDir || isPrintMode(env)) return false;
-	return isHisJobRecord(readJobRecordIn(jobDir));
+	if (!isBackgroundJob(env) || isPrintMode(env)) return false;
+	return isHisJobRecord(readJobRecordIn(String(env.CLAUDE_JOB_DIR)));
 }
 
 const FOUNDER_NOTICES = new Set(["idle-efforts", "refill-loop-stop"]);
@@ -78,6 +79,7 @@ const isFounderNoticeHeld = (checker, source, env = process.env) => {
 };
 
 module.exports = {
+	isBackgroundJob,
 	isHisJobRecord,
 	isFounderNotice,
 	isFounderNoticeHeld,
