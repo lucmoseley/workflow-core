@@ -121,7 +121,7 @@ describe("the body", () => {
 		expect(r.stderr).toContain(
 			'Nothing filed: the body carries the basis "the body asks for a day", which carries no warrant, as the wording patterns read it. Every gate line',
 		);
-		expect(r.stderr).toContain("baseline 27/449 attempts");
+		expect(r.stderr).toContain("baseline 3/30 VM boots");
 		expect(readGhCalls()).toEqual([]);
 	});
 
