@@ -24,7 +24,8 @@
  *                                               or nothing
  *   node scripts/lib/formatters.js skip-flags   `flags:` and the --skip-shell
  *                                               or --skip-python the format
- *                                               gate takes, so the hook tells
+ *                                               gate takes, one a line, so the
+ *                                               hook tells
  *                                               no flag from a crash
  *   node scripts/lib/formatters.js lint-missing `lint:skip` or `lint:refuse`,
  *                                               the ruff lint gate's verdict
@@ -490,7 +491,7 @@ function formatWritten(file) {
 
 if (require.main === module) {
 	const want = process.argv.slice(2).join(" ");
-	if (want === "skip-flags") writeFd(1, `flags:${skipFlags().join(" ")}\n`);
+	if (want === "skip-flags") writeFd(1, `flags:${skipFlags().join("\n")}\n`);
 	else if (want === "lint-missing") writeFd(1, `lint:${lintMissing()}\n`);
 	else if (/^shell-files(?: --index| --tracked)?$/.test(want))
 		printShellFiles(want.slice("shell-files ".length));

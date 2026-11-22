@@ -160,6 +160,19 @@ tool_gate() {
   fi
 }
 
+with_lines() {
+  (
+    wl_list="$1"
+    shift
+    while IFS= read -r wl_line; do
+      [ -z "$wl_line" ] || set -- "$@" "$wl_line"
+    done <<WL_EOF
+$wl_list
+WL_EOF
+    "$@"
+  )
+}
+
 # --- declared commands -------------------------------------------------------
 
 # declared_cmd <reader command>… — runs a reader of a command the adopter

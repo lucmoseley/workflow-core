@@ -493,6 +493,28 @@ if tool_gate sh "x"; then echo "RUN[$tool_paths]"; fi`,
 	});
 });
 
+describe("with_lines", () => {
+	it("appends each non-empty line as one argument, spaces and globs kept whole", () => {
+		const { code, output } = run(
+			`list="a b
+*
+
+c"
+with_lines "$list" sh -c 'printf "[%s]" "$@"' argv0 first`,
+		);
+		expect(code).toBe(0);
+		expect(output).toContain("[first][a b][*][c]");
+	});
+
+	it("runs the command alone over an empty list, and returns its status", () => {
+		const { output } = run(
+			`with_lines "" sh -c 'echo "argc=$#"; exit 3' argv0 || echo "rc=$?"`,
+		);
+		expect(output).toContain("argc=0");
+		expect(output).toContain("rc=3");
+	});
+});
+
 describe("declared_cmd (#1504)", () => {
 	const reader = (code: number) =>
 		`declared_cmd sh -c 'echo "touch RAN"; [ ${code} -ne 1 ] || echo "SKIP: undeclared" >&2; exit ${code}'`;

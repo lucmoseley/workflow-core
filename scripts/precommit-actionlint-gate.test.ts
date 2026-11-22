@@ -21,7 +21,7 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 
-const gateFragment = () => cutGateFragment("actionlint $tool_paths");
+const gateFragment = () => cutGateFragment("hook_bound actionlint");
 
 const ARGS_FILE = "actionlint-args.txt";
 
@@ -123,6 +123,20 @@ describe("the pre-commit actionlint gate", () => {
 		const { code, args } = runGate(repo);
 		expect(args).toContain(WORKFLOW);
 		expect(code).toBe(0);
+	});
+
+	it("hands actionlint one argument per staged path, a space inside one included", () => {
+		const spaced = ".github/workflows/two words.yml";
+		const repo = fixture({
+			staged: { [WORKFLOW]: BODY, [spaced]: BODY },
+			actionlintExit: 0,
+		});
+		const { args } = runGate(repo);
+		const lines = fs
+			.readFileSync(path.join(repo.root, ARGS_FILE), "utf8")
+			.split("\n");
+		expect(lines[0]).toBe("argc=2");
+		expect([...args].sort()).toEqual([WORKFLOW, spaced].sort());
 	});
 
 	it("matches the .yaml spelling as well as .yml", () => {
@@ -245,14 +259,15 @@ describe("the pre-commit actionlint gate", () => {
 			fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
 		);
 		expect(pkg.scripts["check:actions"]).toBe("actionlint");
-		const invocation = /^\s*hook_bound actionlint ([^|]*)\|\| \{/m.exec(
-			gateFragment(),
-		);
+		const invocation =
+			/^\s*with_lines "\$tool_paths" hook_bound actionlint([^|]*)\|\| \{/m.exec(
+				gateFragment(),
+			);
 		expect(
 			invocation,
-			"the gate no longer invokes `hook_bound actionlint` ahead of a `||`",
+			"the gate no longer invokes `hook_bound actionlint` over $tool_paths ahead of a `||`",
 		).not.toBeNull();
-		expect((invocation as RegExpExecArray)[1].trim()).toBe("$tool_paths");
+		expect((invocation as RegExpExecArray)[1].trim()).toBe("");
 	});
 });
 

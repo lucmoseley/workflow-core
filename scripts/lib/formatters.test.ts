@@ -256,7 +256,7 @@ describe("formatters.js as a program — the pre-commit hook's reading (#1354)",
 			"      - run: npm run lint\n      - run: ruff format --check .\n",
 			{ lint: "npm run lint:sh", "lint:sh": "node scripts/check-shfmt.js" },
 		);
-		expect(flags(ci)).toEqual(answer("flags:--skip-shell --skip-python"));
+		expect(flags(ci)).toEqual(answer("flags:--skip-shell\n--skip-python"));
 	});
 
 	it("skips only the half whose formatter is missing, never one installed", () => {
