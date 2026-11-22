@@ -124,7 +124,7 @@ function readManifestDeps(root) {
  */
 function readTreeFacts(root) {
 	const surface = JSON.parse(readOr(root, SURFACE) ?? "{}");
-	const plugin = JSON.parse(fs.readFileSync(PLUGIN_SURFACE, "utf8"));
+	const pluginSurface = JSON.parse(fs.readFileSync(PLUGIN_SURFACE, "utf8"));
 	const adrDir = path.join(root, ADR_DIR);
 	const adrs = new Set(
 		(fs.existsSync(adrDir) ? fs.readdirSync(adrDir) : []).flatMap((name) => {
@@ -137,7 +137,7 @@ function readTreeFacts(root) {
 		entryPoints: surface.entryPoints ?? {},
 		commands: new Set(Object.keys(surface.commands ?? {})),
 		/** @type {Set<string>} */
-		copies: new Set(plugin.copies),
+		copies: new Set(pluginSurface.copies),
 		adrs,
 		deps: depsPattern(readManifestDeps(root)),
 		checkJs: /"checkJs"\s*:\s*true/.test(readOr(root, "tsconfig.json") ?? ""),

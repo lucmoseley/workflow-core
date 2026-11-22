@@ -5,16 +5,15 @@ and never re-syncs it.
 
 FROZEN, as resolve-core.js is: a change to its lookup, its export or its
 variable names is a major release with a migration note. Standard library only,
-Python 3.10 or later, because it runs before the core is found.
+Python 3.10 or later.
 
 Same lookup, same variables, same messages as resolve-core.js, whose header
 explains each step: WORKFLOW_CORE_DIR, then WORKFLOW_CORE_CHECKOUT, then the
 installed plugin's install row for the adopter root as spelt, else, where the
 root is a checkout's top level, for its main checkout as git spells it, asking
-git only where the root has no row (#4150). test_resolve_core.py runs both
-files over the same fixtures and fails on any difference. A value the CLI never
-writes — a non-string ref or install path — fails in both, naming the pin, but
-its message text can differ.
+git only where the root has no row (#4150). A value the CLI never writes — a
+non-string ref or install path — fails in both, naming the pin, but its message
+text can differ.
 
 It has no script form. An adopter's conftest.py puts the core's lib on the path
 before any test imports from it:

@@ -1,6 +1,6 @@
 {
 	"about": "The helper surface: every file an adopter may import or source from outside the plugin, and the names each one exports, plus every code file an adopter's own tree carries a copy of, plus every script an adopter may run as a command, and the argv each one accepts. A file, export or command not listed here is internal and may change in any release. Paths are relative to the plugin root.",
-	"versioning": "The plugin's semver is the surface's version. Removing or renaming an entry point or a listed export, or changing an export's call shape incompatibly, is a major change and needs a migration note under migrations/. So is removing a listed command, removing or reordering its listed positionals, removing a listed flag or a listed positional value, or changing what a listed exit code means. So is adding a positional or flag a caller must now pass. Adding an entry point, an export, a command, a positional value, or a positional or flag a caller may omit is a minor change.",
+	"versioning": "The plugin's semver is the surface's version. Removing or renaming an entry point or a listed export, or changing an export's call shape incompatibly, is a major change and needs a migration note under migrations/. So is removing a listed command, removing or reordering its listed positionals, removing a listed flag or a listed positional value, or changing what a listed exit code means. So is adding a positional or flag a caller must now pass. Adding an entry point, an export, a command, a positional value, or a positional or flag a caller may omit is a minor change. A copy follows its own file's contract, not this versioning: adding or removing one is a minor change.",
 	"entryPoints": {
 		"scripts/lib/caught.js": ["caught", "ignoreFailure", "orFallback"],
 		"scripts/lib/check.js": [
@@ -42,15 +42,6 @@
 		"scripts/vitest-tree-watch.ts": ["setup", "teardown"]
 	},
 	"copies": [
-		".husky/commit-msg",
-		".husky/post-checkout",
-		".husky/post-commit",
-		".husky/post-merge",
-		".husky/pre-applypatch",
-		".husky/pre-commit",
-		".husky/pre-merge-commit",
-		".husky/pre-push",
-		".husky/prepare-commit-msg",
 		"scripts/browse.py",
 		"scripts/lib/resolve-core.js",
 		"scripts/lib/resolve_core.py"

@@ -16,12 +16,12 @@ import { NOTICES } from "./lib/shared-fault-notices.js";
 
 const SCRIPT = path.resolve(__dirname, "check-comment-policy.js");
 const PLUGIN_ROOT = path.resolve(__dirname, "..");
-const COPIES: string[] = JSON.parse(
-	fs.readFileSync(
-		path.join(PLUGIN_ROOT, "scripts/lib/helper-surface.json"),
-		"utf8",
-	),
-).copies;
+const COPIES = [
+	"scripts/browse.py",
+	"scripts/lib/resolve-core.js",
+	"scripts/lib/resolve_core.py",
+];
+const SHIMS = coreOwnedPaths().filter((rel) => rel.startsWith(".husky/"));
 
 let root: string;
 let hooks: string;
@@ -154,29 +154,34 @@ describe("check-comment-policy", () => {
 		expect(r.out).toContain("1 code file(s), every comment a permitted kind.");
 	});
 
-	it("passes the plugin's copies in an adopter with no surface of its own, and charges the adopter's own top comment", () => {
+	it("passes the plugin's copies and hook shims in an adopter with no surface of its own, and charges the adopter's own top comment", () => {
 		for (const rel of COPIES)
-			write(
-				rel,
-				rel.startsWith(".husky/")
-					? renderHookShim(path.basename(rel))
-					: fs.readFileSync(path.join(PLUGIN_ROOT, rel), "utf8"),
-			);
+			write(rel, fs.readFileSync(path.join(PLUGIN_ROOT, rel), "utf8"));
+		for (const rel of SHIMS) write(rel, renderHookShim(path.basename(rel)));
 		write("scripts/own.js", "/*\n * A note.\n */\nconst a = 1;\n");
 		git("add", "-A");
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("scripts/own.js:1");
 		expect(r.out).toContain(
-			`1 comment breach(es) in 1 of ${COPIES.length + 1} code file(s)`,
+			`1 comment breach(es) in 1 of ${COPIES.length + SHIMS.length + 1} code file(s)`,
 		);
 	});
 
-	it("lists as copies every core-owned code file, plus resolve_core.py, which an adopter copies once", () => {
-		const owned = coreOwnedPaths().filter((rel) => CODE_FILE.test(rel));
-		expect([...COPIES].sort()).toEqual(
+	it("lists as copies every core-owned code file but the rendered hook shims, plus resolve_core.py, which an adopter copies once", () => {
+		const surface = JSON.parse(
+			fs.readFileSync(
+				path.join(PLUGIN_ROOT, "scripts/lib/helper-surface.json"),
+				"utf8",
+			),
+		);
+		const owned = coreOwnedPaths().filter(
+			(rel) => CODE_FILE.test(rel) && !SHIMS.includes(rel),
+		);
+		expect([...surface.copies].sort()).toEqual(
 			[...owned, "scripts/lib/resolve_core.py"].sort(),
 		);
+		expect([...surface.copies].sort()).toEqual([...COPIES].sort());
 	});
 
 	describe("--against HEAD", () => {
