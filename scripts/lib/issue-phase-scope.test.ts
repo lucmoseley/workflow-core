@@ -354,14 +354,13 @@ describe("what it fails open on, and records", () => {
 		]);
 	});
 
-	it("allows and records a missing roadmap", () => {
+	it("allows a create where no roadmap exists and records nothing, the module off (#5576)", () => {
 		fs.rmSync(at("docs/reference-roadmap.html"));
 		expect(verdict('gh issue create --title "search-core — a thing"')).toBe(
 			"allow",
 		);
-		expect(readFaults()).toEqual([
-			"docs/reference-roadmap.html is unreadable — issue creation allowed unchecked",
-		]);
+		expect(verdict('gh issue create --title "$TITLE"')).toBe("allow");
+		expect(readFaults()).toEqual([]);
 	});
 
 	it("allows and records a roadmap that opens but will not read, never as 'no such card'", () => {
@@ -452,8 +451,17 @@ describe("what it fails open on, and records", () => {
 		expect(readFaults()).toEqual([]);
 	});
 
-	it("allows and records a missing roadmap on a REST creation (#3426)", () => {
+	it("allows a REST creation where no roadmap exists and records nothing (#5576)", () => {
 		fs.rmSync(at("docs/reference-roadmap.html"));
+		expect(
+			verdict('gh api repos/o/r/issues -f title="search-core — a thing"'),
+		).toBe("allow");
+		expect(readFaults()).toEqual([]);
+	});
+
+	it("allows and records an unreadable roadmap on a REST creation (#3426)", () => {
+		fs.rmSync(at("docs/reference-roadmap.html"));
+		fs.mkdirSync(at("docs/reference-roadmap.html"));
 		expect(
 			verdict('gh api repos/o/r/issues -f title="search-core — a thing"'),
 		).toBe("allow");

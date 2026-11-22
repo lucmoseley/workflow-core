@@ -108,7 +108,7 @@ const CARD_ID = /^[a-z0-9][a-z0-9-]*$/;
  * @typedef {object} Run
  * @property {Parsed} parsed
  * @property {PhaseContext} ctx
- * @property {string} [roadmap]
+ * @property {string | null} [roadmap]
  */
 
 /**
@@ -145,23 +145,30 @@ function judge(run, cmd) {
 	if (head === undefined || !isGhCommand(head)) return;
 	if (sub === "issue") {
 		if (verb !== "create") return;
-		readRoadmapOrOpen(run);
+		if (readRoadmapOrOpen(run) === null) return;
 		judgeCreate(run, cmd, words.slice(3));
 	} else if (sub === "api") judgeApi(run, cmd, words.slice(2));
 }
 
 /**
+ * #5576
+ *
  * @param {Run} run
- * @returns {string}
+ * @returns {string | null}
  */
 function readRoadmapOrOpen(run) {
-	if (typeof run.roadmap === "string") return run.roadmap;
-	const text = readOrNull(run.ctx.tree(), ROADMAP);
-	if (text === null)
+	if (run.roadmap !== undefined) return run.roadmap;
+	const tree = run.ctx.tree();
+	/** @type {string | null} */
+	let text;
+	try {
+		text = tree.readText(ROADMAP);
+	} catch {
 		return open(
 			run.ctx,
 			`${ROADMAP} is unreadable — issue creation allowed unchecked`,
 		);
+	}
 	run.roadmap = text;
 	return text;
 }
@@ -220,7 +227,7 @@ function judgeApi(run, cmd, args) {
 	const endpoint = literal(call.endpoint, spans);
 	if (method.known && !isPost(method.text, call)) return;
 	if (endpoint.known && !isIssueCollection(endpoint.text)) return;
-	readRoadmapOrOpen(run);
+	if (readRoadmapOrOpen(run) === null) return;
 	if (!method.known || !endpoint.known || call.input)
 		open(
 			run.ctx,
@@ -279,6 +286,7 @@ function cardOf(title) {
  */
 function phaseOf(run, card) {
 	const roadmap = readRoadmapOrOpen(run);
+	if (roadmap === null) return null;
 	const re = new RegExp(`id:"${card}",p:([0-9])`);
 	const hit = re.exec(roadmap);
 	return hit ? requiredGroup(hit, 1, re) : null;

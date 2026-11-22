@@ -1333,7 +1333,15 @@ describe("the card checks it cannot make", () => {
 		},
 	};
 
+	it("records nothing for a card-shaped title where no roadmap exists, the module off (#5576)", () => {
+		expect(verdict("gh issue close 12", Card)).toBe("allow");
+		expect(faults).toEqual([]);
+	});
+
 	it("records the card unchecked when the roadmap is unreadable", () => {
+		fs.mkdirSync(path.join(shared, "docs", "reference-roadmap.html"), {
+			recursive: true,
+		});
 		expect(verdict("gh issue close 12", Card)).toBe("allow");
 		expect(faults).toEqual([
 			"could not read the roadmap, so card id-match — card state unchecked",

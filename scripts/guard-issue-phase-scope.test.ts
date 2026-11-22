@@ -74,8 +74,17 @@ describe("each exit", () => {
 });
 
 describe("what it fails open on", () => {
-	it("allows a create whose roadmap is missing, and records it on disk", () => {
+	it("allows a create where no roadmap exists, and records nothing on disk (#5576)", () => {
 		fs.rmSync(path.join(dir, "docs/reference-roadmap.html"));
+		expect(
+			emission('gh issue create --title "search-core — a thing"'),
+		).toBeNull();
+		expect(readFailOpenRecords(config, dir)).toEqual([]);
+	});
+
+	it("allows a create whose roadmap will not read, and records it on disk", () => {
+		fs.rmSync(path.join(dir, "docs/reference-roadmap.html"));
+		fs.mkdirSync(path.join(dir, "docs/reference-roadmap.html"));
 		expect(
 			emission('gh issue create --title "search-core — a thing"'),
 		).toBeNull();

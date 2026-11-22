@@ -418,18 +418,6 @@ function judgeCard(run, close) {
 }
 
 /**
- * @param {import("./guard-host-ports.js").TreePorts} tree
- * @returns {string | null}
- */
-function readRoadmap(tree) {
-	try {
-		return tree.readText(ROADMAP);
-	} catch {
-		return null;
-	}
-}
-
-/**
  * @param {Run} run
  * @param {Close} close
  * @returns {string}
@@ -451,8 +439,16 @@ function cardFault(run, close) {
 				.join(" ")
 		: "";
 	if (` ${labels} `.includes(" wayfinder:map ")) return "";
-	const roadmap = readRoadmap(run.ctx.tree());
-	if (roadmap === null) return `could not read the roadmap, so card ${id}`;
+	const tree = run.ctx.tree();
+	/** @type {string | null} */
+	let roadmap;
+	try {
+		roadmap = tree.readText(ROADMAP);
+	} catch {
+		return `could not read the roadmap, so card ${id}`;
+	}
+	// #5576
+	if (roadmap === null) return "";
 	const count = roadmap.split(`id:"${id}",`).length - 1;
 	if (count !== 1) return `${id} names ${count} cards on the roadmap, so it`;
 	// guess, #2798
