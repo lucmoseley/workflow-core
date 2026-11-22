@@ -4,7 +4,6 @@ const path = require("node:path");
 const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 const { runCheck, errMessage } = require("./lib/check.js");
-const { exemptHint, exemptMarker } = require("./lib/exempt-markers.js");
 
 /** @typedef {import("./lib/check.js").Ctx} Ctx */
 
@@ -15,8 +14,6 @@ const DELETION = /\bdelete\s+process\.env(\.\w+|\[[^\]]+\])/;
 
 const inScope = (/** @type {string} */ rel) =>
 	isJsTestFile(rel) || (rel.startsWith("scripts/") && rel.endsWith(".ts"));
-
-const EXEMPT = exemptMarker("env-write");
 
 function variableOf(/** @type {string | undefined} */ target) {
 	if (target === undefined) return "(whole object)";
@@ -33,7 +30,6 @@ function writesIn(/** @type {string} */ source) {
 		const deleted = text.match(DELETION);
 		const m = deleted ?? text.match(ASSIGNMENT);
 		if (!m) return;
-		if (EXEMPT.test(text) || EXEMPT.test(lines[i - 1] ?? "")) return;
 		const verb = deleted ? "deletes" : "assigns";
 		out.push({ line: i + 1, name: variableOf(m[1]), verb });
 	});
@@ -74,7 +70,7 @@ const SPEC = {
 				'  Fix: `vi.stubEnv("NAME", value)`, or `vi.stubEnv("NAME", undefined)` to unset, and delete any hand-written save and restore of it. A stub is undone before each test, so one at module scope or in beforeAll moves into a beforeEach.',
 			);
 			ctx.say(
-				`  A line that genuinely cannot stub? Record why on an issue and put ${exemptHint("env-write")} on it or the line above; this check drops it.`,
+				"  To swap the whole environment around one call: `withOnlyEnv` in scripts/lib/scoped-env.ts.",
 			);
 		}
 		return {
