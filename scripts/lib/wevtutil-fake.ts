@@ -22,7 +22,8 @@ export function writeWevtutil(
 const fs = require("node:fs");
 const a = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(path.join(dir, "calls"))}, ["wevtutil", ...a].join(" ") + "\\n");
-if (${fails} || a[0] !== "qe" || a[1] !== "System") process.exit(1);
+if (${fails}) { process.stderr.write("Access is denied.\\n"); process.exit(5); }
+if (a[0] !== "qe" || a[1] !== "System") process.exit(1);
 if (a.includes("/f:xml")) process.stdout.write(${JSON.stringify(boots.map(eventXml).join(""))});
 else if (a.includes("/f:text") && a.includes("/q:*[System[(EventID=41)]]")) process.stdout.write(${JSON.stringify(newest)});
 else process.exit(1);

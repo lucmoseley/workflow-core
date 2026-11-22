@@ -14,10 +14,17 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { pidAlive } from "./lib/arbiter-proc.js";
+import {
+	awayLoadEnv,
+	epoch,
+	awayLoadEvents as events,
+	memwatchReading,
+} from "./lib/away-load-fixture";
 import { gitBinary, gitSpawnOptions } from "./lib/git.js";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { writeSystemctl } from "./lib/systemctl-fake";
 import { writeWevtutil } from "./lib/wevtutil-fake";
 import { writeWindowsTasks } from "./lib/windows-tasks-fake";
 
@@ -37,13 +44,7 @@ const repoTemplate = defineTemplate((dir) => {
 function rig(name: string) {
 	const dir = path.join(tmp, name);
 	fs.mkdirSync(dir);
-	const fake = (file: string, body: string) => {
-		fs.writeFileSync(path.join(dir, file), `#!/bin/sh\n${body}\n`, {
-			mode: 0o755,
-		});
-		return path.join(dir, file);
-	};
-	const tasks = writeWindowsTasks(dir, { calls: path.join(dir, "calls") });
+	const tasks = writeWindowsTasks(dir);
 	const files = {
 		calls: tasks.calls,
 		held: tasks.args,
@@ -52,15 +53,8 @@ function rig(name: string) {
 	};
 	const env = {
 		CLAUDE_PROJECT_DIR: tmp,
-		WFC_AWAY_LOAD_STATE_DIR: path.join(dir, "state"),
-		WFC_AWAY_LOAD_LOG: path.join(dir, "away-load.jsonl"),
-		WFC_AWAY_LOAD_POLL_MS: "100",
-		MEMWATCH_WIN_OUT: path.join(dir, "memwatch-win"),
-		MEMWATCH_MINUTE_LOG: path.join(dir, "minute.jsonl"),
-		WFC_TESTLIMIT: tasks.testlimit,
-		WFC_TASKKILL: tasks.taskkill,
-		WFC_TASKLIST: tasks.tasklist,
-		WFC_SYSTEMCTL: fake("systemctl", `echo "$*" >> "${files.calls}"; exit 1`),
+		...awayLoadEnv(dir, tasks),
+		WFC_SYSTEMCTL: writeSystemctl(dir, {}),
 		WFC_AWAY_LOAD_WORKER: `echo $$ >> "${files.workers}"; exec sleep 600`,
 		WFC_AWAY_LOAD_REPOS_ROOT: path.join(dir, "home"),
 	};
@@ -69,11 +63,6 @@ function rig(name: string) {
 
 const read = (file: string) =>
 	fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
-const events = (log: string) =>
-	read(log)
-		.split("\n")
-		.filter(Boolean)
-		.map((l) => JSON.parse(l));
 
 const isGone = (pid: number) => !pidAlive(pid);
 const readPids = (file: string) => read(file).trim().split("\n").map(Number);
@@ -86,12 +75,10 @@ async function until(what: string, test: () => boolean) {
 	}
 }
 
-const epoch = () => Math.floor(Date.now() / 1000);
-
 describe("run", () => {
 	it("starts on 15 idle minutes, holds and loads, and stops on input", async () => {
 		const { env, files } = rig("run");
-		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 900\n`);
+		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 900));
 		const child = keptSpawn("signal").spawn("node", [SCRIPT, "run"], {
 			env: { ...process.env, ...env },
 			stdio: "ignore",
@@ -116,7 +103,7 @@ describe("run", () => {
 
 			fs.writeFileSync(
 				env.MEMWATCH_WIN_OUT,
-				`${epoch() + 1} 1100 1 2 60 100 3\n`,
+				memwatchReading(epoch() + 1, 1100, 3),
 			);
 			/* The stop is logged, then the holders and workers ended. */
 			await until("the stop", () =>
@@ -165,7 +152,7 @@ describe("run, by its readings", () => {
 
 	it("releases only the newest holders, about the shortfall (#5472, where a release ended them all)", async () => {
 		const { env, files } = rig("release");
-		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 900\n`);
+		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 900));
 		let held: number[] = [];
 		let oldestKept = false;
 		await runUntil(env, "the release", () => {
@@ -173,7 +160,7 @@ describe("run, by its readings", () => {
 				held = readPids(files.holders);
 				fs.writeFileSync(
 					env.MEMWATCH_WIN_OUT,
-					`${epoch() + 1} 700 1 2 60 100 900\n`,
+					memwatchReading(epoch() + 1, 700, 900),
 				);
 			}
 			const released =
@@ -191,7 +178,7 @@ describe("run, by its readings", () => {
 
 	it("ends the whole hold where Windows runs more Testlimits than it holds", async () => {
 		const { env, files, tasks } = rig("strays");
-		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 900\n`);
+		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 900));
 		let held: number[] = [];
 		await runUntil(env, "the strays", () => {
 			if (held.length === 0 && readPids(files.holders).length === 3) {
@@ -199,7 +186,7 @@ describe("run, by its readings", () => {
 				tasks.setStrays(1);
 				fs.writeFileSync(
 					env.MEMWATCH_WIN_OUT,
-					`${epoch() + 1} 800 1 2 60 100 900\n`,
+					memwatchReading(epoch() + 1, 800, 900),
 				);
 			}
 			return (
@@ -218,7 +205,7 @@ describe("run, by its readings", () => {
 
 	it("logs the gate met while it waits, and writes the end", async () => {
 		const { env } = rig("finish");
-		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 3\n`);
+		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 3));
 		const row = JSON.stringify({
 			ts: "2026-11-21T19:00:00+0800",
 			cpu_busy_pct: 600,
@@ -256,7 +243,10 @@ describe("recover", () => {
 		const result = await recover(r, "2026-11-11T17:26:26", { fails: true });
 		expect(result.status).toBe(1);
 		expect(events(r.env.WFC_AWAY_LOAD_LOG)).toMatchObject([
-			{ event: "recover-unread", error: expect.stringContaining("exited 1") },
+			{
+				event: "recover-unread",
+				error: expect.stringContaining("Access is denied"),
+			},
 		]);
 	});
 

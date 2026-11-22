@@ -7,16 +7,13 @@ const IMAGE = "Testlimit64.exe";
 const NO_TASKS =
 	"INFO: No tasks are running which match the specified criteria.";
 
-export function writeWindowsTasks(
-	dir: string,
-	{ calls = path.join(dir, "calls"), denied = false } = {},
-) {
+export function writeWindowsTasks(dir: string, { denied = false } = {}) {
 	fs.mkdirSync(dir, { recursive: true });
 	const files = {
 		args: path.join(dir, "testlimit.args"),
 		pids: path.join(dir, "holder.pids"),
 		strays: path.join(dir, "strays"),
-		calls,
+		calls: path.join(dir, "calls"),
 	};
 	const write = (file: string, body: string) => {
 		const bin = path.join(dir, file);
