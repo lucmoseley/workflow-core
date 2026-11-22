@@ -125,7 +125,7 @@ describe("the pre-commit actionlint gate", () => {
 		expect(code).toBe(0);
 	});
 
-	it("hands actionlint one argument per staged path, a space inside one included", () => {
+	it("hands actionlint one argument per staged path, a space inside one included (#5542)", () => {
 		const spaced = ".github/workflows/two words.yml";
 		const repo = fixture({
 			staged: { [WORKFLOW]: BODY, [spaced]: BODY },

@@ -493,7 +493,7 @@ if tool_gate sh "x"; then echo "RUN[$tool_paths]"; fi`,
 	});
 });
 
-describe("with_lines", () => {
+describe("with_lines (#5542)", () => {
 	it("appends each non-empty line as one argument, spaces and globs kept whole", () => {
 		const { code, output } = run(
 			`list="a b

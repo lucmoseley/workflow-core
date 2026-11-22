@@ -178,6 +178,12 @@ describe("the pre-commit shellcheck gate", () => {
 		expect(runGate(repo).args).toContain("scripts/lib/guard-thing.sh");
 	});
 
+	it("hands shellcheck a staged path holding a space as one argument (#5542)", () => {
+		const spaced = "scripts/two words.sh";
+		const repo = fixture({ staged: { [spaced]: BODY }, shellcheckExit: 0 });
+		expect(runGate(repo).args).toContain(spaced);
+	});
+
 	it("fails the commit when shellcheck exits non-zero", () => {
 		const repo = fixture({ staged: { [GUARD]: BODY }, shellcheckExit: 1 });
 		const { code, output } = runGate(repo);
