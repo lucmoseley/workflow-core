@@ -21,13 +21,55 @@ function inCheckout(env = process.env) {
 	return fs.existsSync(path.join(coreRoot(env), "package.json"));
 }
 
+/** @type {Map<string, boolean>} */
+const coreRepoAnswers = new Map();
+
+// #5581
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {boolean}
+ */
+function isCoreRepo(env = process.env) {
+	if (!inCheckout(env)) return false;
+	const core = coreRoot(env);
+	const key = [core, process.cwd(), env.GIT_DIR ?? ""].join("\0");
+	let answer = coreRepoAnswers.get(key);
+	if (answer === undefined) {
+		answer = probeCoreRepo(core, env);
+		coreRepoAnswers.set(key, answer);
+	}
+	return answer;
+}
+
+/**
+ * @param {string} core
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {boolean}
+ */
+function probeCoreRepo(core, env) {
+	const { gitCommonDir, gitOrNull } = require("./git.js");
+	const { scrubbedGitEnv } = require("./hook-entry.js");
+	const [cdup, own] = (
+		gitOrNull(
+			[
+				"rev-parse",
+				"--path-format=absolute",
+				"--show-cdup",
+				"--git-common-dir",
+			],
+			{ cwd: core, env: scrubbedGitEnv(env) },
+		) ?? "\n"
+	).split("\n");
+	return cdup === "" && !!own && own === gitCommonDir(process.cwd(), { env });
+}
+
 /**
  * @param {string} name
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {string}
  */
 function scriptPath(name, env = process.env) {
-	return inCheckout(env) ? `scripts/${name}` : absoluteScriptPath(name, env);
+	return isCoreRepo(env) ? `scripts/${name}` : absoluteScriptPath(name, env);
 }
 
 /**
@@ -36,7 +78,7 @@ function scriptPath(name, env = process.env) {
  * @returns {string}
  */
 function docPath(name, env = process.env) {
-	return inCheckout(env)
+	return isCoreRepo(env)
 		? `docs/${name}`
 		: absoluteCorePath(`docs/${name}`, env);
 }
@@ -88,7 +130,7 @@ const CORE_PATH = /(?<![\w./$}-])(?:\.\/)?(scripts|docs)\/([\w*.-][\w*./-]*)/g;
  * @returns {string}
  */
 function resolveScriptPaths(text) {
-	if (inCheckout()) return text;
+	if (isCoreRepo()) return text;
 	return text.replace(CORE_PATH, (whole, dir, rest) => {
 		const name = trimEndRun(rest, ".");
 		const file = `${coreRoot()}/${dir}/${name}`;
@@ -100,6 +142,7 @@ function resolveScriptPaths(text) {
 module.exports = {
 	coreRoot,
 	inCheckout,
+	isCoreRepo,
 	scriptPath,
 	docPath,
 	corePath,

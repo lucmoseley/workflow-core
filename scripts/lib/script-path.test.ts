@@ -109,6 +109,69 @@ describe("in a source checkout", () => {
 	});
 });
 
+describe("from an adopter whose core is a source checkout outside it (#5584)", () => {
+	afterEach(() => vi.restoreAllMocks());
+	const checkoutCore = () => {
+		const root = install(["session-arbiter.js"], "script-path-core-");
+		fs.writeFileSync(path.join(root, "package.json"), "{}");
+		spawnSync("git", ["init", "-q"], { cwd: root });
+		return root;
+	};
+	const adopter = () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "script-path-host-"));
+		temps.push(dir);
+		spawnSync("git", ["init", "-q"], { cwd: dir });
+		return dir;
+	};
+
+	it("names a script and a doc absolute, in both twins", () => {
+		const root = checkoutCore();
+		const host = adopter();
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
+		vi.spyOn(process, "cwd").mockReturnValue(host);
+		const script = `${root}/scripts/session-arbiter.js`;
+		const doc = `${root}/docs/agents/issue-tracker.md`;
+		expect(scriptPath("session-arbiter.js")).toBe(script);
+		expect(docPath("agents/issue-tracker.md")).toBe(doc);
+		expect(resolveScriptPaths("node scripts/session-arbiter.js")).toBe(
+			`node ${script}`,
+		);
+		const twin = (command: string, input = "") =>
+			spawnSync("bash", ["-c", `source ${shellQuote(SH)}; ${command}`], {
+				cwd: host,
+				input,
+				encoding: "utf8",
+				env: { ...process.env, WFC_SCRIPT_ROOT: root },
+			}).stdout;
+		expect(twin("script_path session-arbiter.js")).toBe(script);
+		expect(twin("doc_path agents/issue-tracker.md")).toBe(doc);
+		expect(
+			twin("resolve_script_paths", "node scripts/session-arbiter.js"),
+		).toBe(`node ${script}`);
+	});
+
+	it("names a script absolute in the adopter's commit hook, which exports GIT_DIR, in both twins", () => {
+		const root = checkoutCore();
+		const host = adopter();
+		const gitDir = path.join(host, ".git");
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
+		vi.stubEnv("GIT_DIR", gitDir);
+		vi.spyOn(process, "cwd").mockReturnValue(host);
+		const script = `${root}/scripts/session-arbiter.js`;
+		expect(scriptPath("session-arbiter.js")).toBe(script);
+		const r = spawnSync(
+			"bash",
+			["-c", `source ${shellQuote(SH)}; script_path session-arbiter.js`],
+			{
+				cwd: host,
+				encoding: "utf8",
+				env: { ...process.env, WFC_SCRIPT_ROOT: root, GIT_DIR: gitDir },
+			},
+		);
+		expect(r.stdout).toBe(script);
+	});
+});
+
 describe("the bash twins' own directory", () => {
 	const inLib = (script: string) =>
 		spawnSync("bash", ["-c", script], { cwd: __dirname, encoding: "utf8" });
@@ -123,9 +186,8 @@ describe("the bash twins' own directory", () => {
 			{ encoding: "utf8" },
 		);
 		expect(r.stderr).toBe("");
-		expect(r.stdout).toBe(
-			`${path.dirname(fs.realpathSync(SCRIPTS))}\nscripts/x.js`,
-		);
+		const core = path.dirname(fs.realpathSync(SCRIPTS));
+		expect(r.stdout).toBe(`${core}\n${core}/scripts/x.js`);
 	});
 
 	it("resolves when sourced by a bare name from its own directory", () => {

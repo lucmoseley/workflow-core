@@ -30,16 +30,24 @@ sp_shell_word() {
   fi
 }
 
-sp_in_checkout() {
-  local root
+# #5584
+sp_in_core_repo() {
+  local root probe here
   _sp_root_into root
-  [[ -f "$root/package.json" ]]
+  [[ -f "$root/package.json" ]] || return 1
+  probe="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+    "${WFC_GIT:-git}" -C "$root" rev-parse --path-format=absolute \
+    --show-cdup --git-common-dir 2>/dev/null)" || return 1
+  [[ "$probe" == $'\n'* ]] || return 1
+  here="$("${WFC_GIT:-git}" rev-parse --path-format=absolute \
+    --git-common-dir 2>/dev/null)" || return 1
+  [[ "${probe#$'\n'}" == "$here" ]]
 }
 
 script_path() {
   local root
   _sp_root_into root
-  if sp_in_checkout; then
+  if sp_in_core_repo; then
     printf 'scripts/%s' "$1"
   else
     sp_shell_word "$root/scripts/$1"
@@ -49,7 +57,7 @@ script_path() {
 doc_path() {
   local root
   _sp_root_into root
-  if sp_in_checkout; then
+  if sp_in_core_repo; then
     printf 'docs/%s' "$1"
   else
     sp_shell_word "$root/docs/$1"
@@ -60,7 +68,7 @@ resolve_script_paths() {
   local LC_ALL=C text root out='' pre edge dot dir rest name
   _sp_read_stdin text
   _sp_root_into root
-  if sp_in_checkout; then
+  if sp_in_core_repo; then
     printf '%s' "$text"
     return 0
   fi

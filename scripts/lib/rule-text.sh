@@ -200,7 +200,7 @@ rule_text() {
   fi
   # #416
   local qualified
-  if declare -F sp_in_checkout >/dev/null && ! sp_in_checkout &&
+  if declare -F sp_in_core_repo >/dev/null && ! sp_in_core_repo &&
     [[ "$layer" == "$(rt_core_layer)" ]] &&
     qualified="$(printf '%s' "$text" |
       node "$_RT_HERE/qualify-citations.js" 2>/dev/null)"; then

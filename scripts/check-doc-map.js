@@ -78,17 +78,16 @@ const {
 const { isCollectedTestOrConftest } = require("./lib/test-kind");
 const {
 	coreRoot,
-	inCheckout,
+	isCoreRepo,
 	resolveScriptPaths,
 	scriptPath,
 } = require("./lib/script-path");
 const { caught } = require("./lib/caught.js");
-const { isCoreRepo } = require("./lib/core-repo.js");
 const { withGitReadMemo } = require("./lib/git-read-memo.js");
 
 /** @param {string} name */
 const generatorCommand = (name) =>
-	inCheckout()
+	isCoreRepo()
 		? `npm run gen:${name}`
 		: `node ${scriptPath(`generate-${name}.js`)}`;
 
