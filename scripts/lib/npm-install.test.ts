@@ -16,6 +16,7 @@ import {
 	type Registry,
 } from "./npm-registry-fake";
 import { readRuleText } from "./rule-text";
+import { treePortsFake } from "./tree-ports-fake";
 
 const { decide } = require("./npm-install.js") as {
 	decide: (command: string, ctx: object) => { deny: string } | null;
@@ -48,7 +49,7 @@ const INSTALLED: Record<string, string> = {
 };
 
 interface Over {
-	pkg?: string | null;
+	pkg?: string | Error | null;
 	manifests?: Record<string, string>;
 	allow?: boolean;
 	now?: () => number;
@@ -65,6 +66,18 @@ const WORKTREE = {
 };
 const IN_WORKTREE = { disk: WORKTREE, cwd: "/repo/.claude/worktrees/s1" };
 
+function treeFiles(over: Over): Record<string, string | Error> {
+	const files: Record<string, string | Error> = Object.fromEntries(
+		Object.entries(over.manifests ?? {}).map(([dep, text]) => [
+			`node_modules/${dep}/package.json`,
+			text,
+		]),
+	);
+	if (over.pkg === undefined) files["package.json"] = JSON.stringify(PKG);
+	else if (over.pkg !== null) files["package.json"] = over.pkg;
+	return files;
+}
+
 function harness(reg: Partial<Registry> = {}, over: Over = {}) {
 	const logs: string[] = [];
 	const calls: string[] = [];
@@ -75,15 +88,7 @@ function harness(reg: Partial<Registry> = {}, over: Over = {}) {
 		treeClass: fakeTreeClassifier({ "/repo": "shared" }),
 		log: (what: string, detail?: string) =>
 			logs.push(detail ? `${what}\t${detail}` : what),
-		tree: () => ({
-			root: "/repo",
-			readText: (rel: string) => {
-				if (rel === "package.json")
-					return over.pkg === undefined ? JSON.stringify(PKG) : over.pkg;
-				const dep = /^node_modules\/(.+)\/package\.json$/.exec(rel)?.[1];
-				return (dep && over.manifests?.[dep]) ?? null;
-			},
-		}),
+		tree: () => treePortsFake(treeFiles(over)),
 		npmView: (pkg: string): Call => {
 			calls.push(`npm view ${pkg} time.created --json`);
 			return npmViewAnswer(full);
@@ -1208,11 +1213,19 @@ This guard could not read every dependency's package.json in \`node_modules\` to
 });
 
 describe("fail-open, where a verdict is impossible upstream of the registry", () => {
-	it("allows and records when package.json cannot be read", () => {
+	it("allows and records when package.json is absent", () => {
 		const h = harness({}, { pkg: null });
 		expect(decide("npm install left-pad", h.ctx)).toBeNull();
 		expect(h.logs).toEqual([
-			"no readable package.json at /repo/package.json — install allowed unchecked",
+			"package.json at /repo/package.json is absent — install allowed unchecked",
+		]);
+	});
+
+	it("allows and records, as unreadable, a package.json that cannot be read", () => {
+		const h = harness({}, { pkg: new Error("EACCES") });
+		expect(decide("npm install left-pad", h.ctx)).toBeNull();
+		expect(h.logs).toEqual([
+			"package.json at /repo/package.json is unreadable — install allowed unchecked",
 		]);
 	});
 

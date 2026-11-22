@@ -6,6 +6,7 @@ const {
 	isHookRegistration,
 } = require("./hot-path-set.js");
 const { isTestKind } = require("./test-kind.js");
+const { throwUnreadable } = require("./file-read.js");
 const { treeOrHost } = require("./tree-or.js");
 
 const INJECT = { injectRules: ["hot-path-cost"] };
@@ -33,10 +34,10 @@ function decide(file, ctx) {
 	const written = () =>
 		typeof ctx.input.content === "string"
 			? ctx.input.content
-			: tree.readText(rel);
+			: throwUnreadable(tree.read(rel));
 	if (!isSpeltAsProgram(rel, written)) return null;
 	const set = hotPathSet(tree.root, {
-		readText: tree.readText,
+		read: tree.read,
 		isFile: (p) => ctx.isFile(path.join(tree.root, p)),
 	});
 	return set.includes(rel) ? INJECT : null;

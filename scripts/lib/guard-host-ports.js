@@ -10,7 +10,7 @@ const { relativeUnder } = require("./is-under.js");
  * @typedef {{
  *   root: string,
  *   git: import("./git.js").GitReader,
- *   readText: (rel: string) => string | null,
+ *   read: (rel: string) => import("./file-read.js").FileRead<string>,
  *   repoRel: (file: string) => string | null,
  * }} TreePorts
  * @typedef {TreePorts & {
@@ -46,11 +46,7 @@ function treePorts(root) {
 		root,
 		git: (args, noMatch) =>
 			gitOutcome(args, noMatch, root, HOOK_GIT_TIMEOUT_MS),
-		readText: (rel) => {
-			const got = readFileText(path.join(root, rel));
-			if (got.state === "unreadable") throw got.error;
-			return got.state === "read" ? got.data : null;
-		},
+		read: (rel) => readFileText(path.join(root, rel)),
 		repoRel: (file) => repoRel(file, root),
 	};
 }
