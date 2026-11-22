@@ -295,6 +295,9 @@ describe("a routed-away session with burn mode off (#4992)", () => {
 	});
 });
 
+// guess (#5520): room for node to start before `timeout` fires
+const NODE_START_S = 5;
+
 describe("the watch command", () => {
 	it("names the watcher that ships beside this file", () => {
 		const watcher = String(
@@ -335,7 +338,7 @@ describe("the watch command", () => {
 			) ?? [];
 		expect(Number(spelled)).toBe(ceiling);
 		expect(ceiling).toBeGreaterThan(0);
-		expect(Number(timeout) - ceiling).toBeGreaterThanOrEqual(5);
+		expect(Number(timeout) - ceiling).toBeGreaterThanOrEqual(NODE_START_S);
 	});
 
 	it("quotes a path a shell would split, apostrophe included", () => {
