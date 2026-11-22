@@ -214,21 +214,22 @@ function bringWorkflows(ctx, { paths, faultKeys, want }) {
 	}
 	const wanted = want(cfg);
 	if (wanted === "leave") return [];
-	/** @param {string} rel */
-	const foreign = (rel) => {
+	/** @param {string} rel @returns {string|null|false} */
+	const coreCopy = (rel) => {
 		const existing = readIfPresent(path.join(root, rel));
-		if (existing === null || isCoreCi(existing)) return false;
+		if (existing === null || isCoreCi(existing)) return existing;
 		out(
 			`skipped ${rel} — it does not open on the CORE-OWNED marker, so the core did not write it`,
 		);
-		return true;
+		return false;
 	};
 	if ("write" in wanted)
 		return wanted.write.flatMap((file) =>
-			foreign(file.rel) ? [] : bringFile(ctx, file),
+			coreCopy(file.rel) === false ? [] : bringFile(ctx, file),
 		);
 	return paths.flatMap((rel) => {
-		if (foreign(rel) || !fs.existsSync(path.join(root, rel))) return [];
+		const existing = coreCopy(rel);
+		if (existing === false || existing === null) return [];
 		if (dryRun) {
 			out(`would   remove ${rel}`);
 			return [];
