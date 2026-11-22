@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import vitestConfig from "../vitest.config";
-import { seenFrom } from "./lib/core-path-testkit";
+import { coreFile } from "./lib/core-path-testkit";
 import { defineTemplate, mkDirOutsideRepo } from "./lib/git-fixture";
 import { isUnder } from "./lib/is-under.js";
 import {
@@ -13,7 +13,6 @@ import {
 } from "./lib/pretool-guard-testkit";
 import { escapeRe } from "./lib/regex-group.js";
 import { runInProcess } from "./lib/run-in-process.js";
-import { scriptPath } from "./lib/script-path";
 import {
 	breakCanaryPath,
 	editSettings,
@@ -59,7 +58,7 @@ const ENV = (): NodeJS.ProcessEnv => ({
 
 const run = (cwd: string, ...args: string[]) =>
 	runInProcess(SCRIPT, args, { cwd, env: ENV() });
-const core = (name: string) => seenFrom(main, () => scriptPath(name));
+const core = (name: string) => coreFile(`scripts/${name}`);
 const checkoutRe = () => escapeRe(core("session-checkout.js"));
 
 const cutDir = (name: string) => {

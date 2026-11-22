@@ -848,7 +848,7 @@ describe("readRuleTextOr, for a guard that must not crash (#1044)", () => {
 		const git = path.join(cwd, "failing-git");
 		fs.writeFileSync(
 			git,
-			`#!/bin/sh\necho "$*" >> ${shellQuote(calls)}\nexit 1\n`,
+			`#!/bin/sh\necho x >> ${shellQuote(calls)}\nexit 1\n`,
 			{
 				mode: 0o755,
 			},
@@ -870,10 +870,7 @@ describe("readRuleTextOr, for a guard that must not crash (#1044)", () => {
 		);
 		expect(r.stdout).toContain("Short; the rule could not be read");
 		expect(
-			fs
-				.readFileSync(calls, "utf8")
-				.split("\n")
-				.filter((c) => c.includes("--show-toplevel")),
+			fs.readFileSync(calls, "utf8").split("\n").filter(Boolean),
 		).toHaveLength(1);
 	});
 

@@ -30,18 +30,54 @@ sp_shell_word() {
   fi
 }
 
+_sp_git_dir_common() {
+  local git_dir="$1" common
+  common="$git_dir"
+  if [[ -f "$git_dir/commondir" ]]; then
+    IFS= read -r common <"$git_dir/commondir" || [[ -n "$common" ]] || return 1
+    [[ "$common" == /* ]] || common="$git_dir/$common"
+  fi
+  CDPATH='' cd -P -- "$common" 2>/dev/null && pwd
+}
+
+_sp_repo_common() {
+  local dir="$1" line
+  while :; do
+    if [[ -d "$dir/.git" ]]; then
+      printf '%s\n' "$dir"
+      _sp_git_dir_common "$dir/.git"
+      return
+    fi
+    if [[ -f "$dir/.git" ]]; then
+      IFS= read -r line <"$dir/.git" || [[ -n "$line" ]] || return 1
+      [[ "$line" == "gitdir: "* ]] || return 1
+      line="${line#gitdir: }"
+      [[ "$line" == /* ]] || line="$dir/$line"
+      printf '%s\n' "$dir"
+      _sp_git_dir_common "$line"
+      return
+    fi
+    [[ -n "$dir" && "$dir" != / ]] || return 1
+    dir="${dir%/*}"
+  done
+}
+
 # #5584
 sp_in_core_repo() {
-  local root probe here
+  local root own here git_dir
   _sp_root_into root
   [[ -f "$root/package.json" ]] || return 1
-  probe="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
-    "${WFC_GIT:-git}" -C "$root" rev-parse --path-format=absolute \
-    --show-cdup --git-common-dir 2>/dev/null)" || return 1
-  [[ "$probe" == $'\n'* ]] || return 1
-  here="$("${WFC_GIT:-git}" rev-parse --path-format=absolute \
-    --git-common-dir 2>/dev/null)" || return 1
-  [[ "${probe#$'\n'}" == "$here" ]]
+  own="$(_sp_repo_common "$root")" || return 1
+  [[ "${own%%$'\n'*}" == "$root" ]] || return 1
+  if [[ -n "${GIT_DIR:-}" ]]; then
+    git_dir="$GIT_DIR"
+    [[ "$git_dir" == /* ]] || git_dir="$PWD/$git_dir"
+    here="$(_sp_git_dir_common "$git_dir")" || return 1
+  else
+    here="$(_sp_repo_common "$PWD")" || return 1
+    here="${here#*$'\n'}"
+  fi
+  [[ "${own#*$'\n'}" == "$here" ]]
 }
 
 script_path() {

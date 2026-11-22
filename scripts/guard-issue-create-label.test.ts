@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
-import { seenFrom } from "./lib/core-path-testkit";
+import { coreFile, seenFrom } from "./lib/core-path-testkit";
 import {
 	FALLBACK_LEAD,
 	type JudgeFakePlan,
@@ -25,7 +25,6 @@ import {
 	guardDirs,
 	guardOutput,
 } from "./lib/pretool-guard-testkit";
-import { docPath } from "./lib/script-path";
 import { HANG_TIMEOUT_MS } from "./lib/stop-guard-testkit";
 
 const CORE = "guard-issue-create-label";
@@ -96,7 +95,7 @@ describe("each exit", () => {
 		});
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toContain(
-			`could not be read from ${seenFrom(dir, () => docPath("agents/rules/issue-takes-label.txt"))}`,
+			`could not be read from ${coreFile("docs/agents/rules/issue-takes-label.txt")}`,
 		);
 	});
 
@@ -107,7 +106,7 @@ describe("each exit", () => {
 		);
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toContain(
-			`could not be read from ${seenFrom(dir, () => docPath("agents/rules/founder-deliverable.txt"))}`,
+			`could not be read from ${coreFile("docs/agents/rules/founder-deliverable.txt")}`,
 		);
 	});
 

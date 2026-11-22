@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerSession } from "./lib/arbiter-testkit.js";
-import { seenFrom } from "./lib/core-path-testkit";
+import { coreFile } from "./lib/core-path-testkit";
 import {
 	FILED_DIR,
 	markerName,
@@ -13,7 +13,6 @@ import {
 } from "./lib/orphan-filings.js";
 import { escapeRe } from "./lib/regex-group.js";
 import { runInProcess } from "./lib/run-in-process.js";
-import { scriptPath } from "./lib/script-path";
 import { worktreeLabel } from "./lib/session-worktrees.js";
 import {
 	breakCanaryPath,
@@ -225,9 +224,7 @@ it("reports a dead session's dirty or unlanded worktree with its idle time and l
 	const r = reap();
 
 	expect(r.status, r.stderr).toBe(0);
-	const checkout = escapeRe(
-		seenFrom(main, () => scriptPath("session-checkout.js")),
-	);
+	const checkout = escapeRe(coreFile("scripts/session-checkout.js"));
 	expect(r.stderr).toMatch(
 		new RegExp(
 			`stranded: dirty-work — 1 uncommitted path; idle \\d+m; last commit [0-9a-f]+ lock-1 — its session is gone: land it with \`cd \\S+dirty-work && node ${checkout} land\`, or, judged worthless, \`git worktree remove --force \\S+dirty-work\``,

@@ -6,12 +6,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MARKER_WRITER, SELF_PLUGIN_HOOKS } from "./lib/core-hooks.js";
 import { CANARY_MAIN_SCRIPTS, MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
-import { seenFrom } from "./lib/core-path-testkit";
+import { coreFile } from "./lib/core-path-testkit";
 import { guardDirs, isDenyCapableIn } from "./lib/deny-capable.js";
 import { guardKey } from "./lib/guard-fires.js";
 import { renderAt } from "./lib/plugin-hooks-render.js";
 import { runInProcess } from "./lib/run-in-process";
-import { scriptPath } from "./lib/script-path";
 
 const SCRIPT = path.resolve(__dirname, "generate-plugin-hooks.js");
 const CORE = path.resolve(__dirname, "..");
@@ -305,7 +304,7 @@ describe("a render in a fixture repo", () => {
 		return run(dir, "--check");
 	};
 	const regenerate = () =>
-		`run node ${seenFrom(dir, () => scriptPath("generate-plugin-hooks.js"))}`;
+		`run node ${coreFile("scripts/generate-plugin-hooks.js")}`;
 
 	const readTree = () =>
 		fs

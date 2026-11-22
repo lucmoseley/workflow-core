@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
-import { seenFrom } from "./lib/core-path-testkit";
+import { coreFile } from "./lib/core-path-testkit";
 import { isAdmitted, readManifest } from "./lib/guard-cores.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import {
@@ -16,7 +16,6 @@ import {
 } from "./lib/pretool-guard-testkit";
 import { writePsStub } from "./lib/ps-stub";
 import { readRuleText } from "./lib/rule-text";
-import { scriptPath } from "./lib/script-path";
 import { ensureProof } from "./lib/verdict-probe.js";
 
 const CORE = "guard-suite-concurrency";
@@ -320,7 +319,7 @@ describe("the production adapters, crossed for real", () => {
 			env: { WFC_PS: psOf([RUNNER], "ps-one") },
 		});
 		expect(out.permissionDecisionReason.split("\n")[0]).toBe(
-			`Run instead: node ${seenFrom(root, () => scriptPath("queue-run.js"))} -- npm run test`,
+			`Run instead: node ${coreFile("scripts/queue-run.js")} -- npm run test`,
 		);
 	});
 

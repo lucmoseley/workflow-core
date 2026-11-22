@@ -3,13 +3,12 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { seenFrom } from "./lib/core-path-testkit";
+import { coreFile } from "./lib/core-path-testkit";
 import {
 	agentsListing,
 	dispatchFixture,
 	writeCache,
 } from "./lib/dispatch-sessions-testkit";
-import { scriptPath } from "./lib/script-path";
 import { printedResets } from "./lib/usage-probe-fake";
 
 const fx = dispatchFixture();
@@ -152,7 +151,7 @@ describe("the allowance cap (#371)", () => {
 		expect(r.code).toBe(3);
 		expect(r.stderr).toContain("the allowance cap cannot be sized");
 		expect(r.stderr).toContain(
-			`the session cost table is unreadable — build it: node ${seenFrom(fx.dir, () => scriptPath("measure-session-cost.js"))} --write`,
+			`the session cost table is unreadable — build it: node ${coreFile("scripts/measure-session-cost.js")} --write`,
 		);
 		expect(readLaunches()).toHaveLength(0);
 	});

@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
-import { seenFrom } from "./lib/core-path-testkit";
+import { coreFile, seenFrom } from "./lib/core-path-testkit";
 import { asRecorded, GRAPHQL_FAKE } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import {
@@ -13,7 +13,6 @@ import {
 	dispatchCoreOutput,
 	guardDirs,
 } from "./lib/pretool-guard-testkit";
-import { scriptPath } from "./lib/script-path";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const CORE = "guard-issue-close";
@@ -135,7 +134,7 @@ describe("each exit", () => {
 			seenFrom(dir, () => readRuleText("close-outstanding")),
 		);
 		expect(out.permissionDecisionReason).toContain(
-			`node ${seenFrom(dir, () => scriptPath("resolve-ticket.js"))} <n> --comment-file <file>`,
+			`node ${coreFile("scripts/resolve-ticket.js")} <n> --comment-file <file>`,
 		);
 	});
 

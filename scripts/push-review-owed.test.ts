@@ -3,9 +3,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { seenFrom } from "./lib/core-path-testkit";
+import { coreFile } from "./lib/core-path-testkit";
 import { code, ME, PAST_FLOOR, reviewFixture } from "./lib/push-review-fixture";
-import { scriptPath } from "./lib/script-path";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const {
@@ -33,9 +32,7 @@ describe("what the adapter answers (#1163)", () => {
 			tierLine: "The `standard` review tier is owed.",
 			markerMore: "",
 			passFault: "",
-			markerScript: seenFrom(f.shared, () =>
-				scriptPath("write-review-marker.js"),
-			),
+			markerScript: coreFile("scripts/write-review-marker.js"),
 		});
 	});
 

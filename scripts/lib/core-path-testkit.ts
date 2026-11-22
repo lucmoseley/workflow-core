@@ -1,11 +1,17 @@
-import { vi } from "vitest";
+import path from "node:path";
+import { coreRoot } from "./script-path.js";
+import { shellQuote } from "./sh-quote.js";
 
 // #5584
 export function seenFrom<T>(cwd: string, read: () => T): T {
-	const spy = vi.spyOn(process, "cwd").mockReturnValue(cwd);
+	const prev = process.cwd();
+	process.chdir(cwd);
 	try {
 		return read();
 	} finally {
-		spy.mockRestore();
+		process.chdir(prev);
 	}
 }
+
+export const coreFile = (rel: string): string =>
+	shellQuote(path.join(coreRoot(), rel));

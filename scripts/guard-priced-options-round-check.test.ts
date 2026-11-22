@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { sweptMarkers } from "./lib/arbiter-testkit";
-import { seenFrom } from "./lib/core-path-testkit";
+import { coreFile, seenFrom } from "./lib/core-path-testkit";
 import {
 	EXEMPT_NAMES,
 	LADDER,
@@ -19,7 +19,6 @@ import {
 	withUnloadable,
 } from "./lib/priced-options-testkit";
 import { readRuleText } from "./lib/rule-text";
-import { docPath } from "./lib/script-path";
 import { readStopGuardReason } from "./lib/stop-guard-testkit";
 import {
 	buildBashCall,
@@ -141,7 +140,7 @@ describe("the threshold", () => {
 		});
 		expect(reason).toContain(UNDER);
 		expect(reason).toContain(
-			`the rule could not be read from ${seenFrom(dir, () => docPath("agents/rules/house-decision.txt"))}`,
+			`the rule could not be read from ${coreFile("docs/agents/rules/house-decision.txt")}`,
 		);
 		expect(failOpenLog(path.join(dir, "config"))).toContain(
 			"guard-priced-options house-decision rule-text house-decision",

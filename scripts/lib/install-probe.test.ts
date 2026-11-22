@@ -10,8 +10,8 @@ const { asInstall } = require("./install-probe.js") as {
 const { readRuleText } = require("./rule-text.js") as {
 	readRuleText: (id: string, root: string) => string;
 };
-const { inCheckout, resolveScriptPaths } = require("./script-path.js") as {
-	inCheckout: () => boolean;
+const { coreIsCheckout, resolveScriptPaths } = require("./script-path.js") as {
+	coreIsCheckout: () => boolean;
 	resolveScriptPaths: (text: string) => string;
 };
 const { shellQuote } = require("./sh-quote.js") as {
@@ -27,7 +27,7 @@ beforeEach(() => {
 describe("asInstall", () => {
 	it("reads a checkout's text at the install spelling", () => {
 		const read = asInstall(REPO, () => ({
-			install: !inCheckout(),
+			install: !coreIsCheckout(),
 			root: process.env.WFC_SCRIPT_ROOT ?? "",
 			text: resolveScriptPaths("run scripts/claim-issue.js"),
 		}));

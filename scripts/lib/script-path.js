@@ -3,6 +3,7 @@ const path = require("node:path");
 const { trimEndRun } = require("./trim-run.js");
 const { shellQuote } = require("./sh-quote.js");
 const { relativeUnder } = require("./is-under.js");
+const { orFallback } = require("./caught.js");
 
 /**
  * @param {NodeJS.ProcessEnv} [env]
@@ -17,7 +18,7 @@ function coreRoot(env = process.env) {
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {boolean}
  */
-function inCheckout(env = process.env) {
+function coreIsCheckout(env = process.env) {
 	return fs.existsSync(path.join(coreRoot(env), "package.json"));
 }
 
@@ -30,64 +31,32 @@ const coreRepoAnswers = new Map();
  * @returns {boolean}
  */
 function isCoreRepo(env = process.env) {
-	if (!inCheckout(env)) return false;
+	if (!coreIsCheckout(env)) return false;
 	const core = coreRoot(env);
 	const cwd = process.cwd();
 	const key = [core, cwd, env.GIT_DIR ?? ""].join("\0");
 	let answer = coreRepoAnswers.get(key);
 	if (answer === undefined) {
-		const own = commonDirAt(core);
-		answer =
-			own !== null &&
-			own ===
-				(env.GIT_DIR
-					? commonDirOf(path.resolve(cwd, env.GIT_DIR))
-					: nearestCommonDir(cwd));
+		answer = orFallback(() => readSharesCoreRepo(core, cwd, env), false);
 		coreRepoAnswers.set(key, answer);
 	}
 	return answer;
 }
 
 /**
- * @param {string} dir
- * @returns {string | null}
+ * @param {string} core
+ * @param {string} cwd
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {boolean}
  */
-function nearestCommonDir(dir) {
-	for (let at = dir; ; at = path.dirname(at)) {
-		const common = commonDirAt(at);
-		if (common !== null || path.dirname(at) === at) return common;
-	}
-}
-
-/**
- * @param {string} dir
- * @returns {string | null}
- */
-function commonDirAt(dir) {
-	const dotGit = path.join(dir, ".git");
-	let stat;
-	try {
-		stat = fs.statSync(dotGit);
-	} catch {
-		return null;
-	}
-	if (stat.isDirectory()) return commonDirOf(dotGit);
-	const { parseGitFileTarget } = require("./git-file.js");
-	const target = parseGitFileTarget(dir, fs.readFileSync(dotGit, "utf8"));
-	return target === null ? null : commonDirOf(target);
-}
-
-/**
- * @param {string} gitDir
- * @returns {string | null}
- */
-function commonDirOf(gitDir) {
-	const { readRegistrationCommonDir } = require("./git-file.js");
-	try {
-		return fs.realpathSync(readRegistrationCommonDir(gitDir) ?? gitDir);
-	} catch {
-		return null;
-	}
+function readSharesCoreRepo(core, cwd, env) {
+	const { readGitDirCommonDir, readRepoCommonDir } = require("./git-file.js");
+	const own = readRepoCommonDir(core);
+	if (own?.top !== core || !own.common) return false;
+	const here = env.GIT_DIR
+		? readGitDirCommonDir(path.resolve(cwd, env.GIT_DIR))
+		: readRepoCommonDir(cwd)?.common;
+	return !!here && fs.realpathSync(here) === fs.realpathSync(own.common);
 }
 
 /**
@@ -168,7 +137,7 @@ function resolveScriptPaths(text) {
 
 module.exports = {
 	coreRoot,
-	inCheckout,
+	coreIsCheckout,
 	isCoreRepo,
 	scriptPath,
 	docPath,
