@@ -330,7 +330,7 @@ describe("the production adapters, crossed for real", () => {
 		expect(out.permissionDecisionReason.split("\n")[0]).toBe(
 			"Run instead: npm run test -- --changed --queue",
 		);
-		expect(failOpenLog()).toContain("package.json unreadable");
+		expect(failOpenLog()).toContain("package.json is not JSON");
 	});
 
 	it("counts the host's declared suiteRunners off its config (#330)", () => {
