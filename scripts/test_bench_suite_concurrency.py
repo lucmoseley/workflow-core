@@ -179,7 +179,7 @@ class TestTornProcReadsAreSurvivable:
 
     def test_a_pid_gone_before_it_is_volunteered_is_false(self, bench, capsys):
         assert bench.volunteer(self.GONE) is False
-        assert f"fail-open: pid {self.GONE} not volunteered" in capsys.readouterr().err
+        assert capsys.readouterr().err == ""
 
 
 class TestSessionCountingUnit:

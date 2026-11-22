@@ -42,7 +42,7 @@ def test_parse_earlyoom_kill_reads_victim_and_rss():
         "2026-08-18T15:00:04.123456+08:00 Luctop earlyoom[853]: sending SIGTERM "
         'to process 3487996 uid 1000 "2.1.234": badness 700, VmRSS 5638 MiB'
     )
-    hit = parse_earlyoom_kill(line)
+    hit = parse_earlyoom_kill(line, Counter())
     assert hit is not None
     assert hit.name == "2.1.234"
     assert hit.rss_mib == 5638
@@ -59,7 +59,7 @@ def test_parse_earlyoom_kill_ignores_the_startup_banner():
         "2026-08-21T08:29:38.912679+08:00 Luctop earlyoom[1332]: sending SIGTERM "
         "when mem <=  8.00% and swap <= 100.00%,"
     )
-    assert parse_earlyoom_kill(line) is None
+    assert parse_earlyoom_kill(line, Counter()) is None
 
 
 def test_parse_earlyoom_kill_reads_sigkill_too():
@@ -67,13 +67,16 @@ def test_parse_earlyoom_kill_reads_sigkill_too():
         "2026-08-19T02:00:00.000000+08:00 Luctop earlyoom[1]: sending SIGKILL "
         'to process 42 uid 1000 "claude.exe": badness 900, VmRSS 7142 MiB'
     )
-    hit = parse_earlyoom_kill(line)
+    hit = parse_earlyoom_kill(line, Counter())
     assert hit is not None
     assert hit.rss_mib == 7142
 
 
 def test_parse_earlyoom_kill_ignores_unrelated_lines():
-    assert parse_earlyoom_kill("2026-08-19T02:00:00+08:00 Luctop kernel: hello") is None
+    assert (
+        parse_earlyoom_kill("2026-08-19T02:00:00+08:00 Luctop kernel: hello", Counter())
+        is None
+    )
 
 
 def test_a_bystander_kill_is_not_a_lost_session():
@@ -85,11 +88,13 @@ def test_a_bystander_kill_is_not_a_lost_session():
     """
     small = parse_earlyoom_kill(
         "2026-08-19T02:00:00.0+08:00 L earlyoom[1]: sending SIGTERM to process 1 "
-        'uid 1000 "memwatch.sh": badness 733, VmRSS 3 MiB'
+        'uid 1000 "memwatch.sh": badness 733, VmRSS 3 MiB',
+        Counter(),
     )
     big = parse_earlyoom_kill(
         "2026-08-19T02:00:00.0+08:00 L earlyoom[1]: sending SIGTERM to process 2 "
-        'uid 1000 "2.1.234": badness 700, VmRSS 613 MiB'
+        'uid 1000 "2.1.234": badness 700, VmRSS 613 MiB',
+        Counter(),
     )
     assert small.is_session is False
     assert big.is_session is True
@@ -424,14 +429,15 @@ def test_the_default_corpus_spans_every_seat_root(seat_roots):
 # --- fail-open sites (#5487) ------------------------------------------------
 
 
-def test_a_kill_with_an_undatable_stamp_is_reported(capsys):
+def test_a_kill_with_an_undatable_stamp_is_counted(capsys):
     line = (
         "Aug-18-15:00 Luctop earlyoom[853]: sending SIGTERM "
         'to process 3487996 uid 1000 "2.1.234": badness 700, VmRSS 5638 MiB'
     )
-    assert parse_earlyoom_kill(line) is None
-    err = capsys.readouterr().err
-    assert "fail-open: kill counted as undated: ValueError" in err
+    tally = Counter()
+    assert parse_earlyoom_kill(line, tally) is None
+    assert tally == {"undated kills": 1}
+    assert capsys.readouterr().err == ""
 
 
 def test_a_truncated_gzip_syslog_is_skipped_and_counted(tmp_path, capsys):

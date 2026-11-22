@@ -15,5 +15,5 @@ unpushed count is a reminder, not a prompt.
 A REJECTED PUSH means your queue ref holds a commit HEAD lacks: merge it as the
 land step says, then land again.
 
-`result:` never rests on a queue push alone: write it only once `node
-scripts/landing-status.js` reads the commit landed.
+Outside a background job, `result:` never rests on a queue push alone:
+write it only once `node scripts/landing-status.js` reads the commit landed.

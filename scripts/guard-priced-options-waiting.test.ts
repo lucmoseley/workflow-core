@@ -62,8 +62,9 @@ describe("a background job ending on `waiting:`", () => {
 		expect(reason).toContain("timeout 540 node scripts/watch-artefact.js");
 		expect(reason).toContain("scripts/bg-run.sh wait <name> 540");
 		expect(reason).toContain(
-			"timeout 540 node scripts/landing-status.js --wait",
+			"queued commits: no wait; end on `result:`, naming them queued",
 		);
+		expect(reason).not.toContain("landing-status.js --wait");
 		expect(reason).toContain("`timeout: 600000`");
 		expect(reason).toContain("result:");
 		expect(reason).toContain("needs input:");

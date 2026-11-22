@@ -44,7 +44,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
-from fail_open import fail_open, tallied
+from fail_open import tallied
 
 UTC = dt.timezone.utc
 # The reset stamps and the founder's day are both Asia/Singapore. Fixed +08:00:
@@ -108,7 +108,7 @@ class Kill:
         return self.rss_mib >= SESSION_FLOOR_MIB
 
 
-def parse_earlyoom_kill(line: str) -> Kill | None:
+def parse_earlyoom_kill(line: str, tally) -> Kill | None:
     """Read one syslog line, or None where it is not a kill.
 
     The line that is *not* a kill and looks most like one is earlyoom's
@@ -122,7 +122,7 @@ def parse_earlyoom_kill(line: str) -> Kill | None:
     try:
         when = dt.datetime.fromisoformat(m.group("ts"))
     except ValueError as e:
-        fail_open(e, "kill counted as undated")
+        tallied(e, tally, "undated kills")
         return None
     return Kill(when=when, name=m.group("name"), rss_mib=int(m.group("rss")))
 
@@ -410,10 +410,8 @@ def main() -> None:
     tally = collections.Counter()
     kills = []
     for line in read_syslogs(tally, args.syslogs):
-        if k := parse_earlyoom_kill(line):
+        if k := parse_earlyoom_kill(line, tally):
             kills.append(k)
-        elif _EARLYOOM.match(line):
-            tally["undated kills"] += 1
     sessions = [k for k in kills if k.is_session]
     recent = [k for k in sessions if k.when.astimezone(SGT).date() >= config_day]
     print("## 1. earlyoom kills — the machine stopping work outright")

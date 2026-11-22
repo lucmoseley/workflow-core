@@ -66,7 +66,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gitop
-from fail_open import expected, fail_open
+from fail_open import expected
 from host_root import host_root
 from machine import machine_state
 
@@ -176,7 +176,7 @@ def one_call(cmds: list[str], body: bytes, env: dict, root: str) -> dict:
             p.stdin.write(body)
             p.stdin.close()
         except BrokenPipeError as e:
-            fail_open(e, "hook run without its stdin read")
+            expected(e, "the hook exited before reading its stdin")
         # Closed already: communicate() would flush it again.
         p.stdin = None
     denies = 0

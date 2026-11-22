@@ -46,7 +46,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
-from fail_open import fail_open, tallied
+from fail_open import expected, fail_open, tallied
 
 # $ per Mtok, Opus 5 API list ratios. `cw` is the 5-minute cache write, 1.25x
 # fresh input; `cw1h` the 1-hour one, 2x (#1203).
@@ -120,6 +120,8 @@ def add_request(acc, tok):
 
 # The tally key for a record carrying neither `requestId` nor `message.id`.
 UNKEYED = "unkeyed"
+UNDATED_SESSIONS = "undated sessions"
+UNDATED_REQUESTS = "undated requests"
 
 
 def requests(tally, window=None, keep_records=False):
@@ -393,22 +395,21 @@ def report(reqs, tally):
             f"mean {st.mean(ctx) / 1000:.0f}k  p90 {ctx[int(len(ctx) * 0.9)] / 1000:.0f}k  "
             f"max {ctx[-1] / 1000:.0f}k"
         )
-        durs, undated = [], 0
+        durs = []
         for s in cli:
             try:
                 a = dt.datetime.fromisoformat(s["t0"].replace("Z", "+00:00"))
                 b = dt.datetime.fromisoformat(s["t1"].replace("Z", "+00:00"))
                 durs.append((b - a).total_seconds() / 60)
             except (AttributeError, TypeError, ValueError) as e:
-                fail_open(e, "session duration left out")
-                undated += 1
+                tallied(e, tally, UNDATED_SESSIONS)
         durs.sort()
         if durs:
             print(
                 f"  duration (min): median {st.median(durs):.1f}  mean {st.mean(durs):.1f}  "
                 f"p90 {durs[int(len(durs) * 0.9)]:.1f}  max {durs[-1]:.0f}"
             )
-        print(f"  (undated sessions: {undated})")
+        print(f"  ({UNDATED_SESSIONS}: {tally[UNDATED_SESSIONS]})")
     # `all` on both sides, so the share and its denominator count the same
     # thing. Summing `own` over a denominator that includes every subagent
     # understates this population against the cli block above.
@@ -583,6 +584,9 @@ def seat_map(tally):
     for cfg, d in tc.seats().items():
         try:
             fh = open(os.path.join(cfg, "history.jsonl"), "r", errors="replace")
+        except FileNotFoundError as e:
+            expected(e, f"seat {d} never typed a prompt, or was never created")
+            continue
         except OSError as e:
             fail_open(e, f"seat {d} history left unread")
             continue
@@ -610,6 +614,9 @@ def seat_accounts():
                 acct = (json.load(fh) or {}).get("oauthAccount") or {}
                 if isinstance(acct, dict) and acct.get("emailAddress"):
                     out[label] = acct["emailAddress"]
+        except FileNotFoundError as e:
+            expected(e, f"seat {label} never signed in, or was never created")
+            continue
         except (OSError, ValueError, AttributeError) as e:
             fail_open(e, f"seat {label} account read as unknown")
             continue
@@ -648,7 +655,6 @@ def seat_report(reqs, tally):
     emails = seat_accounts()
     cost = usd(totals(reqs))
     by = defaultdict(lambda: {"cost": 0.0, "sessions": set(), "pts": []})
-    undated = [0]
     for r in reqs:
         sid = r["owner"]
         seat = UNATTRIBUTED if (sid in ambiguous or sid not in owner) else owner[sid]
@@ -666,8 +672,7 @@ def seat_report(reqs, tally):
                 )
             )
         except (ValueError, AttributeError) as e:
-            fail_open(e, "request left out of its seat's peak window")
-            undated[0] += 1
+            tallied(e, tally, UNDATED_REQUESTS)
 
     def label(seat):
         return f"{seat} {emails.get(seat, '')}".strip()
@@ -704,9 +709,9 @@ def seat_report(reqs, tally):
         "  `node scripts/check-seat-utilisation.js`. The meter's own window is anchored"
     )
     print("  at its resets_at, and a rolling maximum can straddle two of those.")
-    if undated[0]:
+    if tally[UNDATED_REQUESTS]:
         print(
-            f"  ⚠ {undated[0]:,} request(s) carried no parsable timestamp and are in the "
+            f"  ⚠ {tally[UNDATED_REQUESTS]:,} request(s) carried no parsable timestamp and are in the "
             f"totals above but not in any window"
         )
     for seat, b in order:

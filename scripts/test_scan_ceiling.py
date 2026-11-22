@@ -479,7 +479,8 @@ def test_an_overflow_session_costs_the_plan_nothing_but_still_counts_as_working(
 
 
 @pytest.mark.parametrize("value", ["not-a-date", None])
-def test_an_unparsable_timestamp_reads_as_none_and_says_so(value, capsys):
-    assert sc.parse_ts(value) is None
-    err = capsys.readouterr().err
-    assert "fail-open: timestamp read as None: ValueError" in err
+def test_an_unparsable_timestamp_reads_as_none_and_is_counted(value, capsys):
+    tally = Counter()
+    assert sc.parse_ts(value, tally, "undated turns") is None
+    assert tally == {"undated turns": 1}
+    assert capsys.readouterr().err == ""

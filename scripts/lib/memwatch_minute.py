@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
-from fail_open import fail_open
+from fail_open import expected, fail_open
 
 MINUTE_LOG = Path.home() / "memwatch-minute.jsonl"
 # Read from the log's end: a line is ~800 bytes, so this holds several whole
@@ -31,23 +31,26 @@ def format_ts(t):
     return datetime.fromtimestamp(t).astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
 
 
-def json_lines(raw_lines):
-    for raw in raw_lines:
-        try:
-            yield json.loads(raw)
-        except ValueError as error:
-            fail_open(error, "torn minute line skipped")
-            continue
-
-
 def newest_line(path):
     """The newest whole JSON line of `path`, or None. Raises OSError where the
     log cannot be read."""
     with open(path, "rb") as f:
         f.seek(0, os.SEEK_END)
-        f.seek(max(0, f.tell() - TAIL_BYTES))
+        start = max(0, f.tell() - TAIL_BYTES)
+        f.seek(start)
         lines = f.read().splitlines()
-    return next(json_lines(reversed(lines)), None)
+    for i, raw in enumerate(reversed(lines)):
+        if i == 0 or (i == len(lines) - 1 and start > 0):
+            try:
+                return json.loads(raw)
+            except (json.JSONDecodeError, UnicodeDecodeError) as error:
+                expected(error, "the line in flight, or the one the tail's seek cut")
+                continue
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            fail_open(error, "torn minute line skipped")
+    return None
 
 
 def win_sample(line):

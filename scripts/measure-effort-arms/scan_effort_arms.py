@@ -56,10 +56,11 @@ sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib")
 )
 import transcript_corpus as tc
-from fail_open import fail_open
+from fail_open import tallied
 
 # Ordered so the report reads low -> high whatever the corpus holds.
 ARM_ORDER = ["low", "medium", "high", "xhigh"]
+UNDATED = "undated sessions"
 
 
 def arm_rank(arm):
@@ -171,7 +172,7 @@ def sessions(tally, window=None, *, skill=None, model=None, min_turns=1):
                 # What effort can move is the cost of a turn.
                 "cost_per_turn": s["cost_all"] / s["turns"] if s["turns"] else None,
                 "think_per_turn": s["think"] / s["turns"] if s["turns"] else None,
-                "minutes": _minutes(s["t0"], s["t1"]),
+                "minutes": _minutes(s["t0"], s["t1"], tally),
                 "t0": s["t0"],
             }
         )
@@ -179,13 +180,13 @@ def sessions(tally, window=None, *, skill=None, model=None, min_turns=1):
     return out
 
 
-def _minutes(t0, t1):
+def _minutes(t0, t1, tally):
     try:
         a = dt.datetime.fromisoformat(t0.replace("Z", "+00:00"))
         b = dt.datetime.fromisoformat(t1.replace("Z", "+00:00"))
         return (b - a).total_seconds() / 60
     except (AttributeError, TypeError, ValueError) as e:
-        fail_open(e, "session minutes read as None")
+        tallied(e, tally, UNDATED)
         return None
 
 
@@ -202,7 +203,7 @@ def band(vals):
     }
 
 
-def report(rows, ratio_to="medium"):
+def report(rows, tally, ratio_to="medium"):
     arms = defaultdict(list)
     for r in rows:
         arms[r["arm"]].append(r)
@@ -243,7 +244,7 @@ def report(rows, ratio_to="medium"):
     for key, label, fmt in metrics:
         print(f"== {label} ==")
         if key == "minutes":
-            print(f"  (undated sessions: {sum(r['minutes'] is None for r in rows)})")
+            print(f"  ({UNDATED}: {tally[UNDATED]})")
         base = band([r[key] for r in arms.get(ratio_to, [])])
         for arm in live:
             b = band([r[key] for r in arms[arm]])
@@ -360,7 +361,7 @@ def main(argv=None):
         min_turns=args.min_turns,
     )
     if args.json:
-        skipped = tc.skips(tally, tc.UNREADABLE, tc.UNPARSED, sb.UNKEYED)
+        skipped = tc.skips(tally, tc.UNREADABLE, tc.UNPARSED, sb.UNKEYED, UNDATED)
         print(json.dumps({"sessions": rows, "skipped": skipped}, indent=1))
         return 0
     scope = " to ".join(args.window) if args.window else "whole corpus"
@@ -375,7 +376,7 @@ def main(argv=None):
     if warning := sb.unkeyed_warning(tally):
         print(warning)
     print()
-    report(rows, ratio_to=args.baseline)
+    report(rows, tally, ratio_to=args.baseline)
     return 0
 
 

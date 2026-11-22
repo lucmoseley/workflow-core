@@ -11,7 +11,6 @@ None.
 | Path | Code kind |
 |---|---|
 | `scripts/**/test_*.py`, `scripts/**/*_test.py`, `scripts/conftest.py`, `scripts/pytest_pass_plugin.py` | test: pytest's cases and the support files only pytest loads (#1262) |
-| `scripts/lib/resolve_core.py` | library: the core locator an adopter copies, which runs before the core is found and so cannot import `fail_open` (#5487) |
 | `scripts/**/*.py`, shebang or not | program, the `scripts/lib/` modules included (#1262) |
 | `.claude/skills/*/types/*.d.ts` | hook module: a mod's `$.state` contract, typing the state its hooks module keeps (#3267) |
 
@@ -43,7 +42,7 @@ Outside it: an expansion in a shell script, which is §S1; quoting for anything 
 
 **Every code kind.** A read of a file that may be absent goes through `readText`, `readBytes` or, for its last N bytes, `readTail` in `scripts/lib/file-read.js`, and maps its absent, read and unreadable answers onto the caller's own values. A hand-written ENOENT catch, or an `existsSync` test before the read, is the breach (#3902).
 
-Outside it: a catch that guards more than the one read, such as a rename then a read, a `readdir`, a `readlink`, or a JSON parse inside the same `try`.
+Outside it: a catch that guards more than the one read, such as a rename then a read, a `readdir`, a `readlink`, or a JSON parse inside the same `try`; and `scripts/lib/resolve-core.js`, which loads node builtins only, as it runs before the core is found (#5504).
 
 ### §LG3 · Path containment goes through the one module — **hard**
 
