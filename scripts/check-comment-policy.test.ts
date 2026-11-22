@@ -105,6 +105,20 @@ describe("check-comment-policy", () => {
 		expect(r.out).not.toContain("ok.js");
 	});
 
+	it.each([
+		["--root", ["--root", "."], ""],
+		["a --root below the checkout's top", ["--root", "sub"], "sub/"],
+	])("--all counts only tracked files, from %s (#5573)", (_, args, dir) => {
+		write(`${dir}scripts/kept.js`, stray);
+		git("add", "-A");
+		write(`${dir}scripts/untracked.js`, stray);
+		const r = run(...args, "--all");
+		expect(r.status).toBe(1);
+		expect(r.out).toContain("scripts/kept.js");
+		expect(r.out).not.toContain("untracked.js");
+		expect(r.out).toContain("1 comment breach(es) in 1 of 1 code file(s)");
+	});
+
 	it("reads past a tracked symlink to a directory (#5492)", () => {
 		write("vendor/skill/run.js", "const a = 1;\n");
 		fs.symlinkSync("vendor/skill", path.join(root, "linked"));

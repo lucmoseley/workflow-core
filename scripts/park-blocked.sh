@@ -84,7 +84,7 @@ apply_label_and_stop() {
   fi
   gh_issue_comment "$issue" "$why" ||
     printf 'WARNING: could not comment on #%s.\n' "$issue" >&2
-  # The record goes first: release-issue passes the claim it names (#4535).
+  # #4535
   write_blocked_record "$issue" "$label"
   release_issue_claim "$issue" ||
     printf 'WARNING: could not release the issue claim on #%s.\n' "$issue" >&2
@@ -100,11 +100,7 @@ apply_label_and_stop() {
     "Stop a watcher whose subject has already reported."
 }
 
-# An unreadable issue refuses too (exit 3).
-#
-# PRESENCE ONLY (#1020): the other three Outside-line limbs postdate errands
-# still open, and keep must not strand one of those onto takes:wayfinder.
-# Residual: check-issue-labels.js reports them.
+# #1020
 check_keep() {
   local issue="$1" takes body status
   takes="$(takes_labels "$issue")" ||
@@ -157,8 +153,6 @@ check_gate() {
   fi
   [[ $status -eq 0 ]] || refuse "could not read #${issue}'s gate (exit ${status}, see above)."
 }
-
-# --- argument parsing ----------------------------------------------------------
 
 issue="${1:-}"
 label="${2:-}"

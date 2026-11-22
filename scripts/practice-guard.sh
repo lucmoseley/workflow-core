@@ -31,7 +31,6 @@ if ! jq -e 'type == "object"' <<<"$input" >/dev/null 2>&1; then
   exit 0
 fi
 
-# The list is "- <slug>: <what it covers>".
 on_list() {
   local line
   while IFS= read -r line; do
@@ -40,10 +39,7 @@ on_list() {
   return 1
 }
 
-# A latch file per session and agent, a subagent latching apart: set -C makes
-# the create fail where the file exists, so two calls racing latch once.
-# Returns 1 where it was already latched, and 2, saying why on stderr, where
-# nothing latches (#2601).
+# #2601
 latch() {
   local key dir
   key=$(jq -r '[.session_id // "", .agent_id // empty] | join("-")' <<<"$input")
@@ -53,7 +49,6 @@ latch() {
   fi
   dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/practice-guard-$(id -u)"
   mkdir -m 700 "$dir" 2>/dev/null
-  # Another user could have made it first in a shared /tmp.
   if ! { [[ -d "$dir" ]] && [[ ! -L "$dir" ]] && [[ -O "$dir" ]]; }; then
     echo "practice-guard: $dir is no latch directory of this user's, so nothing latches" >&2
     return 2
@@ -64,26 +59,15 @@ latch() {
   return 2
 }
 
-# The exempt kinds as the refusal spells them, which EXEMPT_PATTERN is built
-# from: comma-separated, so no kind holds a comma.
 readonly EXEMPT_KINDS="a typo or wording fix, a re-anchor or regeneration, a concision cut, propagating an already-settled fact, a revert, a version bump, a reply that only answers a question"
 
-# The words that may open the one phrase after an exempt kind's, and those
-# that join a second clause on, bare alternations a regex groups itself
-# (#3077). The set is closed, so a scope a review finds refused is added here.
-# Reviews found of, in, to and for (#2806), and on, over, after and from
-# (#3077); the other 13 were chosen with no source.
+# #2806, #3077
 readonly PREPOSITIONS='of|in|on|to|for|from|over|after|before|since|across|at|by|into|under|via|per|during|through|between|within'
-# The English coordinating conjunctions bar "for", which opens a PREPOSITIONS
-# phrase, and the other words reviews found joining a clause on (#3077, #3491).
-# No word is in both lists, so a whole tail can be searched for a JOINS word.
+# #3077, #3491
 readonly JOINS='and|but|or|nor|yet|so|plus|with|then|also|as well as'
-# A word an exempt kind's tail may hold, its ASCII letters and digits spelt
-# out as a range or [:alnum:] follows the locale (#3491).
+# #3491
 readonly ASCII_ALNUM=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
-# The marks a tail word may hold anywhere, and those it may hold only inside
-# it, the "-" first so a bracket reads it as itself. Each glues a JOINS word
-# on but the "-", since "so-called" passes (#3594).
+# #3594
 readonly TAIL_MARKS="#'@" TAIL_JOINERS="-./"
 readonly TAIL_GLUE=$TAIL_MARKS${TAIL_JOINERS#-}
 readonly TAIL_WORD="[$ASCII_ALNUM$TAIL_MARKS]+([$TAIL_JOINERS][$ASCII_ALNUM$TAIL_MARKS]+)*"
@@ -98,17 +82,12 @@ quoted_list() {
 JOINERS_QUOTED=$(quoted_list "$TAIL_JOINERS" " or ")
 ALLOWLIST_TEXT="ASCII letters and digits, spaces, $(quoted_list "$TAIL_MARKS" ", "), and a $JOINERS_QUOTED inside a word"
 readonly JOINERS_QUOTED ALLOWLIST_TEXT
-# Unicode's Zs spaces past U+0020 as UTF-8, read as plain spaces, and U+200B,
-# deleted (#3491, #3594), or read as a space where skipped_fault re-judges a
-# tail (#3603).
+# #3491, #3594, #3603
 readonly ODD_SPACES=($'\xc2\xa0' $'\xe1\x9a\x80' $'\xe2\x81\x9f' $'\xe3\x80\x80' $'\xe2\x80\xaf' $'\xe2\x80\x80' $'\xe2\x80\x81' $'\xe2\x80\x82' $'\xe2\x80\x83' $'\xe2\x80\x84'
   $'\xe2\x80\x85' $'\xe2\x80\x86' $'\xe2\x80\x87' $'\xe2\x80\x88' $'\xe2\x80\x89' $'\xe2\x80\x8a')
 readonly ZERO_WIDTH=$'\xe2\x80\x8b'
 readonly ARTICLE='((a|an|the) )?'
 
-# Each kind's whole phrase, an article before any word but "or" optional, its
-# last word singular or plural, and each side of an "or" standing alone. The
-# phrase is its third group and the words after it its last.
 exempt_pattern() {
   local kind kinds pattern phrases=() IFS=,
   read -ra kinds <<<"$EXEMPT_KINDS"
@@ -124,22 +103,15 @@ exempt_pattern() {
   echo "^$ARTICLE(($pattern)(e?s)?)([^[:alnum:]'-].*)?$"
 }
 
-# The second-clause fault on the exempt kind's phrase "$1".
 second_clause() { echo "adds a second clause to the exempt kind \"$1\""; }
 
-# Whether "$1" holds a JOINS word, alone or glued on by a TAIL_GLUE mark.
 has_joins_word() { [[ " ${1//[$TAIL_GLUE]/ } " =~ \ ($JOINS)\  ]]; }
 
-# The fault in "$1", the words after the exempt kind's phrase "$2"; empty
-# where it is nothing, an aside in brackets, or a phrase opening with a word in
-# PREPOSITIONS, whose words are each a TAIL_WORD and none a JOINS word, alone
-# or glued on by a TAIL_GLUE mark (#2806, #3077, #3491, #3594). Any other
-# character, a range's dash in "pages 3–5" included, is refused.
+# #2806, #3077, #3491, #3594
 tail_fault() {
   local words off
   [[ -z $1 ]] && return
   if [[ $1 =~ ^\ \(\ *(.*)$ ]]; then
-    # fault_in strips the aside's closing bracket, so one left means words follow it.
     words=${BASH_REMATCH[1]}
   elif [[ $1 =~ ^\ ($PREPOSITIONS)\ (.*)$ ]]; then
     words=${BASH_REMATCH[-1]}
@@ -160,11 +132,6 @@ tail_fault() {
   fi
 }
 
-# The fault in the skipped kind "$1", matched with U+200B deleted; empty where
-# it is an exempt kind. Deleting U+200B joins "a<U+200B>nd" into a JOINS word,
-# and reading it as a space parts one from "commit<U+200B>and", so the tail
-# after the kind's phrase is judged with U+200B deleted, then searched for a
-# JOINS word with it read as a space.
 skipped_fault() {
   local named phrase tail end spaced reason i
   named=${1//"$ZERO_WIDTH"/} named=${named//+([[:space:]])/ }
@@ -172,17 +139,13 @@ skipped_fault() {
   [[ $named =~ $EXEMPT_PATTERN ]] && phrase=${BASH_REMATCH[3]} tail=${BASH_REMATCH[-1]}
   if [[ -n "${phrase:-}" ]]; then
     reason=$(tail_fault "$tail" "$phrase")
-    # The shortest end of "$1" that is the tail once U+200B is deleted.
     for ((i = ${#1}; i >= 0; i--)); do
       end=${1:i} end=${end//"$ZERO_WIDTH"/} end=${end//+([[:space:]])/ }
       [[ "$end" = "$tail" ]] && spaced=${1:i} && break
     done
     if [[ -z $reason && ${spaced:-} == *"$ZERO_WIDTH"* ]]; then
       spaced=${spaced//"$ZERO_WIDTH"/ } spaced=${spaced//+([[:space:]])/ }
-      # Only a second clause found the spaced way refuses, named in that form.
-      # Its JOINS word is sought directly, not through tail_fault, whose opener
-      # check a U+200B in the preposition, as in "o<U+200B>f", would end first
-      # (#3611).
+      # #3611
       if has_joins_word "$spaced"; then
         named=${named%"$tail"}$spaced reason=$(second_clause "$phrase")
       fi
@@ -196,20 +159,14 @@ skipped_fault() {
   fi
 }
 
-# The first workflow-core release to ship this guard.
 readonly FIRST_GUARD_RELEASE=v3.0.0
-# PRACTICE_GUARD_TODAY is the seam scripts/practice-guard.test.ts fills.
 readonly TODAY=${PRACTICE_GUARD_TODAY:-$(date +%F)}
 
-# A declaration's marker opens its line past any list or quote marks, a
-# command's heredocs and inline bodies read as lines of their own (#3077); a
-# marker quoted mid-line is prose.
+# #3077
 readonly MARKER='[[:space:]>*-]*\*\*Practice:\*\*'
 readonly BODY_FLAGS='--body|--comment|-b|-c'
 readonly BODY_FILE_FLAGS='--body-file|--comment-file|-F'
 
-# The fault in the declaration "$1", judged against the work tree roots in
-# $roots and the paths in $written; empty where it holds up.
 fault_in() {
   local decl=$1 form rest note path root found date expiry space
   [[ -n "$decl" ]] || {
@@ -221,7 +178,6 @@ fault_in() {
     return
   fi
   form=${BASH_REMATCH[1]} rest=${BASH_REMATCH[3]//\`/}
-  # A sentence's full stop, a stray closing quote, or an aside's closing bracket.
   rest=${rest%%+([\"\'.;)[:space:]])}
   case $form in
     skipped)
@@ -281,17 +237,7 @@ fault_in() {
   [[ $expiry > $TODAY ]] || echo "covered names $note, researched $date, 6 months ago or more"
 }
 
-# Whether Claude Code's settings for the project at "$1" pin a workflow-core
-# plugin release that ships this guard. enabledPlugins and
-# extraKnownMarketplaces each merge user, then project, then local, each key
-# taking its highest file's value; some workflow-core@<marketplace> key must be
-# left true, and that marketplace's source.ref an X.Y.Z tag, v optional, at or
-# above FIRST_GUARD_RELEASE, with no source.sha, which pins a commit over the
-# ref. Narrower than lib/plugin-state.js's TAG_REF (#5410): a pre-release or
-# build suffix names no shipped release here (releases are tagged vX.Y.Z
-# alone), so it keeps this copy judging. A file missing, not one JSON object,
-# or whose field is no object adds nothing to that field; one there but
-# unreadable or not JSON says so on stderr.
+# #5410
 plugin_guard_pinned_at() {
   local file merged='{"plugins":{},"markets":{}}' layer
   for file in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "$1/.claude/settings.json" "$1/.claude/settings.local.json"; do
@@ -319,10 +265,6 @@ if [[ "$event" = stop ]]; then
     echo "practice-guard: no readable transcript, so nothing is judged" >&2
     exit 0
   fi
-  # One line per file the main chain wrote, as "W<tab><path>"; per text that
-  # carries a declaration, as "L<tab><its last **Practice:** line>"; and per
-  # body file a tracker write names, as "F<tab><path>", in transcript order.
-  # A line that is not JSON, such as one torn mid-write, is passed over.
   if ! scan=$(jq -rR --arg marker "^$MARKER" --arg flags "$BODY_FLAGS" --arg files "$BODY_FILE_FLAGS" '
     fromjson? | select(.type == "assistant" and (.isSidechain | not)) | .cwd as $cwd
     | .message.content[]? | select(type == "object")
@@ -371,8 +313,6 @@ if [[ "$event" = stop ]]; then
   cwd_top=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)
   roots+=$cwd_top
 
-  # The session's project decides whether the plugin loaded, not the trees it
-  # wrote into.
   [[ -z $plugin_root ]] && plugin_guard_pinned_at "${CLAUDE_PROJECT_DIR:-${cwd_top:-$cwd}}" && exit 0
 
   fault=$(fault_in "$decl")
@@ -394,11 +334,8 @@ case "$tool" in
   Bash) touched=$(jq -r '.tool_input.command // empty' <<<"$input") ;;
   *) exit 0 ;;
 esac
-# docs/practice as a whole path segment pair, so docs/practice-x and mydocs/practice miss.
 [[ $touched =~ (^|[^[:alnum:]_.-])docs/practice($|[^[:alnum:]_.-]) ]] || exit 0
 
-# The work tree whose root holds <dir>/docs/practice, judged from the nearest
-# directory that exists, as a new note's directory may not.
 is_tree_root() {
   local at="$1/docs/practice" top
   while [[ ! -d "$at" ]]; do at=$(dirname "$at"); done
@@ -406,14 +343,11 @@ is_tree_root() {
   [[ -d "$1" ]] && [[ "$(cd "$1" && pwd -P)" = "$top" ]]
 }
 
-# The first touch hands the list over; an id latching nothing hands it over on
-# every touch.
 first_touch() {
   latch touch-
   [[ $? -ne 1 ]]
 }
 
-# A nested path names no craft, so it is held to the list as a whole.
 if [[ "$tool" = Write ]] && [[ $touched =~ ^(.*)/docs/practice/(.+)\.md$ ]]; then
   root=${BASH_REMATCH[1]} slug=${BASH_REMATCH[2]}
   if ! on_list "$slug" && is_tree_root "$root"; then

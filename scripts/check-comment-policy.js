@@ -213,12 +213,30 @@ function readJudgedFiles(ctx, root) {
 	if (ctx.side) return files;
 	const env = walked ? withoutGitRedirects() : undefined;
 	if (!inWorkTree(ctx, root, env)) return files;
-	const excluded = readExcludedOrBroken(ctx, files, {
+	const tracked = walked ? readTracked(ctx, root, env) : null;
+	const judged = tracked ? files.filter((p) => tracked.has(p)) : files;
+	const excluded = readExcludedOrBroken(ctx, judged, {
 		from: walked ? "worktree" : "index",
 		cwd: root,
 		env,
 	});
-	return files.filter((p) => !excluded.has(p));
+	return judged.filter((p) => !excluded.has(p));
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string} root
+ * @param {NodeJS.ProcessEnv | undefined} env
+ * @returns {Set<string>}
+ */
+function readTracked(ctx, root, env) {
+	const r = spawnGitSync(["ls-files", "-z"], {
+		cwd: root,
+		encoding: "utf8",
+		...(env ? { env } : {}),
+	});
+	if (r.status !== 0) ctx.broken(`git ls-files failed: ${r.stderr}`);
+	return new Set(r.stdout.split("\0").filter(Boolean));
 }
 
 const withoutGitRedirects = () =>
