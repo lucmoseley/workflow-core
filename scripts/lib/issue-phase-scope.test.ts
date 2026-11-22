@@ -477,7 +477,7 @@ describe("what it fails open on, and records", () => {
 			"allow",
 		);
 		expect(readFaults()).toEqual([
-			"docs/called-cards.md is unreadable — issue creation for search-core allowed unchecked",
+			"docs/called-cards.md is absent — issue creation for search-core allowed unchecked",
 		]);
 	});
 });

@@ -14,6 +14,7 @@ import {
 	statsAnswer,
 	writePyPIStub,
 } from "./pypi-registry-fake";
+import { treePortsFake } from "./tree-ports-fake";
 
 const { decide } = require("./pip-install.js") as {
 	decide: (command: string, ctx: object) => { deny: string } | null;
@@ -75,12 +76,7 @@ const CASES: {
 
 function verdictOf(port: Port, pkg: string, answer: Get): string | null {
 	const ctx = kitContextFake({
-		tree: () => ({
-			root: "/repo",
-			git: () => ({ ok: true, out: "" }),
-			readText: () => null,
-			repoRel: (f: string) => f,
-		}),
+		tree: () => treePortsFake({}),
 		pypi: () => pypiAnswer(PASSING),
 		stats: () => statsAnswer(PASSING),
 		[port]: () => answer,

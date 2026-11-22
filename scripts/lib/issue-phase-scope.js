@@ -71,7 +71,6 @@ const { deny, open, walkVerdict } = require("./guard-verdict.js");
 const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
 const { BASH_SPACE, parseCommand } = require("./shell-parse.js");
 const { requiredGroup } = require("./regex-group.js");
-const { readOrNull, readTreeText } = require("./file-read.js");
 const { trimRun } = require("./trim-run.js");
 const {
 	commandName,
@@ -156,7 +155,7 @@ function judge(run, cmd) {
  */
 function readRoadmapOrOpen(run) {
 	if (run.roadmap !== undefined) return run.roadmap;
-	const got = readTreeText(run.ctx.tree(), ROADMAP);
+	const got = run.ctx.tree().read(ROADMAP);
 	if (got.state === "unreadable")
 		return open(
 			run.ctx,
@@ -312,13 +311,13 @@ function judgeTitle(run, segment, title) {
 	if (card === null) return;
 	const phase = phaseOf(run, card);
 	if (phase === null || phase === "0") return;
-	const register = readOrNull(run.ctx.tree(), REGISTER);
-	if (register === null)
+	const register = run.ctx.tree().read(REGISTER);
+	if (register.state !== "read")
 		return open(
 			run.ctx,
-			`${REGISTER} is unreadable — issue creation for ${card} allowed unchecked`,
+			`${REGISTER} is ${register.state} — issue creation for ${card} allowed unchecked`,
 		);
-	if (isCalled(register, card)) return;
+	if (isCalled(register.data, card)) return;
 	deny(run.ctx, segment, uncalledReason(card, phase));
 }
 

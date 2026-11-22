@@ -237,9 +237,9 @@ describe("a link that will not read", () => {
 describe("the fail-open record", () => {
 	it.each([
 		[
-			"no readable package.json",
+			"an absent package.json",
 			() => fs.rmSync(path.join(shared, "package.json")),
-			/no readable package\.json at .*\/package\.json — install allowed unchecked/,
+			/package\.json at .*\/package\.json is absent — install allowed unchecked/,
 		],
 		[
 			"a package.json that is not JSON",

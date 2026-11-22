@@ -69,3 +69,17 @@ describe("a tree's repoRel, the reading of a written path", () => {
 		);
 	});
 });
+
+describe("a tree's read, the one read of a file that may be absent", () => {
+	it("answers read, absent or unreadable, and readText folds the same answer", () => {
+		fs.writeFileSync(path.join(dir, "a.md"), "x");
+		fs.mkdirSync(path.join(dir, "sub"));
+		const tree = treePorts(dir);
+		expect(tree.read("a.md")).toEqual({ state: "read", data: "x" });
+		expect(tree.read("nope.md")).toEqual({ state: "absent" });
+		expect(tree.read("sub").state).toBe("unreadable");
+		expect(tree.readText("a.md")).toBe("x");
+		expect(tree.readText("nope.md")).toBeNull();
+		expect(() => tree.readText("sub")).toThrow();
+	});
+});

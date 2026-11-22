@@ -125,7 +125,6 @@ const { requiredGroup } = require("./regex-group.js");
 const { repoSlug } = require("./workflow-core-config.js");
 const { ENTRY_BUDGET_MS } = require("./hook-deadline.js");
 const { trimEndRun } = require("./trim-run.js");
-const { readTreeText } = require("./file-read.js");
 
 /**
  * @typedef {{ refusal: string } | { outOfBudget: true }} RefusalRead
@@ -440,7 +439,7 @@ function cardFault(run, close) {
 				.join(" ")
 		: "";
 	if (` ${labels} `.includes(" wayfinder:map ")) return "";
-	const got = readTreeText(run.ctx.tree(), ROADMAP);
+	const got = run.ctx.tree().read(ROADMAP);
 	if (got.state === "unreadable")
 		return `could not read the roadmap, so card ${id}`;
 	// #5576
