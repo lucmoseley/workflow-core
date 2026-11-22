@@ -235,20 +235,20 @@ const VERDICTS =
 
 /**
  * @param {string} file
- * @param {(file: string) => string} watch
+ * @param {(file: string, job?: boolean) => string} watch
  * @param {boolean} job
  * @returns {string}
  */
 function buildWatchSentence(file, watch, job) {
 	if (job)
-		return `This session is a background job: hold the turn on \`${watch(file)}\`, its \`<output_file>\` the one the launch result names, run in the foreground as \`rule:job-holds-turn\` says. ${VERDICTS}`;
+		return `This session is a background job: hold the turn on \`${watch(file, true)}\`, its \`<output_file>\` the one the launch result names, run in the foreground as \`rule:job-holds-turn\` says. ${VERDICTS}`;
 	return `Watch it with one backgrounded \`${watch(file)}\`, its \`<output_file>\` the one the launch result names, then end the turn. When the agent's completion notification arrives, \`TaskStop\` the watcher first. ${VERDICTS}`;
 }
 
 /**
  * @param {Record<string, unknown>} call
  * @param {string} file
- * @param {(file: string) => string} watch
+ * @param {(file: string, job?: boolean) => string} watch
  * @param {boolean} [job]
  * @returns {null | {input: Record<string, unknown>, note: string}}
  */
@@ -264,7 +264,7 @@ function injectArtefact(call, file, watch, job = false) {
 
 /**
  * @param {Record<string, unknown>} call
- * @param {(file: string) => string} watch
+ * @param {(file: string, job?: boolean) => string} watch
  * @param {string} [home]
  * @param {boolean} [job]
  * @returns {string|null}
