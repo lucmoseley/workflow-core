@@ -41,7 +41,7 @@ const quoted = (code: string) =>
 const quotedPaths = (code: string) =>
 	quoted(code).filter((l) => /[./]/.test(l));
 
-const tailOf = (whole: string) => (l: string) =>
+const isTailOf = (whole: string) => (l: string) =>
 	whole === l || whole.endsWith(`/${l}`);
 
 function readLoaderSpellings(at: string, text: string, skip: string): string[] {
@@ -63,17 +63,19 @@ function readLoaderSpellings(at: string, text: string, skip: string): string[] {
 	return spellings;
 }
 
-function spellsTarget(at: string, without: string, target: string): boolean {
+function isTargetSpelt(at: string, without: string, target: string): boolean {
 	const code = codeOf(without);
 	const fromRoot = path.relative(ROOT, path.resolve(path.dirname(at), target));
-	const words = quoted(code);
+	const dir = path.dirname(fromRoot);
+	const paths = quotedPaths(code);
 	return (
 		code.includes(target) ||
-		quotedPaths(code).some(tailOf(fromRoot)) ||
-		(quotedPaths(code).some(tailOf(path.dirname(fromRoot))) &&
-			words.includes(path.basename(fromRoot))) ||
+		paths.some(isTailOf(fromRoot)) ||
+		(dir.includes("/") &&
+			paths.includes(dir) &&
+			quoted(code).includes(path.basename(fromRoot))) ||
 		readLoaderSpellings(at, without, path.join(ROOT, fromRoot)).some(
-			tailOf(fromRoot),
+			isTailOf(fromRoot),
 		)
 	);
 }
@@ -116,15 +118,22 @@ it.each(
 it.each(
 	declared.filter(([, , l]) => l.kind === "loads" && l.words.length === 1),
 )(
-	"%s names a target its file's code spells whole, or quotes as a path tail or as its directory and file name, or a module it loads within two imports quotes as a path tail",
+	"%s names a target its file's code spells whole, or quotes as a path tail or as its full directory path and file name, or a module it loads within two imports quotes as a path tail",
 	(_name, { at }, { without, words: [target = ""] }) => {
-		expect(spellsTarget(at, without, target)).toBe(true);
+		expect(isTargetSpelt(at, without, target)).toBe(true);
 	},
 );
 
-it("holds a keyless target spelt only by its shared directory unspelt", () => {
-	const at = DECLARING["scripts/guard-uncommitted-work.test.ts"] ?? "";
-	expect(spellsTarget(at, 'join(ROOT, "lib");\n', "lib/hook-block.js")).toBe(
-		false,
-	);
-});
+it.each([
+	["lib/hook-block.js", 'join(ROOT, "lib");\n'],
+	[
+		"../.husky/pre-commit",
+		'join(root, ".husky", hook);\nconst h = "pre-commit";\n',
+	],
+])(
+	"fails keyless target %s, its code spelling only a shared directory",
+	(target, code) => {
+		const at = path.join(ROOT, "scripts/guard-uncommitted-work.test.ts");
+		expect(isTargetSpelt(at, code, target)).toBe(false);
+	},
+);
