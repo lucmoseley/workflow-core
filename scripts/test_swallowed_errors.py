@@ -74,6 +74,55 @@ def test_fail_open_must_be_handed_the_error_the_clause_binds():
     assert breach_lines(imported(handler("fail_open(e, 'skipped')", bind=""))) == [4]
 
 
+def test_a_suppress_of_a_broad_type_is_a_swallow():
+    for line, opened in (
+        ("import contextlib", "contextlib.suppress(Exception)"),
+        ("import contextlib as cl", "cl.suppress(OSError)"),
+        ("from contextlib import suppress", "suppress(ValueError, BaseException)"),
+        ("from contextlib import suppress as quiet", "quiet(*ERRORS)"),
+    ):
+        src = f"{line}\ndef f():\n    with {opened}:\n        x = 1\n"
+        assert breaches(src) == [(3, "f", f"with {opened}")], opened
+
+
+def test_a_suppress_of_a_specific_type_or_not_from_contextlib_passes():
+    for src in (
+        "import contextlib\nwith contextlib.suppress(FileNotFoundError):\n    x = 1\n",
+        "def suppress(t):\n    pass\nwith suppress(Exception):\n    x = 1\n",
+    ):
+        assert breach_lines(src) == [], src
+
+
+def exiting(body, sig="self, exc_type, error, tb"):
+    return f"class Q:\n    def __exit__({sig}):\n        {body}\n"
+
+
+def test_an_exit_that_returns_true_without_reporting_is_a_swallow():
+    for body in (
+        "return True",
+        "if isinstance(error, Exception):\n            return True\n        return False",
+        "print(error)\n        return True",
+        "fail_open(error, 'kept')\n        return True",
+    ):
+        found = [(f, c) for _, f, c in breaches(exiting(body))]
+        assert found == [("Q.__exit__", "__exit__ returning True")], body
+    assert breaches(exiting("return True", sig="self, *exc")) == [
+        (3, "Q.__exit__", "__exit__ returning True")
+    ]
+
+
+def test_an_exit_that_reports_raises_or_propagates_passes():
+    for body in (
+        "fail_open(error, 'kept')\n        return True",
+        "tallied(error, t, 'k')\n        return True",
+        "if error:\n            raise SystemExit(1) from error\n        return False",
+        "return False",
+        "return None",
+    ):
+        src = imported(exiting(body), "from fail_open import fail_open, tallied")
+        assert breach_lines(src) == [], body
+
+
 def test_a_breach_names_its_function_and_clause():
     src = (
         "class C:\n    def f(self):\n        try:\n            pass\n"
@@ -81,8 +130,8 @@ def test_a_breach_names_its_function_and_clause():
         "try:\n    pass\nexcept:\n    pass\n"
     )
     assert breaches(src) == [
-        (5, "C.f", "(OSError, ValueError)"),
-        (9, "<module>", "<bare>"),
+        (5, "C.f", "except (OSError, ValueError)"),
+        (9, "<module>", "except <bare>"),
     ]
 
 
@@ -101,7 +150,14 @@ def test_the_cli_reports_each_source_and_an_unparsable_one_as_an_error():
         check=True,
     )
     a, b = json.loads(out.stdout)["results"]
-    assert a["breaches"] == [{"line": 3, "function": "<module>", "caught": "OSError"}]
+    assert a["breaches"] == [
+        {"line": 3, "function": "<module>", "caught": "except OSError"}
+    ]
     assert b["name"] == "b.py"
     assert "error" in b
     assert "fail-open: b.py not judged: SyntaxError" in out.stderr
+
+
+def test_the_call_cost_harness_passes_by_its_shape():
+    harness = Path(__file__).resolve().parent / "lib" / "call_cost_harness.py"
+    assert breaches(harness.read_text(encoding="utf-8")) == []

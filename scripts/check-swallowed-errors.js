@@ -95,7 +95,7 @@ function charge(ctx, p, now, had) {
 		});
 		const note =
 			old > 0 ? ` (${old} of these ${bs.length} were already in HEAD)` : "";
-		ctx.say(`${p}: \`except ${clause}\` in ${fn} swallows its error${note}`);
+		ctx.say(`${p}: \`${clause}\` in ${fn} swallows its error${note}`);
 		for (const b of bs) ctx.say(`  ${p}:${b.line}`);
 	}
 	return charged;
@@ -186,7 +186,7 @@ runCheck({
 		const scope = all ? "" : " introduced";
 		if (charged > 0) {
 			ctx.say(
-				"Each `except` raises, exits, or hands its error to `fail_open` from scripts/lib/fail_open.py, which prints it, with a test pinning the fail-open (base §N5, #5487).",
+				"Each `except`, broad `suppress` and catching `__exit__` raises, exits, or hands its error to `fail_open` from scripts/lib/fail_open.py, which prints it, with a test pinning the fail-open (base §N5, #5487, #5561).",
 			);
 			return { noun: `swallow(s)${scope}`, count: charged };
 		}
