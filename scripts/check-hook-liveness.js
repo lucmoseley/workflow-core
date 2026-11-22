@@ -1106,7 +1106,7 @@ function readUpstreamManifest(marketplaceDir, rel, sha) {
 	}
 	const at = path.join(marketplaceDir, relFile);
 	const read = readText(at);
-	if (read.state === "unreadable") return wontRead(at, read.message);
+	if (read.state === "unreadable") return buildUnreadable(at, read.message);
 	// Absent upstream, which the comparison below reads as "ships no hooks".
 	return {
 		text: read.state === "read" ? read.data : null,
@@ -1404,7 +1404,7 @@ function auditInstall(audit, plugin, entry, scope) {
 	const cachedAt = path.join(entry.installPath, "hooks/hooks.json");
 	const read = readText(cachedAt);
 	if (read.state === "unreadable") {
-		noteUnverifiable(audit, key, wontRead(cachedAt, read.message));
+		noteUnverifiable(audit, key, buildUnreadable(cachedAt, read.message));
 		return;
 	}
 	// Absent from the cache, which is a divergence wherever upstream has one.
@@ -1435,7 +1435,7 @@ function auditInstall(audit, plugin, entry, scope) {
 }
 
 /** @param {string} at @param {string} message */
-const wontRead = (at, message) => ({
+const buildUnreadable = (at, message) => ({
 	unverifiable: `${at} will not read: ${message}`,
 	unreadable: /** @type {const} */ (true),
 });
