@@ -682,7 +682,6 @@ describe("queue-run.js", () => {
 
 			it.each([
 				["4 records", five.slice(1)],
-				["5 records, one at 61 s", [...five.slice(1), run(61, 100)]],
 				["5 records, one with no peak read", [...five.slice(1), run(20, 0)]],
 				[
 					"a slower run of another command",
@@ -693,6 +692,16 @@ describe("queue-run.js", () => {
 				expect(started).toBe(false);
 				expect(marker.part).toBeUndefined();
 				expect(marker.chargeMb).toBe(2100);
+			});
+
+			it("waits whole on 5 records with one over 60 s, charged the highest of their peaks (#5591)", async () => {
+				const { marker, started } = await seatBeside([
+					...five.slice(1),
+					run(145, 653),
+				]);
+				expect(started).toBe(false);
+				expect(marker.part).toBeUndefined();
+				expect(marker.chargeMb).toBe(653);
 			});
 
 			it("leaves a `ceiling` outcome out of the 5", async () => {
