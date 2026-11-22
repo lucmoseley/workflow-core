@@ -314,7 +314,7 @@ describe("the watch command", () => {
 		).toBe(true);
 	});
 
-	it("ends a job's watch on its own ceiling inside the rule's timeout (#5520)", () => {
+	it("ends a job's watch on its own ceiling, with room for node to start, inside the rule's timeout", () => {
 		const job = String(
 			/hold the turn on `([^`]+)`/.exec(
 				String(
@@ -329,11 +329,13 @@ describe("the watch command", () => {
 			path.join(__dirname, "../../docs/agents/rules/job-holds-turn.txt"),
 			"utf8",
 		);
-		const timeout = Number(
-			/timeout (\d+) node \S*watch-artefact/.exec(rule)?.[1],
-		);
+		const [, timeout, spelled] =
+			/timeout (\d+) node \S*watch-artefact\.js <its artefact> 120 (\d+)\s/.exec(
+				rule,
+			) ?? [];
+		expect(Number(spelled)).toBe(ceiling);
 		expect(ceiling).toBeGreaterThan(0);
-		expect(ceiling).toBeLessThan(timeout);
+		expect(Number(timeout) - ceiling).toBeGreaterThanOrEqual(5);
 	});
 
 	it("quotes a path a shell would split, apostrophe included", () => {

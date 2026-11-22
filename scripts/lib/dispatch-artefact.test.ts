@@ -24,7 +24,7 @@ import {
 } from "./dispatch-artefact";
 
 const FILE = "/repo/.claude/tmp/agents/do-a-thing-0badf00d.md";
-const watch = (f: string) => `watch ${f}`;
+const watch = (f: string, job = false) => `watch ${f}${job ? " --job" : ""}`;
 /** The reading instruction #1789 added. */
 const READ_LINE =
 	"Save a long fetched or local source to disk and search it, rather than reading it whole into your context.";
@@ -280,7 +280,7 @@ describe("buildWatchNote — a prompt that names its own artefact (#2013)", () =
 			undefined,
 			true,
 		);
-		expect(note).toContain("hold the turn on `watch .claude/tmp/x.md`");
+		expect(note).toContain("hold the turn on `watch .claude/tmp/x.md --job`");
 		expect(note).not.toContain("end the turn");
 	});
 
