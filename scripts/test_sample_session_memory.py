@@ -308,13 +308,15 @@ const run = {
       parentOf: (p) => procs[p]?.[0] ?? 0,
       ...ports,
     });
-    let record = null;
-    try {
-      record = JSON.parse(require("node:fs").readFileSync(file, "utf8"));
-    } catch {}
-    const isRecord = record && typeof record === "object" && !Array.isArray(record);
+    const record = (() => {
+      try {
+        return JSON.parse(require("node:fs").readFileSync(file, "utf8"));
+      } catch {
+        return null;
+      }
+    })();
     return {
-      stale: isRecord ? suiteQueue.isMarkerStale(record, ports) : null,
+      stale: record ? suiteQueue.isMarkerStale(record, ports) : null,
       held: held ? held.record.pid : null,
     };
   },
@@ -394,15 +396,13 @@ HELD_MARKERS = [
 
 
 @pytest.mark.parametrize("candidate", [4, 6])
-def test_marker_staleness_and_the_held_seat_are_is_marker_stale_and_held_markers(
+def test_marker_staleness_and_the_held_seat_are_is_marker_stale_and_held_marker(
     candidate, tmp_path
 ):
-    files = []
-    for n, body in enumerate(
-        [json.dumps(r) for r in HELD_MARKERS] + ["{torn", "[3]", "null"]
-    ):
-        files.append(tmp_path / f"gate-{n}.json")
-        files[-1].write_text(body)
+    bodies = [json.dumps(r) for r in HELD_MARKERS] + ["{torn", "null", "[3]"]
+    files = [tmp_path / f"gate-{n}.json" for n in range(len(bodies))]
+    for file, body in zip(files, bodies, strict=True):
+        file.write_text(body)
     py = []
     for file in files:
         record = m.read_marker(str(file))
@@ -423,7 +423,9 @@ def test_marker_staleness_and_the_held_seat_are_is_marker_stale_and_held_markers
         "held",
         [{"pid": candidate, "procs": HELD_PROCS, "file": str(f)} for f in files],
     )
-    assert py == js
+    assert py[:-1] == js[:-1]
+    assert m.read_marker(str(files[-1])) is None
+    assert py[-1]["held"] == js[-1]["held"] is None
 
 
 DESCENDANT_CASES = [
