@@ -14,7 +14,7 @@ The vendored skills speak in terms of five canonical triage **roles**. **This re
 **Create none of `needs-info`, `ready-for-human`, `ready-for-agent` or `wontfix`**: a vendored skill applying one fails on an unknown label.
 <!-- rule:triage-role-labels:end -->
 
-The repo's other labels are roadmap categories (`Tech & Stack`, `Data & Analytics`, …), not triage states.
+Where the `roadmap` module is on, the repo's roadmap categories (`Tech & Stack`, `Data & Analytics`, …) are labels too, not triage states.
 
 ## Kind labels — an axis the vendored skills lack
 
@@ -144,7 +144,7 @@ A spec whose tickets are all *closed* is not a container either — nothing open
 
 ## `card:<card-id>`
 
-**Marks a closed issue as a parked re-file trigger for one roadmap card** — the question or task it raised waits on that card being taken, and is not written onto the card as prose (`docs/agents/issue-tracker.md` §Gating an issue, `rule:roadmap-gating`; ruled at mantahostels#3291, applied at mantahostels#3320). It says nothing about disposition or provenance, so it sits alongside `takes:`/`kind:` on a closed issue, never in place of one, and is applied only at close — never to an open issue. An issue relevant to more than one card carries more than one `card:<card-id>` label.
+**Where the `roadmap` module is on, it marks a closed issue as a parked re-file trigger for one roadmap card** — the question or task it raised waits on that card being taken, and is not written onto the card as prose (`docs/agents/issue-tracker.md` §Gating an issue, `rule:roadmap-gating`; ruled at mantahostels#3291, applied at mantahostels#3320). It says nothing about disposition or provenance, so it sits alongside `takes:`/`kind:` on a closed issue, never in place of one, and is applied only at close — never to an open issue. An issue relevant to more than one card carries more than one `card:<card-id>` label.
 
 **Producer: whoever closes the issue onto a card** — `retire-to-roadmap`'s loop, a gated-issue close per the table above, or a hand close a session judges belongs to a card. **Consumer: the session taking that card**, via `gh issue list --state closed --label card:<id>`. Nothing checks that a card-relevant close actually applied the label; a close that forgets it loses the question silently, the same residual risk mantahostels#3291 named for the label route generally.
 
