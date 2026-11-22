@@ -602,6 +602,7 @@ describe("guard-dispatch.js's per-call cost under PostToolUse (#5338)", () => {
 			"lib/claude-bin.js",
 			"lib/cli-args.js",
 			"lib/clock.js",
+			"lib/code-edges-pragmas.js",
 			"lib/code-edges.js",
 			"lib/commit-sha.js",
 			"lib/compare-versions.js",
