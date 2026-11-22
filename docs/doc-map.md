@@ -324,7 +324,7 @@ None registered.
 - **Read:** `docs/adopter-boundary.md`.
 
 ### C4 · What does a key in `.claude/workflow-core.json` mean, and what happens where it is absent or wrong?
-- **Read:** `docs/agents/config-keys.md`, then the `ConfigBase` typedef in `scripts/lib/workflow-core-config.js` for the full key list.
+- **Read:** `docs/agents/config-keys.md`, then `KNOWN_KEYS` in `scripts/lib/workflow-core-config.js` for the full key list.
 
 ## The propagation pass
 
