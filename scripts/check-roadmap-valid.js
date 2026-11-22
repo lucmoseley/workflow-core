@@ -15,6 +15,7 @@ const {
 const { readRuleTextOr } = require("./lib/rule-text");
 const { caught, orFallback } = require("./lib/caught.js");
 const { execGit } = require("./lib/git.js");
+const { isModuleRetirement } = require("./lib/module-retirement.js");
 
 function readRoadmapRule() {
 	return readRuleTextOr(
@@ -296,14 +297,11 @@ function warnNewlyDoneGates(ctx, { html, baseline }) {
 	return { crossed, lines: extra };
 }
 
-function retiresModule() {
-	if (git("ls-files", "--", HTML).trim() !== "") return false;
-	try {
-		const modules = JSON.parse(git("show", `:${CONFIG_PATH}`)).modules;
-		return Array.isArray(modules) && !modules.includes("roadmap");
-	} catch {
-		return false;
-	}
+/** #5405 */
+function isRoadmapRetirement() {
+	return (
+		git("ls-files", "--", HTML).trim() === "" && isModuleRetirement("roadmap")
+	);
 }
 
 /** @param {Ctx} ctx */
@@ -320,7 +318,7 @@ function runIndex(ctx) {
 	if (!staged.includes(HTML))
 		ctx.skip(`${HTML} is not staged — nothing to validate.`);
 
-	if (retiresModule())
+	if (isRoadmapRetirement())
 		ctx.skip(
 			`this commit deletes ${HTML} and drops the roadmap module from its staged ${CONFIG_PATH} — nothing to validate.`,
 		);

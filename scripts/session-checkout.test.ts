@@ -65,17 +65,13 @@ const commitIn = (
 const DRIVER = path.resolve(__dirname, "merge-registry-anchors.js");
 
 /* #5501 */
-const ENV = (): NodeJS.ProcessEnv => {
-	const env: NodeJS.ProcessEnv = {
-		...process.env,
-		CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
-		CLAUDE_PROJECT_DIR: main,
-		WFC_NPM: npmStub,
-		WFC_MODULES: "",
-	};
-	delete env.CLAUDE_JOB_DIR;
-	return env;
-};
+const ENV = (): NodeJS.ProcessEnv => ({
+	...process.env,
+	CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
+	CLAUDE_PROJECT_DIR: main,
+	WFC_NPM: npmStub,
+	WFC_MODULES: "",
+});
 
 const run = (cwd: string, ...args: string[]) =>
 	runInProcess(SCRIPT, args, { cwd, env: ENV() });

@@ -72,7 +72,6 @@ function run(text: string, cwd = dir, backgroundJob = false): Run {
 	const transcript = transcriptWith(text);
 	const env: NodeJS.ProcessEnv = { ...process.env, WFC_REPO_ROOT: root };
 	if (backgroundJob) env.CLAUDE_JOB_DIR = path.join(dir, "job");
-	else delete env.CLAUDE_JOB_DIR;
 	const res = runInProcess(GUARD, [], {
 		stdin: JSON.stringify({
 			session_id: sid,
