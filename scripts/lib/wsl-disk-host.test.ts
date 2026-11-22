@@ -21,6 +21,7 @@ beforeEach(() => {
 });
 afterEach(() => {
 	vi.unstubAllEnvs();
+	vi.restoreAllMocks();
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -106,16 +107,41 @@ describe("readKernelRelease and readFreeGB", () => {
 });
 
 describe("readGuestDisk", () => {
-	it("reads the root's used bytes and the virtual size of the disk / is mounted from", () => {
+	const diskBytes = 224 * 2 ** 30;
+	const guestRootOnFakeDisk = () => {
 		const proc = writeOsrelease(dir, WSL_KERNEL);
-		writeGuestDisk(proc, 224 * 2 ** 30);
+		writeGuestDisk(proc, diskBytes);
 		vi.stubEnv("WFC_PROC", proc);
 		vi.stubEnv("WFC_GUEST_ROOT", dir);
-		const s = fs.statfsSync(dir);
+	};
+	it("counts a pinned reading's used bytes as blocks less free, in block-size bytes", () => {
+		guestRootOnFakeDisk();
+		const real = fs.statfsSync;
+		// #5570
+		vi.spyOn(fs, "statfsSync").mockImplementation(((
+			p: fs.PathLike,
+			...rest: [never]
+		) =>
+			p === dir
+				? { ...real(p, ...rest), bsize: 4096, blocks: 1000, bfree: 300 }
+				: real(p, ...rest)) as typeof fs.statfsSync);
 		expect(readGuestDisk()).toEqual({
-			usedBytes: (s.blocks - s.bfree) * s.bsize,
-			sizeBytes: 224 * 2 ** 30,
+			usedBytes: 700 * 4096,
+			sizeBytes: diskBytes,
 		});
+	});
+	it("reads a real root's used bytes, within its filesystem's size", () => {
+		guestRootOnFakeDisk();
+		const s = fs.statfsSync(dir);
+		const disk = readGuestDisk();
+		expect(disk).toEqual({
+			usedBytes: expect.any(Number),
+			sizeBytes: diskBytes,
+		});
+		const { usedBytes } = disk as { usedBytes: number };
+		expect(usedBytes).toBeGreaterThanOrEqual(0);
+		expect(usedBytes).toBeLessThanOrEqual(s.blocks * s.bsize);
+		expect(usedBytes % s.bsize).toBe(0);
 	});
 	it("says why where /proc lacks the files or the root will not stat", () => {
 		vi.stubEnv("WFC_PROC", writeOsrelease(dir, WSL_KERNEL));
