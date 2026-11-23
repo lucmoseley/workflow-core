@@ -997,7 +997,7 @@ describe("subject handling — review findings", () => {
 		store.acquire(`${docMap}#B1`, store.identify("alice"));
 		const mine = store.acquire(`${docMap}#B2`, store.identify("bob"));
 		expect(
-			store.liveClaimElsewhereOnFile(`${docMap}#B2`, mine.lock.claimId),
+			store.liveClaimElsewhereOnFile(`${docMap}#B2`, mine.lock?.claimId),
 		).toBe(true);
 		expect(store.liveClaimElsewhereOnFile("docs/other.md", null)).toBe(false);
 	});

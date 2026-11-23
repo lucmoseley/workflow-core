@@ -18,6 +18,8 @@ import {
 	lockFiles,
 	lockRecord,
 	proc,
+	readBreakAt,
+	readLockAt,
 	registerSession,
 	store,
 } from "./arbiter-testkit";
@@ -53,7 +55,7 @@ describe("acquire — check and take in one operation", () => {
 		store.acquire("docs/doc-map.md", live(sb, "alice"));
 		const r = store.acquire("docs/doc-map.md", live(sb, "bob"));
 		expect(r.verdict).toBe("held");
-		expect(r.lock.sessionId).toBe("alice");
+		expect(r.lock?.sessionId).toBe("alice");
 	});
 
 	it("breaks a dead holder's lock rather than wedging the file forever", () => {
@@ -141,7 +143,7 @@ describe("acquire — check and take in one operation", () => {
 		put("docs/doc-map.md", { sessionId: "resumed", ...DEAD });
 		const r = store.acquire("docs/doc-map.md", casper);
 		expect(r.verdict).toBe("held");
-		expect(r.lock.sessionId).toBe("resumed");
+		expect(r.lock?.sessionId).toBe("resumed");
 	});
 
 	it("does not write the resumed holder's live pid back, having no claim to write", () => {
@@ -156,7 +158,7 @@ describe("acquire — check and take in one operation", () => {
 		put("docs/doc-map.md", { sessionId: "resumed", ...DEAD });
 		const r = store.acquire("docs/doc-map.md#B1", live(sb, "bob"));
 		expect(r.verdict).toBe("held");
-		expect(r.lock.sessionId).toBe("resumed");
+		expect(r.lock?.sessionId).toBe("resumed");
 	});
 
 	it("refuses a REGION under a live whole-file claim that names no session (#1469 Q3)", () => {
@@ -219,7 +221,7 @@ describe("a lock recording a pid that is no longer the session's", () => {
 
 		const r = store.acquire("docs/doc-map.md", me);
 		expect(r.verdict).toBe("claimed");
-		expect(r.lock.pid).toBe(process.pid);
+		expect(r.lock?.pid).toBe(process.pid);
 
 		expect(store.acquire("docs/doc-map.md", durably("other")).verdict).toBe(
 			"held",
@@ -238,7 +240,7 @@ describe("a stale lock whose session id still has a live entry (mantahostels#348
 
 		const r = store.acquire("docs/doc-map.md", durably("bob"));
 		expect(r.verdict).toBe("held");
-		expect(r.lock.sessionId).toBe("resumed");
+		expect(r.lock?.sessionId).toBe("resumed");
 	});
 
 	it("re-keys it to the live pid, so the next reader repeats no walk", () => {
@@ -374,7 +376,7 @@ describe("a lock broken on the final retry", () => {
 		const r = store.acquire("docs/doc-map.md", me, 1);
 		expect(r.verdict).toBe("claimed");
 		expect(r.lock).not.toBeNull();
-		expect(r.lock.sessionId).toBe("a");
+		expect(r.lock?.sessionId).toBe("a");
 		expect(
 			JSON.parse(fs.readFileSync(store.paths.lock("docs/doc-map.md"), "utf8"))
 				.sessionId,
@@ -388,7 +390,7 @@ describe("a lock broken on the final retry", () => {
 		const r = store.acquire("docs/doc-map.md", store.identify("a"), 1);
 		expect(r.verdict).toBe("claimed");
 		expect(r.lock).not.toBeNull();
-		expect(r.lock.sessionId).toBe("a");
+		expect(r.lock?.sessionId).toBe("a");
 	});
 
 	it("still returns held for a live holder, having spent its whole budget", () => {
@@ -398,7 +400,7 @@ describe("a lock broken on the final retry", () => {
 		});
 		const r = store.acquire("docs/doc-map.md", me, 3);
 		expect(r.verdict).toBe("held");
-		expect(r.lock.sessionId).toBe("alice");
+		expect(r.lock?.sessionId).toBe("alice");
 	});
 });
 
@@ -597,7 +599,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		registerSession(sb, "other", process.pid);
 		const r = store.acquire("docs/doc-map.md", store.identify("other"));
 		expect(r.verdict).toBe("held");
-		expect(r.lock.claimId).toBe("stranded");
+		expect(r.lock?.claimId).toBe("stranded");
 		expect(fs.readFileSync(store.errorLog(), "utf8")).toContain(
 			"stranded aside",
 		);
@@ -735,7 +737,7 @@ describe("the break path — a lock that changed between the read and the rename
 		expect(
 			acquireSeeing("docs/doc-map.md", existing, durably("bob")).verdict,
 		).toBe("claimed");
-		expect(core.readRecord(p)?.sessionId).toBe("bob");
+		expect(readLockAt(p).sessionId).toBe("bob");
 		expect(readAsides()).toEqual([]);
 	});
 
@@ -768,7 +770,7 @@ describe("the break path — a lock that changed between the read and the rename
 		expect(
 			acquireSeeing("docs/doc-map.md", existing, durably("bob")).verdict,
 		).toBe("claimed");
-		expect(core.readRecord(p)?.sessionId).toBe("bob");
+		expect(readLockAt(p).sessionId).toBe("bob");
 	});
 });
 
@@ -840,7 +842,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 
 		expect(taken.verdict).toBe("claimed");
 		expect(taken.lock).not.toBeNull();
-		expect(core.readRecord(p)?.sessionId).toBe("a");
+		expect(readLockAt(p).sessionId).toBe("a");
 		expect(readErrors()).not.toContain("no lock written");
 	});
 
@@ -851,12 +853,12 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		store.acquire(rel, store.identify("a"));
 
 		expect(readBreaks()).toHaveLength(1);
-		const record = core.readRecord(
+		const record = readBreakAt(
 			path.join(store.paths.breaksDir(), readBreaks()[0]),
 		);
-		expect(record?.path).toBe(rel);
-		expect(record?.brokenBy).toBe("a");
-		expect(record?.lostBy).toBeNull();
+		expect(record.path).toBe(rel);
+		expect(record.brokenBy).toBe("a");
+		expect(record.lostBy).toBeNull();
 		expect(readErrors()).toContain("unparseable lock record");
 	});
 
@@ -904,7 +906,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 			expect(taken.verdict).toBe("held");
 			expect(taken.lock?.sessionId).toBe("mid-write");
 			expect(readBreaks()).toEqual([]);
-			expect(core.readRecord(p)?.sessionId).toBe("mid-write");
+			expect(readLockAt(p).sessionId).toBe("mid-write");
 			expect(elapsed).toBeGreaterThanOrEqual(TORN_SETTLE_MS);
 		} finally {
 			child.kill();
@@ -922,7 +924,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		} finally {
 			rename.mockRestore();
 		}
-		expect(core.readRecord(p)?.claimId).toBe("fresh");
+		expect(readLockAt(p).claimId).toBe("fresh");
 		expect(readBreaks()).toEqual([]);
 	});
 
@@ -966,7 +968,7 @@ describe("release — the second exit from a claim", () => {
 		const r = store.release("docs/doc-map.md", live(sb, "bob"));
 		expect(r.verdict).toBe("held-by-other");
 		assert(r.lock);
-		expect(r.lock.sessionId).toBe("alice");
+		expect(r.lock?.sessionId).toBe("alice");
 		expect(held("docs/doc-map.md")).toBe(true);
 	});
 

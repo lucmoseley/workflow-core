@@ -7,12 +7,14 @@ const {
 	holderAlive,
 	readProcStartOf,
 } = require("./arbiter-proc.js");
+const { isIssueClaimRecord, isMutexRecord } = require("./arbiter-records.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { caught, ignoreFailure } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").IssueClaimRecord} IssueClaimRecord */
 /** @typedef {import("./arbiter-records.js").Identity} Identity */
 /** @typedef {import("./arbiter-records.js").LivenessOracle} LivenessOracle */
+/** @typedef {import("./arbiter-records.js").MutexRecord} MutexRecord */
 
 // guess, origin untraced, #5621
 const ISSUE_CLAIM_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -21,25 +23,6 @@ const ISSUE_CLAIM_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 function issueNumber(issue) {
 	const n = Number(issue);
 	return Number.isInteger(n) && n > 0 ? n : null;
-}
-
-/**
- * @param {unknown} record
- * @returns {record is IssueClaimRecord}
- */
-function isIssueClaimRecord(record) {
-	return (
-		typeof record === "object" &&
-		record !== null &&
-		"issue" in record &&
-		typeof record.issue === "number" &&
-		Number.isInteger(record.issue) &&
-		record.issue > 0 &&
-		"sessionId" in record &&
-		(record.sessionId === null || typeof record.sessionId === "string") &&
-		"claimedAt" in record &&
-		typeof record.claimedAt === "string"
-	);
 }
 
 /**
@@ -146,13 +129,14 @@ const MUTEX_POLL_MS = 10;
 
 /**
  * @param {string} file
- * @param {{pid?: number, procStart?: string|number}|null} held
+ * @param {MutexRecord|null} held
  */
 function breakStaleMutex(file, held) {
 	const aside = `${file}.stale-${process.pid}`;
 	ignoreFailure(() => {
 		fs.renameSync(file, aside);
-		const moved = core.readRecord(aside);
+		const read = core.readRecord(aside);
+		const moved = isMutexRecord(read) ? read : null;
 		if (moved?.pid !== held?.pid || moved?.procStart !== held?.procStart)
 			fs.linkSync(aside, file);
 	});
@@ -175,12 +159,17 @@ function withIssueMutex(n, fn) {
 	};
 	const stillMine = () => {
 		const now = core.readRecord(file);
-		return now?.pid === body.pid && now?.procStart === body.procStart;
+		return (
+			isMutexRecord(now) &&
+			now.pid === body.pid &&
+			now.procStart === body.procStart
+		);
 	};
 	const deadline = Date.now() + mutexWaitMs();
 	while (!core.createOnce(file, body)) {
 		if (Date.now() > deadline) return { status: "busy" };
-		const held = core.readRecord(file);
+		const read = core.readRecord(file);
+		const held = isMutexRecord(read) ? read : null;
 		if (held && holderAlive(held)) {
 			sleepSync(MUTEX_POLL_MS);
 			continue;

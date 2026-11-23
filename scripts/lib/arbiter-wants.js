@@ -2,9 +2,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readCurrentBootId, holderAlive } = require("./arbiter-proc.js");
 const core = require("./arbiter-core.js");
+const { isWantRecord } = require("./arbiter-records.js");
 const { caught } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").Identity} Identity */
+/** @typedef {import("./arbiter-records.js").WantRecord} WantRecord */
 
 // guess, #5529
 const WANT_AGE_MS = 12 * 60 * 60 * 1000;
@@ -51,6 +53,7 @@ function readWants() {
 		core.logError("want list", e);
 		return null;
 	}
+	/** @type {WantRecord[]} */
 	const out = [];
 	for (const f of files) {
 		const file = path.join(core.paths.wantsDir(), f);
@@ -60,7 +63,7 @@ function readWants() {
 		} catch {
 			continue;
 		}
-		if (!record?.sessionId || !record.wants) continue;
+		if (!isWantRecord(record)) continue;
 		if (!holderAlive(record)) continue;
 		out.push(record);
 	}

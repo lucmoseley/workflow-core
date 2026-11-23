@@ -62,11 +62,12 @@ const UNREAD_EDITS = "\0unread";
 /** @param {string} admin @param {string} sessionId */
 function writeHolder(admin, sessionId) {
 	const own = (readSessionEntries("own") ?? []).find(
-		({ entry }) =>
-			entry.sessionId === sessionId &&
-			entry.pid &&
-			entry.procStart &&
-			readProcStartOf(entry.pid) === String(entry.procStart),
+		({ entry: { sessionId: id, pid, procStart } }) =>
+			id === sessionId &&
+			typeof pid === "number" &&
+			pid &&
+			procStart &&
+			readProcStartOf(pid) === String(procStart),
 	)?.entry;
 	fs.writeFileSync(
 		path.join(admin, HOLDER_RECORD),

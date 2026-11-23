@@ -22,6 +22,8 @@ import {
 	listedLocks,
 	live,
 	proc,
+	readBreakAt,
+	readLockAt,
 	registerSession,
 	removeSandbox,
 	SCRIPT,
@@ -1762,7 +1764,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 
 	describe("the third reporting site — a claim broken while its holder lived (mantahostels#349)", () => {
 		const aliceDisappears = () => {
-			const lock = core.readRecord(store.paths.lock(auditScript));
+			const lock = readLockAt(store.paths.lock(auditScript));
 			fs.writeFileSync(
 				store.paths.lock(auditScript),
 				JSON.stringify({ ...lock, pid: 999_999, procStart: "1" }),
@@ -1797,7 +1799,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 
 		it("carries the news ahead of the held-file warning, where the loser is most often standing", () => {
 			aliceWrites("docs/doc-map.md", "alice's work\n");
-			const lock = core.readRecord(store.paths.lock("docs/doc-map.md"));
+			const lock = readLockAt(store.paths.lock("docs/doc-map.md"));
 			fs.writeFileSync(
 				store.paths.lock("docs/doc-map.md"),
 				JSON.stringify({ ...lock, pid: 999_999, procStart: "1" }),
@@ -1830,7 +1832,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			fs.writeFileSync(
 				file,
 				JSON.stringify({
-					...core.readRecord(file),
+					...readBreakAt(file),
 					at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
 				}),
 			);

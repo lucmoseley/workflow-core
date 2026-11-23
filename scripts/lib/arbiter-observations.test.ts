@@ -5,10 +5,10 @@ import path from "node:path";
 import { assert, beforeEach, describe, expect, it } from "vitest";
 import {
 	AS_ROOT,
-	core,
 	freshSandbox,
 	live,
 	noSessions,
+	readLockAt,
 	store,
 } from "./arbiter-testkit";
 
@@ -21,7 +21,7 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 		fs.mkdirSync(path.dirname(abs()), { recursive: true });
 		fs.writeFileSync(abs(), text);
 	};
-	const readLock = () => core.readRecord(store.paths.lock(rel));
+	const readLock = () => readLockAt(store.paths.lock(rel));
 	const readRefs = () =>
 		execFileSync(
 			"git",

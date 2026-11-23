@@ -2,6 +2,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const core = require("./arbiter-core.js");
+const { isBreakRecord } = require("./arbiter-records.js");
 const { caught, ignoreFailure } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
@@ -56,6 +57,7 @@ function recordBreak(rel, lost, breaker) {
 	return record;
 }
 
+/** @returns {{file: string, record: BreakRecord|null}[]|null} */
 function readBreakEntries() {
 	let files;
 	try {
@@ -67,18 +69,21 @@ function readBreakEntries() {
 	return files
 		.filter((f) => f.endsWith(".json"))
 		.map((f) => path.join(core.paths.breaksDir(), f))
-		.map((file) => ({
-			file,
-			record: core.readRecordOrLog(file, "break read"),
-		}));
+		.map((file) => {
+			const record = core.readRecordOrLog(file, "break read");
+			return { file, record: isBreakRecord(record) ? record : null };
+		});
 }
 
 /** @param {string} rel */
 function readBreaks(rel) {
 	const prefix = `${core.keyFor(rel)}-`;
 	return (readBreakEntries() ?? [])
-		.filter((e) => path.basename(e.file).startsWith(prefix) && e.record)
-		.sort((a, b) => String(a.record.at).localeCompare(String(b.record.at)));
+		.filter(
+			/** @returns {e is {file: string, record: BreakRecord}} */
+			(e) => path.basename(e.file).startsWith(prefix) && e.record !== null,
+		)
+		.sort((a, b) => a.record.at.localeCompare(b.record.at));
 }
 
 function readBrokenClaimIds() {
