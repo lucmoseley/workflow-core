@@ -5,10 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { promisify } from "node:util";
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ignoreFailure } from "./lib/caught.js";
+import { dataOrThrow, readText } from "./lib/file-read.js";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
+import { noop } from "./lib/noop.js";
 import { writeCgroupRoot } from "./lib/sched-clock-fake";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -839,7 +841,9 @@ const hasScope = (() => {
 })();
 // guess: past the 2,000 default by more than the machine's ~100-400, #3402
 const SLEEPERS = 2500;
-const SCOPE_TASKS = SLEEPERS + 100;
+// guess: the forker bash and a margin over it, #5669
+const SCOPE_HEADROOM = 100;
+const SCOPE_TASKS = SLEEPERS + SCOPE_HEADROOM;
 // guess, #3402
 const SCOPE_S = 120;
 
@@ -853,13 +857,10 @@ interface Firing {
 	killed: number[];
 }
 const firings = (file: string): Firing[] =>
-	fs.existsSync(file)
-		? fs
-				.readFileSync(file, "utf8")
-				.trimEnd()
-				.split("\n")
-				.map((l) => JSON.parse(l))
-		: [];
+	(dataOrThrow(readText(file)) ?? "")
+		.split("\n")
+		.filter(Boolean)
+		.map((l) => JSON.parse(l));
 const alive = (pid: number) => {
 	try {
 		return !/^\d+ \(.*\) Z /.test(fs.readFileSync(`/proc/${pid}/stat`, "utf8"));
@@ -868,12 +869,7 @@ const alive = (pid: number) => {
 	}
 };
 
-async function inUnit<T>(
-	unit: string,
-	tasksMax: number,
-	script: string,
-	body: () => Promise<T>,
-) {
+async function startUnit(unit: string, tasksMax: number, script: string) {
 	const scope = spawn(
 		"systemd-run",
 		[
@@ -891,6 +887,14 @@ async function inUnit<T>(
 		],
 		{ stdio: ["ignore", "pipe", "ignore"] },
 	);
+	const stop = () => {
+		ignoreFailure(() =>
+			execFileSync("systemctl", ["--user", "stop", unit], {
+				stdio: "ignore",
+			}),
+		);
+		scope.kill("SIGKILL");
+	};
 	try {
 		await new Promise<void>((resolve, reject) => {
 			scope.stdout.on("data", (b) => {
@@ -898,14 +902,23 @@ async function inUnit<T>(
 			});
 			scope.on("exit", () => reject(new Error(`${unit} exited early`)));
 		});
+	} catch (e) {
+		stop();
+		throw e;
+	}
+	return stop;
+}
+async function inUnit<T>(
+	unit: string,
+	tasksMax: number,
+	script: string,
+	body: () => Promise<T>,
+) {
+	const stop = await startUnit(unit, tasksMax, script);
+	try {
 		return await body();
 	} finally {
-		ignoreFailure(() =>
-			execFileSync("systemctl", ["--user", "stop", unit], {
-				stdio: "ignore",
-			}),
-		);
-		scope.kill("SIGKILL");
+		stop();
 	}
 }
 
@@ -1191,9 +1204,9 @@ describe.skipIf(!hasScope).concurrent("memwatch process runaway", () => {
 });
 
 // #5669
-const fixtureUnit = (name: string) =>
-	`memwatch-fixture-${name}-${process.pid}.scope`;
+const HELD = `memwatch-fixture-held-${process.pid}.scope`;
 const SLEEP_ARGV = `sleep 3402.${process.pid}`;
+const FORK_MARKER = `memwatch-fork-fixture-${process.pid}`;
 const sleepers = (n: number, marker = "") =>
 	`${marker && `: ${marker}; `}for _ in $(seq ${n}); do ${SLEEP_ARGV} & done; echo ready; wait`;
 function unitSleepers(unit: string) {
@@ -1208,14 +1221,11 @@ function unitSleepers(unit: string) {
 		.split("\n")
 		.map(Number)
 		.filter((pid) => {
-			try {
-				return (
-					fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").replace(/\0$/, "") ===
-					SLEEP_ARGV.replace(" ", "\0")
-				);
-			} catch {
-				return false;
-			}
+			const read = readText(`/proc/${pid}/cmdline`);
+			return (
+				read.state === "read" &&
+				read.data.replace(/\0$/, "") === SLEEP_ARGV.replace(" ", "\0")
+			);
 		});
 }
 async function armedPass(name: string) {
@@ -1230,91 +1240,74 @@ async function armedPass(name: string) {
 		MEMWATCH_THRESHOLD_MB: "99999999",
 		MEMWATCH_CPU_THRESHOLD_PCT: "99999",
 		MEMWATCH_RUNAWAY_ONLY: SLEEP_ARGV,
+		MEMWATCH_RUNAWAY_FIXTURE: "memwatch-fixture-held-",
 		MEMWATCH_RUNAWAY_WINDOW_S: "0",
 	});
-	return { log, firings: firings(runaway) };
+	return { log, fired: firings(runaway) };
 }
-// guess: past RUNAWAY_GROUP's 200, a twentieth of the fixture, #5669
+let strays = 0;
+async function strayFires(n: number) {
+	const unit = `memwatch-fixture-stray-${process.pid}-${strays++}.scope`;
+	return inUnit(unit, n + SCOPE_HEADROOM, sleepers(n), async () => {
+		const pids = unitSleepers(unit);
+		expect(pids).toHaveLength(n);
+		const { fired } = await armedPass(unit);
+		expect(fired).toHaveLength(1);
+		expect(fired[0].argv).toBe(SLEEP_ARGV);
+		expect(fired[0].size).toBe(n);
+		expect([...fired[0].killed].sort()).toEqual([...pids].sort());
+	});
+}
+// guess: past RUNAWAY_GROUP's 200, a tenth of the fixture, #5669
 const STRAY = 250;
 
 describe
 	.skipIf(!hasScope)
 	.sequential("memwatch process-count trigger at the shipped threshold", () => {
+		let stopHeld: () => void = noop;
+		beforeAll(async () => {
+			stopHeld = await startUnit(
+				HELD,
+				SCOPE_TASKS,
+				sleepers(SLEEPERS, FORK_MARKER),
+			);
+		}, SCOPE_S * 1000);
+		afterAll(() => stopHeld());
+
+		it("names the sleepers' command and their parent past the threshold", async () => {
+			const { log } = await armedPass("procs");
+			const lines = fs.readFileSync(log, "utf8").trimEnd().split("\n");
+			const head = lines.findIndex((l) =>
+				/^--- \d+ processes \| top commands by process count ---$/.test(l),
+			);
+			expect(head).toBeGreaterThan(-1);
+			expect(Number(lines[head].split(" ")[1])).toBeGreaterThan(SLEEPERS);
+			expect(lines[head + 2]).toBe(
+				`${String(SLEEPERS).padStart(7)} ${SLEEP_ARGV}`,
+			);
+			const parents = lines.indexOf("--- top parents by direct children ---");
+			expect(parents).toBeGreaterThan(head);
+			expect(lines[parents + 2]).toMatch(
+				new RegExp(
+					`^ *\\d+ +${SLEEPERS} \\S*bash -c : ${FORK_MARKER};.* echo ready; wait$`,
+				),
+			);
+		});
+
 		it(
-			"names the sleepers' command and their parent past the threshold",
+			"leaves the fixture's sleepers out of an armed pass's group and kills, taking a smaller group of their argv (#5669)",
 			async () => {
-				const marker = `memwatch-fork-fixture-${process.pid}`;
-				await inUnit(
-					fixtureUnit("forks"),
-					SCOPE_TASKS,
-					sleepers(SLEEPERS, marker),
-					async () => {
-						const { log } = await armedPass("procs");
-						const lines = fs.readFileSync(log, "utf8").trimEnd().split("\n");
-						const head = lines.findIndex((l) =>
-							/^--- \d+ processes \| top commands by process count ---$/.test(
-								l,
-							),
-						);
-						expect(head).toBeGreaterThan(-1);
-						expect(Number(lines[head].split(" ")[1])).toBeGreaterThan(SLEEPERS);
-						expect(lines[head + 2]).toBe(
-							`${String(SLEEPERS).padStart(7)} ${SLEEP_ARGV}`,
-						);
-						const parents = lines.indexOf(
-							"--- top parents by direct children ---",
-						);
-						expect(parents).toBeGreaterThan(head);
-						expect(lines[parents + 2]).toMatch(
-							new RegExp(
-								`^ *\\d+ +${SLEEPERS} \\S*bash -c : ${marker};.* echo ready; wait$`,
-							),
-						);
-					},
-				);
+				const fixture = unitSleepers(HELD);
+				expect(fixture).toHaveLength(SLEEPERS);
+				await strayFires(STRAY);
+				expect(fixture.filter((pid) => !alive(pid))).toEqual([]);
 			},
 			SCOPE_S * 1000,
 		);
 
 		it(
-			"leaves the fixture's sleepers out of an armed pass's group and kills, taking a stray group of their argv",
-			async () => {
-				await inUnit(
-					fixtureUnit("armed"),
-					SCOPE_TASKS,
-					sleepers(SLEEPERS),
-					async () => {
-						const fixture = unitSleepers(fixtureUnit("armed"));
-						expect(fixture).toHaveLength(SLEEPERS);
-						const stray = `memwatch-stray-${process.pid}-0.scope`;
-						await inUnit(stray, STRAY + 50, sleepers(STRAY), async () => {
-							const strays = unitSleepers(stray);
-							expect(strays).toHaveLength(STRAY);
-							const { firings: lines } = await armedPass("armed-mixed");
-							expect(lines).toHaveLength(1);
-							expect(lines[0].size).toBe(STRAY);
-							expect([...lines[0].killed].sort()).toEqual([...strays].sort());
-							expect(fixture.filter((pid) => !alive(pid))).toEqual([]);
-						});
-					},
-				);
-			},
-			SCOPE_S * 1000,
-		);
-
-		it(
-			"fires on and kills a fixture-sized group of the fixture's argv outside a fixture scope",
-			async () => {
-				const stray = `memwatch-stray-${process.pid}-1.scope`;
-				await inUnit(stray, SCOPE_TASKS, sleepers(SLEEPERS), async () => {
-					const strays = unitSleepers(stray);
-					expect(strays).toHaveLength(SLEEPERS);
-					const { firings: lines } = await armedPass("armed-stray");
-					expect(lines).toHaveLength(1);
-					expect(lines[0].argv).toBe(SLEEP_ARGV);
-					expect([...lines[0].killed].sort()).toEqual([...strays].sort());
-				});
-			},
+			"fires on and kills a fixture-sized group of the fixture's argv outside the fixture's scope (#5669)",
+			() => strayFires(SLEEPERS),
 			SCOPE_S * 1000,
 		);
 	});
