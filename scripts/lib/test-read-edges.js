@@ -785,6 +785,59 @@ function ruleEdgesFor(source, tracked, self) {
 	return [...found].sort();
 }
 
+const GUARD_MANIFEST = "scripts/lib/guard-cores.json";
+
+const DISPATCHERS = [
+	"scripts/guard-dispatch.js",
+	"scripts/lib/guard-core-testkit.ts",
+	"scripts/lib/pretool-guard-testkit.ts",
+];
+
+const QUOTED_NAME = /["'`]([a-z0-9][a-z0-9-]*)["'`]/g;
+
+/**
+ * @param {Set<string>} tracked
+ * @param {(p: string) => string} read
+ * @returns {Map<string, string>}
+ */
+function coresByName(tracked, read) {
+	/** @type {Map<string, string>} */
+	const out = new Map();
+	if (!tracked.has(GUARD_MANIFEST)) return out;
+	let manifest;
+	try {
+		manifest = JSON.parse(read(GUARD_MANIFEST));
+	} catch {
+		return out;
+	}
+	for (const rows of Object.values(manifest ?? {}))
+		if (Array.isArray(rows))
+			for (const { name, core } of rows) {
+				const p = `scripts/lib/${core}`;
+				if (typeof name === "string" && tracked.has(p)) out.set(name, p);
+			}
+	return out;
+}
+
+/**
+ * @param {Set<string>} tracked
+ * @param {(p: string) => string} read
+ * @returns {(t: string, source: string, found: Set<string>) => string[]}
+ */
+function dispatchedCores(tracked, read) {
+	const cores = coresByName(tracked, read);
+	return (t, source, found) => {
+		const imports = directImports(source, t, tracked);
+		if (!DISPATCHERS.some((d) => found.has(d) || imports.has(d))) return [];
+		const out = new Set();
+		for (const m of source.matchAll(QUOTED_NAME)) {
+			const p = cores.get(requiredGroup(m, 1, QUOTED_NAME));
+			if (p) out.add(p);
+		}
+		return [...out];
+	};
+}
+
 const NODE_SCRIPT = /\.[mc]?js$/;
 
 const isScript = (/** @type {string} */ p) =>
@@ -1883,12 +1936,14 @@ function buildManifest(tracked, read, { sites: findSites = false } = {}) {
 			isFile: (c) => tracked.has(c),
 		}).flatMap((e) => [e.to, ...loadsOnce(e.to)]),
 	);
+	const coreEdges = dispatchedCores(tracked, read);
 	/** @type {Record<string, Site[]>} */
 	const unseen = {};
 	for (const t of tests) {
 		const source = read(t);
 		warnings.push(...untrackedLoads(source, tracked, t));
 		const found = testReads(t, source, tracked, read);
+		for (const p of coreEdges(t, source, found)) found.add(p);
 		addLaunches(found, t, launchesOnce);
 		addClosure(byClosure, t, closureDepths(t, found, loadsOnce, readsOnce));
 		for (const p of ownModules(t, tracked)) found.add(p);
