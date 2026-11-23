@@ -76,3 +76,17 @@ describe("untrackedSearch", () => {
 		expect(untrackedSearch({ prompt })).toBeNull();
 	});
 });
+
+describe("untrackedSearch's lexical limits, kept deliberately", () => {
+	it("passes a search phrased without its verbs unjudged", () => {
+		expect(
+			untrackedSearch({ prompt: "Find every caller in the repo." }),
+		).toBeNull();
+	});
+
+	it("judges a search naming its tracker only as the issues as naming none", () => {
+		expect(
+			untrackedSearch({ prompt: "Search the repo and the issues for it." }),
+		).not.toBeNull();
+	});
+});

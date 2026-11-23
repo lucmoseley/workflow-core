@@ -845,3 +845,34 @@ describe("from a linked worktree, the poll window is the machine's, not a tree's
 		expect(readFrom(at.worktree)?.permissionDecision).toBe("deny");
 	});
 });
+
+describe("the limits it keeps, deliberately", () => {
+	it("counts a third look as a loop however many other tools ran between the looks", () => {
+		run();
+		bash("npm run build");
+		readOf("/etc/hosts");
+		expectSilentAllow(run());
+		runTool("Write", { file_path: "/tmp/x" });
+		expectDeny(run());
+	});
+
+	it("leaves a poll spelled without a leading sleep unclassified, however often it repeats", () => {
+		for (let i = 0; i < 5; i++) {
+			expectNotCounted(bash(`wc -c ${OUT}`));
+			expectNotCounted(bash(`cat ${OUT}`));
+			expectNotCounted(bash(`tail -f ${OUT}`));
+		}
+	});
+
+	it("loses one of two racing calls' records, delaying the refusal rather than causing one", () => {
+		run();
+		const before = fs.readFileSync(stateFile(), "utf8");
+		const racing = { readWindow: () => before };
+		expectSilentAllow(judge({ session_id: "s1" }, racing));
+		expectSilentAllow(judge({ session_id: "s1" }, racing));
+		expect(
+			fs.readFileSync(stateFile(), "utf8").trim().split("\n"),
+		).toHaveLength(2);
+		expectDeny(run());
+	});
+});

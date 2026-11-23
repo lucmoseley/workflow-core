@@ -788,3 +788,11 @@ describe("from a linked worktree, the artefact is the main checkout's (#4242)", 
 		expect(latchesAt(at.worktree)).toEqual([]);
 	});
 });
+
+describe("the limits it keeps, deliberately", () => {
+	it("lets the dispatch that trips a rule launch, the rule riding on its result to correct only the next", () => {
+		const v = envelopeOf(dispatch({ model: "sonnet" }));
+		expect(v.permissionDecision).toBe("allow");
+		expect(v.additionalContext).toContain(readFragment("dispatch-tier"));
+	});
+});

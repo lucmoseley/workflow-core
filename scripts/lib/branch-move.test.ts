@@ -617,3 +617,26 @@ describe("what a flag makes of the word after it", () => {
 		expect(reason(command)).toContain(MOVED);
 	});
 });
+
+describe("the limits it keeps, deliberately", () => {
+	it.each([
+		["xargs git checkout -b foo", "xargs"],
+		["env git checkout -b foo", "env"],
+		["sudo git checkout -b foo", "sudo"],
+		["timeout 5 git checkout -b foo", "timeout"],
+		['sh -c "git checkout -b foo"', "sh -c"],
+	])("%s passes unseen — a move through %s is not read", (command) => {
+		expect(run(command)).toBeNull();
+	});
+
+	it.each(["list", "prune"])(
+		"logs `git worktree %s` in an unresolvable tree under the noun branch move, though it judges only add",
+		(verb) => {
+			expect(logsOf(`cd $TARGET && git worktree ${verb}`)).toEqual([
+				expect.stringMatching(
+					/^could not resolve the working tree for a git worktree.*branch move/,
+				),
+			]);
+		},
+	);
+});
