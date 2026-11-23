@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { sweptMarkers } from "./arbiter-testkit";
+import { localRequires } from "./require-closure-testkit";
 import { runInProcess } from "./run-in-process.js";
 
 const REPO = path.join(__dirname, "..", "..");
@@ -40,10 +41,12 @@ const CALL_WITH_PREFIX =
 const DECLARED_PREFIX = /^const \w*PREFIX\w* = "([^"]*-nagged-)";$/gm;
 const declaredIn = (src: string) =>
 	[...src.matchAll(DECLARED_PREFIX)].map((m) => m[1]);
-const REQUIRED_LIB = /require\("(\.\/(?:lib\/)?[\w-]+)(?:\.js)?"\)/g;
+const REQUIRED_LIB = /^(\.\/(?:lib\/)?[\w-]+)(?:\.js)?$/;
 const declaredInLibs = (f: string, src: string) =>
-	[...src.matchAll(REQUIRED_LIB)].flatMap((m) => {
-		const lib = path.join(path.dirname(f), `${m[1]}.js`);
+	localRequires(src).flatMap((req) => {
+		const name = REQUIRED_LIB.exec(req)?.[1];
+		if (name === undefined) return [];
+		const lib = path.join(path.dirname(f), `${name}.js`);
 		return fs.existsSync(lib) ? declaredIn(fs.readFileSync(lib, "utf8")) : [];
 	});
 

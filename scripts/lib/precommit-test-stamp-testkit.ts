@@ -16,7 +16,7 @@ import {
 	HOOK,
 	ROOT,
 } from "./precommit-gate-testkit";
-import { copyRequireClosure, launchedScripts } from "./require-closure";
+import { copyRequireClosure, launchedScripts } from "./require-closure-testkit";
 import { runInProcess } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
 

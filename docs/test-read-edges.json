@@ -52544,10 +52544,7 @@
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-dispatch-cost.test.ts",
 			"scripts/guard-failed-call-rules-cost.test.ts",
-			"scripts/guard-jev-advisory.test.ts",
 			"scripts/guard-lost-verdict-cost.test.ts",
-			"scripts/guard-priced-options-founder-act.test.ts",
-			"scripts/guard-priced-options.test.ts",
 			"scripts/guard-pull-form.test.ts",
 			"scripts/guard-push-rules.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
@@ -52557,7 +52554,6 @@
 			"scripts/init-adopter-commit.test.ts",
 			"scripts/init-adopter-subjects.test.ts",
 			"scripts/init-adopter.test.ts",
-			"scripts/install-refill-boot-unit.test.ts",
 			"scripts/landing-quiet-workflow.test.ts",
 			"scripts/lib/admission-verdict.contract.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -52626,7 +52622,6 @@
 			"scripts/lib/recursive-dot-read.test.ts",
 			"scripts/lib/refill-blocks.test.ts",
 			"scripts/lib/refill-budget.test.ts",
-			"scripts/lib/refill-code.test.ts",
 			"scripts/lib/refill-limits.test.ts",
 			"scripts/lib/refill-outside.test.ts",
 			"scripts/lib/refill-retire.test.ts",
@@ -53754,7 +53749,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/lib/require-closure.test.ts": [
+		"scripts/lib/require-closure-testkit.test.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -53778,7 +53773,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/lib/require-closure.ts": [
+		"scripts/lib/require-closure-testkit.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -53795,7 +53790,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/require-closure.test.ts",
+			"scripts/lib/require-closure-testkit.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
@@ -67081,7 +67076,7 @@
 			"scripts/lib/refill-retire.test.ts",
 			"scripts/lib/refill-tick-core.test.ts",
 			"scripts/lib/registry-atomicity.test.ts",
-			"scripts/lib/require-closure.test.ts",
+			"scripts/lib/require-closure-testkit.test.ts",
 			"scripts/lib/resume-io.contract.test.ts",
 			"scripts/lib/review-rules.test.ts",
 			"scripts/lib/rule-install-cap.test.ts",

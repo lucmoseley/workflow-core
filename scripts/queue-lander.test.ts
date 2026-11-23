@@ -42,7 +42,7 @@ import {
 	verdictLedger,
 } from "./lib/queue-lander-adapters.js";
 import { logEnqueue, queueLogFile } from "./lib/queue-log.js";
-import { copyRequireClosure } from "./lib/require-closure";
+import { copyRequireClosure } from "./lib/require-closure-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import { restoreStderr, spyStderr } from "./lib/write-fd-testkit";

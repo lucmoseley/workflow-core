@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { requireClosure } from "./require-closure";
+import { requireClosure } from "./require-closure-testkit";
 
 const require = createRequire(import.meta.url);
 const { readDispatchedCores } = require("./guard-cores.js");
