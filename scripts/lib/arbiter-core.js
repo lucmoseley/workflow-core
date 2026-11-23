@@ -698,8 +698,9 @@ function readLiveSessionIds() {
 		const pid = entryPid(entry);
 		if (!entry.sessionId || pid === null) continue;
 		const start = entryProcStart(entry);
+		const unrecorded = !entry.procStart;
 		if (
-			!entry.procStart ||
+			unrecorded ||
 			(start !== null && readProcStartOf(pid) === String(start))
 		)
 			live.add(entry.sessionId);

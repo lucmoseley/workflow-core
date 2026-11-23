@@ -171,8 +171,10 @@ describe("a record that parses but is the wrong shape reads as one that will not
 		it(`drops a lock that ${kind} as ${outcome}`, () => {
 			putLockBody(body);
 			expect(lockFiles.dropIfUnchanged(rel, () => true).outcome).toBe(outcome);
-			if (outcome === "kept")
-				expect(fs.readFileSync(store.paths.lock(rel), "utf8")).toBe(body);
+			const left = fs.existsSync(store.paths.lock(rel))
+				? fs.readFileSync(store.paths.lock(rel), "utf8")
+				: null;
+			expect(left).toBe(outcome === "kept" ? body : null);
 		});
 
 	for (const [kind, body, ids] of bodies(breakRecord, { at: 7 }, ["c1"], null))
@@ -210,7 +212,7 @@ describe("a record that parses but is the wrong shape reads as one that will not
 });
 
 describe("a harness-written registry entry's pid and process start (#5642)", () => {
-	it("takes a pid written as a number or as a numeric string, as every registry reader does", () => {
+	it("takes a pid written as a number or as a numeric string", () => {
 		expect(core.entryPid({ pid: 42 })).toBe(42);
 		expect(core.entryPid({ pid: "42" })).toBe(42);
 		for (const pid of [undefined, null, 0, -1, 1.5, "x", true])
