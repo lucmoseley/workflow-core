@@ -206,11 +206,11 @@ function pricedOptionsFor(env) {
 	const { hostRoot } = require("./host-root.js");
 	const { configDirFrom } = require("./config-dir.js");
 	const { readOutputStylePath } = require("./workflow-core-config.js");
-	const root = hostRoot();
+	const root = hostRoot(undefined, { env });
 	if (coreVoiceLoaded(root, configDirFrom(env.CLAUDE_CONFIG_DIR)))
 		return text.PRICED_OPTIONS_POINTER;
 	return text.pricedOptionsWhole(
-		readOutputStylePath({ root, say: () => undefined }),
+		readOutputStylePath({ root, env, say: () => undefined }),
 	);
 }
 
@@ -243,10 +243,10 @@ function codeReviewRules(ports, session, pricedOptions) {
 	const { reviewSuffix } = require("./review-suffix.js");
 	const { reviewAgentType } = require("./review-agent-type.js");
 	const { fragmentLookup } = require("./rule-text.js");
-	const host = hostRoot();
+	const host = hostRoot(undefined, { env: ports.env });
 	const core = coreRoot(ports.env);
 	const glossary = rs.standardsGlossary(host);
-	const read = fragmentLookup(host);
+	const read = fragmentLookup(host, ports.env);
 	return text.codeReviewRules(
 		{
 			standardsState: rs.standardsState(core, host),
@@ -328,7 +328,7 @@ function injectTrackerDocs(stdin, ports) {
 	/** @param {string} context */
 	const emit = (context) => {
 		const { resolveScriptPaths } = require("./script-path.js");
-		const c = resolveScriptPaths(context);
+		const c = resolveScriptPaths(context, ports.env);
 		const out =
 			f.event === "UserPromptSubmit" || f.event === "SessionStart"
 				? JSON.stringify(
@@ -369,8 +369,9 @@ function injectTrackerDocs(stdin, ports) {
 			takesIssue,
 			otherTakes,
 			pricedOptions,
-			claimIssue: require("./build-arbiter-command.js")
-				.buildArbiterCommand`claim-issue <n>`,
+			claimIssue: require("./build-arbiter-command.js").arbiterCommandIn(
+				ports.env,
+			)`claim-issue <n>`,
 		}),
 	);
 }

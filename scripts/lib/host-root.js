@@ -56,11 +56,14 @@ function owningCheckout(cwd, timeoutMs) {
 
 /**
  * @param {string} [cwd]
- * @param {{ timeoutMs?: number, onTimeout?: () => void }} [opts]
+ * @param {{ timeoutMs?: number, onTimeout?: () => void, env?: NodeJS.ProcessEnv }} [opts]
  * @returns {string}
  */
-function hostRoot(cwd = process.cwd(), { timeoutMs, onTimeout } = {}) {
-	const declared = process.env.CLAUDE_PROJECT_DIR;
+function hostRoot(
+	cwd = process.cwd(),
+	{ timeoutMs, onTimeout, env = process.env } = {},
+) {
+	const declared = env.CLAUDE_PROJECT_DIR;
 	if (declared)
 		return declaredHost(deref(stripSlash(declared)), timeoutMs, onTimeout);
 	if (memo.key === cwd) return memo.value;

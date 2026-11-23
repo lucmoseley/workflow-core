@@ -7,16 +7,12 @@ import path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { seenFrom } from "./core-path-testkit";
 import { initGitRepo } from "./git-fixture";
-import { readGuardErrorsLog } from "./guard-errors-log";
 import { takesPort, tierPort } from "./inject-tracker-docs-testkit";
 import { runInProcess } from "./run-in-process.js";
-import { withStubbedEnv } from "./scoped-env-testkit";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const { injectTrackerDocs } =
 	require("./inject-tracker-docs.js") as typeof import("./inject-tracker-docs.js");
-const { logFailOpen } =
-	require("./inject-tracker-docs-host.js") as typeof import("./inject-tracker-docs-host.js");
 const { readRuleText } = require("./rule-text") as {
 	readRuleText: (id: string) => string;
 };
@@ -38,11 +34,14 @@ type Ports = import("./inject-tracker-docs.js").Ports;
 
 const NOW = 1_800_000_000;
 
+const logged: string[] = [];
+const readLog = () => logged.join("\n");
+
 const FAKE_PORTS: Omit<Ports, "env"> = {
 	takesLabel: () => "",
 	reviewTier: () => "",
 	now: () => NOW,
-	log: logFailOpen,
+	log: (what, detail) => logged.push(`${what}\t${detail ?? ""}`),
 };
 
 const runRaw = (
@@ -50,28 +49,20 @@ const runRaw = (
 	env: Record<string, string> = {},
 	{ env: portEnv = {}, ...ports }: Partial<Ports> = {},
 ): string =>
-	withStubbedEnv(
+	injectTrackerDocs(
+		typeof payload === "string" ? payload : JSON.stringify(payload),
 		{
-			// #448
-			CLAUDE_PROJECT_DIR: ROOT,
-			WFC_OUTPUT_STYLE: undefined,
-			CLAUDE_CONFIG_DIR: SCRATCH,
-			...env,
+			...FAKE_PORTS,
+			...ports,
+			env: {
+				// #448
+				CLAUDE_PROJECT_DIR: ROOT,
+				TMPDIR: SCRATCH,
+				CLAUDE_CONFIG_DIR: SCRATCH,
+				...env,
+				...portEnv,
+			},
 		},
-		() =>
-			injectTrackerDocs(
-				typeof payload === "string" ? payload : JSON.stringify(payload),
-				{
-					...FAKE_PORTS,
-					...ports,
-					env: {
-						TMPDIR: SCRATCH,
-						CLAUDE_CONFIG_DIR: SCRATCH,
-						...env,
-						...portEnv,
-					},
-				},
-			),
 	);
 
 const run = (
@@ -751,7 +742,7 @@ describe("the review dispatch sentence (#1618, #1697)", () => {
 	});
 
 	it.each([
-		["lib/inject-tracker-docs.js", /\bfragmentLookup\(host\)/],
+		["lib/inject-tracker-docs.js", /\bfragmentLookup\(host, ports\.env\)/],
 		["lib/tracker-inject-text.js", /\bfragment\("review-dispatch-shape"\)/],
 		[
 			"concision-backstop.sh",
@@ -771,8 +762,7 @@ describe("a rule store that cannot supply the dispatch shape (#3514)", () => {
 	const empty = fs.mkdtempSync(path.join(SCRATCH, "no-rules-"));
 	const noRules = { WFC_RULES_DIR: empty, WFC_RULES_FALLBACK_DIR: empty };
 	const misses = () =>
-		readGuardErrorsLog(SCRATCH).split("rule:review-dispatch-shape unreadable")
-			.length;
+		readLog().split("rule:review-dispatch-shape unreadable").length;
 
 	it("names the dispatch shape's path and logs the miss once per printing", () => {
 		const fire = () =>
@@ -855,7 +845,7 @@ describe("a typed /code-review takes the Skill route's review tier (#1697)", () 
 				cwd,
 			},
 			{ CLAUDE_PROJECT_DIR: repo },
-			{ reviewTier: tierPort(hook) },
+			{ reviewTier: tierPort(hook, { CLAUDE_PROJECT_DIR: repo }) },
 		);
 
 	const readSkillRouteContext = (): string => {
@@ -1093,7 +1083,6 @@ describe("the standards base and local file (#965)", () => {
 	});
 
 	it("logs a missing base, and only a missing one", () => {
-		const readLog = () => readGuardErrorsLog(SCRATCH);
 		const before = readLog().split(basePath()).length;
 		put(core, "docs/code-standards-base.md");
 		review();
