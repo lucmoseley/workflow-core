@@ -26,6 +26,7 @@ const T0 = Math.floor((Date.now() - 60 * MIN) / 1000) * 1000;
 const WINDOW_MS = 7 * 24 * 60 * MIN;
 
 const FAKE_JOURNAL = [
+	buildEarlyoomSignalLine(Date.now() - WINDOW_MS - 10 * MIN, 41, "node"),
 	buildEarlyoomSignalLine(T0 - 2 * MIN, 77, "dbus-daemon", { rss: 1 }),
 	buildEarlyoomBannerLine(T0 - MIN),
 	buildEarlyoomReadingLine(T0, 776),
@@ -76,6 +77,7 @@ interface Side {
 	real: boolean;
 	lines: string[];
 	kills: Kill[];
+	firstKeptMs: number | null;
 	empty: string;
 	kernel: { outcome: string; lines: string[] };
 	boots: { boots: FakeBoot[]; why: string | null };
@@ -175,6 +177,7 @@ function readSide(
 			real: name === "real",
 			lines,
 			kills: incidents.flatMap((i: { kills: Kill[] }) => i.kills),
+			firstKeptMs: incidents.length > 0 ? Date.parse(incidents[0].first) : null,
 			empty: t.last().trim(),
 			kernel: readKernel(kernelBin, name),
 			boots: readBoots(),
@@ -235,10 +238,16 @@ const CASES: Case[] = [
 	{
 		name: "every signal line reads as one signal, and no other line does",
 		check(side: Side, skip: Skip) {
-			const { lines, kills } = side;
+			const { lines, kills, firstKeptMs } = side;
 			holds(side, earlyoomLineCount(lines), "earlyoom line", skip);
+			const kept =
+				firstKeptMs === null
+					? []
+					: lines.filter(
+							(l) => Date.parse(l.split(" ")[0] ?? "") >= firstKeptMs,
+						);
 			expect(kills.reduce((n, k) => n + k.signals, 0)).toBe(
-				countOf(lines, SIGNAL),
+				countOf(kept, SIGNAL),
 			);
 		},
 	},
