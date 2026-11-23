@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc.js";
 import { stubGhScript } from "./lib/gh-stub.js";
+import { defineTemplate } from "./lib/git-fixture";
 import { heartbeatWriter } from "./lib/lander-files.js";
 import { OWN_CORE, seedAdopterTree } from "./lib/lander-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -93,22 +94,28 @@ const waitFor = async (done: () => boolean) => {
 	return done();
 };
 
-beforeEach(() => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "supervise-landing-"));
-	remote = path.join(tmp, "remote.git");
-	work = path.join(tmp, "work");
-	git(tmp, ["init", "-q", "--bare", "-b", "main", remote]);
-	git(tmp, ["clone", "-q", remote, work]);
-	git(work, ["config", "user.email", "t@t"]);
-	git(work, ["config", "user.name", "t"]);
-	fs.mkdirSync(path.join(work, ".claude"), { recursive: true });
+const template = defineTemplate((dir) => {
+	const bare = path.join(dir, "remote.git");
+	const clone = path.join(dir, "work");
+	git(dir, ["init", "-q", "--bare", "-b", "main", bare]);
+	git(dir, ["clone", "-q", bare, clone]);
+	git(clone, ["config", "user.email", "t@t"]);
+	git(clone, ["config", "user.name", "t"]);
+	fs.mkdirSync(path.join(clone, ".claude"), { recursive: true });
 	fs.writeFileSync(
-		path.join(work, ".claude", "workflow-core.json"),
+		path.join(clone, ".claude", "workflow-core.json"),
 		JSON.stringify({ tracker: "o/here" }),
 	);
-	seedAdopterTree(work);
+	seedAdopterTree(clone);
+	git(clone, ["add", "-A"]);
+});
+
+beforeEach(() => {
+	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "supervise-landing-"));
+	template.instantiate(tmp);
+	remote = path.join(tmp, "remote.git");
+	work = path.join(tmp, "work");
 	vi.stubEnv("WORKFLOW_CORE_DIR", OWN_CORE);
-	git(work, ["add", "-A"]);
 	store = path.join(tmp, "issues.json");
 	fs.writeFileSync(store, "[]");
 	runs = path.join(tmp, "runs.json");

@@ -11,6 +11,11 @@ import {
 	withIgnoreBlock,
 } from "./lib/adopter-skeleton.js";
 import { orFallback } from "./lib/caught.js";
+import {
+	committedRepoTemplate,
+	defineTemplate,
+	emptyRepoTemplate,
+} from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { noop } from "./lib/noop.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -18,6 +23,8 @@ import { clearStepOwed } from "./lib/steps-owed.js";
 import { upgrade } from "./lib/upgrade-walk.js";
 
 let root: string;
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+const committedRepo = defineTemplate(committedRepoTemplate);
 let pluginRoot: string;
 let made: string[] = [];
 
@@ -1394,22 +1401,11 @@ describe("re-rendering the adopter's session rules on a bump (#654)", () => {
 
 	it("records a directory source's checkout HEAD", () => {
 		configure();
-		const checkout = path.join(configDir, "checkout");
-		fs.mkdirSync(checkout);
+		const checkout = committedRepo.instantiate(
+			path.join(configDir, "checkout"),
+		);
 		const git = (...args: string[]) =>
 			execFileSync("git", args, { cwd: checkout, encoding: "utf8" }).trim();
-		git("init", "-q");
-		git(
-			"-c",
-			"user.name=t",
-			"-c",
-			"user.email=t@t",
-			"commit",
-			"-q",
-			"--allow-empty",
-			"-m",
-			"x",
-		);
 		pinAt({ source: "directory", path: checkout });
 		write(root, rulesFile, `<!-- CORE-OWNED. old -->\n${provenanceBlock}`);
 		upgrade({ root, pluginRoot });
@@ -1492,7 +1488,7 @@ describe("the .gitignore block reaching an existing adopter (#773)", () => {
 		"# --- workflow-core: paths the core's rules assume are untracked (init-adopter.js) ---\n.claude/tmp/\n/private/\n# --- end workflow-core ignores ---\n";
 
 	const atV135 = (gitignore: string) => {
-		execFileSync("git", ["init", "-q"], { cwd: root });
+		emptyRepo.instantiate(root);
 		write(root, ".gitignore", gitignore);
 		writeJson(root, ".claude/settings.json", {
 			enabledPlugins: { "workflow-core@wc": true },
@@ -1548,7 +1544,7 @@ describe("upgrade.js through the resolve-core.js runner (#5286)", () => {
 			"scripts/lib/resolve-core.js",
 			fs.readFileSync(path.join(core, "scripts/lib/resolve-core.js"), "utf8"),
 		);
-		execFileSync("git", ["init", "-q"], { cwd: root });
+		emptyRepo.instantiate(root);
 		const env: NodeJS.ProcessEnv = { ...process.env, WORKFLOW_CORE_DIR: core };
 		delete env.CLAUDE_PLUGIN_ROOT;
 		const r = keptSpawn("fd").spawnSync(

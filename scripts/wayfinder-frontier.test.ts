@@ -1,7 +1,6 @@
 // @vitest-environment node
 // full-sweep-only: #5528
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -15,11 +14,13 @@ import {
 } from "./lib/arbiter-testkit";
 import { GH_NOT_FOUND, subIssuesAnswer } from "./lib/gh-fake";
 import { page, printed, type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 
 const FRONTIER = path.join(__dirname, "wayfinder-frontier.js");
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 const sb = freshSandbox((s) => {
-	spawnSync("git", ["init", "-q"], { cwd: s.repo });
+	emptyRepo.instantiate(s.repo);
 });
 
 const oracle = () => path.join(sb.dir, "bin", "claude");
@@ -247,9 +248,7 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 	});
 
 	it("announces a claim store belonging to a different tree (mantahostels#703's shape)", async () => {
-		const other = path.join(sb.dir, "elsewhere");
-		fs.mkdirSync(other, { recursive: true });
-		spawnSync("git", ["init", "-q"], { cwd: other });
+		const other = emptyRepo.instantiate(path.join(sb.dir, "elsewhere"));
 		fakeClaude(["alice"]);
 		const r = await asAlice([], other);
 		expect(r.stderr).toMatch(/not the tree you are in/);
@@ -573,9 +572,7 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 		it("refuses outright when the claim store belongs to another tree, printing no frontier", async () => {
 			claimBy("bob", "1145");
 			fakeClaude(["alice", "bob"]);
-			const other = path.join(sb.dir, "elsewhere-map");
-			fs.mkdirSync(other, { recursive: true });
-			spawnSync("git", ["init", "-q"], { cwd: other });
+			const other = emptyRepo.instantiate(path.join(sb.dir, "elsewhere-map"));
 			const gh = fakeGh(
 				mapWith(1080, [
 					[1145, "open"],

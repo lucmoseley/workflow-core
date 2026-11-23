@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { cutWorktree, mkScratchDir } from "./lib/git-fixture";
+import { cutWorktree, defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { buildBashPayload, spawnGuard } from "./lib/pretool-guard-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -46,6 +46,25 @@ const launchRecorded = async () => {
 	return readLaunches();
 };
 
+const template = defineTemplate((at) => {
+	execFileSync("git", ["init", "-q", "-b", "main", at]);
+	execFileSync(
+		"git",
+		[
+			"-c",
+			"user.email=t@t",
+			"-c",
+			"user.name=t",
+			"commit",
+			"-q",
+			"--allow-empty",
+			"-m",
+			"seed",
+		],
+		{ cwd: at },
+	);
+});
+
 beforeEach(() => {
 	dir = mkScratchDir("start-lander-on-push-");
 	repo = path.join(dir, "repo");
@@ -54,18 +73,7 @@ beforeEach(() => {
 	launches = path.join(dir, "launches");
 	fs.mkdirSync(stubs);
 	fs.mkdirSync(path.join(dir, "config"));
-	execFileSync("git", ["init", "-q", "-b", "main", repo]);
-	git(
-		"-c",
-		"user.email=t@t",
-		"-c",
-		"user.name=t",
-		"commit",
-		"-q",
-		"--allow-empty",
-		"-m",
-		"seed",
-	);
+	template.instantiate(repo);
 	fs.writeFileSync(
 		path.join(stubs, "node"),
 		`#!/bin/sh\ncase "$1" in\n  */start-lander.js)\n    i=0\n    while [ ! -e ${shellQuote(gate)} ] && [ -d ${shellQuote(dir)} ] && [ $i -lt ${STUB_POLLS} ]; do sleep ${STUB_POLL_S}; i=$((i+1)); done\n    [ -e ${shellQuote(gate)} ] && echo "$*" >> ${shellQuote(launches)} ;;\n  *) exec ${shellQuote(process.execPath)} "$@" ;;\nesac\n`,

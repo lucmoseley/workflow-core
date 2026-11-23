@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { pidAlive } from "./lib/arbiter-proc.js";
+import { defineTemplate } from "./lib/git-fixture";
 import { OWN_CORE, seedAdopterTree } from "./lib/lander-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -20,11 +21,11 @@ let landers: number[];
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
-const commit = (message: string) => {
-	fs.writeFileSync(path.join(work, `${message}.txt`), message);
-	git(work, "add", "-A");
+const commitIn = (dir: string, message: string) => {
+	fs.writeFileSync(path.join(dir, `${message}.txt`), message);
+	git(dir, "add", "-A");
 	git(
-		work,
+		dir,
 		"-c",
 		"user.email=t@t",
 		"-c",
@@ -33,9 +34,21 @@ const commit = (message: string) => {
 		"-qm",
 		message,
 	);
-	git(work, "push", "-q", "origin", `HEAD:refs/heads/queue/${message}`);
-	return git(work, "rev-parse", "HEAD");
+	git(dir, "push", "-q", "origin", `HEAD:refs/heads/queue/${message}`);
+	return git(dir, "rev-parse", "HEAD");
 };
+
+const commit = (message: string) => commitIn(work, message);
+
+const template = defineTemplate((dir) => {
+	const bare = path.join(dir, "remote.git");
+	const clone = path.join(dir, "work");
+	git(dir, "init", "-q", "--bare", "-b", "main", bare);
+	git(dir, "clone", "-q", bare, clone);
+	seedAdopterTree(clone);
+	commitIn(clone, "seed");
+	git(clone, "push", "-q", "origin", "HEAD:main", ":refs/heads/queue/seed");
+});
 
 const markers = () => path.join(work, ".claude", "tmp", "markers");
 const landerPidFile = () => path.join(markers(), ".lander.pid");
@@ -78,16 +91,12 @@ beforeEach(() => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "start-lander-"));
 	remote = path.join(tmp, "remote.git");
 	work = path.join(tmp, "work");
-	git(tmp, "init", "-q", "--bare", "-b", "main", remote);
-	git(tmp, "clone", "-q", remote, work);
-	seedAdopterTree(work);
+	template.instantiate(tmp);
 	vi.stubEnv("WORKFLOW_CORE_DIR", OWN_CORE);
 	const level = path.join(tmp, "level-stub.js");
 	fs.writeFileSync(level, "");
 	vi.stubEnv("WFC_LEVEL_MAIN_SCRIPT", level);
 	landers = [];
-	commit("seed");
-	git(work, "push", "-q", "origin", "HEAD:main", ":refs/heads/queue/seed");
 });
 
 afterEach(async () => {

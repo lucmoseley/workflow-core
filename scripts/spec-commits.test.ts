@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { coreFile } from "./lib/core-path-testkit";
 import { page, stubGhRoutes } from "./lib/gh-stub";
 import { writeFaultyGit } from "./lib/git-fault-fake";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "spec-commits.js");
@@ -17,9 +18,9 @@ describe("spec-commits CLI", () => {
 	let dir: string;
 	let repo: string;
 
-	const git = (args: string[], date?: string) =>
+	const gitIn = (cwd: string, args: string[], date?: string) =>
 		execFileSync("git", args, {
-			cwd: repo,
+			cwd,
 			encoding: "utf8",
 			env: {
 				...process.env,
@@ -31,14 +32,42 @@ describe("spec-commits CLI", () => {
 			},
 		});
 
-	const commit = (file: string, msg: string, date: string, body?: string) => {
-		fs.writeFileSync(path.join(repo, file), `${msg}${body ?? ""}`);
-		git(["add", file]);
-		git(
-			["commit", "-q", "--no-verify", "-m", msg, ...(body ? ["-m", body] : [])],
-			date,
+	const git = (args: string[], date?: string) => gitIn(repo, args, date);
+
+	const commitIn =
+		(cwd: string) =>
+		(file: string, msg: string, date: string, body?: string) => {
+			fs.writeFileSync(path.join(cwd, file), `${msg}${body ?? ""}`);
+			gitIn(cwd, ["add", file]);
+			gitIn(
+				cwd,
+				[
+					"commit",
+					"-q",
+					"--no-verify",
+					"-m",
+					msg,
+					...(body ? ["-m", body] : []),
+				],
+				date,
+			);
+		};
+
+	const commit = (file: string, msg: string, date: string, body?: string) =>
+		commitIn(repo)(file, msg, date, body);
+
+	const template = defineTemplate((at) => {
+		gitIn(at, ["init", "-q", "-b", "main"]);
+		const seed = commitIn(at);
+		seed(
+			"old.js",
+			"Inherited tracker's bare cite (#10)",
+			"2026-08-01T00:00:00Z",
 		);
-	};
+		seed("a.js", "Build the first ticket (#11)", "2026-09-02T00:00:00Z");
+		seed("n.js", "A neighbour's work (#99)", "2026-09-03T00:00:00Z");
+		seed("b.js", "Fix as review found (#12 review)", "2026-09-04T00:00:00Z");
+	});
 
 	let comments: Record<number, { body: string }[]>;
 	let held: Record<number, unknown[]>;
@@ -83,17 +112,7 @@ describe("spec-commits CLI", () => {
 		comments = {};
 		held = {};
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "spec-commits-"));
-		repo = path.join(dir, "repo");
-		fs.mkdirSync(repo);
-		git(["init", "-q", "-b", "main"]);
-		commit(
-			"old.js",
-			"Inherited tracker's bare cite (#10)",
-			"2026-08-01T00:00:00Z",
-		);
-		commit("a.js", "Build the first ticket (#11)", "2026-09-02T00:00:00Z");
-		commit("n.js", "A neighbour's work (#99)", "2026-09-03T00:00:00Z");
-		commit("b.js", "Fix as review found (#12 review)", "2026-09-04T00:00:00Z");
+		repo = template.instantiate(path.join(dir, "repo"));
 	});
 	afterEach(() => {
 		fs.rmSync(dir, { recursive: true, force: true });
