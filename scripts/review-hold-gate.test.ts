@@ -5,7 +5,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ledgerHead } from "./lib/arbiter-testkit";
 import { readShellConst } from "./lib/const-testkit";
-import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
+import {
+	defineTemplate,
+	identityRepoTemplate,
+	mkScratchDir,
+} from "./lib/git-fixture";
 import { ENTRY_BUDGET_MS } from "./lib/hook-deadline.js";
 import { GATES } from "./lib/precommit-gates.js";
 import { runHold } from "./lib/review-hold.js";
@@ -42,11 +46,11 @@ let hooks: string;
 const marker = () =>
 	path.join(repo, ".claude", "tmp", "markers", `.codereview-pass-${SID}`);
 
-const quietEnv = () => {
+const quietEnv = (configDir = scratch) => {
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		CLAUDE_CODE_SESSION_ID: "",
-		CLAUDE_CONFIG_DIR: scratch,
+		CLAUDE_CONFIG_DIR: configDir,
 		WFC_MODULES: process.env.WFC_MODULES?.split(",")
 			.filter((m) => m !== "mutation")
 			.join(","),
@@ -56,15 +60,18 @@ const quietEnv = () => {
 	return env;
 };
 
-const git = (...args: string[]) => {
-	const r = spawnSync("git", args, {
-		cwd: repo,
-		encoding: "utf8",
-		env: quietEnv(),
-	});
-	if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
-	return r.stdout.trim();
-};
+const gitIn =
+	(at: string, configDir: string) =>
+	(...args: string[]) => {
+		const r = spawnSync("git", args, {
+			cwd: at,
+			encoding: "utf8",
+			env: quietEnv(configDir),
+		});
+		if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+		return r.stdout.trim();
+	};
+const git = (...args: string[]) => gitIn(repo, scratch)(...args);
 const write = (rel: string, text: string, root = repo) => {
 	fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
 	fs.writeFileSync(path.join(root, rel), text);
@@ -297,11 +304,9 @@ const expectHeld = (
 };
 
 const fixture = defineTemplate((root) => {
-	repo = path.join(root, "repo");
-	fs.mkdirSync(repo);
-	git("init", "-q", "-b", "main");
-	git("config", "user.email", "t@t");
-	git("config", "user.name", "t");
+	const at = path.join(root, "repo");
+	fs.mkdirSync(at);
+	identityRepoTemplate(at);
 	write(
 		".claude/workflow-core.json",
 		JSON.stringify({
@@ -319,12 +324,14 @@ const fixture = defineTemplate((root) => {
 				{ name: "rewards", description: "reward-code redemption" },
 			],
 		}),
+		at,
 	);
-	write(SECRET, "old\n");
-	write(PRICE, "old\n");
-	write(PLAIN, "old\n");
-	git("add", "-A");
-	git("commit", "-qm", "seed");
+	write(SECRET, "old\n", at);
+	write(PRICE, "old\n", at);
+	write(PLAIN, "old\n", at);
+	const gitAt = gitIn(at, root);
+	gitAt("add", "-A");
+	gitAt("commit", "-qm", "seed");
 	fs.mkdirSync(path.join(root, "hooks"));
 	fs.writeFileSync(
 		path.join(root, "hooks", "pre-commit"),

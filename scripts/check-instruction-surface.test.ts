@@ -14,17 +14,18 @@ import {
 	it,
 } from "vitest";
 import { writeFaultyGit } from "./lib/git-fault-fake";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-instruction-surface.js");
 
 let dir: string;
 
-const write = (p: string, body: string) => {
-	fs.mkdirSync(path.join(dir, path.dirname(p)), { recursive: true });
-	fs.writeFileSync(path.join(dir, p), body);
+const writeIn = (at: string, p: string, body: string) => {
+	fs.mkdirSync(path.join(at, path.dirname(p)), { recursive: true });
+	fs.writeFileSync(path.join(at, p), body);
 };
+const write = (p: string, body: string) => writeIn(dir, p, body);
 
 const settings = (byEvent: Record<string, number>) => {
 	const hooks: Record<string, unknown[]> = {};
@@ -41,23 +42,27 @@ const settings = (byEvent: Record<string, number>) => {
 	return JSON.stringify({ hooks }, null, "\t");
 };
 
-const skill = (name: string, disabled = false) =>
-	write(
+const skillIn = (at: string, name: string, disabled = false) =>
+	writeIn(
+		at,
 		`.claude/skills/${name}/SKILL.md`,
 		`---\nname: ${name}\ndescription: does ${name}\n${disabled ? "disable-model-invocation: true\n" : ""}---\n\nbody\n`,
 	);
 
-const buildTree = () => {
-	write("CLAUDE.md", "x".repeat(1000));
-	write("AGENTS.md", "y".repeat(500));
-	write("docs/working-contract.md", "z".repeat(100));
-	write(".claude/output-styles/core-voice.md", "w".repeat(200));
-	write(".claude/settings.json", settings({ PreToolUse: 2, Stop: 1 }));
-	skill("alpha");
-	skill("beta", true);
-	write("scripts/guard-one.sh", "#!/bin/sh\necho rule one\n");
-	write("scripts/guard-two.sh", "#!/bin/sh\necho rule two\n");
+const skill = (name: string, disabled = false) => skillIn(dir, name, disabled);
+
+const buildTreeIn = (at: string) => {
+	writeIn(at, "CLAUDE.md", "x".repeat(1000));
+	writeIn(at, "AGENTS.md", "y".repeat(500));
+	writeIn(at, "docs/working-contract.md", "z".repeat(100));
+	writeIn(at, ".claude/output-styles/core-voice.md", "w".repeat(200));
+	writeIn(at, ".claude/settings.json", settings({ PreToolUse: 2, Stop: 1 }));
+	skillIn(at, "alpha");
+	skillIn(at, "beta", true);
+	writeIn(at, "scripts/guard-one.sh", "#!/bin/sh\necho rule one\n");
+	writeIn(at, "scripts/guard-two.sh", "#!/bin/sh\necho rule two\n");
 };
+const buildTree = () => buildTreeIn(dir);
 
 const BASELINE = "scripts/instruction-surface-anchors.json";
 
@@ -1336,22 +1341,18 @@ describe("re-baselining", () => {
 });
 
 describe("reading git rather than the working tree", () => {
-	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+	const gitIn =
+		(at: string) =>
+		(...args: string[]) =>
+			execFileSync("git", args, { cwd: at, encoding: "utf8" });
+	const git = (...args: string[]) => gitIn(dir)(...args);
 
 	const committedTree = defineTemplate((at) => {
-		const own = dir;
-		dir = at;
-		try {
-			buildTree();
-			git("init", "-q");
-			git("config", "user.email", "t@t");
-			git("config", "user.name", "t");
-			git("add", "-A");
-			git("commit", "-q", "-m", "fixture");
-		} finally {
-			dir = own;
-		}
+		const gitAt = gitIn(at);
+		buildTreeIn(at);
+		identityRepoTemplate(at);
+		gitAt("add", "-A");
+		gitAt("commit", "-q", "-m", "fixture");
 	});
 
 	beforeEach(() => {

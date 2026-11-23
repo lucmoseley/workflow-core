@@ -20,7 +20,7 @@
 		],
 		"allowlist": [
 			{
-				"path": "scripts/lib/suite-queue.test.ts",
+				"path": "scripts/lib/gate-wait.test.ts",
 				"anchors": [
 					{
 						"anchor": "MemAvailable at lowest 1800 MB",
@@ -2119,6 +2119,10 @@
 				"anchors": [
 					"own skill and command descriptions 779 B = pool **46.9 KB of 47.0 KB"
 				]
+			},
+			{
+				"path": "scripts/instruction-surface-anchors.json",
+				"lines": []
 			}
 		]
 	},
