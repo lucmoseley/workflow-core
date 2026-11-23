@@ -199,17 +199,29 @@ function readExcludedOrBroken(ctx, paths, read) {
 function readJudgedFiles(ctx, root) {
 	const walked = ctx.has("--root");
 	const files = readTreeFiles(ctx, root, walked);
-	if (ctx.side) return files;
+	if (ctx.side)
+		return ctx.sideRev
+			? withoutExcluded(ctx, files, { from: { rev: ctx.sideRev } })
+			: files;
 	const env = walked ? withoutGitRedirects() : undefined;
 	if (!inWorkTree(ctx, root, env)) return files;
 	const tracked = walked ? new Set(readTrackedPaths(ctx, root, env)) : null;
 	const judged = tracked ? files.filter((p) => tracked.has(p)) : files;
-	const excluded = readExcludedOrBroken(ctx, judged, {
+	return withoutExcluded(ctx, judged, {
 		from: walked ? "worktree" : "index",
 		cwd: root,
 		env,
 	});
-	return judged.filter((p) => !excluded.has(p));
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string[]} paths
+ * @param {import("./lib/git-attributes.js").AttributeRead} read
+ */
+function withoutExcluded(ctx, paths, read) {
+	const excluded = readExcludedOrBroken(ctx, paths, read);
+	return paths.filter((p) => !excluded.has(p));
 }
 
 /**

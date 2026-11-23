@@ -377,6 +377,38 @@ process.stdout.write('{"findings":[]}');
 		expect(out.trim()).toContain(root);
 	});
 
+	it.each([
+		{ attrs: "vendor/*.sh linguist-vendored\n", reported: false },
+		{ attrs: "", reported: true },
+	])(
+		"judges a restored vendor/loop.sh by the commit's .gitattributes ($attrs) through the real comment gate (#5650)",
+		({ attrs, reported }) => {
+			const repo = newRepo("report-new-shared-faults-vendored-", temps);
+			fs.writeFileSync(path.join(repo.root, ".gitattributes"), attrs);
+			repo.git("add", "-A");
+			repo.git("commit", "-q", "--allow-empty", "-m", "base");
+			fs.mkdirSync(path.join(repo.root, "vendor"));
+			fs.writeFileSync(
+				path.join(repo.root, "vendor", "loop.sh"),
+				"#!/usr/bin/env bash\n# Restored from upstream: loop until the test passes.\nwhile true; do\n\t# Run once more.\n\tbreak\ndone\n",
+			);
+			repo.git("add", "-A");
+			repo.git("commit", "-q", "-m", "restore vendor/loop.sh");
+			const child = repo.git("rev-parse", "HEAD").toString().trim();
+
+			const { code, out, err } = run(child, {
+				checkers: {
+					"comment-policy": path.join(__dirname, "check-comment-policy.js"),
+				},
+				cwd: repo.root,
+			});
+
+			expect(err).toEqual([]);
+			expect(code).toBe(reported ? 1 : 0);
+			expect(out.join("\n").includes("vendor/loop.sh")).toBe(reported);
+		},
+	);
+
 	it("pins the real check-guard-registry.js --json envelope shape", () => {
 		const envelope = JSON.parse(
 			runInProcess(path.join(__dirname, "check-guard-registry.js"), [

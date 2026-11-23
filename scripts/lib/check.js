@@ -95,7 +95,7 @@ const { reportOwner } = require("./session-id.js");
 const { ENVELOPE_FRAME_KEYS } = require("./envelope-frame-keys.js");
 const { isUnder } = require("./is-under.js");
 const { readCommitOrBroken } = require("./commit-sha.js");
-const { SIDE_ENV } = require("./check-side.js");
+const { SIDE_ENV, SIDE_REV_ENV } = require("./check-side.js");
 const { GIT_MODE } = require("./git-mode.js");
 const {
 	brokenError,
@@ -235,6 +235,11 @@ class CheckContext {
 		/** @type {SideRun} */
 		this.sides = opts.sides ?? "spawn";
 		this.side = opts.side ?? sideFromEnv();
+		/** @type {string | undefined} */
+		this.sideRev =
+			opts.side === undefined && this.side
+				? process.env[SIDE_REV_ENV] || undefined
+				: undefined;
 		this.warnOnly = argv.includes("--warn");
 		this.asJson = argv.includes("--json");
 		this.jsonText = argv.includes("--json-text");
