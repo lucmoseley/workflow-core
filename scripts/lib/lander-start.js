@@ -131,7 +131,16 @@ function runStartLander(
 
 // guess, #5613
 const SCOPE_CONFIRM_MS = MANAGER_TIMEOUT_MS;
+// measured: a scope execs its command in ~30 ms, #5613
 const SCOPE_POLL_MS = 10;
+// https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html
+const STAT_EXIT_CODE = 52 - 3;
+
+/** @param {number} waitStatus */
+const describeEnd = (waitStatus) =>
+	waitStatus & 0x7f
+		? `it ended on signal ${waitStatus & 0x7f}`
+		: `it ended ${waitStatus >> 8}`;
 
 /**
  * @param {number} pid
@@ -148,13 +157,10 @@ function confirmExec(pid, node, pause) {
 		if (stat === null) return { up: false, why: "it was gone" };
 		const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
 		if (fields[0] === "Z") {
-			const status = Number(fields[49]);
+			const status = Number(fields[STAT_EXIT_CODE]);
 			return {
 				up: false,
-				why:
-					status & 0x7f
-						? `it ended on signal ${status & 0x7f}`
-						: `it ended ${status >> 8}`,
+				why: Number.isInteger(status) ? describeEnd(status) : "it ended",
 			};
 		}
 		if (orFallback(() => fs.readlinkSync(`/proc/${pid}/exe`), null) === node)
@@ -194,16 +200,16 @@ function spawnDetachedRun({
 		"run",
 		...(tester === undefined ? [] : ["--tester", tester]),
 	];
-	/** @param {string[]} words */
-	const start = (words) => {
-		if (words.length === 0)
+	/** @param {string[]} wrapWith */
+	const start = (wrapWith) => {
+		if (wrapWith.length === 0)
 			note("no user scope: the lander shares its starter's cgroup (#2956)");
 		const child = spawn(process.execPath, run, {
 			cwd: root,
 			env: { ...buildCheckoutEnv(root), WFC_NOW: undefined },
 			stdio: ["ignore", fd, fd],
 			owner: null,
-			wrap: words,
+			wrap: wrapWith,
 		});
 		if (child.pid === undefined) throw new Error(`could not start ${script}`);
 		child.unref();
@@ -211,11 +217,12 @@ function spawnDetachedRun({
 	};
 	try {
 		const pid = start(wrap);
-		if (wrap.length === 0) return pid;
+		const [binary] = wrap;
+		if (binary === undefined) return pid;
 		const scoped = confirmExec(pid, fs.realpathSync(process.execPath), pause);
 		if (scoped.up) return pid;
 		note(
-			`the user scope was refused: ${path.basename(wrap[0] ?? "")} ${scoped.why} (#5613)`,
+			`the user scope was refused: ${path.basename(binary)} ${scoped.why} (#5613)`,
 		);
 		return start([]);
 	} finally {

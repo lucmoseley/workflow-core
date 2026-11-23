@@ -126,7 +126,7 @@ it("starts one detached queue lander that lands the queue ref, and none beside i
 	);
 });
 
-it("starts the lander unwrapped where the user scope is refused after the probe allowed it, reporting the pid that runs (#5613)", async () => {
+it("starts the lander unwrapped where the user scope is refused after the probe allowed it, reporting the pid that runs, as a start the scope allows does (#5613)", async () => {
 	commit("work");
 	const tester = gatedTester(path.join(tmp, "release"));
 	const refusing = path.join(tmp, "systemd-run");
