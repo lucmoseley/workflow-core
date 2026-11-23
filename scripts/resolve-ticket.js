@@ -44,6 +44,7 @@ const {
 } = require("./lib/compaction-set.js");
 const { caught } = require("./lib/caught.js");
 const { decisionMarks, isDecisionTicket } = require("./lib/decision-labels.js");
+const { guessRefusal } = require("./lib/values-guesses.js");
 const { fromEnv: sessionFromEnv } = require("./lib/session-id.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 
@@ -188,6 +189,15 @@ function checkPracticeKindOrFail(comment, issue) {
 			`#${issue.number} is a decision ticket (${decisionMarks(issue.labels).join(", ")}), and its **Practice:** line declares "skipped — a reply that only answers a question". A decision ticket's resolution is a decision, not a reply: run the research pass ("**Practice:** ran — <note>"), cite a current note ("**Practice:** covered — <note>, <Researched date>"), or name another exempt kind that fits. Nothing written.`,
 			2,
 		);
+}
+
+/**
+ * @param {string} comment
+ * @param {Issue} issue
+ */
+function checkValuesGuessesOrFail(comment, issue) {
+	const refusal = guessRefusal(issue.number, issue.labels, comment);
+	if (refusal) io.fail(`${refusal} Nothing written.`, 2);
 }
 
 /**
@@ -463,6 +473,7 @@ function main() {
 
 	if (!notPlanned) {
 		checkPracticeKindOrFail(comment, issue);
+		checkValuesGuessesOrFail(comment, issue);
 		checkCompletableOrFail(issue, n);
 		checkCensusOrFail(comment, n);
 		checkLandedOrFail(comment, n);
