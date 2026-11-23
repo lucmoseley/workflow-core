@@ -18,6 +18,9 @@ const JOB_DIR_STANDIN = "/CLAUDE_JOB_DIR";
 
 const RULE = "job-dir-scratch";
 
+// #5600
+const STANDS_ALONE_RE = /^[/$~]/;
+
 /** @param {string | null} rel */
 function flatName(rel) {
 	if (rel === null || !rel.startsWith("tmp/")) return null;
@@ -112,7 +115,7 @@ function* writesFromEveryDir(cmd) {
  */
 function considerTarget(word, resolved, { spans, where, classify }) {
 	const lit = literal(word, spans).text;
-	if (!lit) return;
+	if (!lit || (!resolved && !STANDS_ALONE_RE.test(lit))) return;
 	const p = resolved || lit;
 	if (!isJobDir(p, where)) return;
 	const landed = isUnder(p, [JOB_DIR_STANDIN])

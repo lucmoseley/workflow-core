@@ -42,9 +42,13 @@ interface Opts {
 	jobDir?: string;
 	sid?: string;
 	home?: string;
+	cwd?: string;
 }
 
-function run(p: Payload, { jobDir, sid, home }: Opts = {}): Verdict | null {
+function run(
+	p: Payload,
+	{ jobDir, sid, home, cwd }: Opts = {},
+): Verdict | null {
 	const { output } = runCore(
 		"guard-job-dir-scratch",
 		toolCall(
@@ -60,6 +64,7 @@ function run(p: Payload, { jobDir, sid, home }: Opts = {}): Verdict | null {
 		),
 		{
 			root: dir,
+			...(cwd === undefined ? {} : { cwd }),
 			env: {
 				...(jobDir === undefined ? {} : { CLAUDE_JOB_DIR: jobDir }),
 				...(home === undefined ? {} : { HOME: home }),
@@ -278,6 +283,16 @@ describe("a write behind a wrapper or in a `flock -c` string", () => {
 			expect(refused(bash(command, { jobDir: JOB_DIR }))).toContain(
 				`lands at ${JOB_DIR}/tmp/x.out`,
 			);
+		},
+	);
+
+	// #5600
+	it.each([JOB_DIR, `${JOB_DIR}/tmp`])(
+		"is silent on a relative target behind a directory it cannot read, standing in %s",
+		(cwd) => {
+			expect(
+				bash(`D=${JOB_DIR} env -C $D tee tmp/x.out`, { jobDir: JOB_DIR, cwd }),
+			).toBeNull();
 		},
 	);
 });
