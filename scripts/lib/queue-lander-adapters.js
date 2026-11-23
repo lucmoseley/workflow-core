@@ -8,6 +8,7 @@ const { caught, parseErrorText } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { gitCommonDirOrThrow } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
+const { noop } = require("./noop.js");
 const { writeFd } = require("./write-fd.js");
 const { PushRefused } = require("./network-fault.js");
 const {
@@ -168,7 +169,7 @@ function queueGit(
 		ciRepeats = false,
 		suiteRepeats = false,
 		gateGraceMs = HOOK_GRACE_MS,
-		beat = () => undefined,
+		beat = noop,
 	} = {},
 ) {
 	const batchSet = batchGateSet(ciRepeats, suiteRepeats);
@@ -219,7 +220,6 @@ function queueGit(
 				path.resolve(root, common, "objects", broken[1] ?? "", broken[2] ?? ""),
 				{ force: true },
 			);
-			beat();
 			git(["fetch", "--quiet", REMOTE, ...fetchSpecs]);
 			throw new TransientFault(
 				`a broken git object, removed and fetched again: ${parseRefusal(parseErrorText(err))}`,
@@ -236,6 +236,7 @@ function queueGit(
 	let trackerDropped = null;
 	// #5539
 	const readTrackerDropped = () => {
+		beat();
 		trackerDropped ??= readOtherTrackerRemotes(root).flatMap((r) =>
 			git(["ls-remote", r, `${DROPPED_HEADS}*`])
 				.split("\n")
@@ -366,11 +367,11 @@ function queueGit(
 			root,
 			onto,
 			{ program: "queue-lander", use: "merge" },
-			(dir, untimed) => {
+			(dir, unbeaten) => {
 				/** @type {MergeTree["inTree"]} */
 				const inTree = (args, timeout) => {
 					beat();
-					return untimed(args, timeout);
+					return unbeaten(args, timeout);
 				};
 				const gates = hookGates(dir, inTree);
 				const gateCopy = gateCopies(dir);

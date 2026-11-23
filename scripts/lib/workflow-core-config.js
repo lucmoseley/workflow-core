@@ -962,15 +962,16 @@ function repoSlug(spec) {
 
 /** @param {string} root */
 function deriveTracker(root) {
-	const url = orFallback(
-		() =>
-			execGit(["-C", root, "config", "--get", "remote.origin.url"], {
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-				timeout: GIT_TIMEOUT_MS,
-			}),
-		"",
-	);
+	let url = "";
+	try {
+		url = execGit(["-C", root, "config", "--get", "remote.origin.url"], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+			timeout: GIT_TIMEOUT_MS,
+		});
+	} catch (err) {
+		if (caught(err).code === "ETIMEDOUT") throw err;
+	}
 	return parseGithubRemote(url);
 }
 

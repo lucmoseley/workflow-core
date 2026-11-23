@@ -83,7 +83,7 @@ function configuredTester(root, admit, say, beat) {
 	const pinned = readConfig({ root, quiet: true }).landingTester;
 	if (pinned === "actions") {
 		say("tester: actions, as landingTester pins it");
-		return queueTester({ root });
+		return queueTester({ root, beat });
 	}
 	const local = localTester({ root, admit, beat });
 	if (pinned === "local") {
@@ -99,7 +99,9 @@ function configuredTester(root, admit, say, beat) {
 	say(
 		`tester: ${onActions ? "actions" : "local"}, ${read} (Actions over ${ACTIONS_OVER_S} s)`,
 	);
-	return onActions ? adopterTester({ root, fallback: local, say }) : local;
+	return onActions
+		? adopterTester({ root, fallback: local, say, beat })
+		: local;
 }
 
 /**

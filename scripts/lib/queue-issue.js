@@ -102,6 +102,9 @@ function relabel({ number, labels }, addLabels) {
 	return ` Re-added ${missing.join(", ")}.`;
 }
 
+// guess, #5644: a filing's create and its parent link, each one gh call
+const FILING_TIMEOUT_MS = 2 * GH_TIMEOUT_MS;
+
 /**
  * @param {string} root
  * @returns {QueueIssueDeps["fileIssue"]}
@@ -110,7 +113,7 @@ const fileIssueIn = (root) => (args, input) => {
 	const r = spawnSync(
 		process.execPath,
 		[path.join(__dirname, "..", "file-issue.js"), ...args],
-		{ cwd: root, encoding: "utf8", input, timeout: GH_TIMEOUT_MS },
+		{ cwd: root, encoding: "utf8", input, timeout: FILING_TIMEOUT_MS },
 	);
 	return {
 		status: r.status,

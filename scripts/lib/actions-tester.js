@@ -10,6 +10,8 @@ const {
 } = require("./lander-git.js");
 const { gh, ghJson } = require("./gh.js");
 const { parseErrorText } = require("./caught.js");
+const { beatingBefore } = require("./lander-files.js");
+const { noop } = require("./noop.js");
 const { isNetworkFault } = require("./network-fault.js");
 const { readJsonl } = require("./jsonl.js");
 const { SUITE_WORKFLOW } = require("./suite-timings.js");
@@ -751,6 +753,7 @@ const liveQueueReads = (root, workflows) => ({
  * @property {Flags} [flags]
  * @property {QueueTester} [fallback]
  * @property {(line: string) => void} [say]
+ * @property {() => void} [beat]
  * @property {QueueReads} [reads]
  * @property {(ms: number) => Promise<void>} [wait]
  * @property {() => number} [now]
@@ -767,7 +770,8 @@ function queueTester({
 	flags = CORE_FLAGS,
 	fallback,
 	say = (line) => writeFd(2, `${line}\n`),
-	reads = liveQueueReads(root, workflows),
+	beat = noop,
+	reads = beatingBefore(beat, liveQueueReads(root, workflows)),
 	wait = sleep,
 	now = Date.now,
 	record = (run) => recordRun(root, run),

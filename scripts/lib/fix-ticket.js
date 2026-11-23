@@ -297,7 +297,7 @@ function readGitIn(root, args) {
 	});
 	if (r.status !== 0)
 		throw new Error(
-			`git ${args[0]} could not read ${args.at(-1)}: ${r.stderr.trim()}`,
+			`git ${args[0]} could not read ${args.at(-1)}: ${r.stderr.trim() || r.error?.message}`,
 		);
 	return r.stdout;
 }

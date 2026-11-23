@@ -3,6 +3,7 @@ const { gitBinary, gitSpawnOptions } = require("./git.js");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { noop } = require("./noop.js");
 const {
 	TREE_PEAK_SAMPLE_MS,
 	readPsRows,
@@ -553,7 +554,7 @@ function localTester({
 	pytest = path.join(__dirname, "..", "run-pytest.js"),
 	treePss = readTreePssKb,
 	timings = readLatestTimings,
-	beat = () => undefined,
+	beat = noop,
 }) {
 	const dir = path.join(root, LANDER_WORKTREE);
 	return {

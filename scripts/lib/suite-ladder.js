@@ -197,6 +197,7 @@ function parsePsRows(text) {
 	});
 }
 
+// guess, #5644
 const PS_TIMEOUT_MS = 5000;
 const PS_BIN = () => process.env.WFC_PS || "ps";
 
