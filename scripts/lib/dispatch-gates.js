@@ -66,6 +66,7 @@ function gateOutcome(dir, keyVar) {
 		env,
 		cwd: process.cwd(),
 		settings: overflow?.settings,
+		bg: overflow === undefined,
 	});
 	if (auth) return { why: `${auth}\n` };
 	return { kind: seat.kind, label: buildSeatLabel(seat), overflow };

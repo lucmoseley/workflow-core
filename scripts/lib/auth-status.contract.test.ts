@@ -144,5 +144,27 @@ describe.skipIf(!realClaude)(
 			);
 			for (const p of pairs) expect(p.fake, p.name).toEqual(p.real);
 		}, 60_000);
+
+		it("says no daemon runs on a config dir with none, as the binary does", async () => {
+			const env = {
+				PATH: process.env.PATH,
+				HOME: process.env.HOME,
+				CLAUDE_CONFIG_DIR: path.join(dir, "no-daemon"),
+			};
+			const said = (argv: string[]) =>
+				run(argv[0] as string, argv.slice(1), { cwd: plain, env }).then(
+					(r) => ({ first: r.stdout.split("\n")[0], code: 0 }),
+					(e: { stdout: string; code: number }) => ({
+						first: e.stdout.split("\n")[0],
+						code: e.code,
+					}),
+				);
+			const [real, fake] = await Promise.all([
+				said([realClaude as string, "daemon", "status"]),
+				said([process.execPath, AUTH_STATUS_FAKE, "daemon", "status"]),
+			]);
+			expect(fake).toEqual(real);
+			expect(real.first).toBe("not running");
+		}, 60_000);
 	},
 );

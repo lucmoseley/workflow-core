@@ -9,11 +9,11 @@ export const AUTH_STATUS_FAKE = path.join(
 );
 
 export function buildAuthStatusBranch(): string {
-	return `if [ "$1" = "auth" ]; then exec ${shellQuote(process.execPath)} ${shellQuote(AUTH_STATUS_FAKE)}; fi`;
+	return `if [ "$1" = "auth" ] || [ "$1 $2" = "daemon status" ]; then exec ${shellQuote(process.execPath)} ${shellQuote(AUTH_STATUS_FAKE)} "$@"; fi`;
 }
 
 export function buildAuthStatusNodeBranch(): string {
-	return `if (process.argv[2] === "auth") require(${JSON.stringify(AUTH_STATUS_FAKE)});`;
+	return `if (process.argv[2] === "auth" || (process.argv[2] === "daemon" && process.argv[3] === "status")) require(${JSON.stringify(AUTH_STATUS_FAKE)});`;
 }
 
 export const REFUSED_AUTH: [string, Record<string, string>][] = [

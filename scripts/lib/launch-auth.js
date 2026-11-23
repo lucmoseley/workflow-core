@@ -3,6 +3,7 @@ const { spawnRaw } = require("./child-spawn.js");
 const { claudeBin } = require("./claude-bin.js");
 const { secretsFile } = require("./env-file.js");
 const { buildKeyHelper } = require("./overflow-key.js");
+const { readEnviron } = require("./proc-environ.js");
 const {
 	overflowSeatsOf,
 	readDeclaredSeats,
@@ -83,6 +84,52 @@ function isSeatHelper(helper, env) {
 	);
 }
 
+/** @param {NodeJS.ProcessEnv} env */
+const providerFlags = (env) =>
+	Object.keys(env).filter(
+		(k) =>
+			k.startsWith("CLAUDE_CODE_USE_") &&
+			isSet(env[k]) &&
+			!OFF.includes(String(env[k]).toLowerCase()),
+	);
+
+/**
+ * @param {string} bin
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} cwd
+ * @param {typeof spawnRaw} spawn
+ * @returns {string|null}
+ */
+function daemonRefusal(bin, env, cwd, spawn) {
+	const r = spawn(bin, ["daemon", "status"], {
+		env,
+		cwd,
+		stdio: ["ignore", "pipe", "pipe"],
+		timeout: STATUS_TIMEOUT_MS,
+	});
+	if (r.error) return `\`${bin} daemon status\` failed: ${r.error.message}`;
+	const out = String(r.stdout ?? "");
+	if (out.split("\n")[0]?.trim() === "not running") return null;
+	const pid = /^pid:[ \t]+(\d+)[ \t]*$/m.exec(out)?.[1];
+	if (pid === undefined) {
+		const said = (String(r.stderr ?? "") || out).trim().split("\n")[0];
+		return `\`${bin} daemon status\` named no daemon pid (exit ${r.status}${said ? `: ${said}` : ""})`;
+	}
+	const daemon = `the Claude daemon (pid ${pid}) this --bg launch hands its session to`;
+	const read = readEnviron(pid);
+	if (!read.ok) return `${daemon} has an environment that will not read`;
+	const set = [
+		...[
+			"ANTHROPIC_API_KEY",
+			"ANTHROPIC_AUTH_TOKEN",
+			"ANTHROPIC_BASE_URL",
+		].filter((k) => isSet(read.env[k])),
+		...providerFlags(read.env),
+	];
+	if (set.length === 0) return null;
+	return `${daemon} has ${set.join(", ")} set in its environment`;
+}
+
 /**
  * @param {{authMethod?: string, apiProvider?: string}} status
  * @param {NodeJS.ProcessEnv} env
@@ -98,12 +145,7 @@ function sourceOf(status, env) {
 		case "api_key_helper":
 			return "an apiKeyHelper setting is in force";
 		case "third_party": {
-			const flags = Object.keys(env).filter(
-				(k) =>
-					k.startsWith("CLAUDE_CODE_USE_") &&
-					isSet(env[k]) &&
-					!OFF.includes(String(env[k]).toLowerCase()),
-			);
+			const flags = providerFlags(env);
 			return flags.length > 0
 				? `${flags.join(", ")} ${flags.length > 1 ? "are" : "is"} set`
 				: `the API provider is ${status.apiProvider}`;
@@ -117,14 +159,25 @@ function sourceOf(status, env) {
 
 /**
  * @param {{bin: string, env: NodeJS.ProcessEnv, cwd: string,
- *   settings?: string, spawn?: typeof spawnRaw}} launch
+ *   settings?: string, bg?: boolean, spawn?: typeof spawnRaw}} launch
  * @returns {string|null}
  */
-function launchAuthRefusal({ bin, env, cwd, settings, spawn = spawnRaw }) {
+function launchAuthRefusal({
+	bin,
+	env,
+	cwd,
+	settings,
+	bg = false,
+	spawn = spawnRaw,
+}) {
 	const refused = (/** @type {string} */ why) =>
 		`this model launch would not bill the subscription: ${why}. Rule: ${RULE}. Unset what set it, or launch from a shell without it.`;
 	if (isSet(env.ANTHROPIC_BASE_URL))
 		return refused("ANTHROPIC_BASE_URL is set");
+	if (bg) {
+		const why = daemonRefusal(bin, env, cwd, spawn);
+		if (why) return refused(why);
+	}
 	const parsed = parseSettingsHelper(settings);
 	if ("why" in parsed) return refused(parsed.why);
 	const { helper } = parsed;

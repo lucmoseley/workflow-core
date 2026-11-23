@@ -292,6 +292,7 @@ async function runMain() {
 			bin: claudeBin(),
 			env: process.env,
 			cwd: process.cwd(),
+			bg: true,
 		});
 		if (refusal) {
 			writeFd(2, `REFUSED: ${refusal}\n`);

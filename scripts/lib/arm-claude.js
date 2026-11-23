@@ -42,7 +42,13 @@ function start(p, run, { repo, prompt }, bin) {
 		CLAUDE_CONFIG_DIR: run.configDir,
 		PATH: `${path.join(run.sandbox, "bin")}:${p.env.PATH}`,
 	};
-	const refusal = launchAuthRefusal({ bin, env, cwd: repo, spawn: p.claude });
+	const refusal = launchAuthRefusal({
+		bin,
+		env,
+		cwd: repo,
+		bg: true,
+		spawn: p.claude,
+	});
 	if (refusal) return { ok: false, why: refusal };
 	const launched = p.claude(
 		bin,

@@ -4,6 +4,15 @@ const path = require("node:path");
 const env = process.env;
 const isSet = (/** @type {string|undefined} */ v) =>
 	v !== undefined && v !== "";
+
+if (process.argv[2] === "daemon") {
+	if (isSet(env.WFC_FAKE_DAEMON)) {
+		process.stdout.write(`pid:     ${env.WFC_FAKE_DAEMON}\nversion: 2.1.330\n`);
+		process.exit(0);
+	}
+	process.stdout.write("not running\n");
+	process.exit(1);
+}
 const OFF = ["0", "false", "no", "off"];
 
 /** @param {string} file */
