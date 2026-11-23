@@ -110,13 +110,13 @@ const SWEEP_AGE_S = 24 * 60 * 60;
 /**
  * @param {string} session
  * @param {string} matched
- * @param {NodeJS.ProcessEnv} env
+ * @param {string | undefined} tmpRoot
  * @returns {{dir: string, file: string} | null}
  */
-function markerFor(session, matched, env) {
+function markerFor(session, matched, tmpRoot) {
 	if (!session) return null;
 	const dir = path.join(
-		env.TMPDIR || "/tmp",
+		tmpRoot || "/tmp",
 		`wfc-tracker-inject-${process.getuid?.() ?? 0}`,
 	);
 	try {
@@ -277,12 +277,12 @@ function logMissingBase(ports) {
 }
 
 /**
- * @param {{source: string, session: string, matched: string, takesIssue: string, now: number, env: NodeJS.ProcessEnv}} firing
+ * @param {{source: string, session: string, matched: string, takesIssue: string, now: number, tmpRoot: string | undefined}} firing
  * @returns {ReturnType<typeof markerFor> | "duplicate"}
  */
-function openMarker({ source, session, matched, takesIssue, now, env }) {
+function openMarker({ source, session, matched, takesIssue, now, tmpRoot }) {
 	if (["compact", "clear", "resume"].includes(source)) return null;
-	const marker = markerFor(session, matched, env);
+	const marker = markerFor(session, matched, tmpRoot);
 	if (!marker) return null;
 	const state = settleMarker(marker, takesIssue, now);
 	if (state === "duplicate") return "duplicate";
@@ -315,7 +315,7 @@ function injectTrackerDocs(stdin, ports) {
 		matched,
 		takesIssue,
 		now,
-		env: ports.env,
+		tmpRoot: ports.env.TMPDIR,
 	});
 	if (opened === "duplicate") return "";
 	let marker = opened;
