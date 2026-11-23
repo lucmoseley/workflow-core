@@ -370,6 +370,24 @@ describe("judgeFile", () => {
 		expect(tags("scripts/x.js", "node", assign)).toEqual([]);
 	});
 
+	it("lets only gh.js and gh-binary.js reach ghUnrouted, past a mention in a string or comment (#5643)", () => {
+		const reach =
+			'const { ghUnrouted } = require("./gh-binary.js");\nghUnrouted(["api", "user"]);\n';
+		expect(tags("scripts/lib/gh.js", "node", reach)).toEqual([]);
+		expect(tags("scripts/lib/gh-binary.js", "node", reach)).toEqual([]);
+		expect(tags("scripts/lib/config.js", "node", reach)).toEqual([
+			["NODE-COPY", "gh", 1],
+			["NODE-COPY", "gh", 2],
+		]);
+		expect(
+			tags(
+				"scripts/lib/route.js",
+				"node",
+				'// ghUnrouted runs gh\nconst name = "ghUnrouted";\n',
+			),
+		).toEqual([]);
+	});
+
 	it("names a bare shell run and probe, past comments, and honours a marker on the line or the one above", () => {
 		expect(
 			tags(

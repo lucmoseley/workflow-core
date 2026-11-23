@@ -19,6 +19,7 @@ const { isTestKind } = require("./test-kind.js");
  *   shellRun: RegExp,
  *   shellProbe: RegExp,
  *   joinBin: RegExp,
+ *   unrouted: RegExp | null,
  * }} Route
  */
 
@@ -32,6 +33,7 @@ const { isTestKind } = require("./test-kind.js");
  *   calls: string,
  *   exemplar: string,
  *   shellExemplar: string,
+ *   unrouted?: string,
  * }} spec
  * @returns {Route}
  */
@@ -44,6 +46,7 @@ function buildRoute({
 	calls,
 	exemplar,
 	shellExemplar,
+	unrouted,
 }) {
 	return {
 		bin,
@@ -72,6 +75,9 @@ function buildRoute({
 			`path\\.join\\(\\s*([^()]*?)\\s*,\\s*(["'\`])${bin}\\2\\s*\\)`,
 			"g",
 		),
+		unrouted: unrouted
+			? new RegExp(`(?<![\\w"'\`])${unrouted}(?![\\w"'\`])`)
+			: null,
 	};
 }
 
@@ -85,6 +91,7 @@ const ROUTES = [
 		calls: "`gh`, `ghJson` or their kin",
 		exemplar: "scripts/check-issue-orphans.js",
 		shellExemplar: "scripts/park-blocked.sh",
+		unrouted: "ghUnrouted",
 	}),
 	buildRoute({
 		bin: "claude",
@@ -209,7 +216,11 @@ function shapeOf({ r, rel, kind, binDirs }, line) {
 			: null;
 	if (
 		kind === "node" &&
-		(r.literalSpawn.test(line) || (rel !== r.reader && r.envRead.test(line)))
+		(r.literalSpawn.test(line) ||
+			(rel !== r.reader && r.envRead.test(line)) ||
+			(rel !== r.reader &&
+				rel !== r.primitive &&
+				r.unrouted?.test(line) === true))
 	)
 		return "NODE-COPY";
 	for (const m of line.matchAll(PATH_PREPEND))
