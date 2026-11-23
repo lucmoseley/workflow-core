@@ -118,6 +118,21 @@ describe("queue-run.js", () => {
 		]);
 	});
 
+	it("stamps its marker with its session, the place the per-session cap counts (#5595)", async () => {
+		vi.stubEnv("WFC_LANDER_RUN", "");
+		const f = fixture();
+		const done = main(["--", "node", "--test", "a.test.js"], f.options());
+		await tick();
+		const [marker] = f.readMarkers();
+		const { session } = JSON.parse(
+			fs.readFileSync(path.join(f.dir, marker as string), "utf8"),
+		);
+		f.spawned[0]?.child.emit("exit", 0, null);
+		await done;
+		vi.unstubAllEnvs();
+		expect(session).toBe("s1");
+	});
+
 	it("stamps its marker with its runner's measured peak (#4648)", async () => {
 		const f = fixture();
 		const chargeOf = async (words: string[]) => {
@@ -1233,7 +1248,7 @@ describe("queue-run.js", () => {
 					expect(f.readMarkers()).toEqual([]);
 					expect(out).toEqual([]);
 					expect(f.err.join("")).toBe(
-						"queue-run.js: the type-check slot is held, by a `tsc` running, a suite starting (#3203) or MemAvailable, less what a climbing suite has yet to draw (#3416), under its rung — not run, as WFC_TSC_NO_WAIT asks (#3278)\n",
+						"queue-run.js: the type-check slot is held, by a `tsc` running, a suite starting (#3203), MemAvailable, less what a climbing suite has yet to draw (#3416), under its rung, or this session's own two places in the queue (#5595) — not run, as WFC_TSC_NO_WAIT asks (#3278)\n",
 					);
 				},
 			);

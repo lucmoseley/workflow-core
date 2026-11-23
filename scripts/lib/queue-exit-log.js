@@ -1,5 +1,5 @@
 /** @typedef {"opened"|"left"|"timeout"|"refused"|"killed"} QueueExitReason */
-/** @typedef {"count"|"memory"|"windows"|"peer"|"turn"} HeldLimb */
+/** @typedef {"count"|"memory"|"windows"|"peer"|"turn"|"session-cap"} HeldLimb */
 
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");

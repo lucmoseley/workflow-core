@@ -3356,3 +3356,156 @@ describe("queueSeat, one seat's lifecycle end to end (#4240)", () => {
 		});
 	});
 });
+
+describe("each session holds at most two places in each queue (#5595)", () => {
+	const S = "fan-out-session";
+	const T = "other-session";
+	const root = () => qdir();
+	const exits = new Map<ReturnType<typeof queueSeat>, object>();
+	const seat = (
+		queueDir: string,
+		pid: number,
+		at: number | (() => number),
+		join: object = {},
+	) => {
+		const clock = typeof at === "function" ? at : () => at;
+		const made: ReturnType<typeof queueSeat> = queueSeat({
+			queue: { queueDir, pid, clock, alive: () => true },
+			join: { env: {}, ...join },
+			logExit: (reason: string, _ms: number, extra: object) =>
+				exits.set(made, { reason, ...extra }),
+		});
+		return made;
+	};
+	const running = (queueDir: string, pid: number, at: number, session = S) => {
+		const s = seat(queueDir, pid, at, {
+			session,
+			weight: PART,
+			kind: "touched",
+		});
+		s.spawned();
+		return s;
+	};
+	async function waited(s: ReturnType<typeof queueSeat>, wait: object = {}) {
+		let said = "";
+		await s.wait({
+			gate: () => null,
+			timeoutMs: 0,
+			sleepFn: () => Promise.resolve(),
+			out: {
+				write: (t: string) => {
+					said += t;
+					return true;
+				},
+			},
+			...wait,
+		});
+		return {
+			exit: exits.get(s) as {
+				reason: string;
+				limb?: string;
+				sessionCapS?: number;
+			},
+			said,
+		};
+	}
+	const partWaiter = (queueDir: string, pid: number, at: number, session = S) =>
+		seat(queueDir, pid, at, { session, weight: PART, kind: "touched" });
+	const marker = (s: ReturnType<typeof queueSeat>) =>
+		JSON.parse(fs.readFileSync(s.ticket, "utf8"));
+
+	it("holds a third waiter out of the shared queue, so another session's later waiter opens ahead of it", async () => {
+		const queueDir = path.join(root(), "wfc-suite-queue");
+		running(queueDir, 11, 100);
+		running(queueDir, 12, 200);
+		const third = partWaiter(queueDir, 13, 300);
+		const later = partWaiter(queueDir, 21, 400, T);
+		expect((await waited(later)).exit.reason).toBe("opened");
+		const held = await waited(third);
+		expect(held.exit).toMatchObject({ reason: "refused", limb: "session-cap" });
+	});
+
+	it("lets the over-cap waiters into the queue as places free, oldest first", () => {
+		const queueDir = path.join(root(), "wfc-suite-queue");
+		const first = running(queueDir, 11, 100);
+		running(queueDir, 12, 200);
+		const third = partWaiter(queueDir, 13, 300);
+		const fourth = partWaiter(queueDir, 14, 350);
+		expect(third.stamps.sessionCap()).toMatchObject({ limb: "session-cap" });
+		first.leave();
+		expect(third.stamps.sessionCap()).toBeNull();
+		expect(fourth.stamps.sessionCap()).toMatchObject({ limb: "session-cap" });
+		expect(marker(third).enteredAt).toBe(300);
+	});
+
+	it("queues the entered waiter behind a later-joined waiter of another session", async () => {
+		const queueDir = path.join(root(), "wfc-suite-queue");
+		let now = 300;
+		const first = running(queueDir, 11, 100);
+		running(queueDir, 12, 200);
+		const third = seat(queueDir, 13, () => now, {
+			session: S,
+			weight: PART,
+			kind: "touched",
+		});
+		partWaiter(queueDir, 21, 320, T);
+		expect(third.stamps.sessionCap()).not.toBeNull();
+		first.leave();
+		now = 500;
+		expect(third.stamps.sessionCap()).toBeNull();
+		expect(marker(third).enteredAt).toBe(500);
+		expect(await turnOpen({ queueDir, pid: 13 })).toBe(false);
+	});
+
+	it("counts the held wait toward the wait bound from the ask, and names the session's places at the refusal", async () => {
+		const queueDir = path.join(root(), "wfc-suite-queue");
+		running(queueDir, 11, 100);
+		seat(queueDir, 12, 200, { session: S });
+		const third = partWaiter(queueDir, 13, 300);
+		let t = 0;
+		const { exit, said } = await waited(third, {
+			timeoutMs: 5000,
+			monoClock: () => {
+				t += 1000;
+				return t;
+			},
+		});
+		expect(exit).toMatchObject({ reason: "refused", limb: "session-cap" });
+		expect(exit.sessionCapS).toBeGreaterThanOrEqual(4);
+		expect(said).toContain("this session's own 2 places");
+		expect(said).toContain("PID 11 (part, running), PID 12 (whole, waiting)");
+	});
+
+	it("caps the `tsc` queue and the suite queue separately", () => {
+		const base = root();
+		const suiteDir = path.join(base, "wfc-suite-queue");
+		const tscDir = path.join(base, "wfc-tsc-queue");
+		running(suiteDir, 11, 100);
+		running(suiteDir, 12, 200);
+		const tsc = seat(tscDir, 13, 300, { session: S });
+		expect(tsc.stamps.sessionCap()).toBeNull();
+		seat(tscDir, 14, 400, { session: S });
+		const thirdTsc = seat(tscDir, 15, 500, { session: S });
+		expect(thirdTsc.stamps.sessionCap()).toEqual({
+			limb: "session-cap",
+			places: [
+				{ pid: 13, kind: "tsc", state: "waiting" },
+				{ pid: 14, kind: "tsc", state: "waiting" },
+			],
+		});
+	});
+
+	it("caps no waiter without a session id, and none a lander run joins", () => {
+		const queueDir = path.join(root(), "wfc-suite-queue");
+		running(queueDir, 11, 100);
+		running(queueDir, 12, 200);
+		const lander = seat(queueDir, 13, 300, {
+			session: S,
+			env: { WFC_LANDER_RUN: "1" },
+		});
+		expect(marker(lander).session).toBeUndefined();
+		expect(lander.stamps.sessionCap()).toBeNull();
+		for (const pid of [21, 22, 23]) seat(queueDir, pid, 400 + pid);
+		expect(seat(queueDir, 24, 500).stamps.sessionCap()).toBeNull();
+	});
+});
