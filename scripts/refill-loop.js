@@ -94,6 +94,7 @@ const {
 const refillBatch = require("./lib/refill-batch.js");
 const { buildHoldLines, readCheckout } = require("./lib/repo-holds.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { forgetTestClocks } = require("./lib/clock.js");
 const { forgetSession } = require("./lib/session-id.js");
 const { writeFd } = require("./lib/write-fd.js");
 const commands = require("./lib/refill-commands.js");
@@ -368,6 +369,7 @@ function launchHeld() {
 	const out = fs.openSync(files.log, "a");
 	const env = { ...process.env };
 	forgetSession(env);
+	forgetTestClocks(env);
 	const child = spawn(process.execPath, [launch.program, "run"], {
 		detached: true,
 		stdio: ["ignore", out, out],

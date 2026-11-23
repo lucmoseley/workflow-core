@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
 	readAdopterCheckouts,
@@ -10,6 +10,7 @@ const {
 	isOptedOut,
 	readAbsence,
 	readExclusionWhy,
+	startDetachedIn,
 } = require("./refill-repos.js");
 const { readLandingOffWhy } = require("./landing-pin.js");
 
@@ -243,5 +244,35 @@ describe("readCheckoutTracking (#3487)", () => {
 		const { why } = readCheckoutTracking("owner/nobody", home);
 		expect(why).toContain(`no checkout under ${home} tracks owner/nobody`);
 		expect(why).toContain(`and ${broken} (`);
+	});
+});
+
+describe("startDetachedIn (#5615)", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it("starts its job on the wall clocks, whatever test clocks its starter carries", async () => {
+		vi.stubEnv("WFC_NOW", "2020-01-01T00:00:00Z");
+		vi.stubEnv("WFC_STEP_MS", "5");
+		const out = path.join(home, "env.json");
+		const job = path.join(home, "job.js");
+		fs.writeFileSync(
+			job,
+			`require("node:fs").writeFileSync(${JSON.stringify(out)}, JSON.stringify([process.env.WFC_NOW ?? null, process.env.WFC_STEP_MS ?? null, process.env.WFC_REPO_ROOT]));`,
+		);
+		const failed: unknown[] = [];
+		startDetachedIn(home, [job], (e: unknown) => failed.push(e));
+		await vi.waitFor(() => expect(fs.existsSync(out)).toBe(true), {
+			timeout: 5000,
+		});
+		await vi.waitFor(() =>
+			expect(JSON.parse(fs.readFileSync(out, "utf8"))).toEqual([
+				null,
+				null,
+				home,
+			]),
+		);
+		expect(failed).toEqual([]);
 	});
 });
