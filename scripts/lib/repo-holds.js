@@ -22,7 +22,7 @@ const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { gitCommonDir } = require("./git.js");
 const guardProbe = require("./guard-probe.js");
 const { hostRoot } = require("./host-root.js");
-const { parseJobDir } = require("./job-paths.js");
+const { readJobRef } = require("./job-paths.js");
 const { checkoutOfCommonDir, mainCheckout } = require("./main-checkout.js");
 const { refillPath } = require("./refill-dir.js");
 const { buildAgeText } = require("./hold-age.js");
@@ -674,7 +674,7 @@ const buildAttachedLine = (hold, job) =>
  * @returns {RepoHold|null}
  */
 function findOwnHold(text) {
-	const job = parseJobDir(process.env.CLAUDE_JOB_DIR)?.jobId;
+	const job = readJobRef(process.env)?.jobId;
 	if (!job) return null;
 	const root = readCheckout(hostRoot());
 	return (

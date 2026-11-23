@@ -37909,6 +37909,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-dispatch-cost.test.ts",
 			"scripts/guard-session-ceiling.test.ts",
 			"scripts/lib/dispatch-rewrite.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
