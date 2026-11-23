@@ -111,15 +111,7 @@ function writeShared(home, text, { given, session, claimFn, err }) {
  */
 function freshenManifest(
 	render,
-	{
-		root,
-		home,
-		session,
-		claimFn = claimWithArbiter,
-		snapshot = RENDER_SNAPSHOT,
-		out,
-		err,
-	},
+	{ root, home, session, claimFn = claimWithArbiter, snapshot, out, err },
 ) {
 	const drift = renderDrift(root, home, snapshot);
 	if (drift) {
@@ -168,7 +160,6 @@ function freshenManifest(
 }
 
 module.exports = {
-	RENDER_SNAPSHOT,
 	driftClause,
 	freshenManifest,
 	renderDrift,

@@ -6607,13 +6607,28 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 	}
 
 	it("snapshots the read-edge extractor among the render code this process loaded (#5579)", () => {
-		const { RENDER_SNAPSHOT } = require("./lib/manifest-freshen.js");
-		expect([...RENDER_SNAPSHOT.loaded.keys()]).toEqual(
-			expect.arrayContaining([
-				"scripts/lib/read-edges-render.js",
-				"scripts/lib/test-read-edges.js",
-			]),
+		const { renderDrift } = require("./lib/manifest-freshen.js");
+		const home = path.resolve(__dirname, "..");
+		const tree = fs.mkdtempSync(path.join(os.tmpdir(), "render-drift-"));
+		fs.cpSync(
+			path.join(home, "scripts", "lib"),
+			path.join(tree, "scripts", "lib"),
+			{
+				recursive: true,
+			},
 		);
+		expect(renderDrift(tree, home)).toBeNull();
+		for (const rel of [
+			"scripts/lib/read-edges-render.js",
+			"scripts/lib/test-read-edges.js",
+		]) {
+			const file = path.join(tree, rel);
+			const text = fs.readFileSync(file, "utf8");
+			fs.writeFileSync(file, `${text}\n// changed\n`);
+			expect(renderDrift(tree, home)).toBe(rel);
+			fs.writeFileSync(file, text);
+		}
+		fs.rmSync(tree, { recursive: true, force: true });
 	});
 
 	it("writes both copies under the session's claim where the shared copy holds what the overlay was given", () => {
