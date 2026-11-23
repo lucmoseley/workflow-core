@@ -1,30 +1,4 @@
 // @vitest-environment node
-/*
- * The census's three counts, asserted on a corpus small enough to read
- * (mantahostels#3287).
- *
- * The published figures are NOT asserted here and cannot be: the corpus is
- * machine-local, gitignored and growing, so a test pinned to 877 losses would
- * fail on the next session's transcripts. What is pinned instead is the
- * arithmetic and the classification — that a lost deny is counted once per
- * guard, that a deny is counted once per CALL however many needles it trips,
- * that the denominator counts silent allows, and that a guard whose trigger
- * cannot be read reports unknown rather than a zero rate.
- *
- * `docs/data/lost-deny-*-2026-09-06.csv` is the real fixture: the dumps the
- * published figures were computed from.
- *
- * EVERY CASE RUNS THE SCRIPT END TO END through runInProcess — against a
- * `WFC_LOST_DENY_ROOT` fixture tree (`fixtureRoot` below) or this checkout's
- * own — and reads its `--json` or its text, never a helper behind it (#1369:
- * nothing is exported for its tests; a program is tested by running it).
- *
- * CI's vitest step runs this file; the script itself gates nothing and is run
- * by hand. Breaking it lets a re-run misstate which `PreToolUse` guards fail
- * open and how many real denies escaped, so
- * the lost-deny-recoverability note (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/lost-deny-recoverability.md)'s figures, and the choice of
- * which guard to harden, rest on a miscount.
- */
 import {
 	chmodSync,
 	mkdirSync,

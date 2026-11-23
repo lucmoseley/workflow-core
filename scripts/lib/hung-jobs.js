@@ -13,15 +13,7 @@ const { jobStatePath, jobStorePath, rosterPath } = require("./job-paths.js");
  * @typedef {{job: string, store: string, sessionId: string, intent: string | null, detail: string | null, cwd: string | null, pid: number | null, minutesQuiet: number, transcript: string | null, reason: string, rosterPath: string}} HungJob
  */
 
-/*
- * The hung window, unmeasured and deliberately hours rather than minutes
- * (mantahostels#2588): a session ended on `waiting:`, or mid-way through a long tool
- * call, writes nothing to its transcript and reads here exactly as a hung one
- * does. Four hours is longer than any single tool call this machine runs and
- * longer than any measured wait for a background job
- * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/waiting-stall-forensics.md), so the cost of the window is
- * that a job hung at minute one goes unnamed until hour four.
- */
+// guess, #5622: longer than any tool call or measured background-job wait
 const HUNG_AFTER_MINUTES = 240;
 
 // guess, lucmoseley/mantahostels#2588

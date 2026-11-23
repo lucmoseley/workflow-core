@@ -38,15 +38,6 @@ const ARGS_FILE = "ruff-args.txt";
 
 const NEEDED = ["sh", "node", ...LIB_COMMANDS];
 
-/**
- * Populates `bin` with a symlink to each of NEEDED, so a PATH of `bin` alone
- * runs the fragment with NO ruff reachable.
- *
- * Built up rather than subtracted from `process.env.PATH`: ruff lives in
- * ~/miniforge3/bin here, which is also where python3 and git may live, so
- * subtracting every directory holding a `ruff` would decide the absent-binary
- * case on the host's layout rather than on the gate.
- */
 function linkNeeded(bin: string): void {
 	for (const cmd of NEEDED) {
 		const abs = commandPath(cmd);
@@ -54,15 +45,6 @@ function linkNeeded(bin: string): void {
 	}
 }
 
-/**
- * A git repo with `committed` in its one commit and `staged` written and
- * staged, the scripts the gate calls, a `workflow` as its one CI file where
- * given, and — unless `stub` is false — a stubbed `ruff` on PATH, exiting
- * `ruffExit` or 0.
- *
- * The stub records its argv even when handed none, which is what lets the
- * whole-tree cases below tell "not invoked" from "invoked bare".
- */
 function fixture(opts: {
 	staged: Record<string, string>;
 	committed?: Record<string, string>;

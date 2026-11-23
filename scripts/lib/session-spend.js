@@ -1,22 +1,3 @@
-/*
- * session-spend.js — what a session has spent so far, from its own transcript,
- * and what it is expected to spend yet, from the committed cost table (#371
- * items 1-2, #372).
- *
- * The capped launch (`lib/allowance.js#capSet`) projects the warned bar forward
- * by the remaining spend of every session already running. The table is
- * refreshed by `scripts/measure-session-cost.js`, never at launch.
- *
- * Pricing dedupes assistant records on requestId per file, keeping the MAX of
- * each token field (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/burn-measurement-method-correction.md), priced at
- * `docs/effort-guide.md`'s table, which gives no cache-write rate: a 5-minute
- * write is 1.25x fresh input and a 1-hour write 2x, each priced from the
- * record's `cache_creation` split. Write tokens the split does not cover, a
- * record with no split among them, price at the 5-minute rate. A model outside
- * the table prices at zero, so a session run on one reads as fresh and is
- * charged the full mean remainder.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./host-root");
@@ -34,13 +15,7 @@ const PRICES = {
 	"claude-sonnet-5": [2, 10, 2.5, 4, 0.2],
 };
 
-/**
- * Every model a seat's bar meters, for pricing a whole window rather than a
- * dispatched session (#380). Fable and Haiku from `docs/effort-guide.md`;
- * Opus 5 from https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/opusplan-model-switch-cache.md. Opus 5 last:
- * a prefix match would otherwise take Opus 5.5 too.
- * @type {Readonly<Record<string, Price>>}
- */
+/** @type {Readonly<Record<string, Price>>} */
 const LIST_PRICES = {
 	...PRICES,
 	"claude-fable-5-1": [10, 50, 12.5, 20, 0.25],

@@ -22,15 +22,12 @@ function readTicketRecord(file, parse) {
 
 /**
  * @template T
- * @typedef {object} RecordTicket `said` is each act's accumulator: it
- *   pushes the lines naming what it did.
- * @property {(said: string[]) => T|null|"torn"} read the record, a torn one
- *   removed and named in `said`
+ * @typedef {object} RecordTicket
+ * @property {(said: string[]) => T|null|"torn"} read
  * @property {(title: string, why: (body: string) => string|null,
- *   next: T|null, said: string[]) => void} close closes the open issue titled
- *   `title`, then writes `next`, or removes the record where it is null
+ *   next: T|null, said: string[]) => void} close
  * @property {(title: string, body: string, next: T, said: string[]) => void}
- *   file files or refreshes the issue titled `title`, then writes `next`
+ *   file
  */
 
 /**
