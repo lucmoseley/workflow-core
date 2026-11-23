@@ -1,20 +1,3 @@
-/*
- * Publishes which test modules are started-and-unfinished, so scripts/run-vitest.js
- * can NAME the file a stalled run is parked in rather than reporting a bare
- * timeout (mantahostels#1910's follow-on). The reasoning for the file-on-disk channel, and
- * why no in-worker timeout can do this job, is in scripts/lib/test-inflight.js.
- *
- * A SECOND REPORTER RATHER THAN A BRANCH IN vitest-pass-reporter.ts. That one
- * carries a "must never turn a passing suite red" contract around a marker
- * `attestationOf` reads; this one writes a scratch file nothing gates on.
- *
- * ONLY THE QUEUED/END PAIR BOUNDS A MODULE. `onTestModuleCollected` sits between
- * them and is recorded as a stage change, not as an exit. The same pair times
- * each file for the run-cost report (#1883), whose reasoning is in
- * scripts/lib/test-file-timings.js, and names the run's slowest files to the
- * pass marker through the run report (#2770).
- */
-
 import { createRequire } from "node:module";
 import path from "node:path";
 

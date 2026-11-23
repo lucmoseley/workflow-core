@@ -1,25 +1,13 @@
-/*
- * caught.js — the fields a handler reads off a caught value, each narrowed
- * from `unknown` (#1329, ruled at #1317 Q3 (A)).
- *
- * A handler reads through this or `instanceof Error`, never a binding typed
- * `any` (docs/code-standards-base.md §N8). A throw nothing reads goes through
- * `ignoreFailure` or `orFallback` here, never an empty catch (#5488).
- */
-
 /**
  * @typedef {object} Caught
- * @property {string | undefined} code Node's error code (`ENOENT`, `ETIMEDOUT`)
- * @property {string} message the thrown value's message, or the value itself
- *   as a string where it carries none
- * @property {number | undefined} status a child process's exit status
- * @property {string | undefined} stderr a child process's stderr, decoded
- * @property {string | undefined} stdout a child process's stdout, decoded
+ * @property {string | undefined} code
+ * @property {string} message
+ * @property {number | undefined} status
+ * @property {string | undefined} stderr
+ * @property {string | undefined} stdout
  */
 
 /**
- * A field read off a thrown object, or undefined where `e` is no object.
- *
  * @param {unknown} e
  * @param {string} key
  * @returns {unknown}

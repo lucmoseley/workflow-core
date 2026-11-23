@@ -1,48 +1,17 @@
 #!/usr/bin/env bash
-# rule-text.sh — the bash half of the rule-text store (mantahostels#1644, spec mantahostels#1641).
+# Usage:
 #
-# Twin of scripts/lib/rule-text.js. Read that file's header for why the store
-# exists and why it is plain text rather than JSON.
+#   source "$here/lib/rule-text.sh"; rule_text <id>   # a guard, splicing the text
+#   scripts/lib/rule-text.sh <id> [<id>…]             # a session, reading stdout
+#   scripts/lib/rule-text.sh --ids                    # every id, bare
 #
-# TWO WAYS IN, deliberately:
-#
-#   source "$here/lib/rule-text.sh"             # a guard, which wants the function
-#   scripts/lib/rule-text.sh commit-pathspec ... # a session, which wants stdout
-#
-# A guard sources it and calls `rule_text <id>`, splicing the result into its
-# deny reason. Sourcing must never exit the caller, so `rule_text` RETURNS 1 on
-# an unknown id rather than exiting — a guard that fails open in the house style
-# (mantahostels#103) needs the chance to. `rule_text` itself stays single-id.
-#
-# The CLI form takes an id LIST (mantahostels#2494) — a session fetching several rules
-# resolves them in one Bash call rather than one per rule. One argument prints
-# the bare fragment. Two or more print each fragment under a "## <id>" heading,
-# blank-line separated, and every id is resolved before anything is printed:
-# one unknown id anywhere in the list refuses and exits 1.
-#
-# An id may be given BARE or with a leading `rule:` — the spelling the trigger
-# indexes and CLAUDE.md quote ids in (mantahostels#2707). `--ids` enumerates the bare form
-# only.
-#
-# `--ids` is recognised only as the SOLE or FIRST argument (it enumerates and
-# exits before any id resolution runs). Elsewhere in the list it is just
-# another id — and an invalid one, refusing rather than enumerating, since no
-# rule is spelled "--ids".
-#
-# The refusal goes to stderr and the text to stdout, so a caller that captures
-# `$(rule_text <id>)` gets the text or nothing, never a diagnostic spliced into a
-# session's refusal message.
-#
-# WFC_RULES_DIR redirects the store, for tests only; with it set,
-# WFC_RULES_FALLBACK_DIR is the only layer beneath it (rt_dirs).
-#
-# IT DOES NOT SOURCE lib/guard-log.sh: this reads one file and has no hook
-# envelope, so it can be sourced by a non-guard. It DOES source
-# lib/guard-root.sh and lib/script-path.sh, which have no state and no
-# dependencies of their own, so the rule holds.
+# `rule_text` takes one id and RETURNS 1 on an unknown id, never exiting the
+# caller. The CLI form takes a list: one id prints the bare fragment; two or
+# more print each under a "## <id>" heading, blank-line separated, after every
+# id resolves, and one unknown id refuses the lot with exit 1. An id may be
+# bare or carry a leading `rule:`. `--ids` enumerates only as the sole or first
+# argument. Text goes to stdout, a refusal to stderr.
 
-# This file's directory without forking `dirname` — `.` where the CLI form was
-# run by a bare name, as dirname would answer.
 _RT_HERE="${BASH_SOURCE[0]%/*}"
 [[ "$_RT_HERE" == "${BASH_SOURCE[0]}" ]] && _RT_HERE=.
 

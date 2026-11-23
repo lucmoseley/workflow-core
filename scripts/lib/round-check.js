@@ -20,8 +20,6 @@ const {
 	buildShapeOnlyReason,
 } = require("./shape-hold");
 
-const since = () => require("./tool-calls-since");
-
 // guess, #1684
 const MIN_CALLS = 10;
 
@@ -133,7 +131,7 @@ function reasonOf(flags, houseDecision, isLastRefusal) {
  */
 function judgeRefused(prior, transcript, shape, rivalLimbsRefuse) {
 	const tools = limb.fromTranscript(transcript, "passed", (file) =>
-		since().toolNamesSince(file, prior.refusedAt),
+		require("./tool-calls-since").toolNamesSince(file, prior.refusedAt),
 	);
 	const resent = shape !== undefined;
 	return {
@@ -189,7 +187,7 @@ function judgeQuestions(
 	const fresh = sent.filter((n) => !priors.some((q) => q.number === n));
 	const callsNow = fresh.some((n) => !firstSends.has(n))
 		? limb.fromTranscript(transcript, "passed", (file) =>
-				since().sinceFounder(file),
+				require("./tool-calls-since").sinceFounder(file),
 			)
 		: null;
 	return [

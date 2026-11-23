@@ -1,10 +1,3 @@
-/*
- * clock.js — the clocks every program reads: `now` for a timestamp,
- * `monotonicMs` for a duration. Apart from lib/check.js so a hook reads them
- * without loading check.js and its git libraries (#5151); lib/check.js
- * re-exports `now`.
- */
-
 /**
  * The wall clock, injectable through WFC_NOW so a check's tests do not depend
  * on the time of day or the calendar date they happen to run at (mantahostels#2176, mantahostels#2209).

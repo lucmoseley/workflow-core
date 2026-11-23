@@ -1,9 +1,3 @@
-/*
- * hook-envelope.js — the dispatcher's merged output in its event's own
- * decision control (#2787). A module of its own so each event's shape is
- * tested through its export rather than one exported for the test (base §G6).
- */
-
 /**
  * PostToolUse has no permission: the tool has run, so a deny is its top-level
  * `decision: "block"`, which hands the reason to the session beside the result

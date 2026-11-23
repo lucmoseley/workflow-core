@@ -1,11 +1,3 @@
-/*
- * A vitest globalSetup that says whether the tree moved while the suite ran.
- *
- * Why, and what it can and cannot see: `scripts/lib/tree-drift.js`, which owns
- * the policy. In short — mantahostels#273, where a suite imported half-written
- * source and went red with a different set of failures each run.
- */
-
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);

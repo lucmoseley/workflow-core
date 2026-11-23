@@ -1,4 +1,4 @@
-const { denyText } = require("./guard-verdict.js");
+const { spliceCmd } = require("./guard-verdict.js");
 const {
 	BASH_SPACE,
 	normAbs,
@@ -47,8 +47,7 @@ function decide(command, ctx) {
 	}
 	const shown = trimEndRun(/** @type {string} */ (refused), BASH_SPACE);
 	return {
-		deny: denyText(
-			ctx,
+		deny: spliceCmd(
 			shown,
 			REFUSAL.replace("@ROOT@", () => root),
 		),
