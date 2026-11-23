@@ -3,7 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { noop } = require("./noop.js");
 
-const { caught, ignoreFailure } = require("./caught.js");
+const { caught, ignoreFailure, orFallback } = require("./caught.js");
 const { monotonicMs } = require("./clock.js");
 const { GATE_ROLE, GATE_SEAT_DEFAULT_MB } = require("./gate-seat.js");
 const {
@@ -672,6 +672,19 @@ function queueStamps(file, options = {}) {
 	let peerS = 0;
 	let sessionCapS = 0;
 	let capped = false;
+	/** @type {boolean | undefined} */
+	let placed;
+	const isPlaced = () => {
+		placed ??= orFallback(
+			() =>
+				Boolean(
+					JSON.parse(String((options.queueFs ?? fs).readFileSync(file, "utf8")))
+						.session,
+				),
+			false,
+		);
+		return placed;
+	};
 	return {
 		onClimbHeld: (climbMb) => {
 			climbHeldMb = climbMb;
@@ -683,7 +696,7 @@ function queueStamps(file, options = {}) {
 			sessionCapS = secs;
 		},
 		sessionCap: () => {
-			if (!file) return null;
+			if (!file || !isPlaced()) return null;
 			const hold = readSessionCap(options);
 			if (hold) capped = true;
 			else if (capped) {
