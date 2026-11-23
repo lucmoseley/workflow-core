@@ -957,6 +957,73 @@ describe("buildManifest over a rule id read through readRuleText (#1296)", () =>
 	});
 });
 
+const GUARD_MANIFEST = ["scripts/lib", "guard-cores.json"].join("/");
+const CORE_FILE = ["scripts/lib", "x-core.js"].join("/");
+const DRIVER_TEST = "scripts/g.test.ts";
+const coreReaders = (src: string, extra: Record<string, string> = {}) => {
+	const text: Record<string, string> = {
+		...extra,
+		[DRIVER_TEST]: src,
+		[GUARD_MANIFEST]: JSON.stringify({
+			PreToolUse: [{ name: "x", core: "x-core.js" }],
+		}),
+	};
+	return buildManifest(
+		new Set([DRIVER_TEST, GUARD_MANIFEST, CORE_FILE, ...Object.keys(extra)]),
+		(p) => text[p] ?? "",
+	).edges[CORE_FILE];
+};
+
+describe("buildManifest over a core dispatched by name (#5638)", () => {
+	const Pretool = ["scripts/lib", "pretool-guard-testkit.ts"].join("/");
+	const CoreKit = ["scripts/lib", "guard-core-testkit.ts"].join("/");
+	const DispatchJs = ["guard-dispatch", "js"].join(".");
+	const Dispatcher = `scripts/${DispatchJs}`;
+
+	it("selects the core a pretool testkit dispatch names through a const", () => {
+		const src = `import { dispatchCoreOutput } from "./lib/pretool-guard-testkit";\nconst CORE = "x";\ndispatchCoreOutput(CORE, {}, run);`;
+		expect(coreReaders(src, { [Pretool]: "" })).toEqual([DRIVER_TEST]);
+	});
+
+	it("selects it through the core testkit's runCore", () => {
+		const src = `import { runCore } from "./lib/guard-core-testkit";\nrunCore("x", {}, where);`;
+		expect(coreReaders(src, { [CoreKit]: "" })).toEqual([DRIVER_TEST]);
+	});
+
+	it("selects it where the test spawns the dispatcher itself", () => {
+		const src = `const D = path.join(__dirname, "${DispatchJs}");\nspawnSync(D, ["--only", "x"]);`;
+		expect(coreReaders(src, { [Dispatcher]: "" })).toEqual([DRIVER_TEST]);
+	});
+
+	it("selects it through a helper testkit that dispatches the name", () => {
+		const kit = ["scripts/lib", "x-testkit.ts"].join("/");
+		const port = `const D = path.join(__dirname, "..", "${DispatchJs}");\nexport const port = () => run(D, ["--only", "x"]);`;
+		expect(
+			coreReaders(`import { port } from "./lib/x-testkit";\nport();`, {
+				[kit]: port,
+				[Dispatcher]: "",
+			}),
+		).toEqual([DRIVER_TEST]);
+	});
+
+	it("throws on a manifest that is not JSON", () => {
+		expect(() =>
+			buildManifest(new Set([DRIVER_TEST, GUARD_MANIFEST]), (p) =>
+				p === GUARD_MANIFEST ? "{" : "",
+			),
+		).toThrow(SyntaxError);
+	});
+
+	it("selects nothing for a name no manifest row carries", () => {
+		const src = `import { runCore } from "./lib/guard-core-testkit";\nrunCore("y", {}, where);`;
+		expect(coreReaders(src, { [CoreKit]: "" })).toBeUndefined();
+	});
+
+	it("selects nothing in a test that reaches no dispatcher", () => {
+		expect(coreReaders(`const CORE = "x";`)).toBeUndefined();
+	});
+});
+
 describe("buildManifest over a patch a test reads (#3206)", () => {
 	const fix = "scripts/fixes/x.patch";
 	const reader = "scripts/a.test.ts";
