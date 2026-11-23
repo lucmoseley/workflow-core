@@ -12,6 +12,7 @@ const { caught } = require("./lib/caught.js");
 // guess, lucmoseley/mantahostels#2890
 const MAX_QUOTED_LINES = 5;
 
+// guess: room the 34 KB digest cannot plausibly reach, lucmoseley/mantahostels#2890
 const MAX_RENDER_BYTES = 32 * 1024 * 1024;
 
 const GEN_REL = ".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.js";

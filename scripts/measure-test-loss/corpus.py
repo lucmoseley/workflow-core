@@ -14,7 +14,9 @@ from fail_open import tallied
 
 START = "2026-10-10T04:10:00Z"
 END = "2026-10-24T04:10:59Z"
+# guess: a longer row is a held prompt or a suspended session, #2812
 CAP_S = 1800
+# guess: holds the session id and the slug's tail, #2812
 FILE_KEY_CHARS = 60
 CMD_KEY_CHARS = 60
 

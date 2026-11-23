@@ -57,10 +57,11 @@ const ISSUE_SETS = ".repo-checks-issue.json";
 const ISSUE_TITLE = "Repo checks: standing findings";
 const ISSUE_LABELS = [takesLabel("triage"), originLabel("repo-checks-script")];
 const DAY_MS = 24 * 3_600_000;
-// #1510
+// guess, #1510
 const CHECK_MS = 300_000;
 const RUN_MS = 30 * 60_000;
 const UNEXAMINED = "unexamined, not clean.";
+// guess: one error line, short of flooding a summary, #1723
 const STDERR_LINE_MAX_CHARS = 300;
 
 /**
@@ -113,6 +114,7 @@ const buildJob = ({ job, outcome, summary }) => ({
 // #2480
 const STACK_FRAME = /^at\s/;
 const ERROR_LINE = /^(?:Uncaught\s+)?[A-Z]?\w*Error(?:\s\[[A-Z_]+\])?:/;
+// guess: a module-load stack in full, #2480
 const STDERR_KEPT_MAX_CHARS = 8000;
 
 /** @param {string | undefined} stderr */

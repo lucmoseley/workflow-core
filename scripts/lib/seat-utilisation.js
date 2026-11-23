@@ -33,8 +33,10 @@ const { orFallback } = require("./caught.js");
  * @property {boolean} rolled
  */
 
+// guess: seats sat at 99% 24 h without work stopping, lucmoseley/mantahostels#1740
 const BLOCKED_UTILISATION = 100;
 
+// guess, lucmoseley/mantahostels#1740
 const MIN_HOURS_TO_RESET = 24;
 
 /** @type {() => string} */
@@ -45,6 +47,7 @@ const HISTORY_FILE = () =>
 /** @type {() => string} */
 const RECORD_STAMP = () => `${HISTORY_FILE()}.stamp`;
 
+// guess, lucmoseley/mantahostels#1404
 const RECORD_MIN_AGE_HOURS = 24;
 
 const { LADDER } = require("./trial-window");

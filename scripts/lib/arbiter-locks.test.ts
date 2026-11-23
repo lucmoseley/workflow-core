@@ -791,6 +791,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 			real(from, to);
 		});
 	};
+	// guess: inside the settle pause, past acquire's first probe, origin untraced, #5621
 	const childDelayMs = 20;
 	const sleepSyncPath = path.join(__dirname, "sleep-sync.js");
 

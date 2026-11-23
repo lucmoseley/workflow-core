@@ -291,12 +291,15 @@ const DOC_MAP_HINT = writeSetPredict.DOC_MAP_HINT;
 const docMapQueueOf = (list) =>
 	list.filter((i) => DOC_MAP_HINT.test(i.body)).map((i) => i.number);
 
+// guess, lucmoseley/mantahostels#1002
 const GRAPH_PRINT_CAP = 20;
+// guess, lucmoseley/mantahostels#1002
 const GRAPH_FILE_CAP = 8;
 /** @param {string} s */
 const sessionName = (s) =>
 	String(s).length > 34 ? `${String(s).slice(0, 33)}…` : String(s);
 
+// guess, lucmoseley/mantahostels#611
 const WRITE_SET_PRINT_CAP = 20;
 const DERIVE_PER_LINE = 12;
 
@@ -456,6 +459,7 @@ function writeRunSnapshot(payload) {
  * @property {ReturnType<typeof pulledInRows>} pulledIn
  */
 
+// guess, #575
 const TALLY_NAMES_AT_MOST = 3;
 
 /** @param {ReturnType<typeof openTallyOf>} t */

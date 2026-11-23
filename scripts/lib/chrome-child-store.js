@@ -9,11 +9,12 @@ const { pidLock } = require("./pid-lock.js");
 const { readText } = require("./file-read.js");
 const { writeFd } = require("./write-fd.js");
 
-// #5376
+// guess, #5376
 const HOLD_MS = 2 * 60 * 60 * 1000;
 // guess, #5368
 const GIVE_UP_ATTEMPTS = 3;
 const GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
+// guess, #5386
 const NOT_CONNECTED_BACKOFF_MS = 60 * 60 * 1000;
 // guess, #5392
 const FAILED_BACKOFF_MS = 6 * 60 * 60 * 1000;

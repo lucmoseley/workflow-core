@@ -14,6 +14,7 @@ const COMMENT_LINE = /^\s*(?:\/\/|\/?\*|#)/;
 const SHELL_DETACH =
 	/(?:^|[;&|]\s*|\|\|\s*|then\s+)(?:setsid|nohup|disown|detach)\b|(?<![&>|])&\s*(?:$|[;)#])/;
 const JS_DETACH = /\bdetached:\s*true\b/;
+// guess, #4707
 const UNREF_REACH = 15;
 
 const PRIMITIVE = new Set([

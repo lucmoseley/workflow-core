@@ -27,8 +27,10 @@ const ROOT = worktreeRoot();
 const DAY_MS = 864e5;
 const KEEP_PREFIX = "wfc-row-measure-";
 
+// guess: shows vitest's summary or a ceiling kill's headline, #5029
 const LOG_TAIL_LINES = 20;
 
+// guess: tells an edit from a checkout switch, #5029
 const MOVED_SHOWN = 10;
 
 const CLI = {

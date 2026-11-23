@@ -10,10 +10,15 @@ cd "$(gr_root)" || exit 1
 OUT=".maxworkers-bench.findings.md"
 LOG=".maxworkers-bench.log"
 
+# guess: the one-suite rung plus room for the extra workers, lucmoseley/mantahostels#1906
 FLOOR_MB="${WFC_BENCH_FLOOR_MB:-4200}"
+# guess: a quiet 1-minute load on 8 cores, lucmoseley/mantahostels#1906
 MAX_LOAD="${WFC_BENCH_MAX_LOAD:-2.0}"
+# guess: one quiet minute is a gap between sessions, several are idle, lucmoseley/mantahostels#1906
 QUIET_POLLS_NEEDED="${WFC_BENCH_NEEDED:-5}"
+# guess, lucmoseley/mantahostels#1906
 POLL_S="${WFC_BENCH_POLL_S:-60}"
+# guess, lucmoseley/mantahostels#1906
 MAX_WAIT_S="${WFC_BENCH_MAX_WAIT_S:-28800}"
 ARMS="${WFC_BENCH_ARMS:-2 4 6 2}"
 

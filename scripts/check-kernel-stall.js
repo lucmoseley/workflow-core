@@ -15,6 +15,7 @@ const { sleepSync } = require("./lib/sleep-sync.js");
 
 /** @typedef {{ runtime: number, busy: number }} Clock */
 
+// guess: a healthy ratio stays far above FROZEN_RATIO, #4092
 const CLOCK_WAIT_MS = 1000;
 
 // measured 0.97 CPU-s largest uncharged gap, doubled, #4092
@@ -25,8 +26,11 @@ const FROZEN_RATIO = 0.1;
 
 const CGROUP_ROOT = "/sys/fs/cgroup";
 
+// /proc/stat counts in USER_HZ, 1/100 s on most architectures:
+// https://man7.org/linux/man-pages/man5/proc_stat.5.html
 const USER_HZ = 100;
 
+// guess: between a chain's 1,867 s and the 7,032 s that fits no chain, #4081
 const LARGE_T_S = 3600;
 
 // guess, twice the measured 5.3 min oldest leap VM, #4081

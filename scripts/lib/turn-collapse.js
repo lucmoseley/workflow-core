@@ -19,7 +19,9 @@ const FLANK_RATIO = 0.65;
 // lucmoseley/mantahostels#1362 guess
 const FLANK_HOURS = 3;
 
+// guess: volume moves between weeks, so a week normalises the flank, lucmoseley/mantahostels#1362
 const TRAILING_DAYS = 7;
+// guess: the busiest day's worth of hour-buckets, lucmoseley/mantahostels#1362
 const BUSY_HOURS = 24;
 
 // guess, lucmoseley/mantahostels#1362: the cut its research note enumerated fourteen candidates at

@@ -551,6 +551,8 @@ function checkSecondMap(io, ports, repo, labels) {
 	return null;
 }
 
+// GitHub nests sub-issues eight levels deep:
+// https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues
 const MAX_DEPTH = 7;
 
 /** @typedef {ReturnType<typeof readIssue>} Issue */

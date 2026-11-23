@@ -22,6 +22,7 @@ const SIDECAR = ".agents/vendored-skill-edits.json";
 const SKILLS_DIR = ".agents/skills";
 const RECORD = ".agents/vendored-upstream-pass.json";
 const STAND_DOWN = "WFC_UPSTREAM_RECORD_OFF";
+// guess, #4802
 const VENDORED_AT_SHA_WIDTH = 8;
 const COVERED = [LOCK, NOTICES];
 

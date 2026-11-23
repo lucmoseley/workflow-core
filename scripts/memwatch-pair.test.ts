@@ -40,7 +40,9 @@ const lineCount = (file: string) =>
 	fs.existsSync(file)
 		? fs.readFileSync(file, "utf8").split("\n").length - 1
 		: 0;
+// guess: far past any wait here, #4804
 const WAIT_BOUND_MS = 30_000;
+// guess: a twentieth of a 1 s pass, #4804
 const POLL_MS = 50;
 async function loopPasses(env: NodeJS.ProcessEnv, minute: string, n: number) {
 	const child = spawn("bash", [MEMWATCH], {
@@ -394,6 +396,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 		const { sched } = JSON.parse(lines[0]);
 		expect(sched).toHaveLength(1);
 		const [epoch, runtimeNs, busy, total] = sched[0];
+		// guess: only rules out a field in the wrong slot, #4081
 		const epochSlackS = 120;
 		expect(Math.abs(epoch - Date.now() / 1000)).toBeLessThan(epochSlackS);
 		expect(runtimeNs).toBe(4000);
@@ -494,6 +497,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 			while (!fs.existsSync(`${fake}.ran`) && Date.now() < deadline)
 				await setTimeout(POLL_MS);
 			expect(fs.existsSync(`${fake}.ran`)).toBe(true);
+			// guess: one tr and one mv on a loaded machine, #4804
 			const writeSlackMs = 1000;
 			await setTimeout(writeSlackMs);
 			expect(fs.readFileSync(out, "utf8")).toBe(good);
@@ -833,8 +837,10 @@ const hasScope = (() => {
 		return false;
 	}
 })();
+// guess: past the 2,000 default by more than the machine's ~100-400, #3402
 const SLEEPERS = 2500;
 const SCOPE_TASKS = SLEEPERS + 100;
+// guess, #3402
 const SCOPE_S = 120;
 
 describe.skipIf(!hasScope).concurrent("memwatch process-count trigger", () => {
@@ -857,8 +863,11 @@ describe.skipIf(!hasScope).concurrent("memwatch process-count trigger", () => {
 	});
 });
 
+// guess: above the largest fixture's 211 tasks, #3807
 const FIXTURE_TASKS = 400;
+// guess: far past a 2 s window, #3807
 const FIRE_BOUND_MS = 30_000;
+// guess: rides out a loaded machine, #3807
 const SETTLE_BOUND_MS = 10_000;
 
 describe.skipIf(!hasScope).concurrent("memwatch process runaway", () => {

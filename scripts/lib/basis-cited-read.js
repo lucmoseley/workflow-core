@@ -6,6 +6,7 @@ const {
 	wordedBasisFaults,
 } = require("./issue-gate.js");
 
+// GraphQL first must be 1-100: https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api#node-limit
 const COMMENTS_PAGE = 100;
 const REPO_PART_RE = /^[\w.-]+$/;
 

@@ -2,6 +2,7 @@ const { recordedLines } = require("./commit-message.js");
 const { readText } = require("./file-read.js");
 const { readRuleTextOr } = require("./rule-text.js");
 
+// guess, #2332
 const LIMIT = 72;
 
 const MERGE_FORMS = [

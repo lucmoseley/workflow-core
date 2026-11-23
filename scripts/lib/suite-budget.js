@@ -2,6 +2,7 @@ const { SWEEPS_JUDGED, median, readingsByFile } = require("./file-ci-time.js");
 const { BUDGET_ARMED_BY, SUITE_BUDGET_MS } = require("./suite-ceiling.js");
 
 const ARMED_ENV = "WFC_SUITE_BUDGET_ARMED_BY";
+// guess, #5137
 const SLOWEST_NAMED = 10;
 
 /**

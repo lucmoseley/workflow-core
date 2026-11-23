@@ -21,8 +21,11 @@ const ENV_SWITCH = "WFC_ESCAPE_AUDIT";
 const RUN_MS = 10 * 60_000;
 const GAP_MS = 2000;
 const ATTEMPTS = 2;
+// guess: a batch has no hook budget, so it waits past Jev's 3 s, #671
 const ABORT_MS = 20_000;
+// guess: four starts a day, so a verdict lands the day its round does, #671
 const KICK_MS = 6 * 60 * 60_000;
+// guess: a boolean question's midpoint, #671
 const BEARS_AT = 0.5;
 
 const LOCK_NAME = ".escape-audit-lock";

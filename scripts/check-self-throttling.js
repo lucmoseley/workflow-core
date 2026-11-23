@@ -32,19 +32,22 @@ const {
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 
+// guess, lucmoseley/mantahostels#1362
 const STATE_STALE_HOURS = 48;
 
-// lucmoseley/mantahostels#1362
+// guess, lucmoseley/mantahostels#1362
 const REFRESH_MIN_AGE_HOURS = 24;
 
+// guess: until the weekly Usage reading comes round, lucmoseley/mantahostels#1362
 const REPORT_WINDOW_DAYS = 7;
 
-// lucmoseley/mantahostels#1114
+// guess, lucmoseley/mantahostels#1114
 const MAX_REPORTED = 3;
 
 // lucmoseley/mantahostels#1404
 const NOTICE_ON_SESSION_START = false;
 
+// guess: two missed daily sweeps, lucmoseley/mantahostels#1404
 const COLLECTOR_STALE_HOURS = 48;
 
 /** @returns {number | null} */

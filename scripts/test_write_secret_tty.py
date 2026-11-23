@@ -11,9 +11,13 @@ from pathlib import Path
 SCRIPT = Path(__file__).with_name("write-secret.js")
 READER = "lib/read-hidden.js"
 
+# guess: far past a sub-second healthy run, #3817
 EXIT_S = 30
+# guess, #3817
 POLL_S = 0.01
+# guess, #3817
 SCREEN_QUIET_S = 0.1
+# guess: margin past the prompt's settle window, #3826
 PAST_SETTLE_S = 0.2 + (
     int(re.search(r"SETTLE_MS = (\d+)", (SCRIPT.parent / READER).read_text())[1]) / 1000
 )
