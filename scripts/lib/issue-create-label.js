@@ -3,6 +3,7 @@ const {
 	MAP_LABEL,
 	openMapsArgs,
 	secondMapVerdict,
+	selfReviewRefusal,
 } = require("./issue-gate.js");
 const { addedCheckVerdict } = require("./gate-check.js");
 const {
@@ -318,6 +319,15 @@ function judgeBody(run, segment, { body, route }) {
 	if (!body.given || body.hidden) return;
 	if (!/[^ \t\n\v\f\r]/.test(body.text))
 		denyBlank(run, segment, "is empty", route);
+	const selfReview = selfReviewRefusal(body.text);
+	if (selfReview)
+		deny(
+			run.ctx,
+			segment,
+			`This files an issue whose body reviews its own gate-judge override: @CMD@
+
+It carries ${selfReview}`,
+		);
 	judgeBasis(run, segment, body.text);
 	judgeCheck(run, segment, body.text);
 }

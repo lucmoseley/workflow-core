@@ -26,6 +26,7 @@ import {
 	judgeFakeEnv,
 	MODEL_LEAD,
 	OVERRIDE_LINE,
+	REVIEWED_LINE,
 } from "./gate-judge-fake";
 import { UNFILLED_DESTINATION as UNFILLED } from "./issue-gate";
 import { readJsonl } from "./jsonl.js";
@@ -1174,6 +1175,19 @@ describe("the model reading (#4969)", () => {
 		);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("gives no reason, so it clears nothing");
+		expect(readGhCalls()).toEqual([]);
+	});
+
+	it("refuses a body whose override carries its own reviewed line (#5674)", () => {
+		setUp();
+		const r = judged(
+			`Build it.\n\n${Wait}\n${OVERRIDE_LINE}\n${REVIEWED_LINE}\n`,
+			waitFound,
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			"Nothing filed: the body carries a `**Gate judge override reviewed:**` line",
+		);
 		expect(readGhCalls()).toEqual([]);
 	});
 
