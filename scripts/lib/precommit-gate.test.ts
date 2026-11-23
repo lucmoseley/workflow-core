@@ -494,7 +494,7 @@ describe("declared_cmd (#1504)", () => {
 
 	it("runs the printed command on the reader's 0", () => {
 		const { code, output } = run(
-			`if ${reader(0)}; then echo "RUN[$declared_command]"; fi`,
+			`if ${reader(0)}; then echo "RUN[$_declared_command]"; fi`,
 		);
 		expect(code).toBe(0);
 		expect(output).toContain("RUN[touch RAN]");

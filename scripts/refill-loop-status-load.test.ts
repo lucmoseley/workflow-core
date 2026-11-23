@@ -55,6 +55,7 @@ describe("refill-loop.js status's per-call cost (#4821)", () => {
 			"lib/arbiter-proc.js",
 			"lib/atomic-write.js",
 			"lib/background-start.js",
+			"lib/backtick-run.js",
 			"lib/bg-launch-id.js",
 			"lib/block-act.js",
 			"lib/block-cause.js",

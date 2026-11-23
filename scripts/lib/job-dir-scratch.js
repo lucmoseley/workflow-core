@@ -3,6 +3,7 @@ const { parseCommand, walkCommands, normAbs } = require("./shell-parse.js");
 const { literal } = require("./shell-words.js");
 const { SCRATCH_DIR } = require("./scratch-dir.js");
 const { isJobDir, jobRel } = require("./job-dir.js");
+const { readJobDir } = require("./job-paths.js");
 const { remedyKind } = require("./scratch-remedy.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
 const { treeOrHost } = require("./tree-or.js");
@@ -49,8 +50,8 @@ function inCheckoutScratch(rel) {
 function decide(subject, ctx) {
 	/** @type {Found} */
 	const found = { flat: "", flatName: "", stray: "" };
-	const live = ctx.env.CLAUDE_JOB_DIR ?? "";
-	/** @param {string} shown @param {string} p @param {string} jobDir */
+	const live = readJobDir(ctx.env);
+	/** @param {string} shown @param {string} p @param {string | null} jobDir */
 	const classify = (shown, p, jobDir) => {
 		const raw = jobRel(p, { pwd: ctx.fallbackCwd, jobDir });
 		const rel = raw === null ? null : path.posix.normalize(raw);
@@ -62,7 +63,7 @@ function decide(subject, ctx) {
 		} else if (!found.stray) found.stray = shown;
 	};
 	if (ctx.tool === "Bash") {
-		const jobDir = live || JOB_DIR_STANDIN;
+		const jobDir = live ?? JOB_DIR_STANDIN;
 		const parsed = parseCommand(subject);
 		walkCommands(
 			parsed,
@@ -117,7 +118,7 @@ function* writesFromEveryDir(cmd) {
  * @param {import("./shell-parse.js").WriteTarget} target
  * @param {string} cwd
  * @param {{ spans: string[], where: import("./job-dir.js").Where,
- *   classify: (shown: string, p: string, jobDir: string) => void }} at
+ *   classify: (shown: string, p: string, jobDir: string | null) => void }} at
  */
 function considerTarget({ target: word, path: resolved }, cwd, at) {
 	const { spans, where, classify } = at;

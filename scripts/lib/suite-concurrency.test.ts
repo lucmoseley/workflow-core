@@ -2999,3 +2999,21 @@ describe("judges a part-suite on its own measured peak (#5366)", () => {
 		}
 	});
 });
+
+describe("its deliberate limits", () => {
+	it.each([
+		'sh -c "npm run test"',
+		["bash <<'EOF'", "npm run test", "EOF"].join("\n"),
+	])(
+		"walks past a launch behind `%s`, unjudged (mantahostels#2629)",
+		(command) => {
+			expect(gatedVerdict(command, 1000, NEIGHBOURS_AT_CAP)).toBe("allow");
+		},
+	);
+
+	it("judges `npm test -- --watch` as a one-shot, on the script name alone", () => {
+		expect(readDenyReason("npm test -- --watch", 1000).split("\n")[0]).toBe(
+			"Run instead: npm test -- --watch --queue",
+		);
+	});
+});

@@ -2,7 +2,7 @@
 
 const { parkTargets } = require("./guard-inventory");
 const { readOverflowLookup } = require("./lib/dispatch-ledger");
-const { parseJobDir, readJobCwd } = require("./lib/job-paths");
+const { readJobCwd, readJobRef } = require("./lib/job-paths");
 const { readParkedBy, setParked, writeParkedBy } = require("./lib/parked");
 const stopGuard = require("./lib/stop-guard");
 const { trackerOf } = require("./lib/outstanding-line");
@@ -12,7 +12,7 @@ const { trackerOf } = require("./lib/outstanding-line");
  * @returns {import("./lib/parked").ParkJob|null}
  */
 function readOwnJob(sessionId) {
-	const job = parseJobDir(process.env.CLAUDE_JOB_DIR);
+	const job = readJobRef(process.env);
 	if (!job) return null;
 	let launch;
 	try {

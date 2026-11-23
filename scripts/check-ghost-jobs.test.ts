@@ -420,6 +420,20 @@ describe("check-ghost-jobs", () => {
 		expect(run("--notify").out).not.toContain("GHOST-JOB");
 	});
 
+	it("--notify reports a ghost again once it has cleared and returned", () => {
+		job("d06bf779");
+		const id = "d06bf779-0000-0000-0000-000000000000";
+		fakeClaude([HEALTHY, agent(id)]);
+		expect(run("--notify").out).toContain("GHOST-JOB");
+
+		transcript(id, 0);
+		fakeClaude([HEALTHY, agent(id, 4343)]);
+		expect(run("--notify").out).not.toContain("GHOST-JOB");
+
+		fakeClaude([HEALTHY, agent(id)]);
+		expect(run("--notify").out).toContain("GHOST-JOB");
+	});
+
 	it("--notify reports an unreadable record once — nothing ever repairs one", () => {
 		fs.mkdirSync(path.join(dir, "jobs", "broken"), { recursive: true });
 		fs.writeFileSync(jobPath("broken"), "{not json");

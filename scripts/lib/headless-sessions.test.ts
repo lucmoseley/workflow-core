@@ -291,6 +291,19 @@ describe("launch", () => {
 		expect(seen.env.WFC_DISPATCH_ROOT).toBeUndefined();
 	});
 
+	it("starts the session on the wall clocks, whatever test clocks its launcher carries (#5615)", async () => {
+		const r = await launch({
+			WFC_NOW: "2020-01-01T00:00:00Z",
+			WFC_STEP_MS: "5",
+		});
+		expect(r.status).toBe(0);
+		await until(() => readSeenOrNull() !== null);
+		const seen = readSeenOrNull();
+		if (!seen) throw new Error("fake never ran");
+		expect(seen.env.WFC_NOW).toBeUndefined();
+		expect(seen.env.WFC_STEP_MS).toBeUndefined();
+	});
+
 	it("leaves the key out of the launching process's own environment", async () => {
 		for (const [k, v] of Object.entries(env())) vi.stubEnv(k, v);
 		const launched = launchRun({

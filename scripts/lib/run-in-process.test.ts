@@ -36,6 +36,11 @@ describe("runInProcess", () => {
 		expect(r.stderr).toContain("in-process-probe.js");
 	});
 
+	it("calls back a stream write in both its callback forms", () => {
+		const r = runInProcess(PROBE, ["write-callbacks"]);
+		expect([r.status, r.stdout]).toEqual([4, "xy"]);
+	});
+
 	it("leaves a read of any real file alone while stdin is stubbed", () => {
 		const file = path.join(tmpdir(), "real.txt");
 		fs.writeFileSync(file, "on disk");
