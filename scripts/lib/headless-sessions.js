@@ -66,7 +66,7 @@ function launch({
 	const { settings, env } = built;
 	forgetRoots(env);
 	const bin = claudeBin(env);
-	const refusal = launchAuthRefusal({ bin, env, cwd, settings });
+	const refusal = launchAuthRefusal({ bin, env, cwd, settings, bg: false });
 	if (refusal) return { why: refusal };
 
 	const { jobId, dir } = freshRunDir();

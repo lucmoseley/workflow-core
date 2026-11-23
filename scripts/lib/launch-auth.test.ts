@@ -37,6 +37,7 @@ const refusal = (extra: Record<string, string> = {}, cwd = dir) =>
 		bin,
 		env: { PATH: process.env.PATH, HOME: home, ...extra },
 		cwd,
+		bg: false,
 	});
 
 describe("a plan seat", () => {
@@ -103,6 +104,7 @@ describe("an overflow seat's helper under its plan dir (#3699)", () => {
 			settings: JSON.stringify({
 				apiKeyHelper: buildKeyHelper(keyVar, secrets),
 			}),
+			bg: false,
 		});
 
 	it("admits the plan login and no login", () => {
@@ -181,6 +183,7 @@ describe("an overflow seat's helper under its plan dir (#3699)", () => {
 				env: { PATH: process.env.PATH, HOME: home, CLAUDE_CONFIG_DIR: plan() },
 				cwd: dir,
 				settings: JSON.stringify({ apiKeyHelper: "echo K" }),
+				bg: false,
 			}),
 		).toContain("no declared overflow seat's");
 	});
@@ -193,6 +196,7 @@ describe("an overflow seat's helper under its plan dir (#3699)", () => {
 				env: { PATH: process.env.PATH, HOME: home, CLAUDE_CONFIG_DIR: plan() },
 				cwd: dir,
 				settings: "/tmp/settings.json",
+				bg: false,
 			}),
 		).toContain("--settings is not inline JSON");
 	});

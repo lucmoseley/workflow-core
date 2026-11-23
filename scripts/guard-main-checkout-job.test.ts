@@ -16,8 +16,10 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "guard-main-checkout-job.js");
 const CLAUDE_TIMEOUT_MS = 60_000;
+const STATUS_TIMEOUT_MS = 30_000;
 const NODE_START_MS = 10_000;
-const LAUNCH_ROOM_MS = 2 * CLAUDE_TIMEOUT_MS + NODE_START_MS;
+const LAUNCH_ROOM_MS =
+	2 * CLAUDE_TIMEOUT_MS + 2 * STATUS_TIMEOUT_MS + NODE_START_MS;
 
 let tmp: string;
 let main: string;
@@ -295,6 +297,80 @@ it("tells the session to work in the cut worktree where the relaunch fails, and 
 	);
 	expect(told.additionalContext).toContain(`Bash \`cd ${dir}\``);
 	expect(readCalls().map((c) => c.args[0])).toEqual(["--bg"]);
+});
+
+const DAEMON = "4242";
+const daemonWith = (env: Record<string, string>) => {
+	const proc = path.join(tmp, "proc");
+	fs.mkdirSync(path.join(proc, DAEMON), { recursive: true });
+	fs.writeFileSync(
+		path.join(proc, DAEMON, "environ"),
+		Object.entries(env)
+			.map(([k, v]) => `${k}=${v}\0`)
+			.join(""),
+	);
+	return { WFC_PROC: proc, WFC_FAKE_DAEMON: DAEMON };
+};
+
+it.each([
+	[
+		"the daemon it hands the job to has an API key set (#5648)",
+		() => daemonWith({ ANTHROPIC_API_KEY: "k" }),
+		`the Claude daemon (pid ${DAEMON}) this --bg launch hands its session to has ANTHROPIC_API_KEY set`,
+	],
+	[
+		"its own flags carry an apiKeyHelper no overflow seat declares (#5648)",
+		() => {
+			writeRecord({
+				...RECORD,
+				respawnFlags: [
+					...RECORD.respawnFlags,
+					"--settings",
+					JSON.stringify({ apiKeyHelper: "echo k" }),
+				],
+			});
+			return {};
+		},
+		"an apiKeyHelper in --settings is in force",
+	],
+	[
+		"its own flags carry that helper in a --settings= flag (#5648)",
+		() => {
+			writeRecord({
+				...RECORD,
+				respawnFlags: [
+					...RECORD.respawnFlags,
+					`--settings=${JSON.stringify({ apiKeyHelper: "echo k" })}`,
+				],
+			});
+			return {};
+		},
+		"an apiKeyHelper in --settings is in force",
+	],
+])(
+	"relaunches nothing where %s, and tells the session the refusal and to work in the cut worktree",
+	(_, setUp, why) => {
+		const r = run(startup(), setUp());
+
+		expect(r.status, r.stderr).toBe(0);
+		const told = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+		expect(told).toContain(
+			"and its relaunch in its own worktree failed: this model launch would not bill the subscription",
+		);
+		expect(told).toContain(why);
+		expect(told).toContain(
+			`Bash \`cd ${path.join(worktrees(), cutNames()[0])}\``,
+		);
+		expect(readCalls()).toEqual([]);
+	},
+);
+
+it("relaunches and removes the original where the daemon's environment bills the seat (#5648)", () => {
+	const r = run(startup(), daemonWith({ CLAUDE_CONFIG_DIR: seat }));
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toBe("");
+	expect(readCalls().map((c) => c.args[0])).toEqual(["--bg", "rm"]);
 });
 
 it("tells the original to end at once where it cannot be removed after its copy started", () => {
