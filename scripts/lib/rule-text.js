@@ -1,35 +1,3 @@
-/*
- * rule-text.js — the Node half of the rule-text store (mantahostels#1644, spec mantahostels#1641).
- *
- * THE SEAM. Each guard-printed rule's operative text lives exactly once, as a plain
- * text file under docs/agents/rules/ keyed by a stable rule id. This module is
- * the only thing Node-side that resolves an id to that text; scripts/lib/
- * rule-text.sh is the bash twin, and the two answer identically by construction
- * (same directories in the same order, same id grammar, same trailing-newline
- * trim, same `{rule:<id>}` expansion).
- *
- * PLAIN TEXT, NOT JSON — spec mantahostels#1641's decision. The guards are half bash and
- * half Node; a fragment must be `cat`-able from one and fs.readFileSync-able
- * from the other with no parser.
- *
- * IT REFUSES LOUDLY. An unknown id throws rather than returning "" — a guard
- * that silently denies with an empty reason is worse than one that crashes,
- * because the session is refused and told nothing. Callers that must not crash
- * call readRuleTextOr, or catch it themselves and fail open in the house style
- * (mantahostels#103). The one
- * exception is expandCommands, on a host config it cannot read (#742).
- *
- * THE DIRECTORY OVERRIDE. WFC_RULES_DIR redirects the store, and with it set
- * WFC_RULES_FALLBACK_DIR is the only layer beneath it — unset, no core
- * fragment resolves (rulesDirs). Both are for tests, and
- * for check-guard-registry.js's --root, which sets both for an adopter root
- * (mantahostels#1753). It is read at
- * call time, not at require time, so a test can set it per case.
- * withRuleStore pins the same pair for one synchronous read, in this module
- * rather than the environment, so a caller sharing the process with other
- * work leaves nothing behind it (#5172).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./host-root.js");

@@ -1,42 +1,24 @@
 /*
- * formatters.js — the shell and Python formatters of record (#1332), shared by the three
- * routes that run them: formatWritten on a tool write (lib/post-write.js),
- * scripts/check-format-staged.js in .husky/pre-commit, and
- * scripts/check-shfmt.js plus `ruff format --check .` in CI.
- *
- * Shell is shfmt at `-i 2 -ci`, from npm `@wasm-fmt/shfmt` — a WASM build with
- * no CLI of its own, so `npm install` supplies it on every machine. It is
- * resolved from the working directory's node_modules first, so an adopter
- * running these from the plugin cache formats with its own pinned copy.
- * `WFC_SHFMT`, where set, names the module to load instead (§N7).
- * Python is `ruff format`, from requirements-dev.txt's ruff pin.
- *
- * Run as a program it is .husky/pre-commit's one reading of both (#1354):
- *
+ * Usage:
  *   node scripts/lib/formatters.js shell-files  the shell files among the
  *     [--index|--tracked]                       paths on stdin, their heads
  *                                               read from the worktree or,
  *                                               with --index, the staged
  *                                               blobs; --tracked lists every
- *                                               tracked one instead (#1828)
+ *                                               tracked one instead
  *   node scripts/lib/formatters.js ruff-config  the plugin ruff.toml the
  *                                               Python gates pass as --config,
  *                                               or nothing
  *   node scripts/lib/formatters.js skip-flags   `flags:` and the --skip-shell
  *                                               or --skip-python the format
- *                                               gate takes, one a line, so the
- *                                               hook tells
- *                                               no flag from a crash
+ *                                               gate takes, one a line
  *   node scripts/lib/formatters.js lint-missing `lint:skip` or `lint:refuse`,
  *                                               the ruff lint gate's verdict
  *                                               where ruff is missing, its
  *                                               reason on stderr
  *
- * A half is skipped only where its formatter is missing AND a workflow under
- * .github/workflows/ runs that formatter, which then catches what the hook let
- * through (#1463). Elsewhere the checker reports the missing formatter BROKEN
- * and the commit is refused. The lint gate takes the same reading of
- * `ruff check` (#1563); lib/ci-runs.js owns the workflow read.
+ * `WFC_SHFMT`, where set, names the shfmt module to load in place of the
+ * working directory's `@wasm-fmt/shfmt`.
  */
 
 const fs = require("node:fs");

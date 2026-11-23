@@ -1,17 +1,3 @@
-/*
- * read-fd.js — all of an fd, read to its end through a non-blocking pipe.
- *
- * `fs.readFileSync(0)` throws EAGAIN where fd 0 is a non-blocking pipe or socket
- * whose writer has not yet written everything (#3663). Two things make it so:
- * the process's own `process.stdin` getter, `process.stdin.isTTY` included, and
- * a non-node parent. This waits that out on lib/write-fd.js's pause and ceiling.
- *
- * RESIDUAL: a writer holding such an fd open and idle is waited on for the
- * ceiling, which a hook registered at 10 s does not outlast: the harness kills
- * it, where `readFileSync` threw at once into its fail-open. Unreached today, as
- * the harness hands hooks a blocking socket (#4017).
- */
-
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
 const { pauseOrThrow } = require("./write-fd.js");

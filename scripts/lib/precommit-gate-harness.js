@@ -1,33 +1,3 @@
-/*
- * precommit-gate-harness.js — the machinery the .husky/pre-commit gate suites share.
- *
- * The one gate cutter, `cutGateFragment` (mantahostels#953), and the one reader
- * of a gate's head and arming pattern (#1597).
- *
- * ON THE HELPER SURFACE (#462): plain JavaScript with JSDoc types, because the
- * release ships no TypeScript, and requiring no npm package, because the
- * plugin cache has no node_modules — hence `registerTempCleanup` takes vitest's
- * `afterEach` from its caller or the globals rather than importing it.
- * The helper-surface manifest lists the names an adopter may import.
- * `ROOT`, `HOOK` and `LIB` are this checkout's, never the adopter's: they stay
- * file-local, as the cutters' defaults, and an adopter passes its own hook
- * text to every cutter. A core suite reading them, or writing checker
- * delegates, takes them from precommit-gate-testkit.ts (#1417).
- *
- * Left per-file deliberately (mantahostels#477):
- *
- * - `runGate()`. The four diverge in shell flags, no-op placement, argument
- *   shape and stderr merging, in ways each suite's cases depend on. Behind one
- *   signature those become three flags, which is not clearer than four call
- *   sites.
- * - `mutate()`. Three of the four have one, each with a different signature.
- * - `parityGap()`. Two suites have one, comparing different things. They share
- *   no logic to merge.
- *
- * scripts/precommit-staged-gate.test.ts is deliberately not a client: it uses
- * none of this (mantahostels#953).
- */
-
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");

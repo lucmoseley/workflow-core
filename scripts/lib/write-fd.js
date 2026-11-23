@@ -1,19 +1,3 @@
-/*
- * write-fd.js — the one synchronous writer that survives a full pipe (#1635,
- * #1641).
- *
- * A script that ends in process.exit loses whatever node still has buffered
- * for a pipe, so its report goes out through fs.writeSync. A bare writeSync
- * has two gaps this closes: it drops the tail of a partial write without
- * saying so, and it throws EAGAIN on a full pipe that is non-blocking — which
- * a module the process loads makes it by touching process.stdout, as can a
- * non-node parent. A caller's fail-open catch then loses the text and the
- * exit code.
- *
- * writeTerminal is the same writer, named for a path only a person at a
- * terminal reads (#5484).
- */
-
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
 const sleep = require("./sleep-sync.js");

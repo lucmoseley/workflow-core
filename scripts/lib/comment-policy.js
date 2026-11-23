@@ -21,6 +21,7 @@ const { scanJs } = require("./strip-comments.js");
  *   checkJs: boolean,
  *   exports: Set<string>,
  *   shipped: boolean,
+ *   name: string,
  *   adrs: Set<string>,
  *   deps: RegExp | null,
  *   styleOnly: Record<string, string[]>,
@@ -753,6 +754,7 @@ function barePointers(text) {
 const LICENCE = /SPDX-License-Identifier:|\bcopyright\b|©/i;
 const DERIVATION = /\b(?:measured|guess)\b/i;
 const ISSUE = /(?<![\w&])#\d+|\/[\w.-]+#\d+/;
+const ANY_ISSUE = /(?<![\w&])#\d+|[\w.-]#\d+/;
 const URL = /\bhttps?:\/\/\S/;
 const POINTER_LINK = /\[(?:[\w.-]+\/[\w.-]+)?#\d+\]\([^)\s]*\)/g;
 
@@ -771,11 +773,25 @@ function declaredName(line, lang) {
 }
 
 /**
+ * @param {string[]} prose
+ * @param {FileFacts} facts
+ */
+function isUsageBlock(prose, facts) {
+	if (facts.name === "" || prose.some((line) => ANY_ISSUE.test(line)))
+		return false;
+	const stem = escapeRe(facts.name.replace(/\.[^.]+$/, ""));
+	const file = escapeRe(facts.name);
+	const runs = new RegExp(
+		String.raw`^Usage:|(?:^|[\s\`$])(?:node|python3?|bash|sh|source|\.)\s+(?:\S*/)?${file}(?![\w.-])|(?<![\w.-])${stem}\(|(?:require\(|from )["'](?:\S*/)?${stem}(?:\.\w+)?["']`,
+	);
+	return prose.some((line) => runs.test(line));
+}
+
+/**
  * @param {Unit} unit
  * @param {FileFacts} facts
  */
 function onShippedExport(unit, facts) {
-	if (unit.top && facts.shipped) return true;
 	const name = declaredName(unit.owner || unit.next, facts.lang);
 	return name !== "" && facts.exports.has(name);
 }
@@ -857,6 +873,7 @@ function proseBreach(unit, prose, facts) {
 	if (prose.length === 1 && DERIVATION.test(text) && ISSUE.test(text))
 		return null;
 	if (isSourceNote(prose, facts)) return null;
+	if (unit.top && facts.shipped && isUsageBlock(prose, facts)) return null;
 	if (onShippedExport(unit, facts)) return null;
 	return { tag: "COMMENT", ...at, why: "fits no permitted comment kind" };
 }

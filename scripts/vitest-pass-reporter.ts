@@ -1,25 +1,3 @@
-/*
- * The half of the suite marker that knows whether the suite passed (mantahostels#987).
- *
- * globalSetup's teardown holds the tree-drift findings and runs last, but is
- * told nothing about the result; a reporter is told the result and runs first.
- * So this records the verdict and `scripts/vitest-tree-watch.ts` writes the
- * marker — see `scripts/lib/suite-handoff.js` for why that hand-off is a
- * module-level variable rather than a file.
- *
- * ANY doubt reads as not-green: an unhandled error outside a test still means
- * the run cannot be attested, and an interrupted run has tests nobody ran.
- *
- * `onInit` is handed the Vitest instance, so the name filter and the file
- * filters are readable off its config — and `globTestSpecifications()` returns
- * the WHOLE corpus even inside a filtered run, which is what gives the marker a
- * denominator without storing one.
- *
- * IT MUST NEVER TURN A PASSING SUITE RED. Every scope read is wrapped: a failure
- * records no scope, which reads as unknown (mantahostels#1230), and says so on
- * stdout so the unknown met hours later is traceable to this run.
- */
-
 import { createRequire } from "node:module";
 import path from "node:path";
 

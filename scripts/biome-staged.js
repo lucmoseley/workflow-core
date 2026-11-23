@@ -1,37 +1,5 @@
 #!/usr/bin/env node
-/*
- * biome-staged.js — `biome check` over this commit's added and modified
- * paths, reading the bytes the commit carries (#2429).
- *
- * Usage:
- *   node scripts/biome-staged.js [<biome check flag>…]
- *
- * `biome check --staged` takes its path list from the index but reads each
- * file from disk, so a commit carrying part of a file — a
- * `commit-paths.js --patch` commit (#801), or a file edited after staging —
- * was judged on the worktree's bytes, uncommitted hunks
- * included. Here the index, the temporary one a pathspec commit builds
- * (GIT_INDEX_FILE) included, is extracted whole into a temp directory and
- * Biome runs there: whole, as its project rules (noImportCycles,
- * noFloatingPromises) read the files a staged one imports.
- *
- * The rules that read node_modules — noUntrustedLicenses, and
- * noFloatingPromises, noMisusedPromises and noDeprecatedImports on a
- * third-party import — see only a dependency whose real path lies inside
- * Biome's project (biomejs/biome#12934), so neither the bare tree nor a
- * symlink into it raises them (#4085). So the caller's node_modules, a
- * worktree's out-of-tree dependency store included, is bind-mounted onto the
- * tree's inside a private mount namespace (`unshare -rm`) (#4639). Off Linux, or where the mount fails, those rules go quiet here
- * and `biome ci .` in CI raises them.
- *
- * Not a check-*.js: Biome's own report is the verdict, any failing exit
- * reading as 1. `biome` is found on PATH, which `npm run` and the hook both
- * point at node_modules/.bin; a relative entry, as husky writes, is resolved
- * against the caller's directory, since Biome runs from the temp tree
- * (#4079). A commit adding, modifying or retyping no path runs nothing and
- * exits 0. Exits 2, BROKEN's code, where git cannot
- * extract the index or biome will not start.
- */
+// #2429
 // cli-args-exempt: #5540
 
 const fs = require("node:fs");
