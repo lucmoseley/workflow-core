@@ -221,6 +221,7 @@ function readPs() {
 
 module.exports = {
 	PS_BIN,
+	PS_TIMEOUT_MS,
 	DRAW_MARGIN_MB,
 	EARLYOOM_FLOOR_MB,
 	SUITE_MAX,

@@ -43,6 +43,7 @@ const {
 	readCarriedWeightOf,
 	readPs,
 	PS_BIN,
+	PS_TIMEOUT_MS,
 } = require("./suite-ladder.js");
 const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
 const { isUnder } = require("./is-under.js");
@@ -387,6 +388,7 @@ function readPsRows() {
 	try {
 		const out = execFileSync(PS_BIN(), ["-eo", "pid=,rss=,args="], {
 			encoding: "utf8",
+			timeout: PS_TIMEOUT_MS,
 			maxBuffer: CHILD_MAX_BUFFER,
 		});
 		/** @type {PsRow[]} */
@@ -1141,6 +1143,7 @@ function claudeProcessCount() {
 	try {
 		const out = execFileSync(PS_BIN(), ["-eo", "comm=,args="], {
 			encoding: "utf8",
+			timeout: PS_TIMEOUT_MS,
 			maxBuffer: CHILD_MAX_BUFFER,
 		});
 		return {

@@ -10,7 +10,7 @@ const { FilingRefusedError } = require("./filing-refused.js");
 const { gh, ghIssueListAll, parseErrLine } = require("./gh.js");
 const { spawnGitSync } = require("./git.js");
 const { parseMessageLine } = require("./first-line.js");
-const { short } = require("./lander-git.js");
+const { LANDER_GIT_TIMEOUT_MS, short } = require("./lander-git.js");
 const { queueBranch } = require("./landing-refs.js");
 const { liveQueueDeps } = require("./queue-issue.js");
 const { takesLabel } = require("./takes-label.js");
@@ -290,7 +290,11 @@ function underCited(cited, t, { stateOf, reopen }) {
  * @returns {string}
  */
 function readGitIn(root, args) {
-	const r = spawnGitSync(args, { cwd: root, encoding: "utf8" });
+	const r = spawnGitSync(args, {
+		cwd: root,
+		encoding: "utf8",
+		timeout: LANDER_GIT_TIMEOUT_MS,
+	});
 	if (r.status !== 0)
 		throw new Error(
 			`git ${args[0]} could not read ${args.at(-1)}: ${r.stderr.trim()}`,

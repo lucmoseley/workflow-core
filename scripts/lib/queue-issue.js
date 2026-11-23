@@ -4,7 +4,7 @@ const { parseErrorText } = require("./caught.js");
 const { parseFiledLine } = require("./filed-line.js");
 const { buildScriptFilerArgv } = require("./script-filer-argv.js");
 const { parseFirstLine } = require("./first-line.js");
-const { gh, ghIssueListAll } = require("./gh.js");
+const { GH_TIMEOUT_MS, gh, ghIssueListAll } = require("./gh.js");
 const { gateLinesOf } = require("./issue-gate.js");
 const { buildStandaloneLine } = require("./standalone-line.js");
 const { similarTitles } = require("./tracker-ops.js");
@@ -110,7 +110,7 @@ const fileIssueIn = (root) => (args, input) => {
 	const r = spawnSync(
 		process.execPath,
 		[path.join(__dirname, "..", "file-issue.js"), ...args],
-		{ cwd: root, encoding: "utf8", input },
+		{ cwd: root, encoding: "utf8", input, timeout: GH_TIMEOUT_MS },
 	);
 	return {
 		status: r.status,

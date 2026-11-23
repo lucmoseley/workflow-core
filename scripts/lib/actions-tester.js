@@ -3,6 +3,7 @@ const crypto = require("node:crypto");
 const path = require("node:path");
 const { SHORT_SHA, gitBinary, gitSpawnOptions } = require("./git.js");
 const {
+	LANDER_GIT_TIMEOUT_MS,
 	createRemoteRef,
 	deleteRemoteRef,
 	pushRemote,
@@ -436,7 +437,12 @@ function liveReads(root) {
 			const listed = execFileSync(
 				gitBinary(),
 				["ls-tree", "--name-only", sha, "--", ...files],
-				{ ...gitSpawnOptions(), cwd: root, encoding: "utf8" },
+				{
+					...gitSpawnOptions(),
+					cwd: root,
+					encoding: "utf8",
+					timeout: LANDER_GIT_TIMEOUT_MS,
+				},
 			);
 			const present = new Set(listed.split("\n"));
 			return files.filter((f) => present.has(f));

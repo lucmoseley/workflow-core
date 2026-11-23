@@ -19,6 +19,7 @@ const {
 } = require("./run-budgeted.js");
 const {
 	GATED_COMMIT_TIMEOUT_MS,
+	LANDER_GIT_TIMEOUT_MS,
 	createRemoteRef,
 	deleteRemoteRef,
 	isAncestor,
@@ -209,7 +210,9 @@ function queueGit(
 		} catch (err) {
 			const broken = BROKEN_OBJECT.exec(String(caught(err).stderr ?? ""));
 			if (!broken) throw err;
-			const common = gitCommonDirOrThrow(root);
+			const common = gitCommonDirOrThrow(root, {
+				timeout: LANDER_GIT_TIMEOUT_MS,
+			});
 			fs.rmSync(
 				path.resolve(root, common, "objects", broken[1] ?? "", broken[2] ?? ""),
 				{ force: true },

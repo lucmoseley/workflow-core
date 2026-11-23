@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { execGit } = require("./git.js");
+const { GIT_TIMEOUT_MS, execGit } = require("./git.js");
 const { readCommittedFile } = require("./git-objects.js");
 const { isRepoPath, isRepoPathList } = require("./repo-path.js");
 const { hostRoot } = require("./host-root.js");
@@ -967,6 +967,7 @@ function deriveTracker(root) {
 			execGit(["-C", root, "config", "--get", "remote.origin.url"], {
 				encoding: "utf8",
 				stdio: ["ignore", "pipe", "ignore"],
+				timeout: GIT_TIMEOUT_MS,
 			}),
 		"",
 	);
