@@ -4,8 +4,8 @@ const { deref } = require("./deref.js");
 const { monotonicMs } = require("./clock.js");
 const { noop } = require("./noop.js");
 const { QUEUE_POLL_MS } = require("./queue-poll.js");
+const { QUEUE_TIMEOUT_MS } = require("./gate-wait.js");
 const {
-	QUEUE_TIMEOUT_MS,
 	armSeatSignals,
 	isMarkerStale,
 	readMarkers,

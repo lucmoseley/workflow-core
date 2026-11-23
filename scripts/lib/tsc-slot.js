@@ -173,7 +173,7 @@ function checkoutPeakMb(dir) {
  * @param {number | null} mb
  * @param {number} [climbMb]
  * @param {{ windows?: import("./windows-memory.js").WindowsRead, peakMb?: number }} [limbs]
- * @returns {import("./suite-queue.js").GateDenial | null}
+ * @returns {import("./gate-wait.js").GateDenial | null}
  */
 function tscDenial(
 	rows,
@@ -193,7 +193,7 @@ function tscDenial(
  * @param {number | null} mb
  * @param {number} climbMb
  * @param {{ windows?: import("./windows-memory.js").WindowsRead, peakMb: number }} limbs
- * @returns {import("./suite-queue.js").GateDenial | null}
+ * @returns {import("./gate-wait.js").GateDenial | null}
  */
 function memoryDenial(mb, climbMb, { windows = { state: "absent" }, peakMb }) {
 	const memory = memoryShortfall(mb, climbMb, peakMb);

@@ -47,7 +47,7 @@ import { ignoreFailure } from "./lib/caught.js";
 import { commandPath } from "./lib/command-path-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
-const { waitForGate } = require("./lib/suite-queue.js");
+const { waitForGate } = require("./lib/gate-wait.js");
 
 bgRunRoot();
 

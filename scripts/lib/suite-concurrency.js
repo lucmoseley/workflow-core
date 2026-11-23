@@ -56,7 +56,7 @@ const { treeOrHost } = require("./tree-or.js");
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./part-suite-peak.js").PartAdmission} PartAdmission
  * @typedef {Extract<PartAdmission, { mode: "peak" }>} PeakAdmission
- * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number, ladderMb?: number, climbMb?: number, busy?: number, peak?: import("./part-suite-peak.js").PeakCharge } | import("./suite-queue.js").WindowsHold} Gate
+ * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number, ladderMb?: number, climbMb?: number, busy?: number, peak?: import("./part-suite-peak.js").PeakCharge } | import("./gate-wait.js").WindowsHold} Gate
  * @typedef {import("./guard-entry.js").Decision | ({ deny: string, gate: Gate })} Verdict
  * @typedef {object} SuitePorts
  * @property {() => number | null} availableMb
@@ -536,7 +536,7 @@ function denyBareTsc(st, { segment, cwds }, bin) {
 	};
 }
 
-/** @param {import("./suite-queue.js").GateDenial} denial */
+/** @param {import("./gate-wait.js").GateDenial} denial */
 function buildTscWhy(denial) {
 	if (denial.limb === "count")
 		return "A `tsc` is already running, and the machine runs one at a time (docs/environment.md §6, #3163).";

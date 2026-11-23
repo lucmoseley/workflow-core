@@ -11,7 +11,7 @@ const LANDER_ROLE = "lander";
 
 /**
  * @param {{chargeMb: number, pollMs?: number, timeoutMs?: number,
- *   gate?: (climbMb: number) => import("./suite-queue.js").GateDenial | null,
+ *   gate?: (climbMb: number) => import("./gate-wait.js").GateDenial | null,
  *   memory?: () => import("./meminfo.js").MbResult,
  *   totalMb?: () => number | null, queueDir?: string}} options
  * @returns {Promise<Admission>}

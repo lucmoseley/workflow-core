@@ -132,13 +132,13 @@ describe("the SessionStart housekeeping launcher", () => {
 
 	it("launches the scratch reaper, the piggyback mantahostels#2214 added", async () => {
 		const { log } = launcherReach({ VITEST: undefined });
-		expect(await reached(log, "scratch-sweep.js")).toBe(true);
+		expect(await reached(log, "sweep-scratch.js")).toBe(true);
 	});
 
 	it("never reaches the scratch reaper under VITEST, which deletes real files", async () => {
 		const { log } = launcherReach({ VITEST: "1" });
 		expect(await reached(log, "check-self-throttling.js")).toBe(true);
-		expect(await reached(log, "scratch-sweep.js")).toBe(false);
+		expect(await reached(log, "sweep-scratch.js")).toBe(false);
 	});
 
 	it("never reaches the tracker-writing sweep under VITEST", async () => {
@@ -206,7 +206,7 @@ describe("the SessionStart housekeeping launcher", () => {
 
 	const Outliving = [
 		"retire-stale-containers.js",
-		"scratch-sweep.js",
+		"sweep-scratch.js",
 		"report-close-check-reading.js",
 		"report-suite-queue-wait.js",
 		"report-arch-scan-due.js",
