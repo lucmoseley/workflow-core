@@ -397,9 +397,9 @@ Three sub-rules a reviewer may cite directly against a program reporting in the 
 
 - **SKIP versus BROKEN turns on subject-versus-apparatus** (`scripts/lib/check.js:17-25`): what the checker is *asking about* is unavailable → SKIP; what it *reads the repo with* failed → BROKEN.
 - **Severity is a property of the finding**; a caller-side cap such as `--warn` lowers the outcome only, never the findings, and cannot cap BROKEN (`scripts/lib/check.js:27-30`).
-- **A bad invocation is BROKEN, never a finding** — a usage error throws `brokenError` rather than raising a finding (`scripts/lib/check.js:291-293`).
+- **A bad invocation is BROKEN, never a finding** — a usage error throws `brokenError` rather than raising a finding (`scripts/lib/check.js:296-298`).
 
-*House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:179-181`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — a body throws `skipError` or `brokenError` (`scripts/lib/outcome-error.js:16-26`), never exits, and a run's exit code is chosen once, by `exitFor` (`scripts/lib/check.js:1677`). The five outcomes, stated once at `scripts/lib/check.js:10-15`:
+*House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:179-181`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — a body throws `skipError` or `brokenError` (`scripts/lib/outcome-error.js:16-26`), never exits, and a run's exit code is chosen once, by `exitFor` (`scripts/lib/check.js:1683`). The five outcomes, stated once at `scripts/lib/check.js:10-15`:
 
 ```
 OK      ran, found nothing                            exit 0
@@ -427,7 +427,7 @@ A bare `fs.writeSync` is not enough — `scripts/lib/write-fd.js:8-9` *"it drops
 
 *House, production Node programs only*: a program reads all of its stdin through `readFdAll` from `scripts/lib/read-fd.js`, since `fs.readFileSync(0)` throws EAGAIN on a non-blocking pipe whose writer has not finished (#4017). A bare `fs.readFileSync(0)` is the breach, bar such a program, as `scripts/lib/load-failure-stop.js` is. An inline `node -e` in a shell script that never touches `process.stdin` is outside this.
 
-Stream discipline (`scripts/lib/check.js:32-36`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:1677`, and `scripts/lib/check.js:1256` for a crash).
+Stream discipline (`scripts/lib/check.js:32-36`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:1683`, and `scripts/lib/check.js:1262` for a crash).
 
 ### §N7 · An export nothing consumes is a breach, and a binary a test stubs or a machine may lack is injected at one named var — **judgement**
 

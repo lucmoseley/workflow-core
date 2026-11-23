@@ -576,6 +576,7 @@
 			"scripts/lib/morning-review-filing.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-shellcheck-gate.test.ts",
+			"scripts/report-new-shared-faults.test.ts",
 			"scripts/session-checkout.test.ts"
 		],
 		".github/actions/shellcheck/action.yml": [
