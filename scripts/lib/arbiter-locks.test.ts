@@ -1144,6 +1144,15 @@ describe("a claim meets an overlapping lock on the regioned map (#1492)", () => 
 		},
 	);
 
+	it("is not held by a record that will not parse", () => {
+		fs.mkdirSync(store.paths.locksDir(), { recursive: true });
+		fs.writeFileSync(
+			path.join(store.paths.locksDir(), "deadbeefcafe0009.json"),
+			"",
+		);
+		expect(claim(`${map}#B1`).verdict).toBe("claimed");
+	});
+
 	it("is not held by a live lock on some other path", () => {
 		put("docs/other.md", { sessionId: "alice", ...liveHolder() });
 		expect(claim(`${map}#B1`).verdict).toBe("claimed");

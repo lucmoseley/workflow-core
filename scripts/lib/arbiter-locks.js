@@ -234,7 +234,7 @@ function conflictingLock(subject, me) {
 			"resumed session cannot be told from a dead one — this region claim goes " +
 			"ahead, which can take the file from a live session",
 	);
-	return whoHolds(subject, me.sessionId, resumed, others)?.holder ?? null;
+	return whoHolds(subject, me.sessionId, resumed, others);
 }
 
 /**
@@ -565,30 +565,15 @@ function subjectDirtyWhereHeld(lock) {
  * @param {string} subject
  * @param {string|null} sessionId
  * @param {ReturnType<typeof core.resumedHolderTest>} resumed
- * @param {ReturnType<typeof lockFiles.readLocks>} [locks]
+ * @param {NonNullable<ReturnType<typeof lockFiles.readLocks>>} locks
  */
-function whoHolds(subject, sessionId, resumed, locks = lockFiles.readLocks()) {
-	if (locks === null) return null;
-	/** @type {LockRecord|null} */
-	let holder = null;
-	/** @type {LockRecord|null} */
-	let own = null;
-	/** @type {LockRecord[]} */
-	const dead = [];
-	const overlapping = locks.filter(
-		(lock) => !lock.unreadable && core.subjectsOverlap(lock.path, subject),
-	);
-	for (const lock of overlapping) {
-		if (sessionId && lock.sessionId === sessionId) own ??= lock;
-		else if (holder === null) {
-			if (isLockAlive(lock, resumed)) holder = lock;
-			else dead.push(lock);
-		}
+function whoHolds(subject, sessionId, resumed, locks) {
+	for (const lock of locks) {
+		if (lock.unreadable || !core.subjectsOverlap(lock.path, subject)) continue;
+		if (sessionId && lock.sessionId === sessionId) continue;
+		if (isLockAlive(lock, resumed)) return lock;
 	}
-	if (holder) return { holder, own, dead: [], unknown: false };
-	const unknown =
-		resumed.registryUnreadable() && dead.some((lock) => lock.sessionId);
-	return { holder, own, dead, unknown };
+	return null;
 }
 
 /**
