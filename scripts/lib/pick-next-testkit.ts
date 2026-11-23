@@ -249,6 +249,19 @@ export const stubBrokenRepo = () => {
 };
 // #2231
 export const FIXTURE_DRAW = { sessionMeanMb: 429, sessionSigmaMb: 154 };
+const lockRecord = (rel: string, sessionId: string, claimedAt: string) => ({
+	path: rel,
+	sessionId,
+	pid: null,
+	procStart: null,
+	claimedAt,
+	claimId: `fixture-${sessionId}-${rel}`,
+	bootId: null,
+	blob: null,
+	priorBlobs: [],
+	preBlob: null,
+});
+
 export const WORKING_PAIR_KB = 640 * 1024;
 
 const stubOracle = () => {
@@ -311,7 +324,7 @@ const stubClaims = (fx: Fixture) => {
 		const key = createHash("sha256").update(rel).digest("hex").slice(0, 16);
 		fs.writeFileSync(
 			path.join(locksDir, `${key}.json`),
-			JSON.stringify({ path: rel, sessionId, claimedAt: daysAgo(0) }),
+			JSON.stringify(lockRecord(rel, sessionId, daysAgo(0))),
 		);
 	}
 	for (const [label, s] of Object.entries(fx.staleFiles ?? {})) {
@@ -321,11 +334,13 @@ const stubClaims = (fx: Fixture) => {
 			.slice(0, 16);
 		fs.writeFileSync(
 			path.join(locksDir, `${key}.json`),
-			JSON.stringify({
-				path: s.path,
-				sessionId: s.sessionId,
-				claimedAt: new Date(Date.now() - s.hoursAgo * 3_600_000).toISOString(),
-			}),
+			JSON.stringify(
+				lockRecord(
+					s.path,
+					s.sessionId,
+					new Date(Date.now() - s.hoursAgo * 3_600_000).toISOString(),
+				),
+			),
 		);
 	}
 
