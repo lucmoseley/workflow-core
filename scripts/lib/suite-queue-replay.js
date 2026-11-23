@@ -13,7 +13,9 @@ const {
 } = require("./suite-ladder");
 const {
 	PART_PASS_AGE_MS,
+	SESSION_PLACES,
 	WINDOWS_MAX_HOLD_MS,
+	splitPlaces,
 	isClimbKept,
 	partLaneOf,
 	turnOf,
@@ -42,6 +44,7 @@ const WHOLE_SHARE = 0.9;
 const PAD_MS = 3_600_000;
 const TOP = 8;
 const LIMBS = [
+	"session-cap",
 	"count",
 	"memory",
 	"tsc-count",
@@ -82,6 +85,8 @@ const PEER_CLIMB_FROM = Date.parse("2026-11-09T08:18:51Z");
 const RUNG_CLAMP_FROM = Date.parse("2026-11-17T02:16:39Z");
 // #4799 measured: its commit's time
 const CLIMB_KEEP_FROM = Date.parse("2026-11-09T15:36:27Z");
+// #5595 measured: its commit's time
+const SESSION_CAP_FROM = Date.parse("2026-11-23T00:15:43Z");
 const MEMWATCH_HEADER =
 	/^=== (\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d) (\d+)MB used \| cpu: \d+% .*?load ([\d.]+)/;
 const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
@@ -90,7 +95,7 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
  * @typedef {{ at: string, waitS: number, reason: string, kind: string,
  *   session: string | null, pid: number, slotFree?: boolean,
  *   skipped?: boolean, passed?: number, climbMb?: number,
- *   chargeMb?: number, peerS?: number,
+ *   chargeMb?: number, peerS?: number, sessionCapS?: number,
  *   lane?: import("./part-suite-peak.js").PartKind,
  *   admission?: import("./part-suite-peak.js").PartAdmission,
  *   limb?: import("./queue-exit-log.js").HeldLimb,
@@ -103,7 +108,7 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
  *   windows: Map<number, WindowsMinute>, unread: Unread }} Logs
  * @typedef {import("./windows-memory.js").WindowsMinute} WindowsMinute
  * @typedef {{ since: number, until: number, eras: { label: string, from: number }[],
- *   memTotalMb: number, loadCeiling: number | null }} Window
+ *   memTotalMb: number, loadCeiling: number | null, capFrom?: number }} Window
  */
 
 /** @typedef {{ absent: string[], unparsed: number }} Unread */
@@ -489,20 +494,24 @@ function toWaiters(queued, runs) {
 /**
  * @typedef {{ t: number, whole: WeighedRun[], busy: number,
  *   mem: MemBlock | undefined, win: WindowsMinute | undefined, waiting: Waiter[],
- *   admitting: Waiter[], era: string }} GateTick
+ *   admitting: Waiter[], era: string, capped: Set<Waiter>,
+ *   enteredAt: Map<Waiter, number> }} GateTick
+ * @typedef {{ everCapped: Set<Waiter>, enteredAt: Map<Waiter, number> }} CapState
  * @typedef {GateTick & { climbStamped: Set<Waiter> }} Tick
  */
 
 /**
  * @param {number} t
  * @param {{ runs: WeighedRun[], waiters: Waiter[], admitting: Waiter[],
- *   mem: Logs["mem"], windows: Logs["windows"], eraOf: (t: number) => string }} s
+ *   mem: Logs["mem"], windows: Logs["windows"], eraOf: (t: number) => string,
+ *   cap: CapState }} s
  * @param {Window} w
  * @param {Set<Waiter>} stamped
  * @returns {Tick}
  */
 function tickAt(t, s, w, stamped) {
 	const live = s.runs.filter((r) => r.st <= t && t < r.en);
+	const waiting = s.waiters.filter((e) => e.st <= t && t < e.en);
 	/** @type {GateTick} */
 	const tick = {
 		t,
@@ -510,12 +519,89 @@ function tickAt(t, s, w, stamped) {
 		busy: live.reduce((n, r) => n + r.workers, 0),
 		mem: s.mem.get(Math.floor(t / 60_000)),
 		win: s.windows.get(Math.floor(t / 60_000)),
-		waiting: s.waiters.filter((e) => e.st <= t && t < e.en),
+		waiting,
 		admitting: s.admitting,
 		era: s.eraOf(t),
+		capped:
+			t >= (w.capFrom ?? SESSION_CAP_FROM)
+				? cappedAt(t, waiting, s.waiters, s.cap)
+				: new Set(),
+		enteredAt: s.cap.enteredAt,
 	};
 	return { ...tick, climbStamped: climbStampsAt(tick, w, stamped) };
 }
+
+/** @param {Waiter} e */
+const queueOf = (e) => (e.kind === "tsc" ? "tsc" : "suite");
+
+/**
+ * @param {number} t
+ * @param {Waiter[]} waiting
+ * @param {Waiter[]} waiters
+ * @param {CapState} cap
+ * @returns {Set<Waiter>}
+ */
+function cappedAt(t, waiting, waiters, { everCapped, enteredAt }) {
+	const holding = placesRunning(t, waiters);
+	/** @type {Set<Waiter>} */
+	const capped = new Set();
+	for (const [key, group] of groupBy(
+		waiting.filter((e) => e.session),
+		capKeyOf,
+	)) {
+		const { entered, over } = splitPlaces(
+			holding.get(key) ?? 0,
+			group,
+			(e) => e.st,
+		);
+		for (const e of over) {
+			capped.add(e);
+			everCapped.add(e);
+		}
+		for (const e of entered)
+			if (everCapped.has(e) && !enteredAt.has(e)) enteredAt.set(e, t);
+	}
+	return capped;
+}
+
+/** @param {Waiter} e */
+const capKeyOf = (e) => `${queueOf(e)}\0${e.session}`;
+
+/**
+ * @param {number} t
+ * @param {Waiter[]} waiters
+ * @returns {Map<string, number>}
+ */
+function placesRunning(t, waiters) {
+	/** @type {Map<string, number>} */
+	const holding = new Map();
+	for (const e of waiters)
+		if (e.session && e.run && e.run.st <= t && t < e.run.en)
+			add(holding, capKeyOf(e), 1);
+	return holding;
+}
+
+/**
+ * @template T
+ * @param {T[]} items
+ * @param {(item: T) => string} keyOf
+ * @returns {Map<string, T[]>}
+ */
+function groupBy(items, keyOf) {
+	/** @type {Map<string, T[]>} */
+	const groups = new Map();
+	for (const item of items) {
+		const key = keyOf(item);
+		groups.set(key, [...(groups.get(key) ?? []), item]);
+	}
+	return groups;
+}
+
+/**
+ * @param {Waiter} e
+ * @param {GateTick} tick
+ */
+const queueTimeOf = (e, tick) => tick.enteredAt.get(e) ?? e.st;
 
 /**
  * @param {GateTick} tick
@@ -537,7 +623,10 @@ function climbStampsAt(tick, w, stamped) {
 		isClimbKept(limbOf(e), isCharged(e));
 	return new Set(
 		tick.waiting.filter(
-			(e) => !isCountHeld(e, tick) && (isClimbHeld(e, tick, w) || isKept(e)),
+			(e) =>
+				!tick.capped.has(e) &&
+				!isCountHeld(e, tick) &&
+				(isClimbHeld(e, tick, w) || isKept(e)),
 		),
 	);
 }
@@ -678,9 +767,15 @@ function turnReasonsOf(e, tick, w) {
 	const tsc = e.kind === "tsc";
 	// #3163
 	const ahead = tick.waiting
-		.filter((o) => o !== e && o.st < e.st && (o.kind === "tsc") === tsc)
+		.filter(
+			(o) =>
+				o !== e &&
+				!tick.capped.has(o) &&
+				queueTimeOf(o, tick) < queueTimeOf(e, tick) &&
+				(o.kind === "tsc") === tsc,
+		)
 		.map((o) => ({
-			at: o.st,
+			at: queueTimeOf(o, tick),
 			part: !tsc && !o.whole,
 			kind: laneOf(o),
 			spawned: false,
@@ -701,7 +796,9 @@ function turnReasonsOf(e, tick, w) {
 		tick.t >= PEER_CLIMB_FROM &&
 		tick.waiting.some(
 			(o) =>
-				o.st < e.st && (o.kind === "tsc") !== tsc && tick.climbStamped.has(o),
+				queueTimeOf(o, tick) < queueTimeOf(e, tick) &&
+				(o.kind === "tsc") !== tsc &&
+				tick.climbStamped.has(o),
 		);
 	const admissionOpen = tick.admitting.some(
 		(o) => o.pid !== e.pid && o.en <= tick.t && tick.t < o.en + o.gap * 1000,
@@ -734,6 +831,7 @@ const laneOf = (e) => e.lane ?? partLaneOf(partKindOf(e.kind));
  * @param {Window} w
  */
 function limbsOf(e, tick, w) {
+	if (tick.capped.has(e)) return ["session-cap"];
 	const memory = isMemoryHeld(e, tick, w);
 	const climb = isClimbHeld(e, tick, w);
 	const windows = isWindowsHeld(e, tick);
@@ -904,6 +1002,7 @@ function replay(logs, w) {
 		mem: logs.mem,
 		windows: logs.windows,
 		eraOf,
+		cap: { everCapped: new Set(), enteredAt: new Map() },
 	};
 	/** @type {Set<Waiter>} */
 	let stamped = new Set();
@@ -927,7 +1026,8 @@ function replay(logs, w) {
 	);
 	const passing = counts.filter((n) => n > 0);
 	return {
-		peers: recordedPeers(waiters),
+		peers: recordedHolds(waiters, "peerS", "peer"),
+		capHolds: recordedHolds(waiters, "sessionCapS", "session-cap"),
 		exits: touching.length,
 		skipped: touching.length - all.length,
 		queued: all.length,
@@ -968,13 +1068,17 @@ function replay(logs, w) {
 	};
 }
 
-/** @param {Waiter[]} waiters */
-function recordedPeers(waiters) {
+/**
+ * @param {Waiter[]} waiters
+ * @param {"peerS" | "sessionCapS"} field
+ * @param {import("./queue-exit-log.js").HeldLimb} limb
+ */
+function recordedHolds(waiters, field, limb) {
 	/** @param {Waiter[]} ws */
 	const sum = (ws) => ({
-		held: ws.filter((e) => (e.peerS ?? 0) > 0).length,
-		heldS: ws.reduce((n, e) => n + (e.peerS ?? 0), 0),
-		atBound: ws.filter((e) => e.limb === "peer").length,
+		held: ws.filter((e) => (e[field] ?? 0) > 0).length,
+		heldS: ws.reduce((n, e) => n + (e[field] ?? 0), 0),
+		atBound: ws.filter((e) => e.limb === limb).length,
 	});
 	return {
 		tsc: sum(waiters.filter((e) => e.kind === "tsc")),
@@ -1032,6 +1136,10 @@ function render(r, w) {
 			const p = r.peers[k];
 			return `Recorded peer holds, ${k} waits: ${p.held} held on an older waiter in the other queue the climb charge holds, ${hours(p.heldS)} h, ${p.atBound} still held at the queue's wait bound (#4765).`;
 		}),
+		.../** @type {const} */ (["tsc", "suite"]).map((k) => {
+			const p = r.capHolds[k];
+			return `Recorded session-cap holds, ${k} waits: ${p.held} held behind their own session's ${SESSION_PLACES} places, ${hours(p.heldS)} h, ${p.atBound} refused at the queue's wait bound (#5595).`;
+		}),
 		"",
 		`Memory-held part waits, the sample PART_PASS_AGE_MS is derived from (#3361): ${held.length} opened part waits the memory limb held at some tick, wait p50 ${quantileOf(held, 0.5)} s, p90 ${quantileOf(held, 0.9)} s, max ${held.at(-1) ?? 0} s, against a bound of ${PART_PASS_AGE_MS / 1000} s now.`,
 		"",
@@ -1087,6 +1195,7 @@ function render(r, w) {
 		"",
 		`- The memory limb is a lower bound: memwatch wrote a block in ${r.memMinutes} of the window's ${r.minutes} minutes, only above its used-memory or CPU threshold (${docPath("environment.md")} §4), and a minute with none counts as memory open.`,
 		"- The climb limb tries each tick against the highest charge the wait's exit line recorded, so it can overstate a wait whose charge fell. A minute with no memwatch block counts as climb open.",
+		`- The session-cap limb holds a session's waiters past its first ${SESSION_PLACES} in a queue, less its matched runs still running there, from ${new Date(w.capFrom ?? SESSION_CAP_FROM).toISOString()}; it moves no wait in time, so a waiter it lets ahead still ends when it did, and the waits it held still started when they did. A \`tsc\` run, or a suite run matched to no wait, holds no place, so the limb is a lower bound.`,
 		"- The peer-climb limb reads the `climbHeld` stamp off the climb limb, and keeps it while a launch of the other queue runs (from #4799's commit); it inherits the climb limb's overstatement.",
 		"- The windows limb is a lower bound too: it charges a waiter no climb, and a minute with no fresh Windows reading in memwatch's minute log counts as open.",
 		"- The tsc-count limb is a lower bound too: it reads a `tsc` off memwatch's process lines, which list the top few by RSS and by CPU and cut each command short: a 7.0 `tsc` listed by CPU alone, cut at its `node_modules/`, reads as no `tsc`.",

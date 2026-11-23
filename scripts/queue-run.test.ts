@@ -128,6 +128,20 @@ describe("queue-run.js", () => {
 		]);
 	});
 
+	it("stamps its marker with its session, the place the per-session cap counts (#5595)", async () => {
+		vi.stubEnv("WFC_LANDER_RUN", "");
+		const f = fixture();
+		const done = main(["--", "node", "--test", "a.test.js"], f.options());
+		await tick();
+		const [marker] = f.readMarkers();
+		const { session } = JSON.parse(
+			fs.readFileSync(path.join(f.dir, marker as string), "utf8"),
+		);
+		f.spawned[0]?.child.emit("exit", 0, null);
+		await done;
+		expect(session).toBe("s1");
+	});
+
 	it("stamps its marker with its runner's measured peak (#4648)", async () => {
 		const f = fixture();
 		const chargeOf = async (words: string[]) => {
@@ -1243,7 +1257,7 @@ describe("queue-run.js", () => {
 					expect(f.readMarkers()).toEqual([]);
 					expect(out).toEqual([]);
 					expect(f.err.join("")).toBe(
-						"queue-run.js: the type-check slot is held, by a `tsc` running, a suite starting (#3203) or MemAvailable, less what a climbing suite has yet to draw (#3416), under its rung — not run, as WFC_TSC_NO_WAIT asks (#3278)\n",
+						"queue-run.js: the type-check slot is held, by a `tsc` running, a suite starting (#3203), MemAvailable, less what a climbing suite has yet to draw (#3416), under its rung, or this session's own two places in the queue (#5595) — not run, as WFC_TSC_NO_WAIT asks (#3278)\n",
 					);
 				},
 			);
@@ -1690,6 +1704,16 @@ describe("queue-run.js", () => {
 				expect(earlier.f.spawned).toHaveLength(1);
 			});
 
+			it("joins a run the per-session cap holds, by its ask, not its entry (#5595)", async () => {
+				const h = hub();
+				h.runMarker(261, 1000, { enteredAt: 9000 });
+				h.clock.now = 2000;
+				h.request(262);
+				await h.poll();
+				expect(h.f.spawned).toEqual([]);
+				expect(h.f.readMarkers()).toEqual(["wfc-suite-queue-261.json"]);
+			});
+
 			it("never joins a run admitted and not yet stamped spawned", async () => {
 				const h = hub();
 				h.runMarker(241, 500, { admitted: true });
@@ -1742,7 +1766,7 @@ describe("queue-run.js", () => {
 				h.f.spawned[0].child.emit("spawn");
 				vi.stubEnv("WFC_TSC_NO_WAIT", "1");
 				h.clock.now = 3000;
-				const c = h.request(163);
+				const c = h.request(163, { sessionId: "s2" });
 				await h.poll();
 				expect(h.f.spawned).toHaveLength(2);
 				expect(c.err).toEqual([]);

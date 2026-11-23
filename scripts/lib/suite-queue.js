@@ -35,6 +35,7 @@ const { peakClause } = require("./part-suite-peak.js");
 const { TSC_QUEUE_NAME, isTscRunner, runnerPeakMb } = require("./tsc-slot.js");
 const { describeWindowsHold } = require("./windows-memory.js");
 const { sweepJoinFiles } = require("./tsc-join-files.js");
+const { isLanderRun } = require("./session-id.js");
 
 /**
  * @typedef {{ mb?: number, rungMb?: number, climbMb?: number, busy?: number, ladderMb?: number, peak?: import("./part-suite-peak.js").PeakCharge }} MemoryReading
@@ -43,12 +44,14 @@ const { sweepJoinFiles } = require("./tsc-join-files.js");
  */
 /**
  * @typedef {{ limb: "fifo" | "claim", pids: number[] } | { limb: "admitted" | "peer", holders: { pid: number, queue: string }[] }} TurnHold
+ * @typedef {{ pid: number, kind: string, state: "running" | "admitted" | "waiting" }} SessionPlace
+ * @typedef {{ limb: "session-cap", places: SessionPlace[] }} SessionCapHold
  */
 /** @typedef {Exclude<import("./queue-exit-log.js").QueueExitReason, "killed">} WaitExitReason */
 /** @typedef {"run"|"left"|"refused"} WaitOutcome */
 /** @typedef {import("./queue-exit-log.js").HeldLimb} HeldLimb */
 /**
- * @typedef {{ limb?: HeldLimb, climbMb?: number, peerS?: number, windowsReleased?: true, admission?: import("./part-suite-peak.js").PartAdmission }} WaitHold
+ * @typedef {{ limb?: HeldLimb, climbMb?: number, peerS?: number, sessionCapS?: number, windowsReleased?: true, admission?: import("./part-suite-peak.js").PartAdmission }} WaitHold
  */
 /** @typedef {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number, onUnread?: (dir: string, error: unknown) => void, ps?: typeof readPs, parentOf?: (pid: number) => number, carriedOf?: typeof readCarriedWeightOf, rungQueue?: string | null }} ClimbOptions */
 /** @typedef {"all" | "off-rung"} ClimbScope */
@@ -72,7 +75,7 @@ const MARKER_STAMPS = [
  * @typedef {import("./tsc-join-files.js").TscHolder} TscHolder
  * @typedef {import("./part-suite-peak.js").PartKind} PartKind
  * @typedef {{ chargeMb?: number }} SpawnCharge
- * @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, memoryRungMb?: number, part?: boolean, kind?: PartKind, files?: number, spawned?: boolean } & Partial<SeatHolder> & { [K in MarkerStamp]?: boolean }} QueueRecord
+ * @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, memoryRungMb?: number, part?: boolean, kind?: PartKind, files?: number, spawned?: boolean, enteredAt?: number } & Partial<SeatHolder> & { [K in MarkerStamp]?: boolean }} QueueRecord
  */
 /** @typedef {"admitted"|"behind"|"ahead"} Admission */
 /**
@@ -136,11 +139,15 @@ function readPeerMarkers(
 	keep,
 	{ queueFs = fs, alive = pidAlive } = {},
 ) {
-	return peerQueueDirs(queueDir).flatMap((dir) =>
-		readMarkers(dir, queueFs)
-			.markers.map((m) => ({ ...m.record, queue: path.basename(dir) }))
-			.filter((r) => keep(r) && !isMarkerStale(r, { alive })),
-	);
+	return peerQueueDirs(queueDir).flatMap((dir) => {
+		const live = readMarkers(dir, queueFs)
+			.markers.map((m) => m.record)
+			.filter((r) => !isMarkerStale(r, { alive }));
+		const capped = sessionCapped(live);
+		return live
+			.filter((r) => keep(r) && !capped.has(r.pid))
+			.map((r) => ({ ...r, queue: path.basename(dir) }));
+	});
 }
 
 /**
@@ -456,7 +463,8 @@ function readMarkers(dir, fsImpl = fs) {
 }
 
 /**
- * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, kind?: PartKind, holder?: SeatHolder | TscHolder }} [options]
+ * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, kind?: PartKind, holder?: SeatHolder | TscHolder, session?: string | null, env?: NodeJS.ProcessEnv }} [options]
+ * @returns {{ file: string, placeSession: string | null }}
  */
 function queueJoin({
 	queueDir = defaultQueueDir(),
@@ -468,8 +476,11 @@ function queueJoin({
 	weight,
 	kind,
 	holder,
+	session,
+	env = process.env,
 } = {}) {
 	const part = weight ? weighCarried(weight).part : false;
+	const placeSession = placeSessionOf({ session, holder, env });
 	const files = part ? weight?.resolvedFiles : undefined;
 	const file = path.join(queueDir, `${QUEUE_PREFIX}${pid}.json`);
 	try {
@@ -486,17 +497,18 @@ function queueJoin({
 				...(part && kind ? { kind } : {}),
 				...(typeof files === "number" ? { files } : {}),
 				...holder,
+				session: placeSession ?? undefined,
 			}),
 		);
-		return file;
+		return { file, placeSession };
 	} catch {
-		return "";
+		return { file: "", placeSession: null };
 	}
 }
 
 /**
  * @param {string} file
- * @param {{ spawned?: true, memoryRungMb?: number } & { [K in MarkerStamp]?: boolean }} fields
+ * @param {{ spawned?: true, memoryRungMb?: number, enteredAt?: number } & { [K in MarkerStamp]?: boolean }} fields
  */
 function stampMarker(file, fields, { queueFs = fs } = {}) {
 	if (!file) return;
@@ -510,12 +522,122 @@ function stampMarker(file, fields, { queueFs = fs } = {}) {
 	});
 }
 
+/** @typedef {{ pid: number, at: number, enteredAt?: number }} QueuePlace */
+
+/** @param {QueuePlace} r */
+const queuedAt = (r) => r.enteredAt ?? r.at;
+
 /**
- * @param {{ pid: number, at: number }} a
- * @param {{ pid: number, at: number }} b
+ * @param {QueuePlace} a
+ * @param {QueuePlace} b
  */
 function joinedBefore(a, b) {
-	return a.at < b.at || (a.at === b.at && a.pid < b.pid);
+	const x = queuedAt(a);
+	const y = queuedAt(b);
+	return x < y || (x === y && a.pid < b.pid);
+}
+
+// #5594 measured: in #5592's window no session outside the eight largest held more than 2 waits at once in either queue
+const SESSION_PLACES = 2;
+
+/**
+ * @param {{ session?: string | null, holder?: SeatHolder | TscHolder, env?: NodeJS.ProcessEnv }} join
+ * @returns {string | null}
+ */
+function placeSessionOf({ session, holder, env = process.env }) {
+	if (isLanderRun(env)) return null;
+	return session || holder?.session || null;
+}
+
+/** @param {QueueRecord} r */
+const hasPlace = (r) => r.admitted === true || r.spawned === true;
+
+/**
+ * @template {{ pid: number }} T
+ * @param {number} held
+ * @param {T[]} waiting
+ * @param {(w: T) => number} joinedAt
+ * @returns {{ entered: T[], over: T[] }}
+ */
+function splitPlaces(held, waiting, joinedAt) {
+	const ordered = [...waiting].sort(
+		(a, b) => joinedAt(a) - joinedAt(b) || a.pid - b.pid,
+	);
+	const free = Math.max(0, SESSION_PLACES - held);
+	return { entered: ordered.slice(0, free), over: ordered.slice(free) };
+}
+
+/**
+ * @param {QueueRecord[]} live
+ * @returns {Map<number, QueueRecord[]>}
+ */
+function sessionCapped(live) {
+	/** @type {Map<string, QueueRecord[]>} */
+	const bySession = new Map();
+	for (const r of live)
+		if (typeof r.session === "string" && r.session)
+			bySession.set(r.session, [...(bySession.get(r.session) ?? []), r]);
+	/** @type {Map<number, QueueRecord[]>} */
+	const capped = new Map();
+	for (const group of bySession.values()) {
+		const holding = group.filter(hasPlace);
+		const { entered, over } = splitPlaces(
+			holding.length,
+			group.filter((r) => !hasPlace(r)),
+			(r) => r.at,
+		);
+		const places = [...holding, ...entered];
+		for (const r of over) capped.set(r.pid, places);
+	}
+	return capped;
+}
+
+/**
+ * @param {QueueRecord} r
+ * @param {string} queue
+ * @returns {SessionPlace}
+ */
+function placeOf(r, queue) {
+	return { pid: r.pid, kind: placeKindOf(r, queue), state: placeStateOf(r) };
+}
+
+/** @param {QueueRecord} r @param {string} queue */
+function placeKindOf(r, queue) {
+	if (queue === TSC_QUEUE_NAME) return "tsc";
+	return r.role === GATE_ROLE ? "gate seat" : waiterOf(r);
+}
+
+/**
+ * @param {QueueRecord} r
+ * @returns {SessionPlace["state"]}
+ */
+function placeStateOf(r) {
+	if (r.spawned) return "running";
+	return r.admitted ? "admitted" : "waiting";
+}
+
+/**
+ * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: (pid: number) => boolean }} [options]
+ * @returns {SessionCapHold | null}
+ */
+function readSessionCap({
+	queueDir = defaultQueueDir(),
+	queueFs = fs,
+	pid = process.pid,
+	alive = pidAlive,
+} = {}) {
+	const { markers, error } = readMarkers(queueDir, queueFs);
+	if (error) return null;
+	const live = markers
+		.map((m) => m.record)
+		.filter((r) => r.pid === pid || !isMarkerStale(r, { alive }));
+	const places = sessionCapped(live).get(pid);
+	if (!places) return null;
+	const queue = path.basename(queueDir);
+	return {
+		limb: "session-cap",
+		places: places.map((r) => placeOf(r, queue)),
+	};
 }
 
 /**
@@ -570,12 +692,14 @@ function buildHoldListeners(listen) {
 
 /**
  * @param {string} file
- * @param {Parameters<typeof queueAdmit>[1] & Parameters<typeof readPeerClimbMb>[1]} [options]
- * @returns {{ admit: () => Admission, climbMb: () => number, onClimbHeld: (climbMb: number) => void, onPeerHeld: (secs: number) => void, onMemoryRung: (rungMb: number) => void, polledHold: () => WaitHold } & Required<HoldListeners>}
+ * @param {Parameters<typeof queueAdmit>[1] & Parameters<typeof readPeerClimbMb>[1] & { clock?: () => number, placed?: boolean }} [options]
+ * @returns {{ admit: () => Admission, climbMb: () => number, sessionCap: () => SessionCapHold | null, onClimbHeld: (climbMb: number) => void, onPeerHeld: (secs: number) => void, onSessionCapHeld: (secs: number) => void, onMemoryRung: (rungMb: number) => void, polledHold: () => WaitHold } & Required<HoldListeners>}
  */
 function queueStamps(file, options = {}) {
 	let climbHeldMb = 0;
 	let peerS = 0;
+	let sessionCapS = 0;
+	let capped = false;
 	return {
 		onClimbHeld: (climbMb) => {
 			climbHeldMb = climbMb;
@@ -583,11 +707,29 @@ function queueStamps(file, options = {}) {
 		onPeerHeld: (secs) => {
 			peerS = secs;
 		},
+		onSessionCapHeld: (secs) => {
+			sessionCapS = secs;
+		},
+		sessionCap: () => {
+			if (!file || options.placed !== true) return null;
+			const hold = readSessionCap(options);
+			if (hold) capped = true;
+			else if (capped) {
+				capped = false;
+				stampMarker(
+					file,
+					{ enteredAt: (options.clock ?? Date.now)() },
+					options,
+				);
+			}
+			return hold;
+		},
 		onMemoryRung: (rungMb) =>
 			stampMarker(file, { memoryRungMb: rungMb }, options),
 		polledHold: () => ({
 			...(climbHeldMb > 0 ? { climbMb: climbHeldMb } : {}),
 			...(peerS > 0 ? { peerS } : {}),
+			...(sessionCapS > 0 ? { sessionCapS } : {}),
 		}),
 		admit: () => queueAdmit(file, options),
 		...buildHoldListeners(
@@ -755,7 +897,8 @@ function readTurn({
 		pid,
 		at: Number.POSITIVE_INFINITY,
 	};
-	const ahead = live.filter((r) => joinedBefore(r, mine));
+	const capped = sessionCapped(live);
+	const ahead = live.filter((r) => joinedBefore(r, mine) && !capped.has(r.pid));
 	const admissions = openAdmissions(live, queueDir, {
 		pid,
 		queueFs,
@@ -800,11 +943,12 @@ function readSlotPlace({
 	const { markers, error } = readMarkers(queueDir, queueFs);
 	if (error)
 		return { position: null, holder: null, unread: caught(error).message };
-	const whole = markers
+	const live = markers
 		.map((m) => m.record)
-		.filter(
-			(r) => r.part !== true && (r.pid === pid || !isMarkerStale(r, { alive })),
-		)
+		.filter((r) => r.pid === pid || !isMarkerStale(r, { alive }));
+	const capped = sessionCapped(live);
+	const whole = live
+		.filter((r) => r.part !== true && (r.pid === pid || !capped.has(r.pid)))
 		.sort((a, b) => Number(joinedBefore(b, a)) - Number(joinedBefore(a, b)));
 	const mine = whole.find((r) => r.pid === pid) ?? {
 		pid,
@@ -1018,7 +1162,7 @@ function gateDenies(
 /**
  * @param {GateDenial | null} denial
  * @param {TurnHold | undefined} turnHold
- * @returns {Exclude<HeldLimb, "memory" | "windows">}
+ * @returns {Exclude<HeldLimb, "memory" | "windows" | "session-cap">}
  */
 function heldLimb(denial, turnHold) {
 	if (denial) return "count";
@@ -1035,6 +1179,7 @@ const LIMB_NAMES = {
 	claim: "an older touched run's first claim on memory",
 	turn: "the queue's turn",
 	yielded: "yielding to a launch admitted on the same poll",
+	"session-cap": "this session's own places in the queue",
 };
 
 const HELD_LINE = {
@@ -1044,7 +1189,7 @@ const HELD_LINE = {
 };
 
 /**
- * @typedef {GateDenial | TurnHold | { limb: "turn" } | { limb: "yielded" }} WaitLimb
+ * @typedef {GateDenial | TurnHold | SessionCapHold | { limb: "turn" } | { limb: "yielded" }} WaitLimb
  */
 
 /** @param {(number | null)[]} pids */
@@ -1057,7 +1202,26 @@ function limbHolder(hold) {
 	if (hold.limb === "fifo" || hold.limb === "claim") return pidList(hold.pids);
 	if (hold.limb === "admitted" || hold.limb === "peer")
 		return `, ${hold.holders.map(({ pid, queue }) => `PID ${pid} in ${queue}`).join(", ")}`;
+	if (hold.limb === "session-cap") return `, ${placeList(hold.places)}`;
 	return "";
+}
+
+/** @param {SessionPlace[]} places */
+const placeList = (places) =>
+	places
+		.map(({ pid, kind, state }) => `PID ${pid} (${kind}, ${state})`)
+		.join(", ");
+
+/**
+ * @param {string} label
+ * @param {number} secs
+ * @param {number} timeoutMs
+ * @param {SessionCapHold} hold
+ * @returns {string}
+ */
+function sessionCapRefusal(label, secs, timeoutMs, { places }) {
+	const n = places.length;
+	return `${label}: still behind this session's own ${n} place${n === 1 ? "" : "s"} in the queue after ${secs}s, the queue's ${Math.round(timeoutMs / 60_000)}-minute wait bound — refused, not run: one session holds at most ${SESSION_PLACES} places in each queue, its subagents' runs among them (#5595). Its places: ${placeList(places)}. Run it again once one of them finishes.\n`;
 }
 
 /** @param {MemoryReading} hold */
@@ -1264,7 +1428,7 @@ function changesOnly(listener) {
 }
 
 /**
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, onMemoryRung?: (rungMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, monoClock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined, waitedMs?: number } & HoldListeners} options
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, sessionCap?: () => SessionCapHold | null, onSessionCapHeld?: (secs: number) => void, onMemoryRung?: (rungMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, monoClock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined, waitedMs?: number } & HoldListeners} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
@@ -1289,6 +1453,8 @@ function waitForGate({
 	part = false,
 	onClimbHeld = noop,
 	onPeerHeld = noop,
+	sessionCap = () => null,
+	onSessionCapHeld = noop,
 	onMemoryRung = noop,
 	onExit = noop,
 	monoClock: clock = monotonicMs,
@@ -1354,6 +1520,7 @@ function waitForGate({
 	};
 	const trace = limbTrace(clock, started);
 	const peerHeldS = () => Math.round(trace.heldMs("peer") / 1000);
+	const capHeldS = () => Math.round(trace.heldMs("session-cap") / 1000);
 	const breakdown = () => (traceLimbs ? trace.breakdown(secs()) : "");
 	const sayBreakdown = () => {
 		const spent = breakdown();
@@ -1362,10 +1529,12 @@ function waitForGate({
 	/** @param {WaitExitReason} reason @param {WaitOutcome} outcome @param {HeldLimb} [limb] */
 	const exit = (reason, outcome, limb) => {
 		const peerS = peerHeldS();
+		const sessionCapS = capHeldS();
 		const heldBy = {
 			...(limb ? { limb } : {}),
 			...(climbHeldMb > 0 ? { climbMb: climbHeldMb } : {}),
 			...(peerS > 0 ? { peerS } : {}),
+			...(sessionCapS > 0 ? { sessionCapS } : {}),
 			...(windowsReleased
 				? { windowsReleased: /** @type {const} */ (true) }
 				: {}),
@@ -1389,15 +1558,20 @@ function waitForGate({
 		held = false;
 		return sleepFn(pollMs).then(step);
 	};
+	/** @param {WaitLimb | null} limb @param {WaitLimb[]} also */
+	const report = (limb, also) => {
+		const line = trace.see(limb, also);
+		onPeerHeld(peerHeldS());
+		onSessionCapHeld(capHeldS());
+		if (!traceLimbs || !line) return;
+		announce();
+		out.write(`${label}: after ${secs()}s, held on ${line}\n`);
+	};
 	/** @param {GateDenial | null} denial @param {boolean} open */
 	const see = (denial, open) => {
 		const also =
 			traceLimbs && denial ? readAlsoHeld(denial, turn, turnHold) : [];
-		const line = trace.see(waitLimb(denial, open, turnHold), also);
-		onPeerHeld(peerHeldS());
-		if (!traceLimbs || !line) return;
-		announce();
-		out.write(`${label}: after ${secs()}s, held on ${line}\n`);
+		report(waitLimb(denial, open, turnHold), also);
 	};
 	/**
 	 * @param {() => Promise<WaitOutcome>} launch
@@ -1484,15 +1658,7 @@ function waitForGate({
 		hear.onClimbStamp(climbKept);
 	};
 	/** @returns {Promise<WaitOutcome>} */
-	const step = () => {
-		const charged = climbMb();
-		const denial = releaseWindows(gate(charged, hearAdmission));
-		stampDenial(denial, charged);
-		const open = !denial && turn();
-		see(denial, open);
-		if (!open && clock() - started >= timeoutMs)
-			return part ? proceed(denial, false) : refuse(denial);
-		if (open) return proceed(denial, true);
+	const leaveOrWait = () => {
 		const emptied = leave();
 		if (emptied !== null) {
 			out.write(
@@ -1501,6 +1667,28 @@ function waitForGate({
 			return exit("left", "left");
 		}
 		return wait();
+	};
+	/** @param {SessionCapHold} capHold @returns {Promise<WaitOutcome>} */
+	const heldOnCap = (capHold) => {
+		report(capHold, []);
+		if (clock() - started < timeoutMs) return leaveOrWait();
+		sayBreakdown();
+		out.write(sessionCapRefusal(label, secs(), timeoutMs, capHold));
+		return exit("refused", "refused", "session-cap");
+	};
+	/** @returns {Promise<WaitOutcome>} */
+	const step = () => {
+		const capHold = sessionCap();
+		if (capHold) return heldOnCap(capHold);
+		const charged = climbMb();
+		const denial = releaseWindows(gate(charged, hearAdmission));
+		stampDenial(denial, charged);
+		const open = !denial && turn();
+		see(denial, open);
+		if (!open && clock() - started >= timeoutMs)
+			return part ? proceed(denial, false) : refuse(denial);
+		if (open) return proceed(denial, true);
+		return leaveOrWait();
 	};
 	return step();
 }
@@ -1555,7 +1743,7 @@ function releaseOnSignal(host, signal, code) {
 }
 
 /**
- * @param {{ queue?: QueueOptions, join?: false | { role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, kind?: PartKind, holder?: SeatHolder | TscHolder, clock?: () => number }, waitedMs?: number, turn?: () => boolean, logExit?: (reason: import("./queue-exit-log.js").QueueExitReason, waitMs: number, extra?: object) => void, signals?: true | { emitter?: SignalEmitter, exit?: (code: number) => void, onSignal?: (signal: NodeJS.Signals, code: number) => boolean } }} [options]
+ * @param {{ queue?: QueueOptions, join?: false | { role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, kind?: PartKind, holder?: SeatHolder | TscHolder, session?: string | null, env?: NodeJS.ProcessEnv, clock?: () => number }, waitedMs?: number, turn?: () => boolean, logExit?: (reason: import("./queue-exit-log.js").QueueExitReason, waitMs: number, extra?: object) => void, signals?: true | { emitter?: SignalEmitter, exit?: (code: number) => void, onSignal?: (signal: NodeJS.Signals, code: number) => boolean } }} [options]
  */
 function queueSeat({
 	queue = {},
@@ -1565,8 +1753,14 @@ function queueSeat({
 	logExit,
 	signals,
 } = {}) {
-	const ticket = join === false ? "" : queueJoin({ ...queue, ...join });
-	const stamps = queueStamps(ticket, queue);
+	const { file: ticket, placeSession } =
+		join === false
+			? { file: "", placeSession: null }
+			: queueJoin({ ...queue, ...join });
+	const stamps = queueStamps(ticket, {
+		...queue,
+		placed: placeSession !== null,
+	});
 	const passing = turn ? null : passingTurn(queue);
 	/** @type {(reason: WaitExitReason, heldBy?: WaitHold) => object} */
 	const exitFields = passing
@@ -1705,7 +1899,6 @@ function readGateSeats({ queueDir, parentOf = readParentOf } = {}) {
 
 module.exports = {
 	QUEUE_TIMEOUT_MS,
-	joinedBefore,
 	readGateSeats,
 	readLiveGateSeats,
 	PART_PASS_AGE_MS,
@@ -1715,6 +1908,8 @@ module.exports = {
 	waiterOf,
 	isClimbKept,
 	SEAT_ENV,
+	SESSION_PLACES,
+	splitPlaces,
 	heldMarker,
 	heldSeat,
 	readSlotPlace,

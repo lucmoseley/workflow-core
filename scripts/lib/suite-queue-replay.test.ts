@@ -35,6 +35,7 @@ interface Waiter {
 	climbMb?: number;
 	chargeMb?: number;
 	peerS?: number;
+	sessionCapS?: number;
 	limb?: HeldLimb;
 	joined?: { pid: number; session: string | null };
 }
@@ -96,6 +97,7 @@ function replayOf({
 	])[],
 	until = 60,
 	eras = [] as { label: string; from: number }[],
+	capFrom = undefined as number | undefined,
 } = {}) {
 	return replay(
 		{
@@ -105,7 +107,10 @@ function replayOf({
 			windows: new Map(),
 			unread: { absent: [], unparsed: 0 },
 		},
-		window(until, eras),
+		{
+			...window(until, eras),
+			...(capFrom === undefined ? {} : { capFrom: T0 + capFrom * MIN }),
+		},
 	);
 }
 const hoursOf = (m: Map<string, number>) => Object.fromEntries(m);
@@ -268,7 +273,7 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 			"| tsc-count | tsc-memory | climb | windows | fifo-whole | fifo-part | touched-claim | tsc-fifo |",
 		);
 		expect(out).toContain(
-			"| window start | 0.07 | 0.12 | 0.07 | — | 0.05 | — | — | — | — | — | — | — | — | — | — |",
+			"| window start | 0.07 | 0.12 | — | 0.07 | — | 0.05 | — | — | — | — | — | — | — | — | — | — |",
 		);
 	});
 
@@ -1074,5 +1079,109 @@ describe("reading the logs", () => {
 			until: st + 10 * MIN,
 		});
 		expect(logs.runs[0]).toMatchObject({ modulesRun: 4, modulesTotal: 600 });
+	});
+});
+
+describe("the session-cap limb, a session's waiters past its two places (#5595)", () => {
+	const Fan = "fan-out";
+	const started = (from: number) => [
+		{
+			from,
+			to: from,
+			reason: "opened",
+			kind: "touched",
+			session: Fan,
+			slotFree: true,
+		},
+	];
+	const places = (...spans: [number, number][]) => ({
+		waiters: spans.flatMap(([from]) => started(from)),
+		runs: spans.map(([from, to]) => ({
+			from,
+			to,
+			kind: "touched",
+			session: Fan,
+		})),
+	});
+	const wait = (from: number, session: string, kind = "touched") => ({
+		from,
+		to: 30,
+		kind,
+		session,
+		slotFree: true,
+	});
+	const limbs = (r: ReturnType<typeof replayOf>, session: string) =>
+		hoursOf(r.sessions.find((x) => x.session === session)?.limbs ?? new Map());
+
+	it("holds a third waiter out of the shared queue, so another session's later waiter opens ahead of it", () => {
+		const fan = places([0, 30], [0, 30]);
+		const given = {
+			waiters: [...fan.waiters, wait(1, Fan), wait(5, "other")],
+			runs: fan.runs,
+		};
+		const before = replayOf(given);
+		expect(limbs(before, "other")).toEqual({ "fifo-part": 1500 });
+		const after = replayOf({ ...given, capFrom: 0 });
+		expect(limbs(after, Fan)).toEqual({ "session-cap": 1740 });
+		expect(limbs(after, "other")).toEqual({ open: 1500 });
+		expect(render(after, { ...window(), capFrom: T0 })).toContain(
+			"| session-cap | 0.48 |",
+		);
+	});
+
+	it("lets it in at the back of the queue once a place frees", () => {
+		const fan = places([0, 10], [0, 30]);
+		const r = replayOf({
+			waiters: [...fan.waiters, wait(1, Fan), wait(5, "other")],
+			runs: fan.runs,
+			capFrom: 0,
+		});
+		expect(limbs(r, Fan)).toEqual({ "session-cap": 540, "fifo-part": 1200 });
+		expect(limbs(r, "other")).toEqual({ open: 1500 });
+	});
+
+	it("caps the `tsc` queue apart from the suite queue, and no waiter without a session", () => {
+		const fan = places([0, 30], [0, 30]);
+		const r = replayOf({
+			waiters: [
+				...fan.waiters,
+				wait(1, Fan, "tsc"),
+				...[1, 2, 3].map((from) => ({ ...wait(from, "x"), session: null })),
+			],
+			runs: fan.runs,
+			capFrom: 0,
+		});
+		expect(r.limb.has("session-cap")).toBe(false);
+	});
+
+	it("caps nothing before its commit", () => {
+		const fan = places([0, 30], [0, 30]);
+		const r = replayOf({
+			waiters: [...fan.waiters, wait(1, Fan)],
+			runs: fan.runs,
+		});
+		expect(r.limb.has("session-cap")).toBe(false);
+	});
+
+	it("tallies the exit lines' session-cap seconds and bound refusals apart from the model", () => {
+		const r = replayOf({
+			waiters: [
+				{
+					from: 0,
+					to: 40,
+					kind: "tsc",
+					sessionCapS: 2400,
+					limb: "session-cap",
+				},
+				{ from: 0, to: 5, slotFree: true, reason: "opened", sessionCapS: 120 },
+			],
+		});
+		expect(r.capHolds).toEqual({
+			tsc: { held: 1, heldS: 2400, atBound: 1 },
+			suite: { held: 1, heldS: 120, atBound: 0 },
+		});
+		expect(render(r, window())).toContain(
+			"Recorded session-cap holds, tsc waits: 1 held behind their own session's 2 places, 0.67 h, 1 refused at the queue's wait bound (#5595).",
+		);
 	});
 });

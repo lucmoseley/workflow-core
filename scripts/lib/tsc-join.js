@@ -7,7 +7,6 @@ const {
 	QUEUE_TIMEOUT_MS,
 	armSeatSignals,
 	isMarkerStale,
-	joinedBefore,
 	readMarkers,
 	readStartTimeOf,
 } = require("./suite-queue.js");
@@ -105,12 +104,18 @@ function findJoinable(j) {
 					r.pid !== j.pid &&
 					!hasStarted(r) &&
 					isSameKey(r, j.key) &&
-					joinedBefore(r, mine) &&
+					askedBefore(r, mine) &&
 					!stale(r),
 			)
-			.sort((a, b) => (joinedBefore(a.record, b.record) ? -1 : 1))[0] ?? null
+			.sort((a, b) => (askedBefore(a.record, b.record) ? -1 : 1))[0] ?? null
 	);
 }
+
+/**
+ * @param {{ pid: number, at: number }} a
+ * @param {{ pid: number, at: number }} b
+ */
+const askedBefore = (a, b) => a.at < b.at || (a.at === b.at && a.pid < b.pid);
 
 /** @param {import("./suite-queue.js").QueueRecord} r */
 const hasStarted = (r) => r.spawned === true || r.admitted === true;

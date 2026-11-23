@@ -182,7 +182,7 @@ Deriving it: `biome lint --only=<rule>` **cannot** verify a rule's config took e
 
 Baseline smells this repo's practice deliberately contradicts. **Do not raise these** — a documented repo standard overrides the baseline.
 
-- **Middle Man**, on `scripts/lib/gh.js`, which wraps the `gh` binary and adds little of its own. That is the point — *"they route every call through here and never name the binary themselves"* (`scripts/lib/gh.js:1-3`), which is what makes `WFC_GH` injection possible (base §N7).
+- **Middle Man**, on `scripts/lib/gh.js`, which wraps the `gh` binary and adds little of its own. That is the point — every call reaches the binary through `ghBinary()` (`scripts/lib/gh.js:90`), never by naming it, which is what makes `WFC_GH` injection possible (base §N7).
 - **Primitive Obsession**, on the three-value exit-code alphabet in `scripts/lib/check.js:8-13`. The integers are the process contract with CI and with the shell; wrapping them in a type would not survive the `process.exit` boundary.
 
 ## Out of scope

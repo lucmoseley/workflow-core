@@ -153,6 +153,30 @@ it.each([
 	},
 );
 
+it("models the per-session cap from --cap-from, a window before it landed read against it (#5595)", () => {
+	fs.writeFileSync(
+		path.join(dir, ".suite-queue-exits.jsonl"),
+		[1, 2, 3]
+			.map((pid) =>
+				JSON.stringify({
+					at: "2026-10-27T00:10:00.000Z",
+					waitS: 600 - pid,
+					reason: "refused",
+					kind: "named",
+					session: "a",
+					pid,
+					slotFree: true,
+				}),
+			)
+			.join("\n"),
+	);
+	expect(run("--since", SINCE, "--until", UNTIL).stdout).not.toContain(
+		"session-cap |",
+	);
+	const r = run("--since", SINCE, "--until", UNTIL, "--cap-from", SINCE);
+	expect(r.stdout).toContain("| session-cap | 0.16 |");
+});
+
 describe("refuses with exit 2 and the usage", () => {
 	it.each([
 		["no window", []],
@@ -161,6 +185,10 @@ describe("refuses with exit 2 and the usage", () => {
 		[
 			"an era with no label",
 			["--since", SINCE, "--until", UNTIL, "--era", `=${SINCE}`],
+		],
+		[
+			"an unreadable --cap-from",
+			["--since", SINCE, "--until", UNTIL, "--cap-from", "soon"],
 		],
 	])("on %s", (_, args) => {
 		const r = run(...args);

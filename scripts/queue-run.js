@@ -272,7 +272,7 @@ const tryOn = (gate) => (/** @type {Stamps} */ stamps) => {
  */
 function sayTscHeld(err) {
 	err.write(
-		`${LABEL}: the type-check slot is held, by a \`tsc\` running, a suite starting (#3203) or MemAvailable, less what a climbing suite has yet to draw (#3416), under its rung — not run, as ${TSC_NO_WAIT_ENV} asks (#3278)\n`,
+		`${LABEL}: the type-check slot is held, by a \`tsc\` running, a suite starting (#3203), MemAvailable, less what a climbing suite has yet to draw (#3416), under its rung, or this session's own two places in the queue (#5595) — not run, as ${TSC_NO_WAIT_ENV} asks (#3278)\n`,
 	);
 	return TSC_BUSY_EXIT;
 }
@@ -715,14 +715,15 @@ async function main(argv, options = {}) {
  * @returns {Promise<number>}
  */
 async function run(words, slot, options, err) {
+	const session =
+		options.sessionId === undefined ? idSeam.fromEnv() : options.sessionId;
 	const logExit = queueExitLogger({
 		file:
 			options.queueLog === undefined
 				? queueExitLogPath(hostRoot())
 				: options.queueLog,
 		kind: slot,
-		session:
-			options.sessionId === undefined ? idSeam.fromEnv() : options.sessionId,
+		session,
 		label: LABEL,
 		err,
 	});
@@ -739,7 +740,7 @@ async function run(words, slot, options, err) {
 	const seatAfter = (/** @type {number} */ waitedMs) => {
 		const made = queueSeat({
 			queue,
-			join: unseated ? false : join,
+			join: unseated ? false : { ...join, session },
 			waitedMs,
 			logExit: logged,
 			signals: {
