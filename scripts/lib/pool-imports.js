@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { runEnd } = require("./backtick-run.js");
 const { caught } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
 const { requiredGroup } = require("./regex-group.js");
@@ -10,16 +11,6 @@ const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const IMPORT = /(?:^|\s)@(\S+)/g;
 
 const NOT_A_FILE = new Set(["ENOENT", "ENOTDIR", "ENAMETOOLONG"]);
-
-/**
- * @param {string} line
- * @param {number} at
- */
-function runEnd(line, at) {
-	let end = at;
-	while (line[end] === "`") end++;
-	return end;
-}
 
 /**
  * @param {string} line

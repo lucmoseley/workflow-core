@@ -31,9 +31,11 @@ const jobStateIn = (jobDir) => path.join(jobDir, "state.json");
  */
 const jobStatePath = (seat, jobId) => jobStateIn(jobDirPath(seat, jobId));
 
+/** @typedef {{seat: string, jobId: string}} JobRef */
+
 /**
  * @param {string|undefined} jobDir
- * @returns {{seat: string, jobId: string}|null}
+ * @returns {JobRef|null}
  */
 function parseJobDir(jobDir) {
 	if (!jobDir) return null;
@@ -41,6 +43,15 @@ function parseJobDir(jobDir) {
 	const store = path.dirname(dir);
 	if (path.basename(store) !== "jobs") return null;
 	return { seat: path.dirname(store), jobId: path.basename(dir) };
+}
+
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {JobRef|null}
+ */
+function readJobRef(env) {
+	const jobDir = readJobDir(env);
+	return jobDir === null ? null : parseJobDir(jobDir);
 }
 
 /**
@@ -107,6 +118,7 @@ module.exports = {
 	jobDirPath,
 	parseJobDir,
 	readJobDir,
+	readJobRef,
 	jobStateIn,
 	jobStatePath,
 	isAbsentFault,

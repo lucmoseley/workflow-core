@@ -38,7 +38,7 @@ type Ports = import("./inject-tracker-docs.js").Ports;
 
 const NOW = 1_800_000_000;
 
-const FAKE_PORTS: Ports = {
+const FAKE_PORTS: Omit<Ports, "env"> = {
 	takesLabel: () => "",
 	reviewTier: () => "",
 	now: () => NOW,
@@ -48,22 +48,29 @@ const FAKE_PORTS: Ports = {
 const runRaw = (
 	payload: object | string,
 	env: Record<string, string> = {},
-	ports: Partial<Ports> = {},
+	{ env: portEnv = {}, ...ports }: Partial<Ports> = {},
 ): string =>
 	withStubbedEnv(
 		{
 			// #448
 			CLAUDE_PROJECT_DIR: ROOT,
 			WFC_OUTPUT_STYLE: undefined,
-			CLAUDE_CODE_SESSION_ID: "",
-			TMPDIR: SCRATCH,
 			CLAUDE_CONFIG_DIR: SCRATCH,
 			...env,
 		},
 		() =>
 			injectTrackerDocs(
 				typeof payload === "string" ? payload : JSON.stringify(payload),
-				{ ...FAKE_PORTS, ...ports },
+				{
+					...FAKE_PORTS,
+					...ports,
+					env: {
+						TMPDIR: SCRATCH,
+						CLAUDE_CONFIG_DIR: SCRATCH,
+						...env,
+						...portEnv,
+					},
+				},
 			),
 	);
 
@@ -137,7 +144,8 @@ describe("the priced-options rule (mantahostels#186)", () => {
 			);
 			const ctx = run(
 				{ hook_event_name: "SessionStart" },
-				{ CLAUDE_JOB_DIR: job },
+				{},
+				{ env: { CLAUDE_JOB_DIR: job } },
 			);
 			expect(ctx).toContain("PRICED OPTIONS");
 		} finally {
@@ -154,7 +162,7 @@ describe("the priced-options rule (mantahostels#186)", () => {
 					path.join(job, "state.json"),
 					JSON.stringify({ intent: "/wayfinder 186" }),
 				);
-				expect(runRaw(payload, { CLAUDE_JOB_DIR: job })).toContain(
+				expect(runRaw(payload, {}, { env: { CLAUDE_JOB_DIR: job } })).toContain(
 					"PRICED OPTIONS",
 				);
 			} finally {
@@ -178,7 +186,7 @@ describe("the priced-options rule (mantahostels#186)", () => {
 					cwd: ROOT,
 					agentId,
 				});
-				return run(sessionStart, { CLAUDE_JOB_DIR: job });
+				return run(sessionStart, {}, { env: { CLAUDE_JOB_DIR: job } });
 			} finally {
 				fs.rmSync(job, { recursive: true, force: true });
 			}
