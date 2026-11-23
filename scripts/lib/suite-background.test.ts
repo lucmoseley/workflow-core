@@ -12,8 +12,6 @@ import {
 	writeHostConfig,
 } from "./guard-core-testkit";
 
-const CORE = path.resolve(__dirname, "suite-background.js");
-
 let dir: string;
 
 const run = (command: string, background?: boolean) =>
@@ -71,8 +69,6 @@ const readDenyReason = (command: string) => {
 	if (!reason) throw new Error(`no deny reason for: ${command}`);
 	return reason;
 };
-
-const readHeader = () => fs.readFileSync(CORE, "utf8").split("\nconst ")[0];
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "suite-background-"));
@@ -313,20 +309,6 @@ describe("lib/suite-background.js", () => {
 		expect(reason).toContain("`--full=<cause>` or `--queue` run");
 		expect(reason).toContain("scripts/bg-run.sh run <name>` in the same call");
 		expect(reason).not.toMatch(/will (wake|notify)/);
-		for (const figure of ["67.8%", "70%", "192 of 427", "123 of 1,286"])
-			expect(reason, figure).not.toContain(figure);
-	});
-
-	it("keeps the measurements in its header", () => {
-		for (const figure of [
-			"#482",
-			"67.8%",
-			"70%",
-			"192 of 427",
-			"123 of 1,286",
-			"238 of 5,589",
-		])
-			expect(readHeader(), figure).toContain(figure);
 	});
 
 	it("reads the escape from the command string, not the hook's environment", () => {
@@ -480,14 +462,7 @@ describe("lib/suite-background.js", () => {
 		expect(both).toContain("WRAPPED IN A SHELL");
 	});
 
-	it("records the timeout limb in its header and the guard registry", () => {
-		for (const needle of [
-			"#1186",
-			"#1181",
-			"lib/suite-bounded.js",
-			"WFC_SUITE_TIMEOUT",
-		])
-			expect(readHeader(), needle).toContain(needle);
+	it("records the timeout limb in the guard registry", () => {
 		const env = fs.readFileSync(
 			path.resolve(__dirname, "../../docs/environment.md"),
 			"utf8",

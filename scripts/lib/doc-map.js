@@ -850,10 +850,6 @@ function idsRemovedSinceHead(text, mapPath) {
 	);
 }
 
-/** `https://github.com/<owner>/<repo>/issues/<n>#issuecomment-<n>` and nothing
- * else. Strict on purpose: the URL is the field that carries the ordering, and
- * a shape this checker cannot resolve to an issue number is one it cannot
- * cross-check against `settledAt`. */
 const ADMISSION_COMMENT_URL =
 	/^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/issues\/(\d+)#issuecomment-\d+$/;
 

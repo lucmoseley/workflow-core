@@ -470,18 +470,6 @@ const GATED_LABELS = {
 	},
 };
 
-/** The tools the machinery needs and no package install supplies.
- *
- * Two are odd ones out; the rest each leave a gate silent when absent.
- * `ruff` refuses the first commit, which stages `scripts/browse.py` (#1463,
- * #1590). `playwright` (#133) leaves `scripts/browse.py` unusable. It is a
- * Python package installed once per machine, never per repo.
- *
- * `which()` looks for a binary on PATH, whereas `browse.py` does `import
- * playwright` — a pip install that puts the CLI somewhere off PATH reads as
- * MISSING though the helper works, and an npm `playwright` shim reads as
- * present though the Python package is absent. `python3 -c "import playwright"`
- * is the real test, which `docs/environment.md` §Browsing a page gives. */
 const TOOLS = [
 	"shellcheck",
 	"actionlint",

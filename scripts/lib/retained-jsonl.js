@@ -65,10 +65,6 @@ function prune(file, retainMs, now) {
 }
 
 /**
- * Replace `file` with what `next` makes of its text, deleting it on null and
- * leaving it on undefined, then append to the new file any bytes written to
- * the old one after it was read. Leaves a file another holder has already
- * replaced. Throws where a step does.
  * @param {string} file
  * @param {(text: string) => string | null | undefined} next
  */

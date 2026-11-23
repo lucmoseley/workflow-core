@@ -10,24 +10,7 @@ const { gitOrNull } = require("./git.js");
 const { worktreeOwners } = require("./session-worktrees.js");
 const { readLinkedWorktrees } = require("./worktree-paths.js");
 
-/*
- * How long a claim must stand after its holder stops being listed before the
- * reports count it as stranded.
- *
- * A THRESHOLD ON WHAT IS SAID, NEVER ON WHAT IS DONE: nothing releases a claim
- * at any age (mantahostels#318 refused expiry), and the caller's oracle read already keeps
- * live sessions out of the count. So its job is keeping noise out of an
- * informational report, plus one piece of insurance: sitting above the longest
- * a claim has ever been legitimately held, so that even where the liveness
- * oracle wrongly lists a live session as gone, the count names only the
- * certainly dead.
- *
- * DERIVED at mantahostels#1746 from mantahostels#1745's census of 151 stale claims
- * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/stranded-claim-age-distribution.md): no holder lived more
- * than 9.2 h after taking a claim (median 0.9 h), and 12 is the smallest of
- * the census's measured candidate thresholds (1/3/6/12/24/48/72/168 h) above
- * that ceiling.
- */
+// lucmoseley/mantahostels#1746, measured 9.2 h longest hold
 const STRANDED_AFTER_HOURS = 12;
 
 const EMPTY_IDS = new Set();
