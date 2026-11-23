@@ -114,6 +114,8 @@ function replayOf({
 	);
 }
 const hoursOf = (m: Map<string, number>) => Object.fromEntries(m);
+const limbsOfS1 = (r: ReturnType<typeof replay>) =>
+	Object.fromEntries(r.sessions.find((x) => x.session === "s-1")?.limbs ?? []);
 
 describe("the passes the waiters recorded (#3115)", () => {
 	it("tallies the exit lines that count their passes, apart from the model", () => {
@@ -130,9 +132,9 @@ describe("the passes the waiters recorded (#3115)", () => {
 		);
 	});
 
-	it("samples the opened part waits the memory limb held, the age bound's input", () => {
+	it("counts the opened part waits the rung still held at the bound's age, and their rung-held time past it (#5680)", () => {
 		const r = replayOf({
-			mem: blocks(0, 5, 9000),
+			mem: blocks(0, 10, 9000),
 			waiters: [
 				{ from: 0, to: 10, slotFree: true, reason: "opened" },
 				{ from: 6, to: 8, slotFree: true, reason: "opened" },
@@ -141,10 +143,13 @@ describe("the passes the waiters recorded (#3115)", () => {
 				{ from: 0, to: 2, slotFree: true, reason: "opened", kind: "tsc" },
 			],
 		});
-		expect(r.memoryHeldPart).toEqual([600]);
-		expect(render(r, window())).toContain(
-			`1 opened part waits the memory limb held at some tick, wait p50 600 s, p90 600 s, max 600 s, against a bound of ${PART_PASS_AGE_MS / 1000} s now.`,
+		expect(r.rungHeldPart).toBe(2);
+		expect(r.pastBoundS).toEqual([(10 * MIN - PART_PASS_AGE_MS) / 1000]);
+		const said = render(r, window());
+		expect(said).toContain(
+			`What the bound protects (#5679): 1 of the 2 opened part waits the rung (memory or climb) held were still rung-held at PART_PASS_AGE_MS (${PART_PASS_AGE_MS / 1000} s) of age, 50.0%; their rung-held time past it p50 180 s, p90 180 s.`,
 		);
+		expect(said).not.toMatch(/p90 \d+ s, max \d+ s, against a bound/);
 	});
 
 	it("says where no line counts its passes", () => {
@@ -731,7 +736,7 @@ describe("the rung clamped to MemTotal less earlyoom's line (#5310)", () => {
 });
 
 describe("the pass past a head the memory rung holds at rest (#4783)", () => {
-	const held = (shift: number, alongside: Run[] = []) => {
+	const heldReplay = (shift: number, alongside: Run[] = []) => {
 		const later = (t: number) => t + shift;
 		const used = 10_000 - (suiteRungMb(1) + suiteRungMb(4)) / 2;
 		const r = replay(
@@ -762,10 +767,10 @@ describe("the pass past a head the memory rung holds at rest (#4783)", () => {
 			},
 			{ ...window(), since: later(T0), until: later(T0 + 60 * MIN) },
 		);
-		return Object.fromEntries(
-			r.sessions.find((x) => x.session === "s-1")?.limbs ?? [],
-		);
+		return r;
 	};
+	const held = (shift: number, alongside: Run[] = []) =>
+		limbsOfS1(heldReplay(shift, alongside));
 
 	it("lets the part that fits pass, from #4783's commit", () => {
 		expect(held(Date.parse("2026-11-10T00:00:00Z") - T0)).toEqual({
@@ -784,10 +789,18 @@ describe("the pass past a head the memory rung holds at rest (#4783)", () => {
 	it("held it behind the head before", () => {
 		expect(held(0)).toEqual({ "fifo-part": 120 });
 	});
+
+	it("counts a fifo-part hold the bound makes as the bound's cost (#5680)", () => {
+		const r = heldReplay(0);
+		expect(r.boundCostS).toBe(120);
+		expect(render(r, window())).toContain(
+			"The part-pass bound's cost (#5679): with PART_PASS_AGE_MS lifted, 0.03 h of fifo-part and touched-claim time goes, 6.3% of the window's 0.53 h summed wait.",
+		);
+	});
 });
 
 describe("the named lane and a touched waiter's first claim (#5367)", () => {
-	const named = (from: number, start: number, lane?: "touched") => {
+	const namedReplay = (from: number, start: number, lane?: "touched") => {
 		const later = (t: number) => t - T0 - from * MIN + start;
 		const r = replay(
 			{
@@ -809,10 +822,10 @@ describe("the named lane and a touched waiter's first claim (#5367)", () => {
 			},
 			{ ...window(), since: later(T0), until: later(T0 + 60 * MIN) },
 		);
-		return Object.fromEntries(
-			r.sessions.find((x) => x.session === "s-1")?.limbs ?? [],
-		);
+		return r;
 	};
+	const named = (from: number, start: number, lane?: "touched") =>
+		limbsOfS1(namedReplay(from, start, lane));
 
 	const BeforeLane = Date.parse("2026-11-16T00:00:00Z");
 	const AfterLane = Date.parse("2027-01-01T00:00:00Z");
@@ -825,6 +838,13 @@ describe("the named lane and a touched waiter's first claim (#5367)", () => {
 		expect(named(PART_PASS_AGE_MS / MIN + 1, AfterLane)).toEqual({
 			"touched-claim": 120,
 		});
+	});
+
+	it("counts the touched waiter's first claim as the bound's cost, and a hold the bound does not make as none (#5680)", () => {
+		expect(namedReplay(PART_PASS_AGE_MS / MIN + 1, AfterLane).boundCostS).toBe(
+			120,
+		);
+		expect(namedReplay(2, BeforeLane).boundCostS).toBe(0);
 	});
 
 	it("held it behind the touched waiter before", () => {
