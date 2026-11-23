@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import core from "./lib/arbiter-core.js";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const STATUS = path.resolve(__dirname, "../scripts/landing-status.js");
@@ -12,17 +13,28 @@ const SESSION = "landing-status-test-session";
 
 let tmp: string;
 let work: string;
-let remote: string;
 
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
-const commit = (message: string) => {
-	fs.writeFileSync(path.join(work, `${message}.txt`), message);
-	git(work, "add", "-A");
-	git(work, "commit", "-qm", message);
-	return git(work, "rev-parse", "HEAD");
+const commitIn = (cwd: string, message: string) => {
+	fs.writeFileSync(path.join(cwd, `${message}.txt`), message);
+	git(cwd, "add", "-A");
+	git(cwd, "commit", "-qm", message);
+	return git(cwd, "rev-parse", "HEAD");
 };
+const commit = (message: string) => commitIn(work, message);
+
+const seeded = defineTemplate((root) => {
+	const bare = path.join(root, "remote.git");
+	const clone = path.join(root, "work");
+	git(root, "init", "-q", "--bare", "-b", "main", bare);
+	git(root, "clone", "-q", bare, clone);
+	git(clone, "config", "user.email", "t@t");
+	git(clone, "config", "user.name", "t");
+	commitIn(clone, "seed");
+	git(clone, "push", "-q", "origin", "HEAD:main");
+});
 
 const ledger = (...shas: string[]) => {
 	const file = core.paths.commitLedger(SESSION, work);
@@ -76,15 +88,10 @@ const worktree = (name: string) => {
 const short = (sha: string) => sha.slice(0, 9);
 
 beforeEach(() => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "landing-status-"));
-	remote = path.join(tmp, "remote.git");
+	tmp = seeded.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "landing-status-")),
+	);
 	work = path.join(tmp, "work");
-	git(tmp, "init", "-q", "--bare", "-b", "main", remote);
-	git(tmp, "clone", "-q", remote, work);
-	git(work, "config", "user.email", "t@t");
-	git(work, "config", "user.name", "t");
-	commit("seed");
-	git(work, "push", "-q", "origin", "HEAD:main");
 });
 
 afterEach(() => {

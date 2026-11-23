@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
 
 const CODE_LIB = path.resolve(__dirname, "guard-code.js");
@@ -51,19 +52,25 @@ const adopt = () => at(repo);
 const files = () => guardFiles(codeDir);
 const live = () => fs.readlinkSync(files().current);
 
-beforeEach(() => {
-	dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "guard-code-")));
-	const origin = path.join(dir, "origin.git");
-	repo = path.join(dir, "repo");
-	codeDir = path.join(dir, "home", ".guard-code");
+const originAndClone = defineTemplate((root) => {
+	const origin = path.join(root, "origin.git");
+	const clone = path.join(root, "repo");
 	execFileSync("git", ["init", "--quiet", "--bare", "-b", "main", origin]);
-	execFileSync("git", ["clone", "--quiet", origin, repo]);
-	const git = gitIn(repo);
+	execFileSync("git", ["clone", "--quiet", origin, clone]);
+	const git = gitIn(clone);
 	git("config", "user.email", "t@example.com");
 	git("config", "user.name", "t");
-	fs.mkdirSync(path.join(repo, "scripts"), { recursive: true });
-	fs.mkdirSync(path.join(repo, "self-plugin/hooks"), { recursive: true });
-	fs.writeFileSync(path.join(repo, HOOKS), '{"hooks":{}}\n');
+	fs.mkdirSync(path.join(clone, "scripts"), { recursive: true });
+	fs.mkdirSync(path.join(clone, "self-plugin/hooks"), { recursive: true });
+	fs.writeFileSync(path.join(clone, HOOKS), '{"hooks":{}}\n');
+});
+
+beforeEach(() => {
+	dir = originAndClone.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "guard-code-"))),
+	);
+	repo = path.join(dir, "repo");
+	codeDir = path.join(dir, "home", ".guard-code");
 });
 
 afterEach(() => {

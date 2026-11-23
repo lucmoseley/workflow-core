@@ -6,6 +6,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ListedLock } from "./arbiter-records.js";
 import { freshSandbox } from "./arbiter-testkit";
+import { defineTemplate } from "./git-fixture";
 import {
 	attributeWorktreeDirt,
 	classifyClaims,
@@ -26,9 +27,12 @@ const lock = (p: string, sessionId: string, agedHours = 24) =>
 		claimedAt: new Date(Date.now() - agedHours * 3_600_000).toISOString(),
 	});
 
-function gitRepo() {
+const seedRepo = (dir: string, tracked: Record<string, string>) => {
 	const git = (...args: string[]) =>
-		spawnSync("git", args, { cwd: sb.repo, encoding: "utf8" });
+		spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+	fs.mkdirSync(path.join(dir, "docs"));
+	for (const [rel, text] of Object.entries(tracked))
+		fs.writeFileSync(path.join(dir, rel), text);
 	git("init", "-q");
 	git("add", "-A");
 	git(
@@ -41,6 +45,15 @@ function gitRepo() {
 		"seed",
 		"--allow-empty",
 	);
+};
+
+const repos = defineTemplate({
+	clean: (dir) => seedRepo(dir, {}),
+	tracked: (dir) => seedRepo(dir, { "docs/tracked.md": "seed\n" }),
+});
+
+function gitRepo(variant: "clean" | "tracked") {
+	repos.instantiate(sb.repo, variant);
 }
 
 describe("classifyClaims", () => {
@@ -198,8 +211,7 @@ describe("countStranded", () => {
 
 describe("readDirtyPaths", () => {
 	it("reports a modified tracked file and an untracked one", () => {
-		fs.writeFileSync(path.join(sb.repo, "docs", "tracked.md"), "seed\n");
-		gitRepo();
+		gitRepo("tracked");
 		fs.writeFileSync(path.join(sb.repo, "docs", "tracked.md"), "edited\n");
 		fs.writeFileSync(path.join(sb.repo, "docs", "scratch.md"), "new\n");
 
@@ -209,7 +221,7 @@ describe("readDirtyPaths", () => {
 	});
 
 	it("is empty, not null, on a clean tree", () => {
-		gitRepo();
+		gitRepo("clean");
 		expect(readDirtyPaths()?.size).toBe(0);
 	});
 

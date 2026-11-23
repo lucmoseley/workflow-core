@@ -10,6 +10,7 @@ import {
 	readUntrackedEntries,
 	readUntrackedFiles,
 } from "./dirty-tree.js";
+import { defineTemplate } from "./git-fixture";
 
 let dir: string;
 const made: string[] = [];
@@ -28,14 +29,17 @@ const write = (p: string, body: string) => {
 	fs.writeFileSync(path.join(dir, p), body);
 };
 
+const baseRepo = defineTemplate((at) => {
+	git(["init", "-q", "-b", "main"], at);
+	git(["config", "user.email", "t@example.invalid"], at);
+	git(["config", "user.name", "Test"], at);
+	fs.writeFileSync(path.join(at, "a.txt"), "one\n");
+	git(["add", "-A"], at);
+	git(["commit", "-q", "-m", "base"], at);
+});
+
 beforeEach(() => {
-	dir = tmp("dirty-tree-");
-	git(["init", "-q", "-b", "main"], dir);
-	git(["config", "user.email", "t@example.invalid"]);
-	git(["config", "user.name", "Test"]);
-	write("a.txt", "one\n");
-	git(["add", "-A"]);
-	git(["commit", "-q", "-m", "base"]);
+	dir = baseRepo.instantiate(tmp("dirty-tree-"));
 });
 
 afterEach(() => {

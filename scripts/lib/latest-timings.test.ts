@@ -5,14 +5,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { latestTimings } from "./latest-timings.js";
 
 let repo: string;
 let cache: string;
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 beforeEach(() => {
-	repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "latest-t-")));
-	execFileSync("git", ["init", "-q"], { cwd: repo });
+	repo = emptyRepo.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "latest-t-"))),
+	);
 	cache = path.join(repo, ".git", "workflow-core", "suite-timings");
 	vi.stubEnv("WFC_SHARD_TIMINGS", "");
 	vi.stubEnv("CI", "");

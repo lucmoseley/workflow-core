@@ -26,6 +26,7 @@ import {
 	writeTranscript,
 } from "./lib/band-drift-fixture";
 import { stubGhScript } from "./lib/gh-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 import {
 	LABEL as CYCLE_LABEL,
@@ -129,6 +130,16 @@ const freshnessStub = (exit: number, say = "manual report line") =>
 		"} } };",
 	].join("\n");
 
+const sweepRepo = defineTemplate((at) => {
+	fs.mkdirSync(path.join(at, "docs"), { recursive: true });
+	fs.mkdirSync(path.join(at, "scripts"), { recursive: true });
+	const sweepFile = ".github/workflows/scheduled-checks.yml";
+	fs.mkdirSync(path.join(at, path.dirname(sweepFile)), { recursive: true });
+	fs.writeFileSync(path.join(at, sweepFile), "name: scheduled-checks\n");
+	execFileSync("git", ["init", "-q", "."], { cwd: at });
+	execFileSync("git", ["add", "--", sweepFile], { cwd: at });
+});
+
 const fixture = ({
 	cycleEnd = "2026-11-29",
 	mapWords = BUDGET_WORDS * 1.2,
@@ -137,13 +148,6 @@ const fixture = ({
 	noCycleLog = false,
 	cycleLogPath = "",
 } = {}) => {
-	fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
-	fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
-	const sweepFile = ".github/workflows/scheduled-checks.yml";
-	fs.mkdirSync(path.join(dir, path.dirname(sweepFile)), { recursive: true });
-	fs.writeFileSync(path.join(dir, sweepFile), "name: scheduled-checks\n");
-	execFileSync("git", ["init", "-q", "."], { cwd: dir });
-	execFileSync("git", ["add", "--", sweepFile], { cwd: dir });
 	if (cycleLogPath) {
 		fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
 		fs.writeFileSync(
@@ -247,7 +251,9 @@ const sweepFixture = (conclusion: "failure" | "success"): Sweep => ({
 });
 
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "cleared-trackers-"));
+	dir = sweepRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "cleared-trackers-")),
+	);
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 

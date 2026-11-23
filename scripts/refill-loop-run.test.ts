@@ -1,6 +1,5 @@
 // @vitest-environment node
 // full-sweep-only: #5528
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
@@ -16,6 +15,7 @@ import { writeClaudeStub } from "./lib/claude-stub";
 import { writeCostTable } from "./lib/cost-table-testkit";
 import { ledgerPath, record as recordDispatch } from "./lib/dispatch-ledger.js";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { writeHeadlessRun } from "./lib/headless-runs-testkit";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { parkedPromptOf } from "./lib/loop-prompts.js";
@@ -71,6 +71,8 @@ import { buildUsageCache, buildUsageText } from "./lib/usage-probe-fake";
 import { readProgramLibs } from "./lib-closure-fixture";
 
 refillSandbox();
+
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 
 const PARKED_PROMPT = parkedPromptOf(undefined);
 
@@ -1218,7 +1220,7 @@ describe("`set --resume` with no process (#3861)", () => {
 			at(".refill-loop-state.json"),
 			JSON.stringify({ stopped: null, heldAt: 8 }),
 		);
-		spawnSync("git", ["init", "-q", at("code")]);
+		emptyRepo.instantiate(at("code"));
 		const r = await commandFromRepo("set", "--resume");
 		expect(r.status).toBe(1);
 		expect(r.stderr).toMatch(/refill loop not started: no \S+ in /);

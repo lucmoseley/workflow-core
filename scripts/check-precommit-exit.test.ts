@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-precommit-exit.js");
@@ -91,13 +92,23 @@ describe("a seeded repo: --index (#3687), --warn, --against and --root", () => {
 		execFileSync("git", args, { cwd: root, stdio: "pipe" });
 	const breach = "node scripts/check-x.js || exit 1\n";
 
+	const seededRepo = defineTemplate((at) => {
+		const gitAt = (...args: string[]) =>
+			execFileSync("git", args, { cwd: at, stdio: "pipe" });
+		gitAt("init", "-q");
+		gitAt("config", "user.email", "test@example.com");
+		gitAt("config", "user.name", "test");
+		fs.mkdirSync(path.join(at, ".husky"), { recursive: true });
+		fs.writeFileSync(
+			path.join(at, ".husky", "pre-commit"),
+			'#!/usr/bin/env sh\nnode scripts/check-x.js || exit "$?"\n',
+		);
+		gitAt("add", ".");
+		gitAt("commit", "-qm", "seed");
+	});
+
 	beforeEach(() => {
-		git("init", "-q");
-		git("config", "user.email", "test@example.com");
-		git("config", "user.name", "test");
-		hook("pre-commit", 'node scripts/check-x.js || exit "$?"\n');
-		git("add", ".");
-		git("commit", "-qm", "seed");
+		seededRepo.instantiate(root);
 	});
 
 	it("passes a breach left unstaged in the working tree", () => {

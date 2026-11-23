@@ -22,6 +22,7 @@ import {
 	TOOLS,
 	withIgnoreBlock,
 } from "./adopter-skeleton.js";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { isHookShim } from "./hook-shim.js";
 import { ORIGINS } from "./issue-origin.js";
 import { readPluginStyles } from "./output-styles.js";
@@ -32,6 +33,7 @@ import { TAKES_PREFIX, TAKES_VALUES, takesLabel } from "./takes-label";
 import { MODULES, type Module } from "./workflow-core-config.js";
 
 const CORE = path.resolve(__dirname, "..", "..");
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 const NO_COMMANDS = {
 	test: null,
 	lint: null,
@@ -362,9 +364,10 @@ describe("a rules-file command rewritten for an adopter (#654)", () => {
 	});
 
 	it("runs each command from a directory that carries no core scripts, reaching the plugin's copy (#654, #662)", () => {
-		const adopter = fs.mkdtempSync(path.join(os.tmpdir(), "rules-cmd-"));
+		const adopter = emptyRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "rules-cmd-")),
+		);
 		try {
-			execFileSync("git", ["init", "-q"], { cwd: adopter });
 			const text =
 				renderSessionRules({
 					modules: ["governance"],
@@ -408,9 +411,10 @@ describe("the day-one code standards (#3466)", () => {
 		"| Retry a call | `withRetry()` | `scripts/lib/no-such-file.js` | §G1 | none |";
 
 	const checkTable = (text: string) => {
-		const adopter = fs.mkdtempSync(path.join(os.tmpdir(), "day-one-std-"));
+		const adopter = emptyRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "day-one-std-")),
+		);
 		try {
-			execFileSync("git", ["init", "-q"], { cwd: adopter });
 			fs.mkdirSync(path.join(adopter, "docs"));
 			fs.writeFileSync(path.join(adopter, "docs/code-standards.md"), text);
 			const r = runInProcess(
@@ -477,9 +481,10 @@ describe("the day-one doc-map (#662)", () => {
 	});
 
 	it("renders under the plugin's generator from an adopter tree", () => {
-		const adopter = fs.mkdtempSync(path.join(os.tmpdir(), "day-one-map-"));
+		const adopter = emptyRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "day-one-map-")),
+		);
 		try {
-			execFileSync("git", ["init", "-q"], { cwd: adopter });
 			fs.mkdirSync(path.join(adopter, "docs"));
 			fs.writeFileSync(
 				path.join(adopter, "docs/doc-map.md"),

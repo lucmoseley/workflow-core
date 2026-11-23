@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-main-checkout-commit.js");
@@ -21,15 +22,21 @@ const run = (cwd: string, env: Record<string, string> = {}) =>
 		env: { ...process.env, WFC_MODULES: "", ...env },
 	});
 
+const mainAndWorktree = defineTemplate((at) => {
+	const mainAt = path.join(at, "main");
+	git(at, "init", "-q", "-b", "main", mainAt);
+	git(mainAt, "config", "user.email", "t@t");
+	git(mainAt, "config", "user.name", "t");
+	git(mainAt, "commit", "-q", "--allow-empty", "-m", "seed");
+	git(mainAt, "worktree", "add", "-q", "--detach", path.join(at, "wt"));
+});
+
 beforeEach(() => {
-	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mcc-")));
+	tmp = mainAndWorktree.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mcc-"))),
+	);
 	main = path.join(tmp, "main");
 	worktree = path.join(tmp, "wt");
-	git(tmp, "init", "-q", "-b", "main", main);
-	git(main, "config", "user.email", "t@t");
-	git(main, "config", "user.name", "t");
-	git(main, "commit", "-q", "--allow-empty", "-m", "seed");
-	git(main, "worktree", "add", "-q", "--detach", worktree);
 });
 
 afterEach(() => {

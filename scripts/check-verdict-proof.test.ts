@@ -1,9 +1,9 @@
 // @vitest-environment node
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 import { ensureProof } from "./lib/verdict-probe.js";
 
@@ -11,9 +11,12 @@ const CHECK = path.join(__dirname, "check-verdict-proof.js");
 const CANARY = "canary.test.ts";
 let root: string;
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 beforeEach(() => {
-	root = fs.mkdtempSync(path.join(os.tmpdir(), "verdict-proof-"));
-	spawnSync("git", ["init", "-q", root]);
+	root = emptyRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "verdict-proof-")),
+	);
 	fs.writeFileSync(path.join(root, CANARY), "fails under the probe\n");
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));

@@ -7,6 +7,7 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { buildRekeyedResponse, FAKE_COPY } from "./bg-resume-fake";
 import { buildBgBranch, writeClaudeStub } from "./claude-stub";
+import { defineTemplate } from "./git-fixture";
 import { jobDirPath, jobStatePath } from "./job-paths.js";
 import { resumeSteps } from "./refill-resume.js";
 import { buildResumeIo } from "./resume-io.js";
@@ -28,7 +29,9 @@ afterEach(() => {
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" });
 
-function cutWorktree(root: string, wt: string) {
+const withEditedWorktree = defineTemplate((at) => {
+	const root = path.join(at, "repo");
+	const wt = path.join(at, "wt");
 	fs.mkdirSync(root);
 	git(root, "init", "-q", "-b", "main");
 	fs.writeFileSync(path.join(root, "tracked.txt"), "base\n");
@@ -46,15 +49,15 @@ function cutWorktree(root: string, wt: string) {
 	git(root, "worktree", "add", "-q", "-b", "implement-7", wt);
 	fs.writeFileSync(path.join(wt, "tracked.txt"), "edited\n");
 	fs.writeFileSync(path.join(wt, "wip.txt"), "half done\n");
-}
+});
 
 it("runs the --bg --resume in the job record's worktree, leaving its uncommitted work in place", () => {
+	withEditedWorktree.instantiate(dir);
 	const root = path.join(dir, "repo");
 	const wt = path.join(dir, "wt");
 	const seat = path.join(dir, "seat");
 	const bin = path.join(dir, "claude");
 	const ranIn = path.join(dir, "ran-in");
-	cutWorktree(root, wt);
 	const record = jobStatePath(seat, JOB);
 	fs.mkdirSync(jobDirPath(seat, JOB), { recursive: true });
 	fs.writeFileSync(

@@ -71,11 +71,21 @@ const FILES: Record<string, string> = {
 };
 const EDGES = { "doc.md": ["doc.test.ts"] };
 
-function repo(files: Record<string, string> = FILES) {
+const seeded = defineTemplate({
+	files: (dir) => seed(dir, FILES),
+	checkerOnly: (dir) => seed(dir, CHECKER_ONLY_FILES),
+	withoutChecker: (dir) => {
+		const { [COPIES]: _copies, ...withoutChecker } = CHECKER_ONLY_FILES;
+		seed(dir, withoutChecker);
+	},
+});
+
+function repo(
+	variant: "files" | "checkerOnly" | "withoutChecker" = "files",
+): string {
 	const dir = mkScratchDir("touched-");
 	dirs.push(dir);
-	seed(dir, files);
-	return dir;
+	return seeded.instantiate(dir, variant);
 }
 
 function seed(dir: string, files: Record<string, string>) {
@@ -434,7 +444,7 @@ const CHECKER_ONLY_EDGES = {
 describe("a checker-only file selects its checker tests alone (#4967)", () => {
 	let tree: string;
 	beforeAll(() => {
-		tree = repo(CHECKER_ONLY_FILES);
+		tree = repo("checkerOnly");
 		dirs.pop();
 	});
 	afterAll(() => fs.rmSync(tree, { recursive: true, force: true }));
@@ -531,7 +541,7 @@ describe("a checker-only file selects its checker tests alone (#4967)", () => {
 	});
 
 	it("counts no left-out test the runner does not collect", () => {
-		const dir = repo(CHECKER_ONLY_FILES);
+		const dir = repo("checkerOnly");
 		fs.writeFileSync(
 			path.join(dir, "pytest.ini"),
 			"[pytest]\npython_files = check_*.py\n",
@@ -542,8 +552,7 @@ describe("a checker-only file selects its checker tests alone (#4967)", () => {
 	});
 
 	it("selects a checker-only file's readers as any other's in a tree holding none of its checker tests", () => {
-		const { [COPIES]: _copies, ...withoutChecker } = CHECKER_ONLY_FILES;
-		const { files, leftOut } = pick([MANIFEST], {}, repo(withoutChecker));
+		const { files, leftOut } = pick([MANIFEST], {}, repo("withoutChecker"));
 		expect(files).toEqual([BYSTANDER]);
 		expect(leftOut).toEqual([]);
 	});

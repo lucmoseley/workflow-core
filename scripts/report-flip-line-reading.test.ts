@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { MARKERS_REL } from "./lib/marker-root";
 import { CLOSE_CHECK_LOG } from "./lib/priced-options-limbs";
 import { appendEvents, logPath } from "./lib/refusal-log";
@@ -36,14 +37,9 @@ let roots: Record<Repo, string>;
 let argvLog: string;
 let gh: Record<string, string>;
 
-beforeEach(() => {
-	home = fs.mkdtempSync(path.join(os.tmpdir(), "flip-reading-"));
-	systmp = path.join(home, "systmp");
-	fs.mkdirSync(systmp);
-	roots = Object.fromEntries(
-		REPOS.map((r) => [r, path.join(home, r)]),
-	) as Record<Repo, string>;
-	for (const r of Object.values(roots)) {
+const reposTemplate = defineTemplate((root) => {
+	for (const name of REPOS) {
+		const r = path.join(root, name);
 		fs.mkdirSync(path.join(r, ".claude"), { recursive: true });
 		execFileSync("git", ["init", "-q", r]);
 		fs.writeFileSync(
@@ -51,6 +47,17 @@ beforeEach(() => {
 			JSON.stringify({ contract: 1 }),
 		);
 	}
+});
+
+beforeEach(() => {
+	home = reposTemplate.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "flip-reading-")),
+	);
+	systmp = path.join(home, "systmp");
+	fs.mkdirSync(systmp);
+	roots = Object.fromEntries(
+		REPOS.map((r) => [r, path.join(home, r)]),
+	) as Record<Repo, string>;
 	fs.mkdirSync(path.join(roots["workflow-core"], ".claude-plugin"));
 	fs.writeFileSync(
 		path.join(roots["workflow-core"], ".claude-plugin", "plugin.json"),

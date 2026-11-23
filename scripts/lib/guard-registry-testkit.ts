@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll } from "vitest";
 import { readProgramLibs } from "../lib-closure-fixture";
+import { defineTemplate, identityRepoTemplate } from "./git-fixture";
 import { coreCall } from "./precommit-gate-testkit";
 import { GATES } from "./precommit-gates.js";
 import { runInProcess } from "./run-in-process";
@@ -234,6 +235,8 @@ export const TWO_GUARDS: Fixture = {
 	},
 };
 
+const identifiedRepo = defineTemplate(identityRepoTemplate);
+
 export function committedRepo(
 	fx: Fixture,
 	prepare?: (root: string) => void,
@@ -242,9 +245,7 @@ export function committedRepo(
 	prepare?.(root);
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: root, encoding: "utf8" });
-	git("init", "-q", ".");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
+	identifiedRepo.instantiate(root);
 	git("add", "-A");
 	git("commit", "-qm", "x");
 	return root;

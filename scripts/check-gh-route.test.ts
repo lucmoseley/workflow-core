@@ -5,10 +5,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-gh-route.js");
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 let root: string;
 
 const file = (rel: string, body: string) => {
@@ -46,8 +48,9 @@ const runFrom = (home: string, args: string[], cwd = root) => {
 const run = (...args: string[]) => runFrom(root, args);
 
 beforeEach(() => {
-	root = fs.mkdtempSync(path.join(os.tmpdir(), "gh-route-"));
-	execFileSync("git", ["init", "-q"], { cwd: root });
+	root = emptyRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "gh-route-")),
+	);
 });
 afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });

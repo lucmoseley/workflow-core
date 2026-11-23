@@ -1,13 +1,14 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "replay-gate-budget.js");
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 
 let dir: string;
 let record: string;
@@ -57,11 +58,10 @@ it("refuses a figure that is no positive number, and a record that will not read
 });
 
 it("replays a park off its checkout's real gate-run record, config and git, and sweeps it", () => {
-	const repo = path.join(dir, "checkout");
+	const repo = emptyRepo.instantiate(path.join(dir, "checkout"));
 	fs.mkdirSync(path.join(repo, ".claude", "tmp", "markers"), {
 		recursive: true,
 	});
-	execFileSync("git", ["init", "-q", repo]);
 	fs.writeFileSync(
 		path.join(repo, ".claude", "workflow-core.json"),
 		JSON.stringify({ contract: 1, commands: { test: "npm run test" } }),

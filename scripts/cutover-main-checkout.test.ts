@@ -11,12 +11,12 @@ import {
 } from "./lib/agents-stop-fake";
 import { writeClaudeStub } from "./lib/claude-stub";
 import { coreFile } from "./lib/core-path-testkit";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "cutover-main-checkout.js");
 
 let tmp: string;
-let origin: string;
 let main: string;
 let config: string;
 let landerHolder: ReturnType<typeof spawn> | undefined;
@@ -62,9 +62,25 @@ const upstream = () =>
 		stdio: "pipe",
 	}).trim();
 
+const seeded = defineTemplate((root) => {
+	const bare = path.join(root, "origin.git");
+	const clone = path.join(root, "main");
+	git(root, "init", "-q", "--bare", "-b", "main", bare);
+	git(root, "clone", "-q", bare, clone);
+	git(clone, "config", "user.email", "t@t");
+	git(clone, "config", "user.name", "t");
+	commitIn(
+		clone,
+		{ ".gitignore": ".claude/\n", "a.md": "a\n", "package-lock.json": "{}\n" },
+		"seed",
+	);
+	git(clone, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git(clone, "branch", "-q", "--set-upstream-to=origin/landing", "main");
+});
+
 beforeEach(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cutover-")));
-	origin = path.join(tmp, "origin.git");
+	seeded.instantiate(tmp);
 	main = path.join(tmp, "main");
 	config = path.join(tmp, "config");
 	fs.mkdirSync(path.join(config, "bin"), { recursive: true });
@@ -73,17 +89,6 @@ beforeEach(() => {
 		"#!/bin/sh\nmkdir node_modules && cp package-lock.json node_modules/lock\n",
 	);
 	fs.chmodSync(path.join(tmp, "npm"), 0o755);
-	git(tmp, "init", "-q", "--bare", "-b", "main", origin);
-	git(tmp, "clone", "-q", origin, main);
-	git(main, "config", "user.email", "t@t");
-	git(main, "config", "user.name", "t");
-	commitIn(
-		main,
-		{ ".gitignore": ".claude/\n", "a.md": "a\n", "package-lock.json": "{}\n" },
-		"seed",
-	);
-	git(main, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
-	git(main, "branch", "-q", "--set-upstream-to=origin/landing", "main");
 	landerHolder = spawn("sh", ["-c", "sleep 60", "queue-lander.js"], {
 		stdio: "ignore",
 	});

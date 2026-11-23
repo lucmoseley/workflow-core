@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenRecords } from "./guard-log-fixture";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -24,6 +25,8 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 const NO_GH_REPO = { GH_REPO: undefined };
 
 const emission = (
@@ -37,9 +40,7 @@ const emission = (
 	);
 
 const clone = (url: string) => {
-	const at = path.join(dir, "clone");
-	fs.mkdirSync(at);
-	spawnSync("git", ["init", "-q", at]);
+	const at = emptyRepo.instantiate(path.join(dir, "clone"));
 	spawnSync("git", ["-C", at, "remote", "add", "upstream", url]);
 	return at;
 };

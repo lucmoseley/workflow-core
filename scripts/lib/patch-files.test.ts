@@ -5,10 +5,24 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { numstatPaths } from "./patch-files.js";
+
+const gitIn = (cwd: string, args: string[], input?: string) =>
+	execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
+		cwd,
+		encoding: "utf8",
+		input,
+	});
 
 describe("numstatPaths", () => {
 	let repo = "";
+	const tabbed = defineTemplate((dir) => {
+		gitIn(dir, ["init", "-q"]);
+		fs.writeFileSync(path.join(dir, "a\tb.js"), "one\n");
+		gitIn(dir, ["add", "-A"]);
+		gitIn(dir, ["commit", "-qm", "seed"]);
+	});
 	afterEach(() => {
 		if (repo) fs.rmSync(repo, { recursive: true, force: true });
 	});
@@ -25,17 +39,10 @@ describe("numstatPaths", () => {
 	});
 
 	it("keeps a tabbed path whole, from git's own output", () => {
-		repo = fs.mkdtempSync(path.join(os.tmpdir(), "patch-files-"));
-		const git = (args: string[], input?: string) =>
-			execFileSync(
-				"git",
-				["-c", "user.email=t@t", "-c", "user.name=t", ...args],
-				{ cwd: repo, encoding: "utf8", input },
-			);
-		git(["init", "-q"]);
-		fs.writeFileSync(path.join(repo, "a\tb.js"), "one\n");
-		git(["add", "-A"]);
-		git(["commit", "-qm", "seed"]);
+		repo = tabbed.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "patch-files-")),
+		);
+		const git = (args: string[], input?: string) => gitIn(repo, args, input);
 		fs.writeFileSync(path.join(repo, "a\tb.js"), "two\n");
 		const patch = git(["diff", "-U0"]);
 		const out = git(["apply", "--numstat", "-z", "--unidiff-zero", "-"], patch);

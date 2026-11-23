@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { committedRepoTemplate, defineTemplate } from "./git-fixture";
 import {
 	hasSeatRunSince,
 	listTranscripts,
@@ -16,6 +17,14 @@ import {
 import { projectSlug, slugForRepo } from "./project-slug.js";
 
 describe("projectDirs", () => {
+	const withWorktree = defineTemplate((dir) => {
+		committedRepoTemplate(dir);
+		const git = (...args: string[]) =>
+			execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+		git("worktree", "add", "-q", "--detach", ".claude/worktrees/w1");
+		git("worktree", "add", "-q", "--detach", ".claude/worktrees/gone");
+		git("worktree", "remove", ".claude/worktrees/gone");
+	});
 	const knobs = [
 		"CLAUDE_CONFIG_DIR",
 		"CLAUDE_PROJECT_DIR",
@@ -48,27 +57,9 @@ describe("projectDirs", () => {
 		home = fs.realpathSync(
 			fs.mkdtempSync(path.join(os.tmpdir(), "project-dirs-")),
 		);
-		const main = path.join(home, "main");
-		fs.mkdirSync(main);
-		const git = (...args: string[]) =>
-			execFileSync("git", args, { cwd: main, stdio: "ignore" });
-		git("init", "-q");
-		git(
-			"-c",
-			"user.name=t",
-			"-c",
-			"user.email=t@t",
-			"commit",
-			"-q",
-			"--allow-empty",
-			"-m",
-			"i",
-		);
+		const main = withWorktree.instantiate(path.join(home, "main"));
 		const worktree = path.join(main, ".claude", "worktrees", "w1");
-		git("worktree", "add", "-q", "--detach", worktree);
 		const reaped = path.join(main, ".claude", "worktrees", "gone");
-		git("worktree", "add", "-q", "--detach", reaped);
-		git("worktree", "remove", reaped);
 		const seat = path.join(home, ".claude");
 		const at = (p: string) => path.join(seat, "projects", projectSlug(p));
 		for (const p of [

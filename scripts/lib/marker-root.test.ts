@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { shellQuote } from "./sh-quote.js";
 
 const roots: string[] = [];
@@ -96,6 +97,15 @@ describe("marker-root.sh and marker-root.js agree byte for byte", () => {
 	};
 	const git = (cwd: string, ...args: string[]) =>
 		execFileSync("git", args, { cwd, stdio: "ignore" });
+	const linked = defineTemplate((root) => {
+		const main = path.join(root, "main");
+		fs.mkdirSync(main);
+		git(main, "init", "-q");
+		git(main, "config", "user.email", "test@example.com");
+		git(main, "config", "user.name", "test");
+		git(main, "commit", "-q", "--allow-empty", "--no-verify", "-m", "x");
+		git(main, "worktree", "add", "-q", path.join(root, "wt"));
+	});
 
 	it.each([
 		["a plain directory", (root: string) => root],
@@ -110,16 +120,7 @@ describe("marker-root.sh and marker-root.js agree byte for byte", () => {
 		],
 		[
 			"a linked worktree",
-			(root: string) => {
-				const main = path.join(root, "main");
-				fs.mkdirSync(main);
-				git(main, "init", "-q");
-				git(main, "config", "user.email", "test@example.com");
-				git(main, "config", "user.name", "test");
-				git(main, "commit", "-q", "--allow-empty", "--no-verify", "-m", "x");
-				git(main, "worktree", "add", "-q", path.join(root, "wt"));
-				return path.join(root, "wt");
-			},
+			(root: string) => path.join(linked.instantiate(root), "wt"),
 		],
 	])("both name the same markers directory from %s", (_name, declare) => {
 		const got = both(declare(fs.realpathSync(freshRoot())));
@@ -129,9 +130,10 @@ describe("marker-root.sh and marker-root.js agree byte for byte", () => {
 });
 
 describe("hook-wired writers leave no marker at the host root (F8)", () => {
+	const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 	it("concision-backstop.sh's start mode writes no root dotfile", () => {
-		const root = freshRoot();
-		spawnSync("git", ["init", "-q", root]);
+		const root = emptyRepo.instantiate(freshRoot());
 		const r = spawnSync(
 			path.resolve(__dirname, "..", "concision-backstop.sh"),
 			["start"],

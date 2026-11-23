@@ -7,6 +7,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
 import { readText } from "./lib/file-read.js";
+import { defineTemplate } from "./lib/git-fixture";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -19,6 +20,12 @@ import {
 import { readRuleText } from "./lib/rule-text";
 
 const CORE = "guard-pip-install";
+
+const pinnedRepo = defineTemplate((root) => {
+	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: root });
+	fs.writeFileSync(path.join(root, "requirements.txt"), "requests==2.32.3\n");
+	execFileSync("git", ["add", "requirements.txt"], { cwd: root });
+});
 
 let dir: string;
 let config: string;
@@ -65,10 +72,7 @@ beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-pip-"));
 	config = path.join(dir, "config");
 	shared = path.join(dir, "shared");
-	fs.mkdirSync(shared, { recursive: true });
-	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: shared });
-	fs.writeFileSync(path.join(shared, "requirements.txt"), "requests==2.32.3\n");
-	execFileSync("git", ["add", "requirements.txt"], { cwd: shared });
+	pinnedRepo.instantiate(shared);
 	fs.writeFileSync(
 		path.join(shared, "pyproject.toml"),
 		'[project]\ndependencies = ["httpx"]\n',

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const writeSetCache = require("./lib/write-set-cache.js");
@@ -14,13 +15,13 @@ const SCRIPT = path.resolve(__dirname, "pick-next-cache.js");
 const HASH_A = writeSetCache.bodyHash("body a");
 const HASH_B = writeSetCache.bodyHash("body b");
 let root: string;
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 
 const stubRepo = (files: string[]) => {
 	for (const f of files) {
 		fs.mkdirSync(path.join(root, path.dirname(f)), { recursive: true });
 		fs.writeFileSync(path.join(root, f), "");
 	}
-	spawnSync("git", ["init", "-q"], { cwd: root });
 	spawnSync("git", ["add", "-A"], { cwd: root });
 };
 
@@ -32,8 +33,9 @@ const run = (...args: string[]) => {
 };
 
 beforeEach(() => {
-	root = fs.mkdtempSync(path.join(os.tmpdir(), "pick-next-cache-"));
-	stubRepo([]);
+	root = emptyRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "pick-next-cache-")),
+	);
 });
 afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });

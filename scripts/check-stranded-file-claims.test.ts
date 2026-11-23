@@ -13,6 +13,7 @@ import {
 } from "./lib/agents-stop-fake";
 import { buildLockRecord, freshSandbox, store } from "./lib/arbiter-testkit";
 import { writeClaudeStub } from "./lib/claude-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-stranded-file-claims.js");
@@ -54,9 +55,10 @@ function fakeClaude(answer: AgentsAnswer) {
 	return bin;
 }
 
-function gitRepo() {
+const seedRepo = (at: string) => {
 	const git = (...args: string[]) =>
-		spawnSync("git", args, { cwd: sb.repo, encoding: "utf8" });
+		spawnSync("git", args, { cwd: at, encoding: "utf8" });
+	fs.mkdirSync(path.join(at, "docs"), { recursive: true });
 	git("init", "-q");
 	git("add", "-A");
 	git(
@@ -69,6 +71,19 @@ function gitRepo() {
 		"seed",
 		"--allow-empty",
 	);
+};
+
+const seededRepo = defineTemplate({
+	plain: seedRepo,
+	renameSource: (at) => {
+		fs.mkdirSync(path.join(at, "docs"), { recursive: true });
+		fs.writeFileSync(path.join(at, "docs", "was.md"), "content\n");
+		seedRepo(at);
+	},
+});
+
+function gitRepo(variant: "plain" | "renameSource" = "plain") {
+	seededRepo.instantiate(sb.repo, variant);
 }
 
 const agentsListing = (...sessionIds: string[]) =>
@@ -275,8 +290,7 @@ describe("what it reports", () => {
 	});
 
 	it("matches a claim on the source side of a rename", () => {
-		fs.writeFileSync(path.join(sb.repo, "docs", "was.md"), "content\n");
-		gitRepo();
+		gitRepo("renameSource");
 		fs.renameSync(
 			path.join(sb.repo, "docs", "was.md"),
 			path.join(sb.repo, "docs", "now.md"),

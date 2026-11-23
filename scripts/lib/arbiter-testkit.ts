@@ -10,6 +10,7 @@ import type { BreakRecord, LockRecord } from "./arbiter-records.js";
 import { caught } from "./caught.js";
 import { writeClaudeStub } from "./claude-stub";
 import { type RouteAnswer, stubGhRoutes, stubGhScript } from "./gh-stub";
+import { defineTemplate, identityRepoTemplate } from "./git-fixture";
 import { runInProcess } from "./run-in-process";
 import { sleepSync } from "./sleep-sync.js";
 
@@ -243,12 +244,10 @@ export function ghCalls(sb: Sandbox): string[] {
 
 export const ghCallCount = (sb: Sandbox) => ghCalls(sb).length;
 
+const identifiedRepo = defineTemplate(identityRepoTemplate);
+
 export function gitRepo(sb: Sandbox) {
-	execFileSync("git", ["init", "-q"], { cwd: sb.repo });
-	fs.appendFileSync(
-		path.join(sb.repo, ".git", "config"),
-		"[user]\n\temail = t@t\n\tname = t\n",
-	);
+	identifiedRepo.instantiate(sb.repo);
 }
 
 export function commitAll(sb: Sandbox, message = "seed") {

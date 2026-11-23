@@ -6,7 +6,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { core, freshSandbox, store } from "./arbiter-testkit";
 import { writeFaultyGit } from "./git-fault-fake";
-import { initGitRepo, mkDirOutsideRepo } from "./git-fixture";
+import { defineTemplate, initGitRepo, mkDirOutsideRepo } from "./git-fixture";
 import { runCore } from "./guard-core-testkit";
 import { noop } from "./noop.js";
 import { runInProcess } from "./run-in-process";
@@ -32,16 +32,32 @@ const ME = "abcdef12-3456";
 const MAX_INSTALL_ROOT = `/Users/${"u".repeat(32)}/.claude-exp-b/plugins/cache/workflow-core/workflow-core/1.10.100`;
 const OTHER = "99999999-0000";
 
+const plainRepo = (dir: string) => initGitRepo(dir, path.join(dir, "no-hooks"));
+
+const repos = defineTemplate({
+	plain: plainRepo,
+	skilled: (dir) => {
+		fs.mkdirSync(path.join(dir, "docs"));
+		plainRepo(dir);
+		const skill = path.join(dir, ".claude", "skills", "code-review");
+		fs.mkdirSync(skill, { recursive: true });
+		fs.writeFileSync(
+			path.join(skill, "SKILL.md"),
+			"---\nname: code-review\n---\n",
+		);
+		execFileSync("git", ["add", "."], { cwd: dir });
+		execFileSync("git", ["commit", "-qm", "skill"], { cwd: dir });
+	},
+});
+
+const repoAt = (dest: string, variant: "plain" | "skilled", hooks: string) => {
+	repos.instantiate(dest, variant);
+	execFileSync("git", ["config", "core.hooksPath", hooks], { cwd: dest });
+	return dest;
+};
+
 const sb = freshSandbox((fresh) => {
-	initGitRepo(fresh.repo, path.join(fresh.dir, "no-hooks"));
-	const skill = path.join(fresh.repo, ".claude", "skills", "code-review");
-	fs.mkdirSync(skill, { recursive: true });
-	fs.writeFileSync(
-		path.join(skill, "SKILL.md"),
-		"---\nname: code-review\n---\n",
-	);
-	execFileSync("git", ["add", "."], { cwd: fresh.repo });
-	execFileSync("git", ["commit", "-qm", "skill"], { cwd: fresh.repo });
+	repoAt(fresh.repo, "skilled", path.join(fresh.dir, "no-hooks"));
 });
 
 const git = (...args: string[]) =>
@@ -371,8 +387,11 @@ describe("a session in a linked worktree (#2386)", () => {
 
 	it("stays on the root, logging nothing, where the cwd is another repository", () => {
 		declare([RLS]);
-		const other = path.join(sb.dir, "other");
-		initGitRepo(other, path.join(sb.dir, "no-hooks"));
+		const other = repoAt(
+			path.join(sb.dir, "other"),
+			"plain",
+			path.join(sb.dir, "no-hooks"),
+		);
 		stage(SQL, other);
 		expect(envelope({ cwd: other })).toBeNull();
 		expect(logs.join("\n")).not.toContain("worktree paths left unmatched");

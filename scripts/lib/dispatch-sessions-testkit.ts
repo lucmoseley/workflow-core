@@ -14,6 +14,7 @@ import {
 import { buildBgBranch } from "./claude-stub";
 import { type DispatchPorts, dispatch } from "./dispatch-sessions.js";
 import { hostPorts } from "./dispatch-sessions-host.js";
+import { defineTemplate } from "./git-fixture";
 import {
 	buildHeadlessBranch,
 	type HeadlessCall,
@@ -128,10 +129,11 @@ export function writeCache(
 	);
 }
 
-function seedLandingCheckout(dir: string): string {
+const landingCheckout = defineTemplate((dir) => {
 	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+		execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 	const origin = path.join(dir, ".origin.git");
+	git("init", "-q");
 	git("init", "-q", "--bare", "-b", "main", origin);
 	git("remote", "add", "origin", origin);
 	git("config", "user.email", "t@t");
@@ -140,8 +142,7 @@ function seedLandingCheckout(dir: string): string {
 	git("commit", "-q", "--allow-empty", "-m", "landed");
 	git("push", "-q", "origin", "HEAD:main");
 	git("reset", "-q", "--hard", "HEAD~1");
-	return git("rev-parse", "origin/main");
-}
+});
 
 export function dispatchFixture(): DispatchFixture {
 	const fx: DispatchFixture = {
@@ -174,7 +175,11 @@ export function dispatchFixture(): DispatchFixture {
 
 	beforeEach(() => {
 		fx.dir = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-sessions-"));
-		spawnSync("git", ["init", "-q", fx.dir]);
+		landingCheckout.instantiate(fx.dir);
+		fx.main = execFileSync("git", ["rev-parse", "origin/main"], {
+			cwd: fx.dir,
+			encoding: "utf8",
+		}).trim();
 		fx.meminfo = path.join(fx.dir, "meminfo");
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    20000000 kB\n");
 		psEmpty = writePsStub(fx.dir, [], { name: "ps-empty" });
@@ -200,7 +205,6 @@ export function dispatchFixture(): DispatchFixture {
 			"2026-10-07T23:18:35+08:00 host kernel: Booting Linux on physical CPU 0x0\n",
 		);
 		schedRunning = schedClock(1);
-		fx.main = seedLandingCheckout(fx.dir);
 	});
 
 	afterEach(() => {

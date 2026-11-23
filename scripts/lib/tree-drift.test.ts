@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ignoreFailure } from "./caught.js";
+import { defineTemplate } from "./git-fixture";
 
 const {
 	readTreeSnapshot,
@@ -41,15 +42,22 @@ const write = (file: string, body: string) => {
 	fs.writeFileSync(path.join(repo, file), body);
 };
 
+const seeded = defineTemplate((dir) => {
+	const at = (...args: string[]) => execFileSync("git", args, { cwd: dir });
+	at("init", "-q", ".");
+	at("config", "user.email", "test@example.com");
+	at("config", "user.name", "test");
+	fs.mkdirSync(path.join(dir, "src"));
+	fs.writeFileSync(path.join(dir, "src/a.js"), "one\n");
+	fs.writeFileSync(path.join(dir, "src/b.js"), "two\n");
+	at("add", "--", "src/a.js", "src/b.js");
+	at("commit", "-qm", "first");
+});
+
 beforeEach(() => {
-	repo = fs.mkdtempSync(path.join(os.tmpdir(), "tree-drift-test-"));
-	git("init", "-q", ".");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
-	write("src/a.js", "one\n");
-	write("src/b.js", "two\n");
-	git("add", "--", "src/a.js", "src/b.js");
-	git("commit", "-qm", "first");
+	repo = seeded.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "tree-drift-test-")),
+	);
 });
 afterEach(() => {
 	fs.rmSync(repo, { recursive: true, force: true });

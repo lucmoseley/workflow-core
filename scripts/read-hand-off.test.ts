@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { catFixture, GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "read-hand-off.js");
@@ -13,27 +14,36 @@ const SCRIPT = path.join(__dirname, "read-hand-off.js");
 let dir: string;
 let gh: string;
 
-const git = (...args: string[]) =>
-	String(
-		execFileSync(
-			"git",
-			["-c", "user.email=t@t", "-c", "user.name=t", ...args],
-			{ cwd: dir, encoding: "utf8", stdio: "pipe" },
-		),
-	).trim();
+const gitIn =
+	(cwd: string) =>
+	(...args: string[]) =>
+		String(
+			execFileSync(
+				"git",
+				["-c", "user.email=t@t", "-c", "user.name=t", ...args],
+				{ cwd, encoding: "utf8", stdio: "pipe" },
+			),
+		).trim();
+const git = (...args: string[]) => gitIn(dir)(...args);
 
-beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "read-hand-off-"));
-	fs.mkdirSync(path.join(dir, ".claude"));
+const based = defineTemplate((at) => {
+	const gitAt = gitIn(at);
+	fs.mkdirSync(path.join(at, ".claude"));
 	fs.writeFileSync(
-		path.join(dir, ".claude", "workflow-core.json"),
+		path.join(at, ".claude", "workflow-core.json"),
 		JSON.stringify({ tracker: "o/here" }),
 	);
-	fs.writeFileSync(path.join(dir, "a.txt"), "one\n");
-	git("init", "-q", "-b", "main");
-	git("add", "a.txt");
-	git("commit", "-qm", "base");
-	git("update-ref", "refs/remotes/origin/main", "HEAD");
+	fs.writeFileSync(path.join(at, "a.txt"), "one\n");
+	gitAt("init", "-q", "-b", "main");
+	gitAt("add", "a.txt");
+	gitAt("commit", "-qm", "base");
+	gitAt("update-ref", "refs/remotes/origin/main", "HEAD");
+});
+
+beforeEach(() => {
+	dir = based.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "read-hand-off-")),
+	);
 	gh = stubGhScript(dir, catFixture(path.join(dir, "comments.json"))).gh;
 });
 afterEach(() => {

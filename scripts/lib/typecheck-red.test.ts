@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { runCore, splitCheckout } from "./guard-core-testkit";
 import { keptSpawn } from "./kept-spawn.js";
 import { recordRed, takeRed } from "./typecheck-red-host.js";
@@ -31,9 +32,14 @@ const bash = (sid: string, extra: object = {}) => {
 	return r.output?.additionalContext ?? "";
 };
 
+const unbornMain = defineTemplate((dir) => {
+	execFileSync("git", ["init", "-q", "-b", "main", dir]);
+});
+
 beforeEach(() => {
-	root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "tc-red-")));
-	execFileSync("git", ["init", "-q", "-b", "main", root]);
+	root = unbornMain.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "tc-red-"))),
+	);
 });
 
 afterEach(() => {

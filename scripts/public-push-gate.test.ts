@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { bareRepoTemplate, defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -18,16 +19,17 @@ let old: string;
 let root: string;
 let next: string;
 
-const git = (...args: string[]) =>
-	execFileSync("git", args, { cwd: work, encoding: "utf8" }).trim();
+const gitIn =
+	(cwd: string) =>
+	(...args: string[]) =>
+		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+const git = (...args: string[]) => gitIn(work)(...args);
 
-const commitTree = (...args: string[]) =>
-	git("-c", "user.email=t@t", "-c", "user.name=t", "commit-tree", ...args);
-
-const writeConfig = (codeRepo: string) => {
-	fs.mkdirSync(path.join(work, ".claude"), { recursive: true });
+const writeConfig = (codeRepo: string, at = work) => {
+	const gitAt = gitIn(at);
+	fs.mkdirSync(path.join(at, ".claude"), { recursive: true });
 	fs.writeFileSync(
-		path.join(work, ".claude", "workflow-core.json"),
+		path.join(at, ".claude", "workflow-core.json"),
 		JSON.stringify({
 			contract: 1,
 			founder: "T",
@@ -35,8 +37,8 @@ const writeConfig = (codeRepo: string) => {
 			codeRepo,
 		}),
 	);
-	git("add", ".claude");
-	git(
+	gitAt("add", ".claude");
+	gitAt(
 		"-c",
 		"user.email=t@t",
 		"-c",
@@ -54,24 +56,46 @@ const buildRefLine = (local: string, remoteRef = "refs/heads/landing") =>
 const check = (stdin: string, url = CODE_URL) =>
 	runInProcess(CHECK, [url], { cwd: work, env: { ...process.env }, stdin });
 
-beforeEach(() => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "public-push-"));
-	work = path.join(tmp, "work");
-	fs.mkdirSync(work);
-	git("init", "-q", "-b", "main");
+const bareRepo = defineTemplate(bareRepoTemplate);
+
+const commitTreeIn = (at: string, ...args: string[]) =>
+	gitIn(at)(
+		"-c",
+		"user.email=t@t",
+		"-c",
+		"user.name=t",
+		"commit-tree",
+		...args,
+	);
+
+const graftedRepo = defineTemplate((dir) => {
+	const at = path.join(dir, "work");
+	fs.mkdirSync(at);
+	const gitAt = gitIn(at);
+	const commitTree = (...args: string[]) => commitTreeIn(at, ...args);
+	gitAt("init", "-q", "-b", "main");
 	const seed = commitTree(
 		"-m",
 		"seed",
-		git("hash-object", "-t", "tree", "/dev/null"),
+		gitAt("hash-object", "-t", "tree", "/dev/null"),
 	);
-	old = commitTree("-p", seed, "-m", "old", `${seed}^{tree}`);
-	root = commitTree("-m", "squash", `${old}^{tree}`);
-	git("replace", "--graft", root, old);
-	next = commitTree("-p", root, "-m", "next", `${root}^{tree}`);
-	git("remote", "add", "origin", CODE_URL);
-	git("remote", "add", "archive", TRACKER_URL);
-	git("update-ref", "refs/remotes/archive/main", old);
-	writeConfig("o/code");
+	const oldSha = commitTree("-p", seed, "-m", "old", `${seed}^{tree}`);
+	const rootSha = commitTree("-m", "squash", `${oldSha}^{tree}`);
+	gitAt("replace", "--graft", rootSha, oldSha);
+	gitAt("remote", "add", "origin", CODE_URL);
+	gitAt("remote", "add", "archive", TRACKER_URL);
+	gitAt("update-ref", "refs/remotes/archive/main", oldSha);
+	writeConfig("o/code", at);
+});
+
+beforeEach(() => {
+	tmp = graftedRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "public-push-")),
+	);
+	work = path.join(tmp, "work");
+	old = git("rev-parse", "refs/remotes/archive/main");
+	root = git("replace", "-l");
+	next = commitTreeIn(work, "-p", root, "-m", "next", `${root}^{tree}`);
 });
 
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -167,8 +191,7 @@ it("refuses a push to the code repo that git cannot judge, naming the fault", ()
 });
 
 it("sends the real parents, not the graft's, so a push of the squashed line carries no tracker commit", () => {
-	const bare = path.join(tmp, "public.git");
-	execFileSync("git", ["init", "-q", "--bare", bare]);
+	const bare = bareRepo.instantiate(path.join(tmp, "public.git"));
 	git("push", "-q", "--no-verify", bare, `${next}:refs/heads/main`);
 	const has = (sha: string) =>
 		spawnSync("git", ["cat-file", "-e", sha], { cwd: bare }).status === 0;

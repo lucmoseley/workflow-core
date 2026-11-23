@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { cutWorktree } from "./lib/git-fixture";
+import { cutWorktree, defineTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 
 const { projectSlug } = createRequire(__filename)("./lib/project-slug.js");
@@ -36,19 +36,24 @@ let sid: string;
 const g = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
+const template = defineTemplate((dir) => {
+	const work = path.join(dir, "work");
+	const origin = path.join(dir, "origin.git");
+	execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
+	execFileSync("git", ["init", "-q", "-b", "main", work]);
+	g(work, "config", "user.email", "t@example.com");
+	g(work, "config", "user.name", "T");
+	g(work, "remote", "add", "origin", origin);
+	g(work, "commit", "-q", "--allow-empty", "-m", "base");
+	g(work, "push", "-q", "-u", "origin", "main");
+	g(cutWorktree(work, "q1"), "commit", "-q", "--allow-empty", "-m", "mine");
+});
+
 beforeEach(() => {
 	base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "queued-job-")));
+	template.instantiate(base);
 	root = path.join(base, "work");
-	const origin = path.join(base, "origin.git");
-	execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
-	execFileSync("git", ["init", "-q", "-b", "main", root]);
-	g(root, "config", "user.email", "t@example.com");
-	g(root, "config", "user.name", "T");
-	g(root, "remote", "add", "origin", origin);
-	g(root, "commit", "-q", "--allow-empty", "-m", "base");
-	g(root, "push", "-q", "-u", "origin", "main");
-	wt = cutWorktree(root, "q1");
-	g(wt, "commit", "-q", "--allow-empty", "-m", "mine");
+	wt = path.join(root, ".claude", "worktrees", "q1");
 	sid = `queued-job-${Math.random().toString(36).slice(2)}`;
 	const ledger = path.join(
 		base,

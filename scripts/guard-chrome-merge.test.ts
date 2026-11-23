@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath } from "./guard-log-fixture";
-import { mkScratchDir } from "./lib/git-fixture";
+import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -14,6 +14,10 @@ import {
 const CORE = "guard-chrome-merge";
 const LAUNCH =
 	"node scripts/claude-child.js chrome --config-dir X --pages 1 --prompt-file f";
+
+const mainRepo = defineTemplate((root) => {
+	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: root });
+});
 
 let dir: string;
 let config: string;
@@ -26,9 +30,8 @@ const emission = (command: string) =>
 	});
 
 beforeEach(() => {
-	dir = mkScratchDir("guard-chrome-merge-");
+	dir = mainRepo.instantiate(mkScratchDir("guard-chrome-merge-"));
 	config = path.join(dir, "claude-config");
-	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: dir });
 });
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));

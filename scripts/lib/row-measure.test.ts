@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { watched } from "./pass-store-testkit";
 
 const {
@@ -252,24 +253,26 @@ describe("keepRun and readKept", () => {
 });
 
 describe("movedSince", () => {
-	function keptRepo() {
-		const repo = path.join(tmp, "repo");
-		const keep = path.join(tmp, "keep");
-		fs.mkdirSync(repo);
-		fs.mkdirSync(keep);
+	const tracked = defineTemplate((dir) => {
 		const git = (...args: string[]) =>
 			execFileSync(
 				"git",
 				["-c", "user.name=t", "-c", "user.email=t@t", ...args],
 				{
-					cwd: repo,
+					cwd: dir,
 					stdio: "ignore",
 				},
 			);
 		git("init", "-q");
-		fs.writeFileSync(path.join(repo, "x.txt"), "x\n");
+		fs.writeFileSync(path.join(dir, "x.txt"), "x\n");
 		git("add", "x.txt");
 		git("commit", "-qm", "x");
+	});
+
+	function keptRepo() {
+		const repo = tracked.instantiate(path.join(tmp, "repo"));
+		const keep = path.join(tmp, "keep");
+		fs.mkdirSync(keep);
 		keepRun(logDir(), recordedRun(repo), {
 			env: { [KEEP_ENV]: keep },
 			err: quiet,

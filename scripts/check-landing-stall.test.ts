@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc.js";
 import { coreFile } from "./lib/core-path-testkit";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const CHECK = path.resolve(__dirname, "check-landing-stall.js");
@@ -62,17 +63,27 @@ const check = () => {
 	return runInProcess(CHECK, ["--notify"], { cwd: work, env });
 };
 
+const remoteAndClone = defineTemplate((at) => {
+	const remote = path.join(at, "remote.git");
+	const clone = path.join(at, "work");
+	git(at, ["init", "-q", "--bare", "-b", "main", remote]);
+	git(at, ["clone", "-q", remote, clone]);
+	git(clone, ["config", "user.email", "t@t"]);
+	git(clone, ["config", "user.name", "t"]);
+	fs.writeFileSync(path.join(clone, "seed"), "seed");
+	git(clone, ["add", "-A"]);
+	git(clone, ["commit", "-qm", "seed"], {
+		GIT_COMMITTER_DATE: new Date().toISOString(),
+	});
+	git(clone, ["push", "-q", "origin", "HEAD:main"]);
+});
+
 beforeEach(() => {
 	uptimeS = "86400";
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "landing-stall-"));
-	const remote = path.join(tmp, "remote.git");
+	tmp = remoteAndClone.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "landing-stall-")),
+	);
 	work = path.join(tmp, "work");
-	git(tmp, ["init", "-q", "--bare", "-b", "main", remote]);
-	git(tmp, ["clone", "-q", remote, work]);
-	git(work, ["config", "user.email", "t@t"]);
-	git(work, ["config", "user.name", "t"]);
-	commit("seed", 0);
-	git(work, ["push", "-q", "origin", "HEAD:main"]);
 });
 
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));

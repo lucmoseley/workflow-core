@@ -7,7 +7,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { coreFile } from "./lib/core-path-testkit";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
-import { cutWorktree } from "./lib/git-fixture";
+import { cutWorktree, defineTemplate } from "./lib/git-fixture";
 import { INVENTORY } from "./lib/inventory-format";
 import { parkedPromptOf } from "./lib/loop-prompts.js";
 import {
@@ -39,15 +39,19 @@ let dir: string;
 let sid: string;
 let gh: string;
 
-beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-inventory-"));
-	sid = `test-session-${Math.random().toString(36).slice(2)}`;
-	fs.mkdirSync(path.join(dir, ".claude"));
+const seedHost = () => {
+	fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
 	fs.writeFileSync(
 		path.join(dir, ".claude", "workflow-core.json"),
 		JSON.stringify({ tracker: "o/here" }),
 	);
 	serve({});
+};
+
+beforeEach(() => {
+	dir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-inventory-"));
+	sid = `test-session-${Math.random().toString(36).slice(2)}`;
+	seedHost();
 });
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
@@ -463,21 +467,26 @@ describe("the hand-off on a posted round (#2391)", () => {
 	});
 
 	describe("against the session's write ledger", () => {
-		const commit = (...args: string[]) =>
+		const commitIn = (cwd: string, ...args: string[]) =>
 			execFileSync(
 				"git",
 				["-c", "user.email=t@t", "-c", "user.name=t", ...args],
 				{
-					cwd: dir,
+					cwd,
 					stdio: "pipe",
 				},
 			);
+		const commit = (...args: string[]) => commitIn(dir, ...args);
+		const ledgerRepo = defineTemplate((root) => {
+			fs.mkdirSync(path.join(root, "src"));
+			fs.writeFileSync(path.join(root, "src", "a.txt"), "one\n");
+			commitIn(root, "init", "-q");
+			commitIn(root, "add", "src/a.txt");
+			commitIn(root, "commit", "-qm", "base");
+		});
 		beforeEach(() => {
-			fs.mkdirSync(path.join(dir, "src"));
-			fs.writeFileSync(path.join(dir, "src", "a.txt"), "one\n");
-			commit("init", "-q");
-			commit("add", "src/a.txt");
-			commit("commit", "-qm", "base");
+			ledgerRepo.instantiate(dir);
+			seedHost();
 			fs.writeFileSync(path.join(dir, "src", "a.txt"), "two\n");
 		});
 

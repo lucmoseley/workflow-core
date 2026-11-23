@@ -14,7 +14,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
 import {
 	BOUNDED,
 	bgRunRoot,
@@ -48,6 +47,7 @@ import {
 } from "./lib/bg-run-testkit";
 import { ignoreFailure } from "./lib/caught.js";
 import { readText } from "./lib/file-read.js";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { isDead } from "./lib/process-fixture";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -379,12 +379,14 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 });
 
 describe("the kill log's default location (mantahostels#2691) — outside the job-scoped run_root()", () => {
+	const emptyRepo = defineTemplate(emptyRepoTemplate);
 	let repo: string;
 	let script: string;
 
 	beforeEach(() => {
-		repo = mkdtempSync(join(tmpdir(), "bg-run-repo-test-"));
-		execFileSync("git", ["init", "--quiet"], { cwd: repo });
+		repo = emptyRepo.instantiate(
+			mkdtempSync(join(tmpdir(), "bg-run-repo-test-")),
+		);
 		mkdirSync(join(repo, "scripts"));
 		script = join(repo, "scripts", "bg-run.sh");
 		copyFileSync(SCRIPT, script);

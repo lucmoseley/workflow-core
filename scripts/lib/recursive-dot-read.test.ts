@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import {
 	latchesAt,
 	runCore,
@@ -19,31 +20,46 @@ let logs: string[];
 
 const EXPANSION = ".claude .gitignore CLAUDE.md app newdir";
 
-const git = (...args: string[]) =>
-	spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+const gitIn =
+	(at: string) =>
+	(...args: string[]) =>
+		spawnSync("git", ["-C", at, ...args], { encoding: "utf8" });
+const git = (...args: string[]) => gitIn(repo)(...args);
+
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
+const seeded = defineTemplate((d) => {
+	fs.mkdirSync(path.join(d, "app"));
+	fs.mkdirSync(path.join(d, ".claude"));
+	fs.writeFileSync(path.join(d, "app", "a.ts"), "x\n");
+	fs.writeFileSync(path.join(d, ".claude", "settings.json"), "{}\n");
+	fs.writeFileSync(path.join(d, "CLAUDE.md"), "x\n");
+	fs.writeFileSync(path.join(d, ".gitignore"), "node_modules/\n.cache/\n");
+
+	fs.mkdirSync(path.join(d, "newdir"));
+	fs.writeFileSync(path.join(d, "newdir", "b.ts"), "x\n");
+	fs.mkdirSync(path.join(d, ".mypy_cache"));
+	fs.writeFileSync(path.join(d, ".mypy_cache", "c"), "x\n");
+	fs.writeFileSync(path.join(d, ".scratch.out"), "x\n");
+	fs.mkdirSync(path.join(d, "node_modules"));
+	fs.writeFileSync(path.join(d, "node_modules", "d"), "x\n");
+
+	gitIn(d)("init", "-q");
+	gitIn(d)(
+		"add",
+		"app/a.ts",
+		".claude/settings.json",
+		"CLAUDE.md",
+		".gitignore",
+	);
+});
 
 beforeEach(() => {
 	dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "dot-read-")));
 	logs = [];
-	repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "dot+repo.")));
-
-	fs.mkdirSync(path.join(repo, "app"));
-	fs.mkdirSync(path.join(repo, ".claude"));
-	fs.writeFileSync(path.join(repo, "app", "a.ts"), "x\n");
-	fs.writeFileSync(path.join(repo, ".claude", "settings.json"), "{}\n");
-	fs.writeFileSync(path.join(repo, "CLAUDE.md"), "x\n");
-	fs.writeFileSync(path.join(repo, ".gitignore"), "node_modules/\n.cache/\n");
-
-	fs.mkdirSync(path.join(repo, "newdir"));
-	fs.writeFileSync(path.join(repo, "newdir", "b.ts"), "x\n");
-	fs.mkdirSync(path.join(repo, ".mypy_cache"));
-	fs.writeFileSync(path.join(repo, ".mypy_cache", "c"), "x\n");
-	fs.writeFileSync(path.join(repo, ".scratch.out"), "x\n");
-	fs.mkdirSync(path.join(repo, "node_modules"));
-	fs.writeFileSync(path.join(repo, "node_modules", "d"), "x\n");
-
-	git("init", "-q");
-	git("add", "app/a.ts", ".claude/settings.json", "CLAUDE.md", ".gitignore");
+	repo = seeded.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "dot+repo."))),
+	);
 });
 
 afterEach(() => {
@@ -399,7 +415,7 @@ describe("it fails open, and says so in the record", () => {
 	it("on a root git lists nothing in, leaving nothing to expand to", () => {
 		for (const f of fs.readdirSync(repo))
 			fs.rmSync(path.join(repo, f), { recursive: true, force: true });
-		git("init", "-q");
+		emptyRepo.instantiate(repo);
 		expect(emission("grep -rn PAT .")).toBeNull();
 		expect(logs.join("\n")).toContain("no usable entry");
 	});
@@ -494,8 +510,9 @@ describe("a search clear of the heavy trees is handed no rule", () => {
 
 	it("passes a . in a tree that itself sits under a node_modules", () => {
 		const nested = path.join(dir, "node_modules", "proj");
-		fs.mkdirSync(path.join(nested, "src"), { recursive: true });
-		spawnSync("git", ["-C", nested, "init", "-q"]);
+		fs.mkdirSync(nested, { recursive: true });
+		emptyRepo.instantiate(nested);
+		fs.mkdirSync(path.join(nested, "src"));
 		const cwd = path.join(nested, "src");
 		expect(emission("grep -rn PAT .", { cwd })).toBeNull();
 		expect(logs).toEqual([]);

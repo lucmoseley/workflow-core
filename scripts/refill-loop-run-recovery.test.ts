@@ -1,6 +1,6 @@
 // @vitest-environment node
 // full-sweep-only: #5528
-import { type spawn, spawnSync } from "node:child_process";
+import type { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,6 +8,7 @@ import { ADMISSION_VERDICT } from "./lib/admission-verdict-fake";
 import { buildJobRow, type Row } from "./lib/agents-stop-fake";
 import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc.js";
 import { FAKE_COPY } from "./lib/bg-resume-fake";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { API_PROMPT, BOOT_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
@@ -51,6 +52,8 @@ import {
 } from "./lib/systemctl-fake";
 
 refillSandbox();
+
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 
 const MEMINFO_HOLD = buildMeminfo({
 	availableMb: 1024,
@@ -379,7 +382,7 @@ describe("boot-resume after a restart (#3878)", () => {
 
 	it("exits 1, logging why, where the loop's code will not launch", async () => {
 		writeControl();
-		spawnSync("git", ["init", "-q", at("code")]);
+		emptyRepo.instantiate(at("code"));
 		expect((await command("boot-resume")).status).toBe(1);
 		expect(readLog()).toMatch(/boot resume: not resumed: no \S+ in /);
 		expect(fs.existsSync(at("ticks"))).toBe(false);

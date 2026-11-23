@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc";
 import { AS_ROOT, registerSession } from "./lib/arbiter-testkit";
-import { cutWorktree } from "./lib/git-fixture";
+import { cutWorktree, defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { readStopGuardBlock, type StopBlock } from "./lib/stop-guard-testkit";
@@ -32,10 +32,7 @@ const ARBITER = path.join(__dirname, "session-arbiter.js");
 let root: string;
 let sid: string;
 
-function makeRepo(): string {
-	const dir = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), "uncommitted-")),
-	);
+const baseRepo = defineTemplate((dir) => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: dir, stdio: "ignore" });
 	git("init", "-q", "-b", "main");
@@ -46,8 +43,12 @@ function makeRepo(): string {
 	fs.writeFileSync(path.join(dir, "tool.sh"), "one\n");
 	git("add", "tracked.md", "other.md", "tool.sh");
 	git("commit", "-qm", "base");
-	return dir;
-}
+});
+
+const makeRepo = (): string =>
+	baseRepo.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "uncommitted-"))),
+	);
 
 function storeDir(sub = "", forRoot = root): string {
 	return path.join(

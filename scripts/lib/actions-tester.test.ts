@@ -528,18 +528,26 @@ it("names on a red that failed the step ci.yml runs the type-check at the first 
 	});
 });
 
-it("reads a failed run through gh and the tree through git", async () => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "actions-tester-"));
+const batchRepo = defineTemplate((dir) => {
 	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: tmp as string, encoding: "utf8" }).trim();
+		execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
 	git("init", "-q");
-	git("remote", "add", "origin", tmp);
-	fs.mkdirSync(path.join(tmp, "scripts", "lib"), { recursive: true });
-	fs.writeFileSync(path.join(tmp, "scripts", "lib", "a.test.ts"), "");
+	git("remote", "add", "origin", dir);
+	fs.mkdirSync(path.join(dir, "scripts", "lib"), { recursive: true });
+	fs.writeFileSync(path.join(dir, "scripts", "lib", "a.test.ts"), "");
 	git("add", ".");
 	git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a");
-	const sha = git("rev-parse", "HEAD");
-	git("update-ref", "refs/heads/lander/batch-0", sha);
+	git("update-ref", "refs/heads/lander/batch-0", "HEAD");
+});
+
+it("reads a failed run through gh and the tree through git", async () => {
+	tmp = batchRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "actions-tester-")),
+	);
+	const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+		cwd: tmp,
+		encoding: "utf8",
+	}).trim();
 	const answers = {
 		list: [run(7, "failure", { headSha: sha })],
 		jobs: {
@@ -1378,17 +1386,25 @@ it("fires the suite workflow on a push to lander/batch-* and lander/iso-suite-* 
 	);
 });
 
-it("pushes and reads lander/batch-<k> and lander/iso-suite-* runs through git and gh, pushes named files alone to lander/iso-<k>, and cancels a run through gh (#4458, #4556, #4910)", async () => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "queue-tester-"));
-	const remote = path.join(tmp, "remote.git");
-	const work = path.join(tmp, "work");
+const stagedClone = defineTemplate((root) => {
+	const remote = path.join(root, "remote.git");
+	const work = path.join(root, "work");
 	const git = (cwd: string, ...args: string[]) =>
 		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-	git(tmp, "init", "-q", "--bare", remote);
-	git(tmp, "clone", "-q", remote, work);
+	git(root, "init", "-q", "--bare", remote);
+	git(root, "clone", "-q", remote, work);
 	fs.mkdirSync(path.join(work, "scripts/lib"), { recursive: true });
 	fs.writeFileSync(path.join(work, "scripts/lib/a.test.ts"), "");
 	git(work, "add", ".");
+});
+
+it("pushes and reads lander/batch-<k> and lander/iso-suite-* runs through git and gh, pushes named files alone to lander/iso-<k>, and cancels a run through gh (#4458, #4556, #4910)", async () => {
+	tmp = stagedClone.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "queue-tester-")),
+	);
+	const work = path.join(tmp, "work");
+	const git = (cwd: string, ...args: string[]) =>
+		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 	const commit = (m: string) =>
 		git(
 			work,
@@ -1504,12 +1520,11 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 	);
 });
 
-it("reads a lander ref push its hook refuses, quoting a network fault, as a non-transient no verdict, never retried (#4513, #4910)", async () => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "queue-tester-refused-"));
+const selfRemoteRepo = defineTemplate((dir) => {
 	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: tmp as string, encoding: "utf8" }).trim();
+		execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
 	git("init", "-q");
-	git("remote", "add", "origin", tmp);
+	git("remote", "add", "origin", dir);
 	git(
 		"-c",
 		"user.name=t",
@@ -1521,7 +1536,16 @@ it("reads a lander ref push its hook refuses, quoting a network fault, as a non-
 		"-m",
 		"a",
 	);
-	const sha = git("rev-parse", "HEAD");
+});
+
+it("reads a lander ref push its hook refuses, quoting a network fault, as a non-transient no verdict, never retried (#4513, #4910)", async () => {
+	tmp = selfRemoteRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "queue-tester-refused-")),
+	);
+	const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+		cwd: tmp,
+		encoding: "utf8",
+	}).trim();
 	fs.writeFileSync(
 		path.join(tmp, ".git", "hooks", "pre-push"),
 		"#!/bin/sh\necho 'test said: Connection reset' >&2\nexit 1\n",

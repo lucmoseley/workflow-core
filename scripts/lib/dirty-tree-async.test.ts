@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readDirtyTrackedAsync } from "./dirty-tree-async.js";
+import { defineTemplate } from "./git-fixture";
 
 let dir: string;
 const made: string[] = [];
@@ -19,14 +20,17 @@ const tmp = (prefix: string) => {
 const git = (args: string[], cwd = dir) =>
 	execFileSync("git", args, { encoding: "utf8", cwd }).trim();
 
+const baseRepo = defineTemplate((at) => {
+	git(["init", "-q", "-b", "main"], at);
+	git(["config", "user.email", "t@example.invalid"], at);
+	git(["config", "user.name", "Test"], at);
+	fs.writeFileSync(path.join(at, "a.txt"), "one\n");
+	git(["add", "-A"], at);
+	git(["commit", "-q", "-m", "base"], at);
+});
+
 beforeEach(() => {
-	dir = tmp("dirty-tree-async-");
-	git(["init", "-q", "-b", "main"], dir);
-	git(["config", "user.email", "t@example.invalid"]);
-	git(["config", "user.name", "Test"]);
-	fs.writeFileSync(path.join(dir, "a.txt"), "one\n");
-	git(["add", "-A"]);
-	git(["commit", "-q", "-m", "base"]);
+	dir = baseRepo.instantiate(tmp("dirty-tree-async-"));
 });
 
 afterEach(() => {

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-roadmap-pair.js");
@@ -13,28 +14,34 @@ const DIGEST = "docs/roadmap-digest.md";
 
 let repo: string;
 
-const git = (...args: string[]) =>
-	execFileSync("git", args, { cwd: repo, encoding: "utf8" });
+const gitIn =
+	(at: string) =>
+	(...args: string[]) =>
+		execFileSync("git", args, { cwd: at, encoding: "utf8" });
 
-const stage = (file: string, body: string) => {
-	fs.writeFileSync(path.join(repo, file), body);
-	git("add", file);
+const stageIn = (at: string, file: string, body: string) => {
+	fs.writeFileSync(path.join(at, file), body);
+	gitIn(at)("add", file);
 };
+const stage = (file: string, body: string) => stageIn(repo, file, body);
 
 const check = (env: NodeJS.ProcessEnv = process.env) => {
 	const r = runInProcess(SCRIPT, [], { cwd: repo, env });
 	return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 };
 
+const pairedRepo = defineTemplate((at) => {
+	identityRepoTemplate(at);
+	fs.mkdirSync(path.join(at, "docs"));
+	stageIn(at, HTML, "roadmap v1\n");
+	stageIn(at, DIGEST, "digest v1\n");
+	gitIn(at)("commit", "-qm", "init");
+});
+
 beforeEach(() => {
-	repo = fs.mkdtempSync(path.join(os.tmpdir(), "pair-test-"));
-	git("init", "-q", ".");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
-	fs.mkdirSync(path.join(repo, "docs"));
-	stage(HTML, "roadmap v1\n");
-	stage(DIGEST, "digest v1\n");
-	git("commit", "-qm", "init");
+	repo = pairedRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "pair-test-")),
+	);
 });
 afterEach(() => {
 	fs.rmSync(repo, { recursive: true, force: true });

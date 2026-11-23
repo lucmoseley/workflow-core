@@ -1,10 +1,10 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { endedPid, freshSandbox } from "./lib/arbiter-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { localDate } from "./lib/local-date.js";
 import { buildReviewTitle } from "./lib/morning-review.js";
@@ -15,6 +15,7 @@ const SCRIPT = path.resolve(__dirname, "answer-review-reversals.js");
 const FILING = path.resolve(__dirname, "file-morning-review.js");
 
 const sb = freshSandbox();
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 const {
 	ago,
 	heldGh,
@@ -49,9 +50,8 @@ const writeTrackerConfig = (root: string, tracker: string) => {
 };
 
 function runFromClone() {
-	const clone = path.join(sb.dir, "clone");
+	const clone = emptyRepo.instantiate(path.join(sb.dir, "clone"));
 	writeTrackerConfig(clone, "Acme/WFC");
-	execFileSync("git", ["init", "-q", clone]);
 	const { CLAUDE_PROJECT_DIR: _harnessOnly, ...env } = runEnv();
 	return runInProcess(SCRIPT, [], { cwd: clone, env });
 }
