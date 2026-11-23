@@ -301,6 +301,24 @@ describe("the priced-options shape where Core voice loads (#2039)", () => {
 	});
 });
 
+describe("the filing guidance (#5647)", () => {
+	it.each(["/implement 5647", "/wayfinder 5647"])(
+		"hands %s the filing guidance and the task-type wording",
+		(cmd) => {
+			const ctx = inject(cmd);
+			expect(ctx).toContain("quotes his words verbatim");
+			expect(ctx).toContain(
+				"each value the build will set that no ruling sets",
+			);
+			expect(ctx).toContain("A `wayfinder:task` has no value to set");
+		},
+	);
+
+	it("hands /triage none of it", () => {
+		expect(inject("/triage 5647")).not.toContain("quotes his words verbatim");
+	});
+});
+
 describe("the claim rule (mantahostels#270)", () => {
 	it.each(["/wayfinder 270", "/implement 270", "/triage 270", "/to-spec 270"])(
 		"tells %s to claim only what it is working",
