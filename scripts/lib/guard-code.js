@@ -255,6 +255,7 @@ function adoptionLine(a) {
 }
 
 module.exports = {
+	ADOPT_WAIT_MS,
 	adoptGuardCodeAt,
 	adoptionLine,
 	guardCodeDir,

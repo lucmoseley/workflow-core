@@ -12,6 +12,8 @@ import {
 	spawnDetachedRun,
 	startLander,
 } from "./lander-start.js";
+import { noop } from "./noop.js";
+import { spawnOutliving } from "./user-scope.js";
 
 const start = (
 	holder: number | null,
@@ -143,20 +145,26 @@ describe("launcherName (#2478)", () => {
 	});
 });
 
-async function probeRun(source: string, wrap?: string[]) {
+async function probeRun(
+	source: string,
+	wrap?: string[],
+	pause?: (ms: number) => void,
+) {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lander-start-"));
 	try {
 		const script = path.join(tmp, "probe.js");
 		fs.writeFileSync(script, source);
 		const log = path.join(tmp, "out", "lander.log");
-		const pid = spawnDetachedRun({ root: tmp, script, log, wrap });
+		const before = performance.now();
+		const pid = spawnDetachedRun({ root: tmp, script, log, wrap, pause });
+		const startMs = performance.now() - before;
 		await vi.waitFor(() => {
 			expect(() => process.kill(pid, 0)).toThrow();
 			expect(fs.readFileSync(log, "utf8")).toMatch(/\n$/);
 		});
 		const text = fs.readFileSync(log, "utf8");
 		const last = text.trimEnd().split("\n").at(-1) ?? "";
-		return { tmp, pid, text, logged: JSON.parse(last) };
+		return { tmp, pid, startMs, text, logged: JSON.parse(last) };
 	} finally {
 		fs.rmSync(tmp, { recursive: true, force: true });
 	}
@@ -187,14 +195,65 @@ describe("spawnDetachedRun", () => {
 		);
 	});
 
+	it("starts the lander unwrapped where the wrap ends without running it, logging the refusal, where a wrap that runs it keeps its pid (#5613)", async () => {
+		const { pid, text, logged } = await probeRun(
+			"console.log(JSON.stringify(process.pid));",
+			["sh", "-c", "exit 3", "--"],
+		);
+		expect(logged).toBe(pid);
+		expect(text).toMatch(
+			/the user scope was refused: sh it ended 3 \(#5613\)\n.*no user scope: the lander shares its starter's cgroup \(#2956\)/,
+		);
+	});
+
+	it("kills a wrap that has not started the lander within the bound, and starts it unwrapped, where a wrap that runs it keeps its pid (#5613)", async () => {
+		const { pid, text, logged } = await probeRun(
+			"console.log(JSON.stringify(process.pid));",
+			["sh", "-c", "sleep 30", "--"],
+			noop,
+		);
+		expect(logged).toBe(pid);
+		expect(text).toMatch(
+			/the user scope was refused: sh it had not started the lander in \d+ ms \(#5613\)/,
+		);
+	});
+
+	it("throws, logging the refusal, where the wrap ends and the unwrapped start cannot run, where an unwrapped start that runs returns its pid (#5613)", () => {
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lander-start-"));
+		try {
+			const log = path.join(tmp, "lander.log");
+			const spawn: typeof spawnOutliving = (command, args, options) =>
+				options.wrap?.length
+					? spawnOutliving(command, args, options)
+					: ({ pid: undefined, unref: noop } as ReturnType<
+							typeof spawnOutliving
+						>);
+			expect(() =>
+				spawnDetachedRun({
+					root: tmp,
+					script: path.join(tmp, "probe.js"),
+					log,
+					wrap: ["sh", "-c", "exit 1", "--"],
+					spawn,
+				}),
+			).toThrow(/could not start .*probe\.js/);
+			expect(fs.readFileSync(log, "utf8")).toMatch(
+				/the user scope was refused: sh it ended 1/,
+			);
+		} finally {
+			fs.rmSync(tmp, { recursive: true, force: true });
+		}
+	});
+
 	it.runIf(scopeWorks)(
-		"runs the lander in a cgroup other than its starter's, under the same pid (#2956)",
+		"runs the lander in a cgroup other than its starter's, under the same pid, confirmed within a few hundred ms (#2956, #5613)",
 		async () => {
-			const { pid, logged } = await probeRun(
+			const { pid, startMs, logged } = await probeRun(
 				'console.log(JSON.stringify([require("node:fs").readFileSync("/proc/self/cgroup", "utf8"), process.pid]));',
 			);
 			expect(logged[0]).toMatch(/\.scope\n$/);
 			expect(logged[0]).not.toBe(fs.readFileSync("/proc/self/cgroup", "utf8"));
+			expect(startMs).toBeLessThan(500);
 			expect(logged[1]).toBe(pid);
 		},
 	);

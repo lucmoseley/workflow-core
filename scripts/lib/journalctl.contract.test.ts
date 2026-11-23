@@ -25,7 +25,15 @@ const T0 = Math.floor((Date.now() - 60 * MIN) / 1000) * 1000;
 // guess, #3105
 const WINDOW_MS = 7 * 24 * 60 * MIN;
 
+// guess, #5614: inside readIncidents' 30-min lookback, so its last read holds a dropped incident
+const LOOKBACK_OFFSET_MS = 10 * MIN;
+
 const FAKE_JOURNAL = [
+	buildEarlyoomSignalLine(
+		Date.now() - WINDOW_MS - LOOKBACK_OFFSET_MS,
+		41,
+		"node",
+	),
 	buildEarlyoomSignalLine(T0 - 2 * MIN, 77, "dbus-daemon", { rss: 1 }),
 	buildEarlyoomBannerLine(T0 - MIN),
 	buildEarlyoomReadingLine(T0, 776),
@@ -76,6 +84,8 @@ interface Side {
 	real: boolean;
 	lines: string[];
 	kills: Kill[];
+	sinceMs: number;
+	firstKeptMs: number | null;
 	empty: string;
 	kernel: { outcome: string; lines: string[] };
 	boots: { boots: FakeBoot[]; why: string | null };
@@ -166,7 +176,8 @@ function readSide(
 	const t = tap(name, bin);
 	vi.stubEnv("WFC_JOURNALCTL", t.at);
 	vi.stubEnv("WFC_REFILL_DIR", path.join(dir, "refill"));
-	const { incidents, why } = readIncidents(Date.now() - WINDOW_MS);
+	const sinceMs = Date.now() - WINDOW_MS;
+	const { incidents, why } = readIncidents(sinceMs);
 	if (why !== null) return { why };
 	const lines = lineList(t.last());
 	readIncidents(Date.now() + 24 * 60 * MIN);
@@ -175,6 +186,8 @@ function readSide(
 			real: name === "real",
 			lines,
 			kills: incidents.flatMap((i: { kills: Kill[] }) => i.kills),
+			sinceMs,
+			firstKeptMs: incidents.length > 0 ? Date.parse(incidents[0].first) : null,
 			empty: t.last().trim(),
 			kernel: readKernel(kernelBin, name),
 			boots: readBoots(),
@@ -183,11 +196,13 @@ function readSide(
 	};
 }
 
+const stampOf = (line: string) => Date.parse(line.split(" ")[0] ?? "");
+
 function lineOf(lines: string[], k: Kill): number {
 	return lines.findIndex(
 		(l) =>
 			Number(message(l)?.match(SIGNAL)?.[1]) === k.pid &&
-			Date.parse(l.split(" ")[0] ?? "") === Date.parse(k.at),
+			stampOf(l) === Date.parse(k.at),
 	);
 }
 
@@ -233,12 +248,21 @@ const CASES: Case[] = [
 		},
 	},
 	{
-		name: "every signal line reads as one signal, and no other line does",
+		name: "every signal line of a kept incident reads as one signal, and no other line does (#5614: a dropped incident's lookback lines are not counted)",
 		check(side: Side, skip: Skip) {
-			const { lines, kills } = side;
+			const { lines, kills, sinceMs, firstKeptMs } = side;
 			holds(side, earlyoomLineCount(lines), "earlyoom line", skip);
+			const keptFrom = firstKeptMs ?? Number.POSITIVE_INFINITY;
+			const dropped = lines.filter((l) => stampOf(l) < keptFrom);
+			const kept = lines.filter((l) => stampOf(l) >= keptFrom);
+			expect(
+				dropped.filter(
+					(l) => SIGNAL.test(message(l) ?? "") && stampOf(l) > sinceMs,
+				),
+				"a signal line inside the window that no kept incident holds",
+			).toEqual([]);
 			expect(kills.reduce((n, k) => n + k.signals, 0)).toBe(
-				countOf(lines, SIGNAL),
+				countOf(kept, SIGNAL),
 			);
 		},
 	},

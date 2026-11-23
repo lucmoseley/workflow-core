@@ -15,6 +15,11 @@ const { buildCutCommand } = require("./lib/cutover.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { carryJobFiles } = require("./lib/carry-job-files.js");
 const { runClaude, buildSeatEnv } = require("./lib/seat-claude.js");
+const { claudeBin } = require("./lib/claude-bin.js");
+const {
+	launchAuthRefusal,
+	STATUS_TIMEOUT_MS,
+} = require("./lib/launch-auth.js");
 const { launchDir } = require("./lib/session-checkout.js");
 
 // #4340 guess
@@ -22,7 +27,8 @@ const CLAUDE_TIMEOUT_MS = 60_000;
 const HOOK_TIMEOUT_MS = 1_200_000;
 // #4340 guess
 const NODE_START_MS = 10_000;
-const LAUNCH_ROOM_MS = 2 * CLAUDE_TIMEOUT_MS + NODE_START_MS;
+const LAUNCH_ROOM_MS =
+	2 * CLAUDE_TIMEOUT_MS + 2 * STATUS_TIMEOUT_MS + NODE_START_MS;
 
 /**
  * @typedef {{ root: string, seat: string, jobId: string, jobDir: string,
@@ -97,20 +103,58 @@ function decide(source, io) {
 /**
  * @param {string[]} args
  * @param {string} cwd
- * @param {NodeJS.ProcessEnv} env
- * @param {Job} job
+ * @param {NodeJS.ProcessEnv} seatEnv
  * @returns {Ran}
  */
-function runOnJobSeat(args, cwd, env, job) {
+function runOnJobSeat(args, cwd, seatEnv) {
 	const r = runClaude(args, {
 		cwd,
-		env: buildSeatEnv(env, job.seat, job.providerEnv),
+		env: seatEnv,
 		timeout: CLAUDE_TIMEOUT_MS,
 	});
 	const output = [r.out, r.error && caught(r.error).message]
 		.filter(Boolean)
 		.join("\n");
 	return { ok: r.failed === null, output };
+}
+
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @param {Job} job
+ */
+const seatEnvOf = (env, job) => buildSeatEnv(env, job.seat, job.providerEnv);
+
+/**
+ * @param {string[]} flags
+ * @returns {string|undefined}
+ */
+function settingsOf(flags) {
+	const i = flags.findLastIndex(
+		(g) => g === "--settings" || g.startsWith("--settings="),
+	);
+	const f = flags[i];
+	if (f === undefined) return;
+	return f === "--settings" ? flags[i + 1] : f.slice("--settings=".length);
+}
+
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @param {Job} job
+ * @param {string} intent
+ * @param {string} dir
+ * @returns {Ran}
+ */
+function relaunch(env, job, intent, dir) {
+	const seatEnv = seatEnvOf(env, job);
+	const refusal = launchAuthRefusal({
+		bin: claudeBin(seatEnv),
+		env: seatEnv,
+		cwd: dir,
+		settings: settingsOf(job.flags),
+		bg: true,
+	});
+	if (refusal) return { ok: false, output: refusal };
+	return runOnJobSeat(["--bg", ...job.flags, "--", intent], dir, seatEnv);
 }
 
 /**
@@ -168,9 +212,9 @@ function ports(at) {
 				jobId: job.jobId,
 				checkout: dir,
 			}).text,
-		launch: (job, intent, dir) =>
-			runOnJobSeat(["--bg", ...job.flags, "--", intent], dir, env, job),
-		remove: (job) => runOnJobSeat(["rm", job.short], job.root, env, job),
+		launch: (job, intent, dir) => relaunch(env, job, intent, dir),
+		remove: (job) =>
+			runOnJobSeat(["rm", job.short], job.root, seatEnvOf(env, job)),
 	};
 }
 

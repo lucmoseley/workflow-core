@@ -197,6 +197,7 @@ function parsePsRows(text) {
 	});
 }
 
+// guess, #5644
 const PS_TIMEOUT_MS = 5000;
 const PS_BIN = () => process.env.WFC_PS || "ps";
 
@@ -221,6 +222,7 @@ function readPs() {
 
 module.exports = {
 	PS_BIN,
+	PS_TIMEOUT_MS,
 	DRAW_MARGIN_MB,
 	EARLYOOM_FLOOR_MB,
 	SUITE_MAX,

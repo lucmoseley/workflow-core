@@ -126,6 +126,27 @@ it("starts one detached queue lander that lands the queue ref, and none beside i
 	);
 });
 
+it("starts the lander unwrapped where the user scope is refused after the probe allowed it, reporting the pid that runs, as a start the scope allows does (#5613)", async () => {
+	commit("work");
+	const tester = gatedTester(path.join(tmp, "release"));
+	const refusing = path.join(tmp, "systemd-run");
+	fs.writeFileSync(
+		refusing,
+		'#!/bin/sh\nfor last; do :; done\n[ "$last" = true ] && exit 0\necho "Failed to start transient scope unit" >&2\nexit 1\n',
+	);
+	fs.chmodSync(refusing, 0o755);
+	vi.stubEnv("WFC_SYSTEMD_RUN", refusing);
+
+	const r = start(["--tester", tester]);
+	expect(r.status, r.stderr).toBe(0);
+	const pid = Number(/; pid (\d+);/.exec(r.stdout)?.[1]);
+	expect(await waitFor(() => fs.existsSync(landerPidFile()))).toBe(true);
+	expect(fs.readFileSync(landerPidFile(), "utf8")).toContain(String(pid));
+	expect(fs.readFileSync(path.join(markers(), ".lander.log"), "utf8")).toMatch(
+		/Failed to start transient scope unit\n.*the user scope was refused: systemd-run it ended 1 \(#5613\)\n.*no user scope/,
+	);
+});
+
 const recordDrop = (sha: string, over: Record<string, unknown> = {}) => {
 	fs.mkdirSync(markers(), { recursive: true });
 	fs.writeFileSync(
