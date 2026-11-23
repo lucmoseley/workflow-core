@@ -4,7 +4,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath } from "./guard-log-fixture";
-import { coreFile } from "./lib/core-path-testkit";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -48,7 +47,7 @@ describe("the guard, end to end", () => {
 			/^Refused: `find \/ -name x` starts at `\/`\./,
 		);
 		expect(out.permissionDecisionReason).toContain(
-			`This plugin's own files: ${PLUGIN_ROOT} — its scripts/ and ${coreFile("docs/agents/")} are there.`,
+			`This plugin's own files: ${PLUGIN_ROOT} — its scripts/ and docs/agents/ are there.`,
 		);
 		expect(fs.existsSync(failOpenLogPath(config, project))).toBe(false);
 	});
@@ -74,7 +73,7 @@ describe("the guard, end to end", () => {
 		).toBe("deny");
 	});
 
-	it("spells core paths at the plugin root in an install", () => {
+	it("names the plugin's directories relative to an install's root", () => {
 		const install = path.join(dir, "install");
 		fs.mkdirSync(path.join(install, "docs", "agents"), { recursive: true });
 		const out = emission("find / -x", {
@@ -82,7 +81,7 @@ describe("the guard, end to end", () => {
 			env: { WFC_SCRIPT_ROOT: install },
 		});
 		expect(out.permissionDecisionReason).toContain(
-			`its scripts/ and ${install}/docs/agents/ are there.`,
+			`This plugin's own files: ${install} — its scripts/ and docs/agents/ are there.`,
 		);
 	});
 

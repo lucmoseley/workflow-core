@@ -210,13 +210,10 @@ describe("a find started at / is refused (#1006)", () => {
 		});
 	});
 
-	it("rewrites core paths in its own text before the command goes in", () => {
+	it("names the plugin's directories relative to the root it names, rewriting no core path (#5641)", () => {
 		const corePaths = (t: string) => t.replaceAll("docs/", "/core/docs/");
 		expect(judge("find / -name docs/x", { corePaths })).toEqual({
-			deny: refusal("find / -name docs/x").replace(
-				"docs/agents/",
-				"/core/docs/agents/",
-			),
+			deny: refusal("find / -name docs/x"),
 		});
 	});
 });
