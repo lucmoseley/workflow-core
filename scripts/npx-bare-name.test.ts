@@ -4,8 +4,9 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { caught } from "./lib/caught.js";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { isJsTestFile } from "./lib/test-kind.js";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -70,24 +71,6 @@ function readBareNpxHits(root = ROOT): string[] {
 	return hits.sort();
 }
 
-const probes: string[] = [];
-function probeRepo(files: Record<string, string>): string {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "npx-bare-"));
-	probes.push(dir);
-	execFileSync("git", ["init", "-q"], { cwd: dir });
-	for (const [name, body] of Object.entries(files)) {
-		fs.mkdirSync(path.join(dir, path.dirname(name)), { recursive: true });
-		fs.writeFileSync(path.join(dir, name), body);
-	}
-	execFileSync("git", ["add", "-A"], { cwd: dir });
-	return dir;
-}
-
-afterEach(() => {
-	for (const d of probes.splice(0))
-		fs.rmSync(d, { recursive: true, force: true });
-});
-
 describe("no check reaches its binary by bare npx name", () => {
 	it("finds no bare-name invocation on any executable surface", () => {
 		expect(
@@ -97,25 +80,6 @@ describe("no check reaches its binary by bare npx name", () => {
 				"public registry when node_modules is absent, and `npx biome` is an " +
 				"unrelated package that exits 0 having checked nothing (#1538).",
 		).toEqual([]);
-	});
-
-	it("catches every name it claims to cover", () => {
-		const covered = [
-			"actionlint",
-			"biome",
-			"eslint",
-			"next",
-			"ruff",
-			"shellcheck",
-			"tsc",
-			"vitest",
-		];
-		const files = Object.fromEntries(
-			covered.map((n) => [`scripts/${n}-probe.sh`, `npx ${n} --version\n`]),
-		);
-		expect(readBareNpxHits(probeRepo(files))).toEqual(
-			covered.map((n) => `scripts/${n}-probe.sh:1: npx ${n}`).sort(),
-		);
 	});
 
 	it("scans every surface arm it claims to scan", () => {
@@ -137,21 +101,62 @@ describe("no check reaches its binary by bare npx name", () => {
 		);
 	});
 
-	it("clears the two spellings that are allowed, and both comment forms", () => {
-		const dir = probeRepo({
-			"scripts/bad.sh": "npx biome ci .\n",
-			"scripts/flagged.sh": "npx --yes biome ci .\n",
-			"scripts/case-arm.sh": "case $x in\n*) npx biome ci . ;;\nesac\n",
-			"scripts/scoped.sh": "npx @biomejs/biome ci .\n",
-			"scripts/bypath.sh": "node_modules/.bin/biome ci .\n",
-			"scripts/hashed.sh": "# never npx biome here\n",
-			"scripts/blocked.js": "/*\n * never npx biome here\n */\n",
-			"docs/prose.md": "npx biome is the hazard\n",
+	describe("against a probe repo", () => {
+		const repoTemplate = defineTemplate(emptyRepoTemplate);
+		let probe: string;
+
+		beforeEach(() => {
+			probe = repoTemplate.instantiate(
+				fs.mkdtempSync(path.join(os.tmpdir(), "npx-bare-")),
+			);
 		});
-		expect(readBareNpxHits(dir)).toEqual([
-			"scripts/bad.sh:1: npx biome",
-			"scripts/case-arm.sh:2: npx biome",
-			"scripts/flagged.sh:1: npx biome",
-		]);
+
+		afterEach(() => fs.rmSync(probe, { recursive: true, force: true }));
+
+		const fillProbe = (files: Record<string, string>) => {
+			for (const [name, body] of Object.entries(files)) {
+				fs.mkdirSync(path.join(probe, path.dirname(name)), { recursive: true });
+				fs.writeFileSync(path.join(probe, name), body);
+			}
+			execFileSync("git", ["add", "-A"], { cwd: probe });
+		};
+
+		it("catches every name it claims to cover", () => {
+			const covered = [
+				"actionlint",
+				"biome",
+				"eslint",
+				"next",
+				"ruff",
+				"shellcheck",
+				"tsc",
+				"vitest",
+			];
+			const files = Object.fromEntries(
+				covered.map((n) => [`scripts/${n}-probe.sh`, `npx ${n} --version\n`]),
+			);
+			fillProbe(files);
+			expect(readBareNpxHits(probe)).toEqual(
+				covered.map((n) => `scripts/${n}-probe.sh:1: npx ${n}`).sort(),
+			);
+		});
+
+		it("clears the two spellings that are allowed, and both comment forms", () => {
+			fillProbe({
+				"scripts/bad.sh": "npx biome ci .\n",
+				"scripts/flagged.sh": "npx --yes biome ci .\n",
+				"scripts/case-arm.sh": "case $x in\n*) npx biome ci . ;;\nesac\n",
+				"scripts/scoped.sh": "npx @biomejs/biome ci .\n",
+				"scripts/bypath.sh": "node_modules/.bin/biome ci .\n",
+				"scripts/hashed.sh": "# never npx biome here\n",
+				"scripts/blocked.js": "/*\n * never npx biome here\n */\n",
+				"docs/prose.md": "npx biome is the hazard\n",
+			});
+			expect(readBareNpxHits(probe)).toEqual([
+				"scripts/bad.sh:1: npx biome",
+				"scripts/case-arm.sh:2: npx biome",
+				"scripts/flagged.sh:1: npx biome",
+			]);
+		});
 	});
 });

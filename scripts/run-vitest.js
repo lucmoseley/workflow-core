@@ -2012,7 +2012,7 @@ function main(argv = process.argv.slice(2), options = {}) {
 		const part = !weight.wholeSlot;
 		const seat = queueSeat({
 			queue: options,
-			join: { weight, kind: partKind },
+			join: { weight, kind: partKind, session: route.sessionId },
 			logExit,
 			signals: true,
 		});
