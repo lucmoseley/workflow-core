@@ -21630,6 +21630,7 @@
 			"scripts/lib/commit-sha.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/headless-sessions.test.ts",
 			"scripts/lib/inject-tracker-docs-host.contract.test.ts",
 			"scripts/lib/inject-tracker-docs.test.ts",
 			"scripts/lib/post-commit-steps.contract.test.ts",
