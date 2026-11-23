@@ -221,6 +221,13 @@ describe("a wait that joined a queued same-key `tsc` run (#5639)", () => {
 		);
 		expect(out).toContain("Dry run: 0.8 h of queue wait in the last 24 h");
 	});
+
+	it("counts as no run in the daily, kind and session Runs columns", () => {
+		const out = dryRun();
+		expect(out).toContain("| `tsc` | 1 | 0.8 |");
+		expect(out).toContain("| `b` | 0 | 0.3 |");
+		expect(out).toMatch(/\| \d{4}-\d{2}-\d{2} \(to now\) \| 1 \| 0\.8 \|/);
+	});
 });
 
 describe("the body carries #1157 Q7's breakdown", () => {
