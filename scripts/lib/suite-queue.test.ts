@@ -3495,6 +3495,20 @@ describe("each session holds at most two places in each queue (#5595)", () => {
 		});
 	});
 
+	it("holds no waiter in the other queue on an over-cap waiter's climb stamp, until it enters", async () => {
+		const base = root();
+		const suiteDir = path.join(base, "wfc-suite-queue");
+		const tscDir = path.join(base, "wfc-tsc-queue");
+		running(suiteDir, 11, 100);
+		const second = partWaiter(suiteDir, 12, 200);
+		const third = partWaiter(suiteDir, 13, 300);
+		third.stamps.onClimbStamp(true);
+		seat(tscDir, 21, 400, { session: T });
+		expect(await turnOpen({ queueDir: tscDir, pid: 21 })).toBe(true);
+		second.leave();
+		expect(await turnOpen({ queueDir: tscDir, pid: 21 })).toBe(false);
+	});
+
 	it("caps no waiter without a session id, and none a lander run joins", () => {
 		const queueDir = path.join(root(), "wfc-suite-queue");
 		running(queueDir, 11, 100);
