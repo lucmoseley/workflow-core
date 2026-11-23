@@ -11,7 +11,7 @@ import {
 	buildListedRow,
 	buildUnrecordedRow,
 } from "./lib/agents-stop-fake";
-import { freshSandbox, locks, store } from "./lib/arbiter-testkit";
+import { freshSandbox, lockRecord, store } from "./lib/arbiter-testkit";
 import { writeClaudeStub } from "./lib/claude-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -28,7 +28,7 @@ const lockFile = (rel: string) =>
 
 function claim(rel: string, sessionId: string, agedHours = 24, tree?: string) {
 	fs.mkdirSync(locksDir(), { recursive: true });
-	const rec = locks.newLock({
+	const rec = lockRecord({
 		path: rel,
 		sessionId,
 		pid: 4242,

@@ -11,7 +11,6 @@ const {
 	cacheDir,
 	readEntry,
 	writeEntry,
-	lookup,
 	lookupAll,
 	prune,
 	countDerivedSince,
@@ -189,30 +188,37 @@ describe("the store", () => {
 	});
 });
 
-describe("lookup", () => {
+describe("lookupAll on one issue", () => {
 	const issue = (number: number, body: string) => ({ number, body });
+	const lookupOne = (
+		i: { number: number; body: string },
+		t: typeof trackedFailed | ReturnType<typeof tracked>,
+	) => {
+		const { warm, cold } = lookupAll(root, [i], t);
+		return warm.length > 0 ? { state: "hit", ...warm[0] } : cold[0];
+	};
 
 	it("hits when the body still hashes to the stored key", () => {
 		put(7, "a body", { writeSet: ["scripts/a.js"], trackedAtDerive: [] });
-		const r = lookup(root, issue(7, "a body"), tracked([]));
+		const r = lookupOne(issue(7, "a body"), tracked([]));
 		expect(r.state).toBe("hit");
-		expect(r.entry.writeSet).toEqual(["scripts/a.js"]);
+		expect(r.writeSet).toEqual(["scripts/a.js"]);
 	});
 
 	it("hits through a tick", () => {
 		put(7, "- [ ] one");
-		expect(lookup(root, issue(7, "- [x] one"), tracked([])).state).toBe("hit");
+		expect(lookupOne(issue(7, "- [x] one"), tracked([])).state).toBe("hit");
 	});
 
 	it("misses when the body was really edited", () => {
 		put(7, "a body");
-		expect(lookup(root, issue(7, "a different body"), tracked([])).state).toBe(
+		expect(lookupOne(issue(7, "a different body"), tracked([])).state).toBe(
 			"body-changed",
 		);
 	});
 
 	it("misses when there is no entry at all", () => {
-		expect(lookup(root, issue(7, "a body"), tracked([])).state).toBe("cold");
+		expect(lookupOne(issue(7, "a body"), tracked([])).state).toBe("cold");
 	});
 
 	it("re-derives an entry whose path was renamed out from under it", () => {
@@ -220,11 +226,7 @@ describe("lookup", () => {
 			writeSet: ["scripts/old-name.js"],
 			trackedAtDerive: ["scripts/old-name.js"],
 		});
-		const r = lookup(
-			root,
-			issue(7, "a body"),
-			tracked(["scripts/new-name.js"]),
-		);
+		const r = lookupOne(issue(7, "a body"), tracked(["scripts/new-name.js"]));
 		expect(r.state).toBe("path-gone");
 		expect(r.gonePaths).toEqual(["scripts/old-name.js"]);
 	});
@@ -234,16 +236,16 @@ describe("lookup", () => {
 			writeSet: ["scripts/not-yet.js"],
 			trackedAtDerive: [],
 		});
-		const r = lookup(root, issue(7, "a body"), tracked([]));
+		const r = lookupOne(issue(7, "a body"), tracked([]));
 		expect(r.state).toBe("hit");
-		expect(r.promotable).toBeUndefined();
+		expect(readEntry(root, 7).trackedAtDerive).toEqual([]);
 	});
 
 	it("promotes a path the issue has since created into the rename check", () => {
 		put(7, "a body", { writeSet: ["scripts/new.js"], trackedAtDerive: [] });
-		const r = lookup(root, issue(7, "a body"), tracked(["scripts/new.js"]));
+		const r = lookupOne(issue(7, "a body"), tracked(["scripts/new.js"]));
 		expect(r.state).toBe("hit");
-		expect(r.promotable).toEqual(["scripts/new.js"]);
+		expect(r.trackedAtDerive).toEqual(["scripts/new.js"]);
 	});
 
 	it("promotes nothing where every write-set path was already tracked", () => {
@@ -251,16 +253,14 @@ describe("lookup", () => {
 			writeSet: ["scripts/a.js"],
 			trackedAtDerive: ["scripts/a.js"],
 		});
-		expect(
-			lookup(root, issue(7, "a body"), tracked(["scripts/a.js"])).promotable,
-		).toBeUndefined();
+		lookupOne(issue(7, "a body"), tracked(["scripts/a.js"]));
+		expect(readEntry(root, 7).trackedAtDerive).toEqual(["scripts/a.js"]);
 	});
 
 	it("promotes nothing when git could not list the tree", () => {
 		put(7, "a body", { writeSet: ["scripts/new.js"], trackedAtDerive: [] });
-		expect(
-			lookup(root, issue(7, "a body"), trackedFailed).promotable,
-		).toBeUndefined();
+		lookupOne(issue(7, "a body"), trackedFailed);
+		expect(readEntry(root, 7).trackedAtDerive).toEqual([]);
 	});
 
 	it("serves the entry flagged when git could not list the tree", () => {
@@ -268,14 +268,14 @@ describe("lookup", () => {
 			writeSet: ["scripts/a.js"],
 			trackedAtDerive: ["scripts/a.js"],
 		});
-		const r = lookup(root, issue(7, "a body"), trackedFailed);
+		const r = lookupOne(issue(7, "a body"), trackedFailed);
 		expect(r.state).toBe("hit");
 		expect(r.unrevalidated).toBe(true);
 	});
 
 	it("hits without git where the entry claims no tracked path to revalidate", () => {
 		put(7, "a body", { writeSet: [], trackedAtDerive: [] });
-		expect(lookup(root, issue(7, "a body"), trackedFailed).state).toBe("hit");
+		expect(lookupOne(issue(7, "a body"), trackedFailed).state).toBe("hit");
 	});
 });
 
@@ -330,8 +330,11 @@ describe("promotion of a path created after derive time", () => {
 		);
 		expect(readEntry(root, 7).trackedAtDerive).toEqual(["scripts/new.js"]);
 		expect(
-			lookup(root, { number: 7, body: "a body" }, tracked(["scripts/moved.js"]))
-				.state,
+			lookupAll(
+				root,
+				[{ number: 7, body: "a body" }],
+				tracked(["scripts/moved.js"]),
+			).cold[0].state,
 		).toBe("path-gone");
 	});
 

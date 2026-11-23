@@ -1280,7 +1280,7 @@ describe("scanScope", () => {
 	});
 });
 
-describe("CORE_CLASSES", () => {
+describe("coverageMatchers — the core classes", () => {
 	const report = "docs/archive/sync-reports/2026-09-26.md";
 	const proposal = "docs/archive/sync-proposals/2026-09-26.md";
 	const covered = (f: string) =>

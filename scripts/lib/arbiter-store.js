@@ -33,7 +33,6 @@ module.exports = {
 	errorLog: core.errorLog,
 	rootlessErrorLog: core.paths.rootlessErrorLog,
 	gitDirty: core.gitDirty,
-	subjectDirty: core.subjectDirty,
 	readHeldBy: lockFiles.readHeldBy,
 	readLocksHeldBy: lockFiles.readLocksHeldBy,
 	subjectDirtyWhereHeld: locksMod.subjectDirtyWhereHeld,
@@ -86,7 +85,6 @@ module.exports = {
 	readLandedBy: ledger.readLandedBy,
 	readWritesBy: ledger.readWritesBy,
 	readWriteEntriesBy: ledger.readWriteEntriesBy,
-	whoHolds: locksMod.whoHolds,
 	withGitTimeout: core.withGitTimeout,
 	readLastWriterOf: ledger.readLastWriterOf,
 };

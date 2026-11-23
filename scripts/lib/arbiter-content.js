@@ -184,7 +184,6 @@ module.exports = {
 	contentState,
 	dropContentRef,
 	pinContent,
-	PRIOR_BLOBS_MAX,
 	recordContent,
 	readRegionHash,
 };

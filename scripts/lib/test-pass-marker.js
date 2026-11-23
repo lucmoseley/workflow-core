@@ -1297,7 +1297,6 @@ module.exports = {
 	isFullScope,
 	fullAttestationOf,
 	isUnnarrowedScope,
-	holdsAt,
 	gitReader,
 	holdsTestByTree,
 	docsOfTests,

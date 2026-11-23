@@ -1,10 +1,12 @@
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, assert, beforeEach, vi } from "vitest";
 import { buildAgentsBranch, buildListedRow } from "./agents-stop-fake";
+import type { LockRecord } from "./arbiter-records.js";
 import { caught } from "./caught.js";
 import { writeClaudeStub } from "./claude-stub";
 import { type RouteAnswer, stubGhRoutes, stubGhScript } from "./gh-stub";
@@ -279,12 +281,47 @@ export function listedClaims() {
 	return listed.claims;
 }
 
+export const lockRecord = (
+	fields: { path: string } & Partial<LockRecord>,
+): LockRecord => ({
+	sessionId: null,
+	pid: null,
+	procStart: null,
+	claimedAt: new Date().toISOString(),
+	claimId: crypto.randomUUID(),
+	bootId: proc.readCurrentBootId(),
+	blob: null,
+	priorBlobs: [],
+	preBlob: null,
+	...fields,
+});
+
 export function putLock(rel: string, fields: object) {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 	fs.writeFileSync(
 		store.paths.lock(rel),
-		JSON.stringify(locks.newLock({ path: rel, ...fields })),
+		JSON.stringify(lockRecord({ path: rel, ...fields })),
 	);
+}
+
+export function acquireSeeing(
+	rel: string,
+	seen: LockRecord,
+	me: Parameters<typeof store.acquire>[1],
+) {
+	const real = core.probeRecord;
+	const read = vi
+		.spyOn(core, "probeRecord")
+		.mockImplementation((file) =>
+			file === store.paths.lock(rel)
+				? { state: "ok", record: seen }
+				: real(file),
+		);
+	try {
+		return store.acquire(rel, me);
+	} finally {
+		read.mockRestore();
+	}
 }
 
 export const durably = (sessionId: string) => ({

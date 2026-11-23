@@ -44,14 +44,14 @@ const { gh } = createRequire(__filename)("./lib/gh.js");
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
 const markerRoot = createRequire(__filename)("./lib/marker-root.js");
 const oracleCache = createRequire(__filename)("./lib/oracle-cache.js");
-const {
-	claudeBin: claudePrimitive,
-	listedSessionIds,
-	oracleCacheKey,
-} = createRequire(__filename)("./lib/agent-liveness.js");
+const { claudeBin: claudePrimitive, listedSessionIds } = createRequire(
+	__filename,
+)("./lib/agent-liveness.js");
 const { attributeDirty } = createRequire(__filename)("./lib/own-selection.js");
 
 const sb = freshSandbox();
+const oracleKey = (bin: string) =>
+	JSON.stringify([bin, fs.realpathSync(sb.home)]);
 
 const CLOSED = { "*": ghPrinted('{"state":"CLOSED"}\n') };
 
@@ -4092,7 +4092,7 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 			};
 			const first = waitAs("bob", ["540", "2"], env);
 			const published = () =>
-				oracleCache.readFresh(oracleCacheKey(env.WFC_CLAUDE_BIN)) !== null;
+				oracleCache.readFresh(oracleKey(env.WFC_CLAUDE_BIN)) !== null;
 			for (let i = 0; i < 200 && !published(); i++)
 				await new Promise((r) => setTimeout(r, 25));
 			expect(published()).toBe(true);
@@ -4114,7 +4114,7 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 				WFC_ORACLE_CACHE: "1",
 			};
 			oracleCache.write(
-				oracleCacheKey(env.WFC_CLAUDE_BIN),
+				oracleKey(env.WFC_CLAUDE_BIN),
 				JSON.stringify([
 					{ sessionId: "alice", kind: "background", state: "done" },
 					{ sessionId: "bob" },

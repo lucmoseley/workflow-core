@@ -753,7 +753,6 @@ function buildTree(root, out) {
 module.exports = {
 	bareCitationFaults,
 	buildTree,
-	REWRITTEN,
 	isShipped,
 	COPIED,
 	HOST_OWNED_DOCS,

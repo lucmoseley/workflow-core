@@ -644,7 +644,6 @@ module.exports = {
 	readEverySeat,
 	listedSessionIds,
 	admissionSessionIds,
-	oracleCacheKey,
 	readSeatListing,
 	runOracle,
 	sharedSessionIds,

@@ -33,6 +33,7 @@ const {
 	buildShapeOnlyReason,
 } = require("./shape-hold");
 const { REF_FORMS, scanIssueRefs } = require("./issue-ref.js");
+const since = () => require("./tool-calls-since");
 
 /** @typedef {import("./round-marker").QuestionBlock} QuestionBlock */
 
@@ -246,7 +247,7 @@ function callsAfterFor(transcript) {
 				limb.fromTranscript(
 					transcript,
 					"re-price allowed, tool calls logged as null",
-					(since, file) => since.sinceTime(file, at),
+					(file) => since().sinceTime(file, at),
 				),
 			);
 		return /** @type {number | null} */ (callsSince.get(at));
@@ -266,7 +267,7 @@ function rungsAfterFor(transcript, corpus) {
 			const calls = limb.fromTranscript(
 				transcript,
 				"rungs logged as null, a still-caught re-send passed unladdered",
-				(since, file) => since.toolCallsSince(file, at),
+				(file) => since().toolCallsSince(file, at),
 			);
 			rungsSince.set(at, calls && rungCounts(calls, corpus()));
 		}

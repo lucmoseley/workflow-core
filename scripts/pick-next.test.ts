@@ -21,7 +21,6 @@ import { runInProcess } from "./lib/run-in-process";
 const writeSetCache = require("./lib/write-set-cache.js");
 const selectionMarker = require("./lib/selection-marker.js");
 const { issuesIn, commandOf } = require("./lib/dispatch-ledger.js");
-const { RETRO_BUNDLE_MODEL } = require("./lib/retro-bundles.js");
 const { buildVerifyPrompt } = require("./lib/unclosed-launch.js");
 
 import type { RetroLaunch } from "./lib/retro-bundles.js";
@@ -1243,7 +1242,7 @@ describe("why each frontier issue did not launch, and the open tally (#591)", ()
 				"one decision, one round comment and one brief per issue",
 			);
 			expect(commandOf(b.prompt)).toBe("triage");
-			expect(b.model).toBe(RETRO_BUNDLE_MODEL);
+			expect(b.model).toBe("opus");
 		}
 	});
 

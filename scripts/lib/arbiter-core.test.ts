@@ -12,7 +12,7 @@ import {
 	freshSandbox,
 	listedLocks,
 	live,
-	locks,
+	lockRecord,
 	markers,
 	noSessions,
 	proc,
@@ -30,7 +30,7 @@ const record = (rel: string, sessionId: string) =>
 const put = (rel: string, fields: object) => {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 	const p = store.paths.lock(rel);
-	fs.writeFileSync(p, JSON.stringify(locks.newLock({ path: rel, ...fields })));
+	fs.writeFileSync(p, JSON.stringify(lockRecord({ path: rel, ...fields })));
 	return p;
 };
 
@@ -363,7 +363,7 @@ describe("withGitTimeout bounds the store's git (#2891)", () => {
 		vi.stubEnv("WFC_GIT", git.bin);
 		const { value, overran } = core.withGitTimeout(200, () => [
 			core.git(["status", "--porcelain"]),
-			core.gitRaw(["show", "HEAD:a.md"]),
+			core.subjectDirty("docs/doc-map.md#B1"),
 			core.gitIn(["hash-object", "--stdin"], "x"),
 		]);
 		expect(overran).toBe(true);
@@ -606,13 +606,18 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 			const aside = `${store.paths.lock("docs/doc-map.md")}.stale-deadbeef`;
 			fs.writeFileSync(
 				aside,
-				JSON.stringify(locks.newLock({ path: "docs/doc-map.md" })),
+				JSON.stringify(lockRecord({ path: "docs/doc-map.md" })),
 			);
 			const old = new Date(Date.now() - 3 * 60 * 60 * 1000);
 			fs.utimesSync(aside, old, old);
 			fs.chmodSync(aside, 0o000);
 			try {
-				locks.sweepDebris();
+				store.acquire("docs/swept.md", {
+					sessionId: "sweeper",
+					pid: null,
+					procStart: null,
+					durable: false,
+				});
 				expect(fs.existsSync(aside)).toBe(true);
 			} finally {
 				fs.chmodSync(aside, 0o644);

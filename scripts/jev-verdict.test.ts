@@ -10,13 +10,14 @@ const require_ = createRequire(__filename);
 const { logPath, previousLogPath } = require_("./lib/jev-log.js");
 const jevTrial = require_("./lib/jev-trial.js");
 
-const TRIAL_START_MS = Date.parse(jevTrial.TRIAL_START);
-const OUTAGE_START_MS = Date.parse(jevTrial.OUTAGE_START);
+const EMPTY_STAND = jevTrial.stand({ lines: [], verdicts: new Map() });
+const TRIAL_START_MS = Date.parse(EMPTY_STAND.start);
+const OUTAGE_START_MS = Date.parse(EMPTY_STAND.outageStart);
 const OUTAGE_VOID_FROM_MS = Date.parse(
 	(
-		jevTrial
-			.stand({ lines: [], verdicts: new Map() })
-			.outageVoids.find((v: { why: string }) => v.why.includes("#670")) ?? {
+		EMPTY_STAND.outageVoids.find((v: { why: string }) =>
+			v.why.includes("#670"),
+		) ?? {
 			from: "",
 		}
 	).from,

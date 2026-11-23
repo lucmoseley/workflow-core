@@ -29,13 +29,9 @@ describe("the record itself", () => {
 		expect(readRows()["prune-markers"].finishedAt).toBeUndefined();
 	});
 
-	it("closes with ok true and carries the counts through", () => {
-		const record = mod.openRun("retire-stale-containers");
-		mod.closeRun(record, { ok: true, counts: { retired: 3 } });
-		expect(readRows()["retire-stale-containers"]).toMatchObject({
-			ok: true,
-			counts: { retired: 3 },
-		});
+	it("closes with ok true once the work returns", () => {
+		mod.recordRun("retire-stale-containers", () => 1);
+		expect(readRows()["retire-stale-containers"].ok).toBe(true);
 		expect(readRows()["retire-stale-containers"].finishedAt).toEqual(
 			expect.any(String),
 		);
@@ -121,9 +117,9 @@ describe("the death count — what a later session reads", () => {
 	it("clears the count as soon as one run closes", () => {
 		mod.openRun("prune-markers", pastGrace(GRACE * 4));
 		mod.openRun("prune-markers", pastGrace(GRACE * 2));
-		const open = mod.openRun("prune-markers");
-		expect(readRows()["prune-markers"].deaths).toBe(2);
-		mod.closeRun(open, { ok: true });
+		mod.recordRun("prune-markers", () => {
+			expect(readRows()["prune-markers"].deaths).toBe(2);
+		});
 		mod.openRun("prune-markers");
 		expect(readRows()["prune-markers"].deaths).toBe(0);
 	});
@@ -146,8 +142,7 @@ describe("the death count — what a later session reads", () => {
 	});
 
 	it("carries the last completion forward, so a healthy job is legible mid-run", () => {
-		const first = mod.openRun("retire-stale-containers");
-		mod.closeRun(first, { ok: true });
+		mod.recordRun("retire-stale-containers", () => 1);
 		const finishedAt = readRows()["retire-stale-containers"].finishedAt;
 		mod.openRun("retire-stale-containers");
 		expect(readRows()["retire-stale-containers"].lastFinishedAt).toBe(

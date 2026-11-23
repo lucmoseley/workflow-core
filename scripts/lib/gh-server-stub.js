@@ -160,7 +160,7 @@ function serve(handlerFile) {
 	server.listen(0, "127.0.0.1", () => {
 		const at = server.address();
 		if (at === null || typeof at === "string")
-			throw new Error("gh-stub-server: no TCP port");
+			throw new Error("gh-server-stub: no TCP port");
 		writeFd(1, `${at.port}\n`);
 	});
 	process.stdin.on("end", () => process.exit(0));
@@ -169,7 +169,7 @@ function serve(handlerFile) {
 
 if (require.main === module) {
 	const handlerFile = process.argv[2];
-	if (!handlerFile) throw new Error("gh-stub-server: no handler file given");
+	if (!handlerFile) throw new Error("gh-server-stub: no handler file given");
 	serve(handlerFile);
 }
 

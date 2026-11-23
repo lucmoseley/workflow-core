@@ -828,9 +828,21 @@ describe("parseSince", () => {
 	});
 });
 
-describe("mergeNeedles", () => {
-	const { mergeNeedles } = require("./lib/guard-fires.js");
-	const core = { candidates: { c: {} }, guards: { "a.sh": { needles: [] } } };
+describe("readNeedles", () => {
+	const { hostNeedlesFile, readNeedles } = require("./lib/guard-fires.js");
+	const coreKey = Object.keys(needles.guards)[0];
+	let root: string;
+	beforeEach(() => {
+		root = fs.mkdtempSync(path.join(os.tmpdir(), "guard-needles-"));
+	});
+	afterEach(() => {
+		fs.rmSync(root, { recursive: true, force: true });
+	});
+	const hostHolding = (host: object) => {
+		fs.mkdirSync(path.join(root, ".claude"));
+		fs.writeFileSync(hostNeedlesFile(root), JSON.stringify(host));
+		return readNeedles(root);
+	};
 
 	it("folds the host's guards into the core's, keeping the core's candidates", () => {
 		const {
@@ -838,31 +850,27 @@ describe("mergeNeedles", () => {
 			hostKeys,
 			clashes,
 			extra,
-		} = mergeNeedles(core, {
-			guards: { "b.sh": { needles: [] } },
-		});
-		expect(Object.keys(merged.guards)).toEqual(["a.sh", "b.sh"]);
-		expect(merged.candidates).toEqual(core.candidates);
+		} = hostHolding({ guards: { "b.sh": { needles: [] } } });
+		expect(Object.keys(merged.guards)).toEqual([
+			...Object.keys(needles.guards),
+			"b.sh",
+		]);
+		expect(merged.candidates).toEqual(needles.candidates);
 		expect(hostKeys).toEqual(["b.sh"]);
 		expect(clashes).toEqual([]);
 		expect(extra).toEqual([]);
 	});
 
 	it("returns the core unchanged where there is no host file", () => {
-		const {
-			needles: merged,
-			hostKeys,
-			clashes,
-			extra,
-		} = mergeNeedles(core, null);
-		expect(merged).toEqual(core);
+		const { needles: merged, hostKeys, clashes, extra } = readNeedles(root);
+		expect(merged).toEqual(needles);
 		expect([hostKeys, clashes, extra]).toEqual([[], [], []]);
 	});
 
 	it("names a key both files carry as a clash", () => {
 		expect(
-			mergeNeedles(core, { guards: { "a.sh": { needles: [] } } }).clashes,
-		).toEqual(["a.sh"]);
+			hostHolding({ guards: { [coreKey]: { needles: [] } } }).clashes,
+		).toEqual([coreKey]);
 	});
 });
 

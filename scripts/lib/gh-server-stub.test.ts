@@ -5,13 +5,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest";
+import { buildHandlerPort } from "./gh-server-stub.js";
 import {
 	type GhStubServer,
 	serveGhStub,
 	stubGhHandler,
 	stubGhScript,
 } from "./gh-stub";
-import { buildHandlerPort } from "./gh-stub-server.js";
 
 const HANDLER = String.raw`
 if (argv[0] === "echo") { out(JSON.stringify({ argv, cwd, stdin, sb: env.SB }) + "\n"); err("on stderr\n"); exit(3); }

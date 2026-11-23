@@ -628,7 +628,6 @@ module.exports = {
 	keyOrigins,
 	CORE_NEEDLES,
 	hostNeedlesFile,
-	mergeNeedles,
 	readNeedles,
 	registeredGuards,
 	registryDrift,
