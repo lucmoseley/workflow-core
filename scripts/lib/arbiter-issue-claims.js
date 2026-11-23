@@ -23,6 +23,35 @@ function issueNumber(issue) {
 }
 
 /**
+ * @param {unknown} record
+ * @returns {record is IssueClaimRecord}
+ */
+function isIssueClaimRecord(record) {
+	return (
+		typeof record === "object" &&
+		record !== null &&
+		"issue" in record &&
+		typeof record.issue === "number" &&
+		Number.isInteger(record.issue) &&
+		record.issue > 0 &&
+		"sessionId" in record &&
+		(record.sessionId === null || typeof record.sessionId === "string") &&
+		"claimedAt" in record &&
+		typeof record.claimedAt === "string"
+	);
+}
+
+/**
+ * @param {string} file
+ * @param {string} where
+ * @returns {IssueClaimRecord|null}
+ */
+function readIssueClaimOrLog(file, where) {
+	const record = core.readRecordOrLog(file, where);
+	return isIssueClaimRecord(record) ? record : null;
+}
+
+/**
  * @param {{issue: number} & Partial<IssueClaimRecord>} spec
  * @returns {IssueClaimRecord}
  */
@@ -50,7 +79,7 @@ function scanIssueClaims(n) {
 		.filter((f) => f.startsWith(`${n}-`) && f.endsWith(".json"))
 		.map((f) => {
 			const file = path.join(core.paths.issueClaimsDir(), f);
-			return { file, record: core.readRecordOrLog(file, `issue-claims ${n}`) };
+			return { file, record: readIssueClaimOrLog(file, `issue-claims ${n}`) };
 		});
 }
 
@@ -82,7 +111,7 @@ function claimIssue(issue, me) {
 		const record = newIssueClaim({
 			issue: n,
 			sessionId: me.sessionId,
-			claimedAt: existing?.claimedAt,
+			claimedAt: isIssueClaimRecord(existing) ? existing.claimedAt : undefined,
 		});
 		core.writeRecord(file, record);
 		return { status: "claimed", record };
@@ -198,9 +227,7 @@ function claimIssueExclusive(issue, me, listed, listedAt) {
 					status: "unreadable",
 					why: `the issue-claim record ${torn.file} could not be read`,
 				};
-			const records = scanned.map(
-				(e) => /** @type {IssueClaimRecord} */ (e.record),
-			);
+			const records = scanned.flatMap((e) => (e.record ? [e.record] : []));
 			const holdMs = Number(process.env.WFC_CLAIM_HOLD_MS);
 			if (holdMs > 0) sleepSync(holdMs);
 			const holder = records
@@ -245,9 +272,8 @@ function listIssueClaims(root) {
 		core.logError("issue-claims list", e);
 		return null;
 	}
-	/** @type {(IssueClaimRecord|null)[]} */
 	const records = files.map((f) =>
-		core.readRecordOrLog(path.join(dir, f), "issue-claims list"),
+		readIssueClaimOrLog(path.join(dir, f), "issue-claims list"),
 	);
 	const claims = records.flatMap((r) => (r ? [r] : []));
 	const dropped = records.length - claims.length;
@@ -267,8 +293,8 @@ function readClaimedIssues(sid) {
 	const listed = listIssueClaims();
 	if (!listed || listed.why) return [];
 	return listed.claims
-		.filter((c) => c?.sessionId === sid && typeof c.issue === "number")
-		.sort((a, b) => String(b.claimedAt).localeCompare(String(a.claimedAt)))
+		.filter((c) => c.sessionId === sid)
+		.sort((a, b) => b.claimedAt.localeCompare(a.claimedAt))
 		.map((c) => c.issue);
 }
 
@@ -280,7 +306,6 @@ function readClaimedIssues(sid) {
 function standingClaims(claims, live, terminal) {
 	const held = new Map();
 	for (const c of claims) {
-		if (!c || typeof c.issue !== "number") continue;
 		if (live !== null && !isListedLive(c.sessionId, live, terminal)) continue;
 		if (!held.has(c.issue)) held.set(c.issue, c.sessionId);
 	}
