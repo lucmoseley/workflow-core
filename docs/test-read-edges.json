@@ -3935,6 +3935,7 @@
 			"scripts/lib/push-rules.test.ts",
 			"scripts/lib/read-audit.test.ts",
 			"scripts/lib/refusal-script-paths.test.ts",
+			"scripts/lib/rescue-jobs.test.ts",
 			"scripts/lib/rule-install-cap.test.ts",
 			"scripts/lib/run-cost-report.test.ts",
 			"scripts/lib/run-ledger.test.ts",

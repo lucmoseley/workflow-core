@@ -658,6 +658,46 @@ describe("the memory sample's descendant walk (mantahostels#2683)", () => {
 		expect(memContent).toMatch(/rss_truncated=false/);
 	});
 
+	it("counts a grandchild whose name holds ') ', reading ppid after stat's last ')'", async () => {
+		const name = "paren-worker";
+		const workerPath = join(root, "w) x y");
+		writeFileSync(
+			workerPath,
+			`#!/bin/sh\nx=$(head -c 20000000 /dev/zero | tr '\\0' 'a')\nsleep ${KILLED_LIFETIME_S}\n`,
+			{ mode: 0o755 },
+		);
+		const proc = spawn(
+			SCRIPT,
+			["run", name, "sh", "-c", `${shellQuote(workerPath)} & wait`],
+			{ env: env(QUICK_BEAT) },
+		);
+
+		let rssKb = 0;
+		await poll(() => {
+			rssKb = Number(runFile(name, "mem").match(/rss_kb=(\d+)/)?.[1] ?? 0);
+			return rssKb > 15_000;
+		});
+
+		proc.kill("SIGKILL");
+
+		expect(rssKb).toBeGreaterThan(15_000);
+	});
+
+	it("keeps a pid that exits mid-scan off the caller's stderr", () => {
+		const r = run(
+			[
+				"run",
+				"churn",
+				"sh",
+				"-c",
+				"i=0; while [ $i -lt 1000 ]; do /bin/true & /bin/true & wait; i=$((i+1)); done",
+			],
+			QUICK_BEAT,
+		);
+		expect(r.status).toBe(0);
+		expect(r.stderr).not.toContain("No such file");
+	});
+
 	it("marks the sample truncated when the descendant cap is hit, so a capped sum is never read as a complete one (mantahostels#2683)", async () => {
 		const name = "capped-worker";
 		const workerPath = join(root, "worker-capped.sh");
