@@ -1577,15 +1577,17 @@ function isTransientFault(err) {
 }
 
 /**
- * @param {Pick<QueueLanderDeps, "wait" | "say" | "now">} deps
+ * @param {Pick<QueueLanderDeps, "wait" | "say" | "now" | "beat">} deps
  * @param {() => string} what
  */
 const retrying = (deps, what) => ({
 	wait: deps.wait,
-	retried: (/** @type {number} */ retry, /** @type {unknown} */ err) =>
+	retried: (/** @type {number} */ retry, /** @type {unknown} */ err) => {
+		deps.beat();
 		deps.say?.(
 			`${new Date(deps.now()).toISOString()} retry ${retry} of ${REMOTE_TRIES - 1}, ${what()}, after: ${parseRefusal(parseErrorText(err))}`,
-		),
+		);
+	},
 });
 
 /**
@@ -2141,6 +2143,7 @@ function recorded(deps, batch, run) {
  */
 function moveMain(deps, { sha, leases }, run, landed) {
 	if (!deps.ledger.has(sha)) deps.ledger.add(sha);
+	deps.beat();
 	const pushed = deps.git.pushMain(sha, leases);
 	if (pushed.kind === "refused") {
 		deps.refused.add(sha, pushed.line);
@@ -2524,15 +2527,19 @@ async function step(deps, before, log) {
 		...refs,
 		...run,
 		drops: deps.drops.read(),
-		isOnMain: (sha) =>
-			refs.main !== null && deps.git.isAncestor(sha, refs.main),
+		isOnMain: (sha) => {
+			if (refs.main === null) return false;
+			deps.beat();
+			return deps.git.isAncestor(sha, refs.main);
+		},
 		hasLandedAfter: (name, at) => {
 			landings ??= deps.landings();
 			return landings.some((l) => l.name === name && l.at > at);
 		},
 		owningSessionStateOf: (name) => {
-			const state =
-				run.owningSessionStates.get(name) ?? deps.owningSessionStateOf(name);
+			const known = run.owningSessionStates.get(name);
+			if (known === undefined) deps.beat();
+			const state = known ?? deps.owningSessionStateOf(name);
 			run.owningSessionStates.set(name, state);
 			return state;
 		},

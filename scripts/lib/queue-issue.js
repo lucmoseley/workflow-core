@@ -172,4 +172,9 @@ function liveQueueDeps(root) {
 	};
 }
 
-module.exports = { queueIssueFiler, queueIssueCloser, liveQueueDeps };
+module.exports = {
+	FILING_TIMEOUT_MS,
+	queueIssueFiler,
+	queueIssueCloser,
+	liveQueueDeps,
+};

@@ -9,6 +9,7 @@ import {
 	readProcStartOf,
 } from "./arbiter-proc.js";
 import { GH_TIMEOUT_MS } from "./gh-binary.js";
+import { ADOPT_WAIT_MS } from "./guard-code.js";
 import {
 	GATED_COMMIT_TIMEOUT_MS,
 	LANDER_GIT_TIMEOUT_MS,
@@ -21,6 +22,7 @@ import {
 	supervision,
 } from "./landing-stall.js";
 import { INSTALL_TIMEOUT_MS } from "./npm-ci-staging.js";
+import { FILING_TIMEOUT_MS } from "./queue-issue.js";
 import { HOOK_GRACE_MS } from "./run-budgeted.js";
 
 const NOW = Date.parse("2026-10-21T12:00:00Z");
@@ -192,18 +194,6 @@ describe("stallFindings", () => {
 });
 
 describe("the lander's identity and hang (#5606)", () => {
-	const hungMs = HUNG_MS;
-	it("reads a lander hung only past the longest gap its beats can leave (#5644)", () => {
-		const gaps = [
-			PUSH_TIMEOUT_MS,
-			INSTALL_TIMEOUT_MS,
-			GATED_COMMIT_TIMEOUT_MS + HOOK_GRACE_MS,
-			GATED_COMMIT_TIMEOUT_MS + 2 * LANDER_GIT_TIMEOUT_MS,
-			2 * GH_TIMEOUT_MS,
-			3 * LANDER_GIT_TIMEOUT_MS,
-		];
-		for (const gap of gaps) expect(HUNG_MS).toBeGreaterThan(gap);
-	});
 	const ago = (ms: number) => new Date(NOW - ms).toISOString();
 	const ownBeat = (over: object = {}, at = ago(STALE_MS + MIN)) => ({
 		pid: process.pid,
@@ -230,21 +220,36 @@ describe("the lander's identity and hang (#5606)", () => {
 		).toEqual(["LANDER-DEAD"]);
 	});
 
-	it("reads the lander's beat older than its longest bounded call, but under the hang threshold, as a lander inside a call", () => {
-		const r = readingOwnProc(ownBeat({}, ago(PUSH_TIMEOUT_MS + MIN / 2)));
-		expect(stallFindings(r)).toEqual([]);
-		expect(supervision(r).start).toBe(false);
-	});
+	it.each([
+		["a push", PUSH_TIMEOUT_MS],
+		["an install", INSTALL_TIMEOUT_MS],
+		["a gate run", GATED_COMMIT_TIMEOUT_MS + HOOK_GRACE_MS],
+		[
+			"a registry check between two throwaway trees",
+			GATED_COMMIT_TIMEOUT_MS + 2 * LANDER_GIT_TIMEOUT_MS,
+		],
+		["a filing", FILING_TIMEOUT_MS],
+		["a body refresh", 2 * GH_TIMEOUT_MS],
+		["a remote heads read", 3 * LANDER_GIT_TIMEOUT_MS],
+		["a guard-code adoption", 2 * ADOPT_WAIT_MS],
+	])(
+		"reads the lander's beat as old as %s, its longest gap between beats, as a lander inside a call (#5644)",
+		(_gap, ms) => {
+			const r = readingOwnProc(ownBeat({}, ago(ms + MIN / 2)));
+			expect(stallFindings(r)).toEqual([]);
+			expect(supervision(r).start).toBe(false);
+		},
+	);
 
 	it("reads the lander's beat older than the hang threshold as hung, starting none and filing the stall ticket", () => {
-		const r = readingOwnProc(ownBeat({}, ago(hungMs + MIN)), {
+		const r = readingOwnProc(ownBeat({}, ago(HUNG_MS + MIN)), {
 			movedAt: stale(1),
 		});
 		expect(stallFindings(r)).toEqual([
 			expect.objectContaining({ tag: "LANDING-STALLED" }),
 			{
 				tag: "LANDER-HUNG",
-				line: `queue/fix-it bbbbbbbbb waits and the queue lander, pid ${process.pid}, still runs but last beat ${hungMs / MIN + 1} min ago, past the ${hungMs / MIN} min its longest step between beats can take`,
+				line: `queue/fix-it bbbbbbbbb waits and the queue lander, pid ${process.pid}, still runs but last beat ${HUNG_MS / MIN + 1} min ago, past the ${HUNG_MS / MIN} min its longest step between beats can take`,
 			},
 		]);
 		expect(supervision(r)).toEqual({
