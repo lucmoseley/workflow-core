@@ -11,12 +11,12 @@ import {
 	writeLaunchAnswer,
 } from "./lib/bg-launch-fake";
 import { buildBgBranch, writeClaudeStub } from "./lib/claude-stub";
+import { STATUS_TIMEOUT_MS } from "./lib/launch-auth.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "guard-main-checkout-job.js");
 const CLAUDE_TIMEOUT_MS = 60_000;
-const STATUS_TIMEOUT_MS = 30_000;
 const NODE_START_MS = 10_000;
 const LAUNCH_ROOM_MS =
 	2 * CLAUDE_TIMEOUT_MS + 2 * STATUS_TIMEOUT_MS + NODE_START_MS;
@@ -365,13 +365,33 @@ it.each([
 	},
 );
 
-it("relaunches and removes the original where the daemon's environment bills the seat (#5648)", () => {
-	const r = run(startup(), daemonWith({ CLAUDE_CONFIG_DIR: seat }));
+it.each([
+	["the daemon's environment bills the seat", false],
+	["the job's --settings flag sets no apiKeyHelper", true],
+])(
+	"relaunches and removes the original where %s (#5648)",
+	(_, withSettings) => {
+		const settings = ["--settings", JSON.stringify({ model: "m" })];
+		if (withSettings)
+			writeRecord({
+				...RECORD,
+				respawnFlags: [...RECORD.respawnFlags, ...settings],
+			});
+		const r = run(startup(), daemonWith({ CLAUDE_CONFIG_DIR: seat }));
 
-	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout).toBe("");
-	expect(readCalls().map((c) => c.args[0])).toEqual(["--bg", "rm"]);
-});
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toBe("");
+		const [launch, removal] = readCalls();
+		expect(launch.args).toEqual([
+			"--bg",
+			...RECORD.respawnFlags,
+			...(withSettings ? settings : []),
+			"--",
+			RECORD.intent,
+		]);
+		expect(removal.args).toEqual(["rm", RECORD.daemonShort]);
+	},
+);
 
 it("tells the original to end at once where it cannot be removed after its copy started", () => {
 	writeFakeClaude({ rm: "noJob" });

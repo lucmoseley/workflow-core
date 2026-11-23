@@ -119,6 +119,12 @@ function runOnJobSeat(args, cwd, seatEnv) {
 }
 
 /**
+ * @param {NodeJS.ProcessEnv} env
+ * @param {Job} job
+ */
+const seatEnvOf = (env, job) => buildSeatEnv(env, job.seat, job.providerEnv);
+
+/**
  * @param {string[]} flags
  * @returns {string|undefined}
  */
@@ -139,7 +145,7 @@ function settingsOf(flags) {
  * @returns {Ran}
  */
 function relaunch(env, job, intent, dir) {
-	const seatEnv = buildSeatEnv(env, job.seat, job.providerEnv);
+	const seatEnv = seatEnvOf(env, job);
 	const refusal = launchAuthRefusal({
 		bin: claudeBin(seatEnv),
 		env: seatEnv,
@@ -208,11 +214,7 @@ function ports(at) {
 			}).text,
 		launch: (job, intent, dir) => relaunch(env, job, intent, dir),
 		remove: (job) =>
-			runOnJobSeat(
-				["rm", job.short],
-				job.root,
-				buildSeatEnv(env, job.seat, job.providerEnv),
-			),
+			runOnJobSeat(["rm", job.short], job.root, seatEnvOf(env, job)),
 	};
 }
 

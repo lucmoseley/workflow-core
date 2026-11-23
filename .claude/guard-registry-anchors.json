@@ -55,7 +55,7 @@
 	"scripts/guard-jev-advisory.js": "06be9f3a70b9ca26",
 	"scripts/guard-lost-deny.js": "7a9b6512fbee07e9",
 	"scripts/guard-lost-verdict.js": "668cc62db9946d49",
-	"scripts/guard-main-checkout-job.js": "a3f4122d82cd3ff4",
+	"scripts/guard-main-checkout-job.js": "305d6b8ada7b8692",
 	"scripts/guard-paste-self-match.js": "e6c15f55aca1115a",
 	"scripts/guard-priced-options.js": "2f35bc4592820ac3",
 	"scripts/guard-selection-sum.js": "68ae5aa79832be1d",
