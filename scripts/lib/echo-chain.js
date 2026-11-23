@@ -122,8 +122,6 @@ function storeText(records, next) {
 
 module.exports = {
 	EC_CLEARED,
-	MAX_AGE_S,
-	MAX_LINES,
 	callSignature,
 	chainName,
 	isNeighbours,

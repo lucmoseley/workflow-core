@@ -86,7 +86,6 @@ function decide(subject, ctx) {
 }
 
 module.exports = {
-	LEDGER,
 	field: "command",
 	noun: "command",
 	decide,

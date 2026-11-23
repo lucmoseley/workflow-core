@@ -129,7 +129,6 @@ const buildReleaseLagPort = (root) => ({
 });
 
 module.exports = {
-	RENDERED_FROM,
 	readTagCarry,
 	TAG_RE,
 	isMajorBump,
