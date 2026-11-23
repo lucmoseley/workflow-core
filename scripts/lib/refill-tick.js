@@ -325,6 +325,7 @@ const readHeadlessSession = (jobId) =>
 /** @returns {import("./refill-loop.js").ReviewResult|null} */
 function takeReviewResult() {
 	const taken = `${files.review}.${process.pid}`;
+	// #3765
 	try {
 		fs.renameSync(files.review, taken);
 	} catch (err) {
