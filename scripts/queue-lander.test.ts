@@ -1014,7 +1014,7 @@ describe("the adapters", () => {
 		expect(g.refs().dropped).toEqual([{ ref: "dropped/a", sha: a }]);
 	});
 
-	it("lists the dropped refs a remote naming the tracker holds, and only that remote's (#5539)", () => {
+	it("lists the dropped refs a remote naming the tracker holds, and only that remote's, and deletes one there by name (#5539, #5629)", () => {
 		const a = commit("a");
 		const config = path.join(work, ".claude", "workflow-core.json");
 		fs.mkdirSync(path.dirname(config), { recursive: true });
@@ -1038,10 +1038,19 @@ describe("the adapters", () => {
 			);
 		}
 
-		const { dropped, trackerDropped } = queueGit(work).refs();
+		const g = queueGit(work);
+		const { dropped, trackerDropped } = g.refs();
 
 		expect(dropped).toEqual([]);
-		expect(trackerDropped).toEqual([{ ref: "dropped/a", sha: a }]);
+		expect(trackerDropped).toEqual([
+			{ ref: "dropped/a", sha: a, remote: "archive" },
+		]);
+
+		expect(g.deleteRef("dropped/a", a, "archive")).toBe(true);
+		expect(g.refs().trackerDropped).toEqual([]);
+		expect(
+			git(path.join(tmp, "tracker.git"), "branch", "--list"),
+		).not.toContain("dropped/a");
 	});
 
 	it("merges a lone member descending from main as a new commit where asked fresh, never its own sha", () => {

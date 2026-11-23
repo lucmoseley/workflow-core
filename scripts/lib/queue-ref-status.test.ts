@@ -84,6 +84,7 @@ interface Fixture {
 	batch?: object | string;
 	drops?: object[] | string;
 	dropped?: { ref: string; sha: string }[];
+	trackerDropped?: { ref: string; sha: string; remote: string }[];
 	main?: string | null;
 	green?: string[];
 }
@@ -113,7 +114,7 @@ function lines(f: Fixture = {}) {
 			queue:
 				waiting === null ? [] : [{ name: "alpha", sha: waiting, pushedAt: 1 }],
 			dropped: f.dropped ?? [],
-			trackerDropped: [],
+			trackerDropped: f.trackerDropped ?? [],
 		},
 		f.rows ?? [],
 	).map(buildQueueRefLine);
@@ -440,7 +441,34 @@ describe("a dropped ref", () => {
 				],
 			}),
 		).toEqual([
-			`dropped: queue/alpha at ${short(member)} — kept as dropped/alpha-${short(member)}; the drop record holds no entry for it, so its cause and fix ticket are unknown`,
+			`dropped: queue/alpha at ${short(member)} — kept as dropped/alpha-${short(member)} on origin; the drop record holds no entry for it, so its cause and fix ticket are unknown`,
+		]);
+	});
+
+	it("names the tracker's remote where only it holds the dropped ref, with or without a drop record (#5629)", () => {
+		const trackerDropped = [
+			{ ref: "dropped/alpha", sha: member, remote: "archive" },
+		];
+
+		expect(
+			lines({
+				waiting: null,
+				rows: [row(2, "drop", member)],
+				drops: [],
+				trackerDropped,
+			}),
+		).toEqual([
+			`dropped: queue/alpha at ${short(member)} — kept as dropped/alpha on archive; the drop record holds no entry for it, so its cause and fix ticket are unknown`,
+		]);
+		expect(
+			lines({
+				waiting: null,
+				rows: [row(2, "drop", member)],
+				drops: [drop()],
+				trackerDropped,
+			}),
+		).toEqual([
+			`dropped: queue/alpha at ${short(member)} — fix ticket #77; kept as dropped/alpha on archive${why()}`,
 		]);
 	});
 
