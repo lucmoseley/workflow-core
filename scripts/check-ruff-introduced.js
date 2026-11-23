@@ -1,39 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-ruff-introduced.js — the pre-commit Python gate's judge: it refuses
- * the ruff findings a commit INTRODUCES, never the ones it inherits (#122).
- *
- * Usage:
- *   node scripts/check-ruff-introduced.js [--config <ruff.toml>]
- *
- * Each staged .py path is linted twice — its STAGED blob and its HEAD blob (a
- * staged rename's source, for a renamed path) — and only the excess is charged. The staged blob, not the worktree copy, because it is
- * what the commit carries. The paths are read here, NUL-separated, rather than
- * handed over by the hook, where word-splitting broke a path holding a space.
- *
- * A FINDING IS KEYED BY RULE CODE AND MESSAGE, NEVER BY LINE: any edit above a
- * finding moves it, and a keyed-by-line diff would charge that move. For the
- * same reason a `line <n>` inside a message — F811's `from line 1` — is
- * blanked before keying. A key the staged blob holds more of than HEAD's is
- * introduced. The residual is the count: a commit that removes one
- * `Undefined name \`x\`` and adds another elsewhere is charged nothing.
- *
- * Both blobs go to ruff on stdin under the path's own name, so config
- * discovery, per-file-ignores and exclusion all see the real path — so long
- * as ruff runs from the repo root, as the hook does: from elsewhere, stdin
- * discovery diverged from path discovery.
- *
- * EXCLUSIONS. `ruffExclude` in .claude/workflow-core.json — ruff glob
- * patterns, handed over as --extend-exclude — lets an adopter take vendored
- * code, which is not its own to fix (#1463), out of the gate without a root
- * ruff.toml, which would switch off the
- * plugin's --config and have to copy its select (#122). --force-exclude is
- * passed always, so a host's own `exclude` binds the gate as it binds
- * `ruff check .`.
- *
- * ruff is `WFC_RUFF` where set, else `ruff` on PATH (§N7).
- */
-
 const { runCheck } = require("./lib/check");
 const { RUFF, readRuffExcludeArgs } = require("./lib/formatters");
 const {

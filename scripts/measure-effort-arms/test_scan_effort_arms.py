@@ -1,16 +1,3 @@
-"""Pins how the effort-arm scanner assigns a session to an `--effort` arm or
-to mixed, which sessions it filters out, and the per-turn cost and break-even
-it reports (mantahostels#1108).
-
-Each test builds a synthetic transcript tree and points the extractor at it,
-so nothing here reads the real corpus.
-
-CI's pytest step runs this file; the scanner
-gates nothing and is run by hand. Breaking it skews the `low`-versus-`medium`
-comparison in https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/effort-low-arm-measurement.md, and with it
-mantahostels#1084's call on running checkable work at `low` first.
-"""
-
 import json
 import os
 import sys

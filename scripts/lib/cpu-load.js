@@ -308,11 +308,8 @@ const buildGenerator = (where) => ({ kind: "generator", where });
 
 /**
  * @typedef {{ sep: string, next: string, depth: number, where: string }} At
- *   the separator after the command; `next`, the command word of the segment
- *   after it, for a pipe's reader; how deep the scan is; and how a verdict
- *   names the command
  * @typedef {(at: At, words: string[], spans: string[], scan: Scan) =>
- *   Verdict | null} Judge one command's verdict, its words unwrapped
+ *   Verdict | null} Judge
  */
 
 /**

@@ -14,10 +14,7 @@ const { scanJs } = require("./strip-comments.js");
  *   jsdoc: boolean,
  *   next: string,
  *   owner: string,
- * }} Unit one comment: a block, a run of own-line line comments, a trailing
- *   comment or a Python string statement. `lines` its text, markers off;
- *   `top` no code before it; `next` the code line it sits on; `owner` for a
- *   docstring the `def` or `class` line it documents
+ * }} Unit
  * @typedef {{ tool: string, rules: string[] }} Suppression
  * @typedef {{
  *   lang: Lang,
@@ -27,10 +24,7 @@ const { scanJs } = require("./strip-comments.js");
  *   adrs: Set<string>,
  *   deps: RegExp | null,
  *   styleOnly: Record<string, string[]>,
- * }} FileFacts `exports` the names the helper surface lists for the file;
- *   `shipped` the file is a surface entry point, command or copy; `adrs` the
- *   `NNNN` of each `docs/adr/NNNN-*.md`; `deps` matches a manifest
- *   dependency's name
+ * }} FileFacts
  * @typedef {{ tag: "COMMENT" | "SUPPRESSION" | "ADR-UNRESOLVED",
  *   line: number, match: string, why: string }} Breach
  */

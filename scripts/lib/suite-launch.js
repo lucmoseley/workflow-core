@@ -13,18 +13,6 @@ const { JS_TEST_FILE, PY_COLLECTED_TEST } = require("./test-kind.js");
 const afterSlash = (/** @type {string} */ w) => w.slice(w.lastIndexOf("/") + 1);
 
 /**
- * A SUITE RUN BY SOMETHING OTHER THAN VITEST (#330): `node --test`, `pytest`,
- * `python3 -m pytest|unittest` and a bare `python3 <x>.test.py`. Judged on
- * argv[0] and the flags BEFORE the script, where `node --test` puts its own: a
- * script taking a `--test` argument is no suite, and `node --test`'s per-file
- * children carry no `--test` of their own, so one run counts once.
- *
- * A HOST'S OWN RUNNER SCRIPTS COUNT TOO, declared under `suiteRunners` as
- * repo-relative paths, matched as a path suffix of the script word, read off
- * the `runners` the caller passes.
- *
- * A FLAG THAT TAKES A VALUE ENDS THE READ: its value is taken for the script,
- * so `node --import x --test` and `python3 -W ignore -m pytest` go uncounted.
  * @param {string[]} words
  * @param {() => string[]} runners
  */
@@ -71,13 +59,7 @@ function isSuiteScript(word, python, runners) {
 }
 
 /**
- * Whether a non-vitest runner's words name the test files it runs, so the
- * run is a part-suite (#5274): `pytest` or `python3 -m pytest` whose paths
- * are all test files, `python3 -m unittest` whose every target names a test
- * module, class or method (#5450), `node --test` whose every argument is a
- * JS test file, or a bare `python3 <x>.test.py`. A run naming no file, and a
- * host's declared runner, are whole.
- * @param {string[]} words words `isOtherRunner` takes for a runner
+ * @param {string[]} words
  */
 function hasNamedTestFiles(words) {
 	const a0 = afterSlash(words[0] ?? "");

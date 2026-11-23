@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * The dead-window self-throttling detector's core (mantahostels#1404).
- *
- * The acceptance test this cannot run lives outside the repo: sweeping this
- * machine's real transcript corpus must reproduce
- * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/self-throttling-turn-collapse.md. Here it runs in-process on
- * synthetic transcripts written to a temp dir, turns spaced by hand to sit
- * either side of each threshold.
- *
- * `check-self-throttling.js`, swept daily from `session-start-sweeps.sh`, appends
- * its readings to the history a seat cut is judged against; loosen a case and
- * that history gains a false episode or misses the real one, with nothing
- * downstream to catch it.
- */
-
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
