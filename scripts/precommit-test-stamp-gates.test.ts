@@ -168,5 +168,5 @@ it("ends the live hook's early gates on one line directly above its test gate, b
 			`if ! lander_batch && ! lander_tested && declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`,
 			"fi",
 		).replaceAll(CORE_ROOT, ""),
-	).not.toMatch(/\$\{?[A-Z_]+/);
+	).not.toMatch(/\$\{?_*[A-Z]/);
 });

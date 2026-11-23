@@ -37,4 +37,12 @@ const durationClock = (env = process.env) => {
 	return () => step * reads++;
 };
 
-module.exports = { durationClock, monotonicMs, now };
+/** @param {Record<string, string | undefined>} env */
+function withoutTestClocks(env) {
+	const out = { ...env };
+	delete out.WFC_NOW;
+	delete out.WFC_STEP_MS;
+	return out;
+}
+
+module.exports = { durationClock, monotonicMs, now, withoutTestClocks };

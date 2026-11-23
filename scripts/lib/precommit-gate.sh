@@ -84,8 +84,7 @@ WL_EOF
 
 declared_cmd() {
   dc_status=0
-  declared_command="$("$@")" || dc_status=$?
-  export declared_command
+  _declared_command="$("$@")" || dc_status=$?
   if [ "$dc_status" -ge 2 ]; then
     exit 1
   fi
