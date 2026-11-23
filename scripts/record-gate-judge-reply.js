@@ -62,7 +62,7 @@ function recordObserved() {
 	const bin = claudeBin(env);
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "gate-judge-record-"));
 	try {
-		const refusal = launchAuthRefusal({ bin, env, cwd });
+		const refusal = launchAuthRefusal({ bin, env, cwd, bg: false });
 		if (refusal) throw new Error(`REFUSED: ${refusal}`);
 		const args = JUDGE_ARGS.map((a) => (a === "json" ? "stream-json" : a));
 		const r = spawnSync(bin, [...args, "--verbose", "--include-hook-events"], {
