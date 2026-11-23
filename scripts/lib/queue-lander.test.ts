@@ -210,7 +210,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 			deleteRef: (branch, sha, on) => {
 				call("deleteRef");
 				o.beforeDelete?.(branch, remote);
-				if (on !== undefined) {
+				if (on !== undefined && on !== "origin") {
 					const at = tracker.findIndex(
 						(r) => r.ref === branch && r.sha === sha && r.remote === on,
 					);
@@ -1970,12 +1970,13 @@ describe("the reap", () => {
 		...TICKETED,
 	});
 
-	it("reaps a dropped ref only the tracker's remote holds there, once its fix ticket closes or its member lands (#5629)", async () => {
-		const remote = remoteOf("m0");
+	it("reaps a dropped ref only the tracker's remote holds there, once its fix ticket closes or its member lands, and one origin holds on origin (#5629)", async () => {
+		const remote = remoteOf("m0", {}, { "dropped/c": "c1" });
 		const disk = freshDisk();
 		disk.tickets.set(1, "closed");
 		disk.tickets.set(2, "open");
-		disk.drops = [dropOf("a", 1), dropOf("b", 2)];
+		disk.tickets.set(3, "closed");
+		disk.drops = [dropOf("a", 1), dropOf("b", 2), dropOf("c", 3)];
 
 		const { end, actions, tracker } = await land(remote, disk, {
 			onMain: ["b1"],
@@ -1990,12 +1991,15 @@ describe("the reap", () => {
 			expect.arrayContaining([
 				"settle-drop dropped/b@b1 on archive on main@m0, closing #2",
 				"delete-dropped-ref dropped/a@a1 on archive",
+				"delete-dropped-ref dropped/c@c1 on origin",
 			]),
 		);
 		expect(tracker).toEqual([]);
+		expect(remote.dropped.size).toBe(0);
 		expect(disk.drops.map((d) => [d.ref, d.reapedAt])).toEqual([
 			["dropped/a", NOW],
 			["dropped/b", NOW],
+			["dropped/c", NOW],
 		]);
 	});
 
@@ -2035,7 +2039,7 @@ describe("the reap", () => {
 			kind: "delete-dropped-ref",
 			ref: "dropped/a",
 			sha: "a1",
-			remote: null,
+			remote: "origin",
 		});
 		expect(said).toEqual([
 			"#3's state not read, dropped/c kept for a later run: no issue #3",

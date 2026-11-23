@@ -8,6 +8,7 @@ const {
 	batchBranch,
 	droppedNameOf,
 	droppedRefsOf,
+	REMOTE,
 } = require("./landing-refs.js");
 const { QUEUE_LOG_RETAIN_MS } = require("./queue-log.js");
 const { isNetworkFault, REMOTE_TRIES } = require("./network-fault.js");
@@ -92,13 +93,13 @@ class TransientFault extends Error {}
  *     readonly held: readonly DroppedRef[]}
  *   | {readonly kind: "settle-drop", readonly drop: Drop,
  *     readonly main: string, readonly close: boolean,
- *     readonly remote: string|null,
+ *     readonly remote: string,
  *     readonly refresh: {readonly drop: Drop,
  *       readonly held: readonly DroppedRef[]}|null}
  *   | {readonly kind: "adopt-dropped-ref", readonly ref: string,
  *     readonly sha: string, readonly onto: string}
  *   | {readonly kind: "delete-dropped-ref", readonly ref: string,
- *     readonly sha: string, readonly remote: string|null}
+ *     readonly sha: string, readonly remote: string}
  *   | {readonly kind: "test-sha", readonly sha: string}
  *   | ({readonly kind: "rerun-files"} & TestRun)
  *   | {readonly kind: "check-base", readonly sha: string,
@@ -1206,16 +1207,15 @@ const isStanding = (d, isClosed) =>
  */
 const sameDropAs = (d) => (x) => x.ref === d.ref && x.sha === d.sha;
 
-// #5629
 /**
  * @param {QueueState} s
  * @param {DroppedRef} d
- * @returns {string|null}
+ * @returns {string}
  */
-const trackerHolderOf = (s, d) =>
+const holderOf = (s, d) =>
 	s.dropped.some(sameDropAs(d))
-		? null
-		: (s.trackerDropped.find(sameDropAs(d))?.remote ?? null);
+		? REMOTE
+		: (s.trackerDropped.find(sameDropAs(d))?.remote ?? REMOTE);
 
 /**
  * @template {{at: number}} T
@@ -1245,7 +1245,7 @@ function settleAction(s, d, main) {
 		drop: d,
 		main,
 		close: d.ticket !== null && newer === undefined,
-		remote: trackerHolderOf(s, d),
+		remote: holderOf(s, d),
 		refresh:
 			newer === undefined
 				? null
@@ -1469,7 +1469,7 @@ function idleAction(s, main, search, waiting) {
 			kind: "delete-dropped-ref",
 			ref: reaped.ref,
 			sha: reaped.sha,
-			remote: trackerHolderOf(s, reaped),
+			remote: holderOf(s, reaped),
 		};
 	if (waiting.length === 0) return exit("no queue ref waits");
 	if (s.superseded)
@@ -1823,7 +1823,7 @@ function settleDrop(
 		}
 		deps.logQueue("close", d);
 	} else deps.logQueue("settle", d);
-	deps.git.deleteRef(d.ref, d.sha, holder ?? undefined);
+	deps.git.deleteRef(d.ref, d.sha, holder);
 	rewriteDrops(deps, sameDropAs(d), (x) => ({ ...x, reapedAt: at }));
 	if (refresh && ticket !== null) refreshTicket(deps, ticket, d.ref, refresh);
 	const { isClosed } = run;
@@ -2318,7 +2318,7 @@ async function act(deps, action, run) {
 				? run
 				: { ...run, kept: [...run.kept, `${action.name}@${action.sha}`] };
 		case "delete-dropped-ref":
-			git.deleteRef(action.ref, action.sha, action.remote ?? undefined);
+			git.deleteRef(action.ref, action.sha, action.remote);
 			deps.drops.write(
 				deps.drops
 					.read()
@@ -2759,9 +2759,6 @@ const goneReason = (n) =>
 		? "its queue ref is gone from the remote"
 		: "their queue refs are gone from the remote";
 
-/** @param {string|null} holder */
-const onRemote = (holder) => (holder === null ? "" : ` on ${holder}`);
-
 /**
  * @param {QueueAction} a
  * @returns {string}
@@ -2792,13 +2789,13 @@ function buildQueueActionLine(a) {
 		case "file-fix-ticket":
 			return `file-fix-ticket ${a.drop.ref}@${short(a.drop.sha)}`;
 		case "settle-drop":
-			return `settle-drop ${a.drop.ref}@${short(a.drop.sha)}${onRemote(a.remote)} on main@${short(a.main)}${a.close ? `, closing #${a.drop.ticket}` : ""}`;
+			return `settle-drop ${a.drop.ref}@${short(a.drop.sha)} on ${a.remote} on main@${short(a.main)}${a.close ? `, closing #${a.drop.ticket}` : ""}`;
 		case "adopt-dropped-ref":
 			return `adopt-dropped-ref ${a.ref}@${short(a.sha)}`;
 		case "delete-landed-ref":
 			return `delete-landed-ref ${queueBranch(a.name)}@${short(a.sha)}`;
 		case "delete-dropped-ref":
-			return `delete-dropped-ref ${a.ref}@${short(a.sha)}${onRemote(a.remote)}`;
+			return `delete-dropped-ref ${a.ref}@${short(a.sha)} on ${a.remote}`;
 		case "rerun-files":
 			return `rerun-files ${a.sha} pass ${a.pass}: ${a.files.join(", ")}`;
 		case "check-base":

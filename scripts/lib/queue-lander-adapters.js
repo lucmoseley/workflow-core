@@ -352,8 +352,14 @@ function queueGit(
 			}
 		},
 		isAncestor: (sha, of) => isAncestor(root, sha, of),
-		deleteRef: (branch, sha, remote) =>
-			deleteRemoteRef(root, branch, sha, remote),
+		deleteRef: (branch, sha, remote) => {
+			const gone = deleteRemoteRef(root, branch, sha, remote);
+			if (gone && trackerDropped !== null)
+				trackerDropped = trackerDropped.filter(
+					(r) => !(r.ref === branch && r.sha === sha && r.remote === remote),
+				);
+			return gone;
+		},
 		createRef: (branch, sha) => createRemoteRef(root, branch, sha),
 	};
 

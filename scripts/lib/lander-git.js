@@ -254,16 +254,15 @@ const readConflictedFiles = (inTree) =>
 /**
  * @param {string} root
  * @param {string[]} args
- * @param {{env?: NodeJS.ProcessEnv, to?: string}} [options]
+ * @param {string} [to]
  */
-function pushRemote(root, args, { env = process.env, to = REMOTE } = {}) {
+function pushRemote(root, args, to = REMOTE) {
 	try {
 		execGit(["push", "--quiet", to, ...args], {
 			cwd: root,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
 			timeout: PUSH_TIMEOUT_MS,
-			env,
 		});
 	} catch (err) {
 		const e = caught(err);
@@ -290,9 +289,7 @@ const GONE = /remote ref does not exist/;
 function deleteRemoteRef(root, branch, sha, to = REMOTE) {
 	const ref = `refs/heads/${branch}`;
 	try {
-		pushRemote(root, [`--force-with-lease=${ref}:${sha}`, `:${ref}`], {
-			to,
-		});
+		pushRemote(root, [`--force-with-lease=${ref}:${sha}`, `:${ref}`], to);
 		return true;
 	} catch (err) {
 		const refused = parseErrorText(err);
