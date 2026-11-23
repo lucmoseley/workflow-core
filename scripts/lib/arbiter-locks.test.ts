@@ -444,7 +444,7 @@ describe("readLocks — a record that will not parse", () => {
 		expect(bad.reason).toBe("unparseable");
 	});
 
-	it("lists a record that parses but is no lock as unparseable (#5662)", () => {
+	it("lists a record that parses but is no lock as unparseable, as it lists a torn one (#5662)", () => {
 		planted("deadbeefcafe000c.json", JSON.stringify({ path: "docs/PRD.md" }));
 		const locks = store.readLocks(noop);
 		assert(locks);

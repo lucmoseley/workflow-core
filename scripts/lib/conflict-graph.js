@@ -1,5 +1,6 @@
 const { isListedLive } = require("./agent-liveness.js");
 const arbiter = require("./arbiter-store");
+const { isReadableLock } = require("./arbiter-records.js");
 const { STAMP_PATHS, withoutStamps } = require("./stamp-paths.js");
 
 /**
@@ -63,8 +64,8 @@ function readHeldFiles(listed, openIssues) {
 	const me = process.env.CLAUDE_CODE_SESSION_ID || null;
 	/** @type {HeldFile[]} */
 	const files = [];
-	for (const lock of locks) {
-		if (lock.unreadable || !isOtherLock(lock, me)) continue;
+	for (const lock of locks.filter(isReadableLock)) {
+		if (!isOtherLock(lock, me)) continue;
 		if (!isLiveHolder(lock.sessionId, { listed, issuesOf, openIssues }))
 			continue;
 		files.push({
@@ -88,6 +89,7 @@ function readHeldFiles(listed, openIssues) {
  * @returns {boolean}
  */
 function isOtherLock(lock, me) {
+	if (!lock.path) return false;
 	return !(me && lock.sessionId === me);
 }
 
