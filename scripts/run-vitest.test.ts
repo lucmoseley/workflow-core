@@ -5784,20 +5784,16 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					};
 				}
 
-				it("leaves the manifest alone where a queued run loaded the walk a commit during its wait replaced (#5579)", async () => {
+				it("leaves the manifest alone, and marks the run not admissible saying why, where a queued run loaded the walk a commit during its wait replaced (#5579, #5635)", async () => {
 					const got = await queuedAcrossCommit("old walk\n");
 					expect(got.manifest).toBe("stale\n");
 					expect(got.out).not.toContain("brought up to date");
 					expect(got.err).toContain(
 						`left alone: the render code this run loaded (${extractorFile})`,
 					);
-				});
-
-				it("marks a queued run not admissible, saying why, where it selected with the walk a commit during its wait replaced (#5635)", async () => {
-					const got = await queuedAcrossCommit("old walk\n");
 					expect(got.admissible).toBe(false);
 					expect(got.out).toContain(
-						`Readers selected with the render code this run loaded (${extractorFile}), which differs from the tree it selects in, so this run is not admissible`,
+						`Readers selected while the render code this run loaded (${extractorFile}) differs from the tree it renders, so this run is not admissible`,
 					);
 				});
 

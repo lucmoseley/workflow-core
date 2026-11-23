@@ -72,7 +72,7 @@ const {
 } = require("./lib/suite-bounded.js");
 const { readVitestCollected } = require("./lib/vitest-collected.js");
 const {
-	RENDER_SNAPSHOT,
+	driftClause,
 	freshenManifest,
 	renderDrift,
 } = require("./lib/manifest-freshen.js");
@@ -1808,17 +1808,17 @@ function withChangedBase(route, opts) {
 function withRenderCheck(opts) {
 	const expand = opts.expand ?? expandChanged;
 	const home = opts.root ?? TREE_ROOT;
-	const snapshot = opts.renderSnapshot ?? RENDER_SNAPSHOT;
 	return {
 		...opts,
 		expand: (argv, o) => {
 			const plan = expand(argv, o);
-			const drift = plan && renderDrift(snapshot, o?.root ?? home, home);
+			const drift =
+				plan && renderDrift(o?.root ?? home, home, opts.renderSnapshot);
 			if (!plan || !drift) return plan;
 			return {
 				...plan,
 				admissible: false,
-				banner: `${plan.banner}Readers selected with the render code this run loaded (${drift}), which differs from the tree it selects in, so this run is not admissible: its certificate attests no selection. Rerun it to select with the tree's own walk (#5635).\n`,
+				banner: `${plan.banner}Readers selected while ${driftClause(drift)}, so this run is not admissible: its certificate attests no selection. Rerun it once the tree holds the render code a run loads — after the commit a queue wait spanned, or with uncommitted render edits committed (#5635).\n`,
 			};
 		},
 	};
