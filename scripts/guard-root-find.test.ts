@@ -73,7 +73,7 @@ describe("the guard, end to end", () => {
 		).toBe("deny");
 	});
 
-	it("names the plugin's directories relative to an install's root", () => {
+	it("names the plugin's directories relative to an install's root (#5641)", () => {
 		const install = path.join(dir, "install");
 		fs.mkdirSync(path.join(install, "docs", "agents"), { recursive: true });
 		const out = emission("find / -x", {
