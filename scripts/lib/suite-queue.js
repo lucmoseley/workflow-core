@@ -3,7 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { noop } = require("./noop.js");
 
-const { caught, ignoreFailure, orFallback } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { monotonicMs } = require("./clock.js");
 const { GATE_ROLE, GATE_SEAT_DEFAULT_MB } = require("./gate-seat.js");
 const {
@@ -477,7 +477,7 @@ function queueJoin({
 	env = process.env,
 } = {}) {
 	const part = weight ? weighCarried(weight).part : false;
-	const placed = isLanderRun(env) ? null : (session ?? holder?.session);
+	const placed = placeSessionOf({ session, holder, env });
 	const files = part ? weight?.resolvedFiles : undefined;
 	const file = path.join(queueDir, `${QUEUE_PREFIX}${pid}.json`);
 	try {
@@ -537,8 +537,32 @@ function joinedBefore(a, b) {
 // #5594 measured: in #5592's window no session outside the eight largest held more than 2 waits at once in either queue
 const SESSION_PLACES = 2;
 
+/**
+ * @param {{ session?: string | null, holder?: SeatHolder, env?: NodeJS.ProcessEnv }} join
+ * @returns {string | null}
+ */
+function placeSessionOf({ session, holder, env = process.env }) {
+	if (isLanderRun(env)) return null;
+	return session || holder?.session || null;
+}
+
 /** @param {QueueRecord} r */
-const holdsPlace = (r) => r.admitted === true || r.spawned === true;
+const hasPlace = (r) => r.admitted === true || r.spawned === true;
+
+/**
+ * @template {{ pid: number }} T
+ * @param {number} held
+ * @param {T[]} waiting
+ * @param {(w: T) => number} joinedAt
+ * @returns {{ entered: T[], over: T[] }}
+ */
+function splitPlaces(held, waiting, joinedAt) {
+	const ordered = [...waiting].sort(
+		(a, b) => joinedAt(a) - joinedAt(b) || a.pid - b.pid,
+	);
+	const free = Math.max(0, SESSION_PLACES - held);
+	return { entered: ordered.slice(0, free), over: ordered.slice(free) };
+}
 
 /**
  * @param {QueueRecord[]} live
@@ -553,13 +577,14 @@ function sessionCapped(live) {
 	/** @type {Map<number, QueueRecord[]>} */
 	const capped = new Map();
 	for (const group of bySession.values()) {
-		const holding = group.filter(holdsPlace);
-		const waiting = group
-			.filter((r) => !holdsPlace(r))
-			.sort((a, b) => a.at - b.at || a.pid - b.pid);
-		const free = Math.max(0, SESSION_PLACES - holding.length);
-		const places = [...holding, ...waiting.slice(0, free)];
-		for (const r of waiting.slice(free)) capped.set(r.pid, places);
+		const holding = group.filter(hasPlace);
+		const { entered, over } = splitPlaces(
+			holding.length,
+			group.filter((r) => !hasPlace(r)),
+			(r) => r.at,
+		);
+		const places = [...holding, ...entered];
+		for (const r of over) capped.set(r.pid, places);
 	}
 	return capped;
 }
@@ -576,7 +601,7 @@ function placeOf(r, queue) {
 /** @param {QueueRecord} r @param {string} queue */
 function placeKindOf(r, queue) {
 	if (queue === TSC_QUEUE_NAME) return "tsc";
-	return r.role === GATE_ROLE ? "commit gate" : waiterOf(r);
+	return r.role === GATE_ROLE ? "gate seat" : waiterOf(r);
 }
 
 /**
@@ -665,26 +690,14 @@ function buildHoldListeners(listen) {
 /**
  * @param {string} file
  * @param {Parameters<typeof queueAdmit>[1] & Parameters<typeof readPeerClimbMb>[1] & { clock?: () => number }} [options]
+ * @param {boolean} [placed]
  * @returns {{ admit: () => Admission, climbMb: () => number, sessionCap: () => SessionCapHold | null, onClimbHeld: (climbMb: number) => void, onPeerHeld: (secs: number) => void, onSessionCapHeld: (secs: number) => void, onMemoryRung: (rungMb: number) => void, polledHold: () => WaitHold } & Required<HoldListeners>}
  */
-function queueStamps(file, options = {}) {
+function queueStamps(file, options = {}, placed = false) {
 	let climbHeldMb = 0;
 	let peerS = 0;
 	let sessionCapS = 0;
 	let capped = false;
-	/** @type {boolean | undefined} */
-	let placed;
-	const isPlaced = () => {
-		placed ??= orFallback(
-			() =>
-				Boolean(
-					JSON.parse(String((options.queueFs ?? fs).readFileSync(file, "utf8")))
-						.session,
-				),
-			false,
-		);
-		return placed;
-	};
 	return {
 		onClimbHeld: (climbMb) => {
 			climbHeldMb = climbMb;
@@ -696,7 +709,7 @@ function queueStamps(file, options = {}) {
 			sessionCapS = secs;
 		},
 		sessionCap: () => {
-			if (!file || !isPlaced()) return null;
+			if (!file || !placed) return null;
 			const hold = readSessionCap(options);
 			if (hold) capped = true;
 			else if (capped) {
@@ -1727,7 +1740,11 @@ function releaseOnSignal(host, signal, code) {
  */
 function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 	const ticket = join === false ? "" : queueJoin({ ...queue, ...join });
-	const stamps = queueStamps(ticket, queue);
+	const stamps = queueStamps(
+		ticket,
+		queue,
+		join !== false && placeSessionOf({ ...queue, ...join }) !== null,
+	);
 	const passing = turn ? null : passingTurn(queue);
 	/** @type {(reason: WaitExitReason, heldBy?: WaitHold) => object} */
 	const exitFields = passing
@@ -1874,6 +1891,7 @@ module.exports = {
 	isClimbKept,
 	SEAT_ENV,
 	SESSION_PLACES,
+	splitPlaces,
 	heldMarker,
 	heldSeat,
 	readSlotPlace,

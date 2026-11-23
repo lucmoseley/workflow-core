@@ -129,7 +129,6 @@ describe("queue-run.js", () => {
 		);
 		f.spawned[0]?.child.emit("exit", 0, null);
 		await done;
-		vi.unstubAllEnvs();
 		expect(session).toBe("s1");
 	});
 

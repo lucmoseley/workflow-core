@@ -15,6 +15,7 @@ const {
 	PART_PASS_AGE_MS,
 	SESSION_PLACES,
 	WINDOWS_MAX_HOLD_MS,
+	splitPlaces,
 	isClimbKept,
 	partLaneOf,
 	turnOf,
@@ -547,13 +548,16 @@ function cappedAt(t, waiting, waiters, { everCapped, enteredAt }) {
 		waiting.filter((e) => e.session),
 		capKeyOf,
 	)) {
-		const free = Math.max(0, SESSION_PLACES - (holding.get(key) ?? 0));
-		group.sort((a, b) => a.st - b.st || a.pid - b.pid);
-		for (const e of group.slice(free)) {
+		const { entered, over } = splitPlaces(
+			holding.get(key) ?? 0,
+			group,
+			(e) => e.st,
+		);
+		for (const e of over) {
 			capped.add(e);
 			everCapped.add(e);
 		}
-		for (const e of group.slice(0, free))
+		for (const e of entered)
 			if (everCapped.has(e) && !enteredAt.has(e)) enteredAt.set(e, t);
 	}
 	return capped;
@@ -596,7 +600,7 @@ function groupBy(items, keyOf) {
  * @param {Waiter} e
  * @param {GateTick} tick
  */
-const queuedAt = (e, tick) => tick.enteredAt.get(e) ?? e.st;
+const queueTimeOf = (e, tick) => tick.enteredAt.get(e) ?? e.st;
 
 /**
  * @param {GateTick} tick
@@ -766,11 +770,11 @@ function turnReasonsOf(e, tick, w) {
 			(o) =>
 				o !== e &&
 				!tick.capped.has(o) &&
-				queuedAt(o, tick) < queuedAt(e, tick) &&
+				queueTimeOf(o, tick) < queueTimeOf(e, tick) &&
 				(o.kind === "tsc") === tsc,
 		)
 		.map((o) => ({
-			at: queuedAt(o, tick),
+			at: queueTimeOf(o, tick),
 			part: !tsc && !o.whole,
 			kind: laneOf(o),
 			spawned: false,
@@ -791,7 +795,7 @@ function turnReasonsOf(e, tick, w) {
 		tick.t >= PEER_CLIMB_FROM &&
 		tick.waiting.some(
 			(o) =>
-				queuedAt(o, tick) < queuedAt(e, tick) &&
+				queueTimeOf(o, tick) < queueTimeOf(e, tick) &&
 				(o.kind === "tsc") !== tsc &&
 				tick.climbStamped.has(o),
 		);
@@ -1158,7 +1162,7 @@ function render(r, w) {
 		"",
 		`- The memory limb is a lower bound: memwatch wrote a block in ${r.memMinutes} of the window's ${r.minutes} minutes, only above its used-memory or CPU threshold (${docPath("environment.md")} §4), and a minute with none counts as memory open.`,
 		"- The climb limb tries each tick against the highest charge the wait's exit line recorded, so it can overstate a wait whose charge fell. A minute with no memwatch block counts as climb open.",
-		`- The session-cap limb holds a session's waiters past its first ${SESSION_PLACES} in a queue, less its matched runs still running there, from ${new Date(w.capFrom ?? SESSION_CAP_FROM).toISOString()}; it moves no wait in time, so a waiter it lets ahead still ends when it did, and the waits it held still started when they did. A \`tsc\` run is matched to no wait, so it holds no place.`,
+		`- The session-cap limb holds a session's waiters past its first ${SESSION_PLACES} in a queue, less its matched runs still running there, from ${new Date(w.capFrom ?? SESSION_CAP_FROM).toISOString()}; it moves no wait in time, so a waiter it lets ahead still ends when it did, and the waits it held still started when they did. A \`tsc\` run, or a suite run matched to no wait, holds no place, so the limb is a lower bound.`,
 		"- The peer-climb limb reads the `climbHeld` stamp off the climb limb, and keeps it while a launch of the other queue runs (from #4799's commit); it inherits the climb limb's overstatement.",
 		"- The windows limb is a lower bound too: it charges a waiter no climb, and a minute with no fresh Windows reading in memwatch's minute log counts as open.",
 		"- The tsc-count limb is a lower bound too: it reads a `tsc` off memwatch's process lines, which list the top few by RSS and by CPU and cut each command short: a 7.0 `tsc` listed by CPU alone, cut at its `node_modules/`, reads as no `tsc`.",
