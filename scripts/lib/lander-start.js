@@ -211,7 +211,7 @@ function spawnDetachedRun({
 			note("no user scope: the lander shares its starter's cgroup (#2956)");
 		const child = spawn(process.execPath, run, {
 			cwd: root,
-			env: { ...buildCheckoutEnv(root), WFC_NOW: undefined },
+			env: buildCheckoutEnv(root),
 			stdio: ["ignore", fd, fd],
 			owner: null,
 			wrap: wrapWith,
