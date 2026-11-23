@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const CHECK = path.resolve(__dirname, "check-landing-stall.js");
@@ -239,6 +240,28 @@ it("warns of a dead lander where its heartbeat is stale while a queue ref waits"
 	expect(r.stdout).toContain("LANDER-DEAD");
 	expect(r.stdout).toContain(HINT);
 	expect(r.stdout).not.toContain("LANDING-STALLED");
+});
+
+it("names a hung lander by its pid and points at its process, not a run by hand, which its lock would turn away (#5606)", () => {
+	queueRef("new", MIN);
+	writeMarker(".queue-lander-heartbeat.json", {
+		pid: process.pid,
+		procStart: readProcStartOf(process.pid),
+		bootId: readCurrentBootId(),
+		at: new Date(Date.now() - 41 * MIN).toISOString(),
+		batch: null,
+	});
+
+	const r = check();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toContain("LANDER-HUNG — queue/new ");
+	expect(r.stdout).toContain(`pid ${process.pid}, still runs`);
+	expect(r.stdout).toContain(
+		`ps -o pid,etime,args -p ${process.pid} --ppid ${process.pid}`,
+	);
+	expect(r.stdout).not.toContain(HINT);
+	expect(r.stdout).not.toContain("LANDER-DEAD");
 });
 
 it("warns of nothing on a stale heartbeat and an old main where no queue ref waits", () => {

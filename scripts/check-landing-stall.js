@@ -41,7 +41,14 @@ runCheck({
 			ctx.warn(f.tag, f.line);
 			ctx.say(`${f.tag} — ${f.line}\n`);
 		}
-		if (all.length > 0)
+		const hung = found.some((f) => f.tag === "LANDER-HUNG")
+			? queue.heartbeat?.pid
+			: undefined;
+		if (hung !== undefined)
+			ctx.say(
+				`  The hung lander holds the lander lock, so a run by hand exits lock-held; see what it is stuck in: ps -o pid,etime,args -p ${hung} --ppid ${hung}\n`,
+			);
+		else if (all.length > 0)
 			ctx.say(
 				`  Run the queue lander by hand to see where it stops: node ${scriptPath("queue-lander.js")} run\n`,
 			);

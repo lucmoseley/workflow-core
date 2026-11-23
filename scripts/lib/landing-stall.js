@@ -92,7 +92,7 @@ function stallFindings(r) {
 		found.push({ tag: "LANDER-HELD", line: buildHeldLine(r.held) });
 	if (r.held.kind === "unread")
 		found.push({ tag: "LANDER-LOG-UNREAD", line: buildUnreadLine(r.held) });
-	if (heartbeat && r.alive(heartbeat)) {
+	if (heartbeat && running(r)) {
 		const age = now - Date.parse(heartbeat.at);
 		if (age > HUNG_MS)
 			found.push({
@@ -248,8 +248,6 @@ function recordWake(file, { startedAt, now }) {
 module.exports = {
 	buildHeldLine,
 	buildUnreadLine,
-	HUNG_MS,
-	LONGEST_CALL_MS,
 	readHeldExit,
 	readQueue,
 	stallFindings,
