@@ -399,7 +399,7 @@ Three sub-rules a reviewer may cite directly against a program reporting in the 
 - **Severity is a property of the finding**; a caller-side cap such as `--warn` lowers the outcome only, never the findings, and cannot cap BROKEN (`scripts/lib/check.js:25-28`).
 - **A bad invocation is BROKEN, never a finding** — a usage error throws `brokenError` rather than raising a finding (`scripts/lib/check.js:290-292`).
 
-*House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:177-179`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — a body throws `skipError` or `brokenError` (`scripts/lib/outcome-error.js:16-26`), never exits, and the exit code is chosen once, by `exitFor` (`scripts/lib/check.js:1676`). The five outcomes, stated once at `scripts/lib/check.js:8-13`:
+*House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:178-180`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — a body throws `skipError` or `brokenError` (`scripts/lib/outcome-error.js:16-26`), never exits, and a run's exit code is chosen once, by `exitFor` (`scripts/lib/check.js:1676`). The five outcomes, stated once at `scripts/lib/check.js:8-13`:
 
 ```
 OK      ran, found nothing                            exit 0
