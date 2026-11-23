@@ -9,6 +9,7 @@ import {
 	epoch,
 	awayLoadEvents as events,
 	memwatchReading,
+	writeAwayLoadGate,
 } from "./lib/away-load-fixture";
 import { gitBinary, gitSpawnOptions } from "./lib/git.js";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
@@ -51,20 +52,8 @@ function rig(name: string) {
 	return { dir, env, files, tasks };
 }
 
-const GATE = {
-	ticket: 5473,
-	since: "2026-11-24T09:01",
-	minutes: 988,
-	resetAfter: "2026-11-11T17:26:26",
-};
-
-function writeGate(env: Record<string, string>, gate: object = GATE) {
-	fs.mkdirSync(env.WFC_AWAY_LOAD_STATE_DIR, { recursive: true });
-	fs.writeFileSync(
-		path.join(env.WFC_AWAY_LOAD_STATE_DIR, "gate.json"),
-		`${JSON.stringify(gate)}\n`,
-	);
-}
+const writeGate = (env: Record<string, string>) =>
+	writeAwayLoadGate(env.WFC_AWAY_LOAD_STATE_DIR);
 
 const read = (file: string) =>
 	fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";

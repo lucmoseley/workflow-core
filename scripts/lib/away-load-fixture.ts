@@ -1,4 +1,5 @@
 /* #5497 */
+import fs from "node:fs";
 import path from "node:path";
 import { readJsonl } from "./jsonl.js";
 
@@ -23,4 +24,22 @@ export function awayLoadEnv(
 		WFC_TASKKILL: bins.taskkill,
 		WFC_TASKLIST: bins.tasklist,
 	};
+}
+
+export const awayLoadGate = {
+	ticket: 5473,
+	since: "2026-11-24T09:01",
+	minutes: 988,
+	resetAfter: "2026-11-11T17:26:26",
+};
+
+export function writeAwayLoadGate(
+	stateDir: string,
+	gate: object = awayLoadGate,
+) {
+	fs.mkdirSync(stateDir, { recursive: true });
+	fs.writeFileSync(
+		path.join(stateDir, "gate.json"),
+		`${JSON.stringify(gate)}\n`,
+	);
 }

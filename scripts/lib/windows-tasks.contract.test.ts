@@ -10,6 +10,7 @@ import {
 	awayLoadEvents,
 	epoch,
 	memwatchReading,
+	writeAwayLoadGate,
 } from "./away-load-fixture";
 import { keptSpawn } from "./kept-spawn.js";
 import { runInProcessAsync } from "./run-in-process.js";
@@ -102,6 +103,7 @@ describe.each([
 					memwatchReading(at + n, availMb, 900),
 				);
 			read(0, 891);
+			writeAwayLoadGate(env.WFC_AWAY_LOAD_STATE_DIR);
 			const runner = keptSpawn("signal").spawn("node", [AWAY_LOAD, "run"], {
 				env: { ...process.env, ...env },
 				stdio: "ignore",
