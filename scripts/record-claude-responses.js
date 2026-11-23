@@ -376,6 +376,7 @@ async function main() {
 		bin: claudeBin(),
 		env: process.env,
 		cwd: process.cwd(),
+		bg: true,
 	});
 	if (refusal) throw new Error(refusal);
 	const harness = claude(["--version"]).stdout.split(" ")[0];

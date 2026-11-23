@@ -4,7 +4,21 @@ const path = require("node:path");
 const env = process.env;
 const isSet = (/** @type {string|undefined} */ v) =>
 	v !== undefined && v !== "";
+
 const OFF = ["0", "false", "no", "off"];
+
+if (process.argv[2] === "daemon" && process.argv[3] === "status") {
+	if (isSet(env.WFC_FAKE_DAEMON_GARBLED)) {
+		process.stderr.write("daemon: confused\n");
+		process.exit(3);
+	}
+	if (isSet(env.WFC_FAKE_DAEMON)) {
+		process.stdout.write(`pid:     ${env.WFC_FAKE_DAEMON}\nversion: 2.1.330\n`);
+		process.exit(0);
+	}
+	process.stdout.write("not running\n");
+	process.exit(1);
+}
 
 /** @param {string} file */
 function hasHelper(file) {
