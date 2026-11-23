@@ -61,12 +61,13 @@ function gateOutcome(dir, keyVar) {
 		({ env } = built);
 		overflow = { settings: built.settings, unset: built.unset };
 	}
+	const launchesBg = overflow === undefined;
 	const auth = launchAuthRefusal({
 		bin: claudeBin(env),
 		env,
 		cwd: process.cwd(),
 		settings: overflow?.settings,
-		bg: overflow === undefined,
+		bg: launchesBg,
 	});
 	if (auth) return { why: `${auth}\n` };
 	return { kind: seat.kind, label: buildSeatLabel(seat), overflow };

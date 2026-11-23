@@ -216,15 +216,6 @@ describe("a --bg launch, which runs under the daemon's environment (#5607)", () 
 	beforeEach(() => {
 		proc = path.join(dir, "proc");
 		vi.stubEnv("WFC_PROC", proc);
-		fs.writeFileSync(
-			bin,
-			`#!/bin/bash
-if [ -n "$WFC_FAKE_DAEMON_GARBLED" ]; then echo "daemon: confused" >&2; exit 3; fi
-${buildAuthStatusBranch()}
-exit 9
-`,
-			{ mode: 0o755 },
-		);
 	});
 
 	const daemonWith = (env: Record<string, string>) => {

@@ -94,6 +94,15 @@ const providerFlags = (env) =>
 	);
 
 /**
+ * @param {string} out
+ * @returns {string|null|undefined}
+ */
+function daemonPidOf(out) {
+	if (out.split("\n")[0]?.trim() === "not running") return null;
+	return /^pid:[ \t]+(\d+)[ \t]*$/m.exec(out)?.[1];
+}
+
+/**
  * @param {string} bin
  * @param {NodeJS.ProcessEnv} env
  * @param {string} cwd
@@ -109,8 +118,8 @@ function daemonRefusal(bin, env, cwd, spawn) {
 	});
 	if (r.error) return `\`${bin} daemon status\` failed: ${r.error.message}`;
 	const out = String(r.stdout ?? "");
-	if (out.split("\n")[0]?.trim() === "not running") return null;
-	const pid = /^pid:[ \t]+(\d+)[ \t]*$/m.exec(out)?.[1];
+	const pid = daemonPidOf(out);
+	if (pid === null) return null;
 	if (pid === undefined) {
 		const said = (String(r.stderr ?? "") || out).trim().split("\n")[0];
 		return `\`${bin} daemon status\` named no daemon pid (exit ${r.status}${said ? `: ${said}` : ""})`;
@@ -214,4 +223,4 @@ if (require.main === module) {
 	}
 }
 
-module.exports = { launchAuthRefusal };
+module.exports = { daemonPidOf, launchAuthRefusal };

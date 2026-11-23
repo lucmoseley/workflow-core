@@ -5,7 +5,13 @@ const env = process.env;
 const isSet = (/** @type {string|undefined} */ v) =>
 	v !== undefined && v !== "";
 
-if (process.argv[2] === "daemon") {
+const OFF = ["0", "false", "no", "off"];
+
+if (process.argv[2] === "daemon" && process.argv[3] === "status") {
+	if (isSet(env.WFC_FAKE_DAEMON_GARBLED)) {
+		process.stderr.write("daemon: confused\n");
+		process.exit(3);
+	}
 	if (isSet(env.WFC_FAKE_DAEMON)) {
 		process.stdout.write(`pid:     ${env.WFC_FAKE_DAEMON}\nversion: 2.1.330\n`);
 		process.exit(0);
@@ -13,7 +19,6 @@ if (process.argv[2] === "daemon") {
 	process.stdout.write("not running\n");
 	process.exit(1);
 }
-const OFF = ["0", "false", "no", "off"];
 
 /** @param {string} file */
 function hasHelper(file) {
