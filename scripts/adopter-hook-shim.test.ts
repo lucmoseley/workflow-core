@@ -394,7 +394,7 @@ describe("the shim text (#1839)", () => {
 			checkJs: false,
 			exports: new Set<string>(),
 			shipped: false,
-			name: "",
+			fileName: "",
 			adrs: new Set<string>(),
 			deps: depsPattern([]),
 			styleOnly: {},

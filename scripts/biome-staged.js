@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// #2429
 // cli-args-exempt: #5540
 
 const fs = require("node:fs");

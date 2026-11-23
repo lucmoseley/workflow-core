@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// #1906
 const { spawnSync } = require("node:child_process");
 const {
 	execGit,

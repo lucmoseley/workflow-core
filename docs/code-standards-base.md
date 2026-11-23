@@ -4,7 +4,7 @@ The rules `/code-review`'s Standards axis cites in every repo the workflow-core 
 
 Every repo reads this text from the plugin, in place, and keeps no copy. A repo's own choices sit in its local `docs/code-standards.md`, which may be absent; with none, this base applies unchanged.
 
-**Every line pin here resolves at the plugin root**, not in the repo under review: `scripts/lib/check.js:8-13` means that file inside the plugin.
+**Every line pin here resolves at the plugin root**, not in the repo under review: `scripts/lib/check.js:10-15` means that file inside the plugin.
 
 ## §0 How to use this
 
@@ -202,7 +202,7 @@ Three kinds of export are not test-only:
 
 **Program, library and shell.** Every injected seam — a dependency parameter, a port, or an env var standing in for a binary, a file or a clock — has a second adapter beside production's, and a test fake counts. Otherwise an open issue names the caller that will supply one, and the seam cites it as a bare `#N` (K5).
 
-`scripts/lib/suite-queue.js:416` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:25` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
+`scripts/lib/suite-queue.js:425` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:25` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
 
 Where neither fits, remove the seam: create the dependency in place, and let the test reach it another way, through a temp directory, the real clock, or a binary stubbed at its §N7 var (#1374).
 
@@ -366,11 +366,11 @@ Every other library module stays under the rule, and a client component is never
 
 *House, Node programs only*. Every `.js` program uses `require`, never `import`, and an executable carries `#!/usr/bin/env node` as line 1.
 
-A non-test `.ts` program is ESM; where it needs a CommonJS lib it reaches it through `createRequire`, because the lib is spawned as a plain node script by a bash hook and stays CommonJS. **Always `createRequire(import.meta.url)`, never `createRequire(__filename)`** (mantahostels#2191): `__filename` only resolves under Vitest's compatibility shim, so a non-test file copying it breaks when run directly by `node` — `scripts/vitest-inflight-reporter.ts:21` is the portable exemplar: *"const require = createRequire(import.meta.url);"*.
+A non-test `.ts` program is ESM; where it needs a CommonJS lib it reaches it through `createRequire`, because the lib is spawned as a plain node script by a bash hook and stays CommonJS. **Always `createRequire(import.meta.url)`, never `createRequire(__filename)`** (mantahostels#2191): `__filename` only resolves under Vitest's compatibility shim, so a non-test file copying it breaks when run directly by `node` — `scripts/vitest-inflight-reporter.ts:4` is the portable exemplar: *"const require = createRequire(import.meta.url);"*.
 
 ### §N2 · A file opens with a comment only where a permitted kind needs one — **hard**
 
-No program, library module, hook module, shell script or test owes a header (#5455). A file opens with a comment only as K1, a licence line; as K4, the contract of an entry point a party outside the repo runs or imports: a command's usage, a hook's input and output, a shipped module's exports; as the bare K5 pointer §G4 gives a departing file; or as a directive (§Comments). A header giving what the file is, its why or its ticket is refused.
+No program, library module, hook module, shell script or test owes a header (#5455). A file opens with a comment only as K1, a licence line; as K4, the contract of an entry point a party outside the repo runs or imports, written as a usage block: a line invokes the file, and no line cites an issue; as the bare K5 pointer §G4 gives a departing file; or as a directive (§Comments). A header giving what the file is, its why or its ticket is refused.
 
 ### §N3 · The filename prefix is the contract — **hard**
 
@@ -395,11 +395,11 @@ A checking program's body returns a result and never ends the process itself; on
 
 Three sub-rules a reviewer may cite directly against a program reporting in the five-outcome alphabet below:
 
-- **SKIP versus BROKEN turns on subject-versus-apparatus** (`scripts/lib/check.js:15-23`): what the checker is *asking about* is unavailable → SKIP; what it *reads the repo with* failed → BROKEN.
-- **Severity is a property of the finding**; a caller-side cap such as `--warn` lowers the outcome only, never the findings, and cannot cap BROKEN (`scripts/lib/check.js:25-28`).
-- **A bad invocation is BROKEN, never a finding** — a usage error throws `brokenError` rather than raising a finding (`scripts/lib/check.js:290-292`).
+- **SKIP versus BROKEN turns on subject-versus-apparatus** (`scripts/lib/check.js:17-25`): what the checker is *asking about* is unavailable → SKIP; what it *reads the repo with* failed → BROKEN.
+- **Severity is a property of the finding**; a caller-side cap such as `--warn` lowers the outcome only, never the findings, and cannot cap BROKEN (`scripts/lib/check.js:27-30`).
+- **A bad invocation is BROKEN, never a finding** — a usage error throws `brokenError` rather than raising a finding (`scripts/lib/check.js:291-293`).
 
-*House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:178-180`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — a body throws `skipError` or `brokenError` (`scripts/lib/outcome-error.js:16-26`), never exits, and a run's exit code is chosen once, by `exitFor` (`scripts/lib/check.js:1676`). The five outcomes, stated once at `scripts/lib/check.js:8-13`:
+*House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:179-181`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — a body throws `skipError` or `brokenError` (`scripts/lib/outcome-error.js:16-26`), never exits, and a run's exit code is chosen once, by `exitFor` (`scripts/lib/check.js:1677`). The five outcomes, stated once at `scripts/lib/check.js:10-15`:
 
 ```
 OK      ran, found nothing                            exit 0
@@ -419,15 +419,15 @@ The `guard-*` family swallows every error and exits 0, since breaking a session 
 
 ### §N6 · Output that must survive `process.exit` on a pipe is written synchronously — **hard**
 
-Node programs. On any path whose output precedes a `process.exit` **and** whose stdout may be a pipe — every hook, every checker, and any script an agent runs through Bash — write synchronously, never through `console`: node drops whatever it still has buffered for a pipe at `process.exit` (`scripts/lib/write-fd.js:5-6`), and a hook's stdout is always a pipe, so the report goes through `writeFd`, which loops on `fs.writeSync` (`scripts/lib/write-fd.js:47`). The hazard is the pipe, not the call: a subcommand only a human runs at a terminal is outside it.
+Node programs. On any path whose output precedes a `process.exit` **and** whose stdout may be a pipe — every hook, every checker, and any script an agent runs through Bash — write synchronously, never through `console`: node drops whatever it still has buffered for a pipe at `process.exit` (`scripts/lib/write-fd.js:6-7`), and a hook's stdout is always a pipe, so the report goes through `writeFd`, which loops on `fs.writeSync` (`scripts/lib/write-fd.js:47`). The hazard is the pipe, not the call: a subcommand only a human runs at a terminal is outside it.
 
-A bare `fs.writeSync` is not enough — `scripts/lib/write-fd.js:7-8` *"it drops the tail of a partial write without saying so, and it throws EAGAIN on a full pipe that is non-blocking"*. The writer loops until every byte is taken, waiting out EAGAIN up to a ceiling.
+A bare `fs.writeSync` is not enough — `scripts/lib/write-fd.js:8-9` *"it drops the tail of a partial write without saying so, and it throws EAGAIN on a full pipe that is non-blocking"*. The writer loops until every byte is taken, waiting out EAGAIN up to a ceiling.
 
 *House, Node programs only*: that writer is `writeFd` from `scripts/lib/write-fd.js` (#1676). A bare `fs.writeSync` to fd 1 or 2 is the breach, bar a program that may load nothing of the repo's, as `scripts/run-pinned-guards.js` does. A program calling `process.exit` writes a terminal-only path through `writeTerminal` from the same file, never `console` or a std stream's own write (#4018, #5484). A `report-*` writes every path through it, a terminal-only one included (#3454).
 
 *House, production Node programs only*: a program reads all of its stdin through `readFdAll` from `scripts/lib/read-fd.js`, since `fs.readFileSync(0)` throws EAGAIN on a non-blocking pipe whose writer has not finished (#4017). A bare `fs.readFileSync(0)` is the breach, bar such a program, as `scripts/lib/load-failure-stop.js` is. An inline `node -e` in a shell script that never touches `process.stdin` is outside this.
 
-Stream discipline (`scripts/lib/check.js:30-34`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:1676`, and `scripts/lib/check.js:1255` for a crash).
+Stream discipline (`scripts/lib/check.js:32-36`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:1677`, and `scripts/lib/check.js:1256` for a crash).
 
 ### §N7 · An export nothing consumes is a breach, and a binary a test stubs or a machine may lack is injected at one named var — **judgement**
 
@@ -616,7 +616,7 @@ Any hook that gates an act. A missing tool, a payload it cannot parse or a libra
 
 A gate refuses only on a structured fact where the act has no legitimate use, and warns where it is inferring (mantahostels#103). A deny that a legitimate spelling cannot escape is a wedge, not a guard.
 
-*House*: a guard never emits `permissionDecision` itself. Its core returns a `deny` or `context` decision, a refusal splicing the offending command in at the `@CMD@` placeholder through `scripts/lib/guard-verdict.js` (mantahostels#994), and `scripts/lib/hook-envelope.js`'s `envelope` owns the JSON shape (`:15-30`).
+*House*: a guard never emits `permissionDecision` itself. Its core returns a `deny` or `context` decision, a refusal splicing the offending command in at the `@CMD@` placeholder through `scripts/lib/guard-verdict.js` (mantahostels#994), and `scripts/lib/hook-envelope.js`'s `envelope` owns the JSON shape (`:9-24`).
 
 ### §S5 · A script sets the shell options its kind needs — **hard**
 

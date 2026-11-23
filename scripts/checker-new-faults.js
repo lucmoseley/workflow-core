@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// lucmoseley/mantahostels#1688
 const fs = require("node:fs");
 const { parseOrExit } = require("./lib/cli-args");
 const { runCli } = require("./lib/fault-diff");

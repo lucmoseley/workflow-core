@@ -363,7 +363,7 @@ const factsFor = (tree, rel, lang) => ({
 	exports: new Set(tree.entryPoints[rel] ?? []),
 	shipped:
 		rel in tree.entryPoints || tree.commands.has(rel) || tree.copies.has(rel),
-	name: path.basename(rel),
+	fileName: path.basename(rel),
 	adrs: tree.adrs,
 	deps: tree.deps,
 	styleOnly: STYLE_ONLY,

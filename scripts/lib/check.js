@@ -1,3 +1,90 @@
+/*
+ * Usage:
+ *   const { runCheck } = require("./lib/check.js");
+ *   runCheck(SPEC);
+ *
+ * The reporting tail every check-*.js shares: argv, severity, streams, the
+ * summary line, annotations and the exit code. Five outcomes over three exit
+ * codes:
+ *
+ *   OK      ran, found nothing                                       exit 0
+ *   SKIP    could not run, and not the repo's fault                  exit 0
+ *   WARN    real findings, deliberately not gating                   exit 0
+ *   FAIL    real findings that gate                                  exit 1
+ *   BROKEN  the checker itself cannot do its job — bad usage,        exit 2
+ *           unreadable or unparseable input
+ *
+ * The SKIP/BROKEN boundary is applied without judgement, and it runs on
+ * SUBJECT vs APPARATUS — not on where the missing thing lives:
+ *
+ *   SUBJECT    what the checker is ASKING ABOUT is unavailable — GitHub is
+ *              down, the gitignored data/ corpus is absent => SKIP. These have
+ *              a real base rate, and gating on them teaches the reader to
+ *              ignore the gate.
+ *   APPARATUS  what the checker READS THE REPO WITH failed — fs will not read a
+ *              tracked file, git will not enumerate the tracked set => BROKEN.
+ *
+ * Severity is intrinsic to a finding, assigned by the checker that raises it;
+ * the outcome is the worst severity present. --warn is a caller-side CAP, not a
+ * property of the finding: it lowers the ceiling to WARN so FAIL findings still
+ * print but no longer gate. It cannot cap BROKEN.
+ *
+ * Streams. stdout is reserved for machine readers: the --json envelope, and the
+ * ::error::/::warning:: workflow commands Actions only parses there. Human text
+ * goes to stderr. --notify inverts that one case — a SessionStart hook injects
+ * its stdout into the session's context, so the report has to be on stdout to be
+ * read at all.
+ *
+ * --against <rev>. THE ONE CONVENTION FOR JUDGING THE COMMIT RATHER THAN THE
+ * WORKING TREE. A checker that direction-gates declares
+ * `against` in its spec; runCheck then does the whole job for it:
+ *
+ *   1. materialise the INDEX as a tree and re-exec ITSELF over it
+ *      (`node <argv[1]> --root <dir> --json`);
+ *   2. only if that reading holds gating faults, do the same for <rev>;
+ *   3. report the faults the index side has and <rev> does not, through
+ *      scripts/lib/fault-profiles.js's profile table.
+ *
+ * BOTH SIDES ARE COMMIT BYTES. The parent does no checking of its own: reading
+ * a file in place judges its working copy rather than this commit's.
+ *
+ * `--head <rev>` beside `--against <rev>` names a commit as the judged side in
+ * place of the index.
+ *
+ * --index. The same materialised index and re-exec as step 1, with no <rev>:
+ * every finding the index side holds is this commit's, inherited or not. For a
+ * whole-tree gate, which refuses every breach the tree holds but must judge
+ * this commit's bytes rather than an untracked or unstaged file
+ *. Legal wherever `against` is declared.
+ *
+ * TWO MATERIALISATIONS, CHOSEN BY THE SPEC AND NEVER BY THE CALLER, because
+ * which one is right is a property of how the checker finds its scan scope:
+ * `tree` where it discovers its own roots by walking, `blobs` where the spec
+ * declares a pathspec — see MATERIALISERS.
+ *
+ * DIRECTION IS A SET DIFFERENCE, AND A MEASUREMENT NEEDS MORE. A fault carrying
+ * a number — "the pool is 38,200 B against a 38,000 B cap" — is not answered by
+ * "is it in the baseline": a shed that leaves the surface still over cap would
+ * read as a fault this commit added. lib/fault-diff.js's `family`/`worse` pair
+ * is where a profile says what getting worse means, and its `measure`
+ * is where it says what the number IS, so the refusal can carry the baseline
+ * and the delta rather than the total alone — measuredDelta().
+ *
+ * WHOSE CODE READS THE BASELINE. By default both sides run the checker this
+ * process runs. `baselineCode: "rev"` runs each baseline rev's own copy
+ * instead, where that tree carries one at this checker's path: a checker whose
+ * findings hash its own definition (check-guard-registry.js's digests) would
+ * otherwise read a change to that definition as faulting both sides alike, and
+ * pass the commit that made them; one that reads its revision's code
+ * (check-context-budget.js's text module) would read a baseline in the old
+ * shape as BROKEN, so a commit changing the code and its reader together could
+ * not land as one merge.
+ *
+ * FAIL-CLOSED ON THE BASELINE. A <rev> reading that cannot answer —
+ * unreadable, unparseable, BROKEN or SKIP — is BROKEN here, never "inherited",
+ * which is the answer that would pass the commit. The INDEX side is the
+ * exception and deliberately: its SKIP is a SUBJECT skip, above.
+ */
 const { spawnSync } = require("node:child_process");
 const { spawnGitSync } = require("./git.js");
 const fs = require("node:fs");

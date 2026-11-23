@@ -1,3 +1,83 @@
+/*
+ * Usage:
+ *   const { runInProcess } = require("./lib/run-in-process.js");
+ *   const { status, stdout, stderr } = runInProcess(script, args, options);
+ *
+ * Runs a node CLI script inside the current process, in place of
+ * `spawnSync("node", [script, ...args])`.
+ *
+ * FOR TESTS ONLY. Nothing under scripts/ that runs in a hook, a gate or CI
+ * should require this: a real invocation wants the process boundary.
+ *
+ * WHAT IT REPRODUCES, because the tests assert on all of it:
+ *
+ *   status   `process.exit(n)`, a bare `process.exitCode = n`, and a throw
+ *            escaping the script (node prints the stack and exits 1).
+ *   stdout   both routes this repo writes by — `fs.writeSync` on fd 1, which
+ *            lib/write-fd.js uses so a piped hook cannot drop buffered
+ *            output, and `process.stdout.write`, which console.log goes
+ *            through. Same for stderr on fd 2.
+ *   cwd      the script sees `options.cwd` as its working directory, and the
+ *            git subprocesses it spawns inherit it.
+ *   env      `options.env` REPLACES the environment for the call, exactly as
+ *            spawnSync's `env` does, and is restored after.
+ *   stdin    `options.stdin` is what fd 0 holds, read by `fs.readFileSync(0)`,
+ *            or by `fs.readSync(0, …)` calls, which is how lib/read-fd.js takes
+ *            a hook's JSON payload. It is spawnSync's `input` under
+ *            another name, so with none given fd 0 reads empty, as a spawn's
+ *            closed pipe does. Only fd 0 and only those
+ *            two: a script that reads stdin as a stream still wants a spawn.
+ *   uptime   `process.uptime()` counts from the call's start, as a fresh
+ *            node's does, so a clock started at the process's start
+ *            (lib/hook-deadline.js) starts at the call.
+ *   module   the script's own `module` object is the entry module, so a
+ *            `require.main === module` guard fires as it does under node —
+ *            true throughout for `runInProcess`. `runInProcessAsync`
+ *            is the one exception: see its own header for why that guard
+ *            reads false for the whole call, load included.
+ *
+ * WHAT A SPAWN GAVE FREE AND THIS DOES NOT:
+ *
+ *   1. A CLEAN MODULE REGISTRY. Re-created here by purging every cached repo
+ *      module before each call, so module-level state (a memoised read, a lazy
+ *      singleton) starts empty. node_modules is left cached — that is where
+ *      the time saved lives.
+ *   2. A CLEAN PROCESS. Everything patched here is global for the duration, so
+ *      the call must be the only thing running: no `describe.concurrent`, no
+ *      `it.concurrent`, no overlapping async work in the same file. Enforced
+ *      by the re-entrancy throw below rather than left to the reader — for a
+ *      claim under `staleMs`; an `it.concurrent` call that
+ *      arrives once the first has been running longer than that reads as
+ *      abandoned rather than as the misuse it is, and is taken over instead
+ *      of refused.
+ *   3. AN EXIT THAT NOTHING CAN CATCH. A real `process.exit` ends the process
+ *      where it is called; here it can only throw, and a catch-all between the
+ *      call and this function will catch it — runCheck's does, which is the
+ *      path `check-guard-registry.js --review` takes. So the exit is recorded
+ *      as well as thrown: the recorded code wins whatever the script does
+ *      next, and everything written after it is discarded, because a real
+ *      process was not there to write it. What still differs is that the
+ *      catch-all RUNS, so a `finally` fires that a real exit would have
+ *      skipped.
+ *   4. A PROCESS THE SCRIPT CANNOT OUTLIVE. Anything it registers on `process`
+ *      would stay registered on the vitest worker — lib/check.js adds a crash
+ *      reporter per require, and the purge makes every call a fresh require.
+ *      Every listener added during a call is taken off again after it, with
+ *      two limits: a removal that throws is recorded on `restoreFailures`
+ *      rather than retried, and a listener the SCRIPT removed from the
+ *      worker's own set is not put back.
+ *   5. A TIMER-FREE EXIT. `process.exit` abandons pending async work; here it
+ *      only unwinds the stack. A call that ends with no `process.exit`, and
+ *      no throw node would have died of, and leaves a ref'd resource of its
+ *      own open is refused, naming its type — that resource is what would
+ *      keep a real process from exiting. The async form first gives its own
+ *      resources SETTLE_MS, then SETTLE_TURNS loop turns, to close. One that does end so still leaks what it
+ *      left into the test process.
+ *   6. A REAL FD FOR A GRANDCHILD. A script that spawns its own child with
+ *      `stdio: "inherit"` on fd 1/2 (lib/check.js's `reread`, for one) hands
+ *      that grandchild the real OS fd, which writes straight past the patches
+ *      below — `state.stdout`/`state.stderr` never see it.
+ */
 const asyncHooks = require("node:async_hooks");
 const { Console } = require("node:console");
 const fs = require("node:fs");

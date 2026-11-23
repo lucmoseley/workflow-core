@@ -16,9 +16,6 @@
  *                                               the ruff lint gate's verdict
  *                                               where ruff is missing, its
  *                                               reason on stderr
- *
- * `WFC_SHFMT`, where set, names the shfmt module to load in place of the
- * working directory's `@wasm-fmt/shfmt`.
  */
 
 const fs = require("node:fs");

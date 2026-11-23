@@ -21,7 +21,7 @@ const { scanJs } = require("./strip-comments.js");
  *   checkJs: boolean,
  *   exports: Set<string>,
  *   shipped: boolean,
- *   name: string,
+ *   fileName: string,
  *   adrs: Set<string>,
  *   deps: RegExp | null,
  *   styleOnly: Record<string, string[]>,
@@ -754,7 +754,7 @@ function barePointers(text) {
 const LICENCE = /SPDX-License-Identifier:|\bcopyright\b|©/i;
 const DERIVATION = /\b(?:measured|guess)\b/i;
 const ISSUE = /(?<![\w&])#\d+|\/[\w.-]+#\d+/;
-const ANY_ISSUE = /(?<![\w&])#\d+|[\w.-]#\d+/;
+const ANY_ISSUE = /(?<!&)#\d+/;
 const URL = /\bhttps?:\/\/\S/;
 const POINTER_LINK = /\[(?:[\w.-]+\/[\w.-]+)?#\d+\]\([^)\s]*\)/g;
 
@@ -777,12 +777,17 @@ function declaredName(line, lang) {
  * @param {FileFacts} facts
  */
 function isUsageBlock(prose, facts) {
-	if (facts.name === "" || prose.some((line) => ANY_ISSUE.test(line)))
+	if (facts.fileName === "" || prose.some((line) => ANY_ISSUE.test(line)))
 		return false;
-	const stem = escapeRe(facts.name.replace(/\.[^.]+$/, ""));
-	const file = escapeRe(facts.name);
+	const file = escapeRe(facts.fileName);
+	const stem = escapeRe(facts.fileName.replace(/\.[^.]+$/, ""));
 	const runs = new RegExp(
-		String.raw`^Usage:|(?:^|[\s\`$])(?:node|python3?|bash|sh|source|\.)\s+(?:\S*/)?${file}(?![\w.-])|(?<![\w.-])${stem}\(|(?:require\(|from )["'](?:\S*/)?${stem}(?:\.\w+)?["']`,
+		[
+			String.raw`(?:^|[\s\`$])(?:node|python3?|bash|sh|source|\.)(?:\s+\S*/\S*)*?\s+(?:\S*/)?${file}(?![\w.-])`,
+			String.raw`(?<![\w.-])${stem}\(`,
+			String.raw`(?:require\(|from )["'](?:\S*/)?${stem}(?:\.\w+)?["']`,
+			String.raw`(?:^|\s)(?:import|from) ${stem}\b`,
+		].join("|"),
 	);
 	return prose.some((line) => runs.test(line));
 }

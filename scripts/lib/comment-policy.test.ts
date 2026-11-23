@@ -10,7 +10,7 @@ const facts = (lang: Lang, over: Record<string, unknown> = {}) => ({
 	checkJs: true,
 	exports: new Set<string>(),
 	shipped: false,
-	name: "",
+	fileName: "",
 	adrs: new Set(["0010"]),
 	deps: depsPattern(["vitest", "@biomejs/biome"]),
 	styleOnly: {
@@ -194,43 +194,70 @@ describe("the permitted shapes", () => {
 	});
 
 	describe("a shipped file's header (K4)", () => {
-		const shipped = { shipped: true, name: "run-it.js" };
+		const shipped = { shipped: true, fileName: "run-it.js" };
 
-		it("passes a usage block that invokes the file and cites no issue", () => {
-			for (const usage of [
-				"Usage:",
-				"  node scripts/run-it.js <file>",
-				"  const { runIt } = require('./run-it.js');",
-				'  import { runIt } from "./run-it";',
-			])
-				expect(
-					tags(
-						`/*\n * ${usage}\n * Exits 1 on a breach.\n */\nconst a = 1;\n`,
-						"js",
-						shipped,
-					),
-				).toEqual([]);
-			expect(
-				tags('"""Usage:\n\n    run_it()\n"""\nx = 1\n', "py", {
-					shipped: true,
-					name: "run_it.py",
-				}),
-			).toEqual([]);
-			expect(
-				tags("#!/usr/bin/env bash\n# source lib/run-it.sh\nx=1\n", "sh", {
-					shipped: true,
-					name: "run-it.sh",
-				}),
-			).toEqual([]);
+		it("passes a usage block on any line that invokes the file, citing no issue", () => {
+			const cases: [Lang, string, string][] = [
+				[
+					"js",
+					"run-it.js",
+					"/*\n * Usage:\n *   node scripts/run-it.js <file>\n */\nconst a = 1;\n",
+				],
+				[
+					"js",
+					"run-it.js",
+					"/*\n * const { runIt } = require('./run-it.js');\n * Exits 1 on a breach.\n */\nconst a = 1;\n",
+				],
+				[
+					"js",
+					"run-it.ts",
+					'/* import { runIt } from "./run-it"; */\nconst a = 1;\n',
+				],
+				[
+					"py",
+					"run_it.py",
+					'"""Usage, from a conftest:\n\n    run_it()\n"""\nx = 1\n',
+				],
+				[
+					"py",
+					"run_it.py",
+					'"""import run_it, then call its exports."""\nx = 1\n',
+				],
+				["py", "run_it.py", '"""python3 scripts/run_it.py <file>"""\nx = 1\n'],
+				[
+					"sh",
+					"run-it.sh",
+					"#!/usr/bin/env bash\n# source lib/run-it.sh\nx=1\n",
+				],
+				[
+					"sh",
+					"run-it.sh",
+					"#!/usr/bin/env bash\n# . lib/run-it.sh, then call it.\nx=1\n",
+				],
+				[
+					"sh",
+					"run-it.sh",
+					"#!/usr/bin/env bash\n# bash scripts/run-it.sh <id>\nx=1\n",
+				],
+				[
+					"js",
+					"run-it.js",
+					"/* node lib/resolve-core.js lib/run-it.js <file> */\nconst a = 1;\n",
+				],
+			];
+			for (const [lang, fileName, src] of cases)
+				expect(tags(src, lang, { shipped: true, fileName }), src).toEqual([]);
 		});
 
 		it("refuses a header that invokes nothing, or another file", () => {
-			expect(
-				tags("/* What adopters import. */\nconst a = 1;\n", "js", shipped),
-			).toEqual(["COMMENT@1"]);
-			expect(
-				tags("/* node scripts/run-it.json */\nconst a = 1;\n", "js", shipped),
-			).toEqual(["COMMENT@1"]);
+			for (const src of [
+				"/* What adopters import. */\nconst a = 1;\n",
+				"/* Usage: */\nconst a = 1;\n",
+				"/* node scripts/run-it.json */\nconst a = 1;\n",
+				"/* runItNow() */\nconst a = 1;\n",
+				"/* node is old; see run-it.js */\nconst a = 1;\n",
+			])
+				expect(tags(src, "js", shipped), src).toEqual(["COMMENT@1"]);
 		});
 
 		it("refuses a usage block citing an issue, in this repo or another", () => {
@@ -247,7 +274,7 @@ describe("the permitted shapes", () => {
 		it("judges a header in a file that is not shipped like any comment", () => {
 			expect(
 				tags("/* Usage: node run-it.js */\nconst a = 1;\n", "js", {
-					name: "run-it.js",
+					fileName: "run-it.js",
 				}),
 			).toEqual(["COMMENT@1"]);
 		});
