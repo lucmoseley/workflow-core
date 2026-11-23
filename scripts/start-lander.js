@@ -44,10 +44,10 @@ function main(argv = process.argv.slice(2)) {
 	const log = landerLog(root);
 	let by = "";
 	/** @type {import("./lib/lander-records.js").Drop[]|undefined} */
-	let read;
-	const owedDrops = () => {
-		read ??= readOwedDrops(queueLanderFiles(root).drops);
-		return read;
+	let cachedDrops;
+	const readOwedDropsOnce = () => {
+		cachedDrops ??= readOwedDrops(queueLanderFiles(root).drops);
+		return cachedDrops;
 	};
 	const result = startLander({
 		holder: landerLock(root).holder,
@@ -55,9 +55,9 @@ function main(argv = process.argv.slice(2)) {
 			queueGit(root)
 				.refs()
 				.queue.map((q) => queueBranch(q.name)),
-		owed: () => owedDrops().map((d) => d.ref),
+		owed: () => readOwedDropsOnce().map((d) => d.ref),
 		isDeferred: (ref) => {
-			const drop = owedDrops().find((d) => d.ref === ref);
+			const drop = readOwedDropsOnce().find((d) => d.ref === ref);
 			return (
 				drop !== undefined &&
 				isDeferredToOwningSession(readOwningSessionState(root, drop.name))
