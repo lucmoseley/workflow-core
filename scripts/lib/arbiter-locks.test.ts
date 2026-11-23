@@ -6,6 +6,7 @@ import { assert, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	AS_ROOT,
 	acquireSeeing,
+	buildLockRecord,
 	commitAll,
 	core,
 	DEAD,
@@ -16,7 +17,6 @@ import {
 	live,
 	liveHolder,
 	lockFiles,
-	lockRecord,
 	proc,
 	readBreakAt,
 	readLockAt,
@@ -31,10 +31,27 @@ const sb = freshSandbox();
 
 const TORN_SETTLE_MS = 50;
 
+const readErrors = () =>
+	fs.existsSync(store.errorLog())
+		? fs.readFileSync(store.errorLog(), "utf8")
+		: "";
+
+const withRegistryDark = <T>(fn: () => T): T => {
+	fs.chmodSync(path.join(sb.home, "sessions"), 0o000);
+	try {
+		return fn();
+	} finally {
+		fs.chmodSync(path.join(sb.home, "sessions"), 0o755);
+	}
+};
+
 const put = (rel: string, fields: object) => {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 	const p = store.paths.lock(rel);
-	fs.writeFileSync(p, JSON.stringify(lockRecord({ path: rel, ...fields })));
+	fs.writeFileSync(
+		p,
+		JSON.stringify(buildLockRecord({ path: rel, ...fields })),
+	);
 	return p;
 };
 
@@ -317,7 +334,7 @@ describe("a stale lock whose session id still has a live entry (mantahostels#348
 
 	it("hands back the lock actually on disk when the rewrite loses a race", () => {
 		registerSession(sb, "resumed", process.pid);
-		const existing = lockRecord({
+		const existing = buildLockRecord({
 			path: "docs/doc-map.md",
 			sessionId: "resumed",
 			...DEAD,
@@ -434,7 +451,9 @@ describe("readLocks — a record that will not parse", () => {
 		const locks = store.readLocks(() =>
 			planted(
 				"deadbeefcafe0003.json",
-				JSON.stringify(lockRecord({ path: "docs/PRD.md", sessionId: "bob" })),
+				JSON.stringify(
+					buildLockRecord({ path: "docs/PRD.md", sessionId: "bob" }),
+				),
 			),
 		);
 		assert(locks);
@@ -587,7 +606,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		fs.writeFileSync(
 			`${lockPath}.stale-cafe02`,
 			JSON.stringify(
-				lockRecord({
+				buildLockRecord({
 					path: "docs/doc-map.md",
 					sessionId: "victim",
 					...liveHolder(),
@@ -612,7 +631,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		fs.writeFileSync(
 			aside,
 			JSON.stringify(
-				lockRecord({
+				buildLockRecord({
 					path: "docs/doc-map.md",
 					sessionId: "resumed",
 					...DEAD,
@@ -640,7 +659,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 			fs.writeFileSync(
 				aside,
 				JSON.stringify(
-					lockRecord({
+					buildLockRecord({
 						path: "docs/doc-map.md",
 						sessionId: "resumed",
 						...DEAD,
@@ -651,12 +670,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 			fs.utimesSync(aside, old, old);
 			registerSession(sb, "resumed", process.pid);
 
-			fs.chmodSync(path.join(sb.home, "sessions"), 0o000);
-			try {
-				sweep();
-			} finally {
-				fs.chmodSync(path.join(sb.home, "sessions"), 0o755);
-			}
+			withRegistryDark(sweep);
 
 			expect(fs.existsSync(aside)).toBe(false);
 			expect(fs.readFileSync(store.errorLog(), "utf8")).toContain(
@@ -672,7 +686,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		fs.writeFileSync(
 			aside,
 			JSON.stringify(
-				lockRecord({
+				buildLockRecord({
 					path: "docs/doc-map.md",
 					sessionId: "ghost",
 					...DEAD,
@@ -692,7 +706,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		fs.writeFileSync(
 			aside,
 			JSON.stringify(
-				lockRecord({
+				buildLockRecord({
 					path: "docs/doc-map.md",
 					sessionId: "first",
 					...liveHolder(),
@@ -726,7 +740,7 @@ describe("the break path — a lock that changed between the read and the rename
 			.filter((f: string) => f.includes(".json.stale-"));
 
 	it("frees the path, and leaves no aside behind, when the lock really was stale", () => {
-		const existing = lockRecord({
+		const existing = buildLockRecord({
 			path: "docs/doc-map.md",
 			...DEAD,
 			claimId: "c1",
@@ -742,7 +756,7 @@ describe("the break path — a lock that changed between the read and the rename
 	});
 
 	it("puts back a lock that turned live between the read and the rename", () => {
-		const existing = lockRecord({ path: "docs/doc-map.md", ...DEAD });
+		const existing = buildLockRecord({ path: "docs/doc-map.md", ...DEAD });
 		const p = put("docs/doc-map.md", { ...liveHolder(), claimId: "fresh" });
 
 		const r = acquireSeeing("docs/doc-map.md", existing, durably("bob"));
@@ -753,7 +767,7 @@ describe("the break path — a lock that changed between the read and the rename
 	});
 
 	it("puts back a lock it cannot read rather than treating it as free", () => {
-		const existing = lockRecord({ path: "docs/doc-map.md", ...DEAD });
+		const existing = buildLockRecord({ path: "docs/doc-map.md", ...DEAD });
 		const p = put("docs/doc-map.md", {});
 		fs.writeFileSync(p, "{not json");
 
@@ -764,7 +778,7 @@ describe("the break path — a lock that changed between the read and the rename
 	});
 
 	it("frees a lock whose holder is dead even when the claimId has changed", () => {
-		const existing = lockRecord({ path: "docs/doc-map.md", ...DEAD });
+		const existing = buildLockRecord({ path: "docs/doc-map.md", ...DEAD });
 		const p = put("docs/doc-map.md", { ...DEAD, claimId: "different" });
 
 		expect(
@@ -786,10 +800,6 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		fs.existsSync(store.paths.breaksDir())
 			? fs.readdirSync(store.paths.breaksDir())
 			: [];
-	const readErrors = () =>
-		fs.existsSync(store.errorLog())
-			? fs.readFileSync(store.errorLog(), "utf8")
-			: "";
 	const onBreakRename = (before: () => void) => {
 		const lockPath = store.paths.lock(rel);
 		const real = fs.renameSync;
@@ -877,7 +887,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		registerSession(sb, "a", process.pid);
 		const p = corrupt("");
 		const good = JSON.stringify(
-			lockRecord({ path: rel, sessionId: "mid-write", ...liveHolder() }),
+			buildLockRecord({ path: rel, sessionId: "mid-write", ...liveHolder() }),
 		);
 		const ready = path.join(sb.dir, "child-ready");
 		const go = path.join(sb.dir, "go");
@@ -916,7 +926,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 	it("puts back a record that turned readable between the judgement and the rename", () => {
 		const p = corrupt("{not json");
 		const good = JSON.stringify(
-			lockRecord({ path: rel, ...liveHolder(), claimId: "fresh" }),
+			buildLockRecord({ path: rel, ...liveHolder(), claimId: "fresh" }),
 		);
 		const rename = onBreakRename(() => fs.writeFileSync(p, good));
 		try {
@@ -1100,18 +1110,6 @@ describe("readHeldBy — the paths one session holds", () => {
 describe("a claim meets an overlapping lock on the regioned map (#1492)", () => {
 	const map = "docs/doc-map.md";
 	const claim = (subject: string) => store.acquire(subject, durably("bob"));
-	const errorLog = () =>
-		fs.existsSync(store.errorLog())
-			? fs.readFileSync(store.errorLog(), "utf8")
-			: "";
-	const withRegistryDark = <T>(fn: () => T): T => {
-		fs.chmodSync(path.join(sb.home, "sessions"), 0o000);
-		try {
-			return fn();
-		} finally {
-			fs.chmodSync(path.join(sb.home, "sessions"), 0o755);
-		}
-	};
 
 	it("is held by another session's live whole-file lock", () => {
 		put(map, { sessionId: "alice", ...liveHolder() });
@@ -1130,7 +1128,7 @@ describe("a claim meets an overlapping lock on the regioned map (#1492)", () => 
 		registerSession(sb, "ended", DEAD.pid, { procStart: DEAD.procStart });
 		put(map, { sessionId: "ended", ...DEAD });
 		expect(claim(`${map}#B1`).verdict).toBe("claimed");
-		expect(errorLog()).not.toContain("this region claim goes ahead");
+		expect(readErrors()).not.toContain("this region claim goes ahead");
 	});
 
 	it.skipIf(AS_ROOT)(
@@ -1140,7 +1138,7 @@ describe("a claim meets an overlapping lock on the regioned map (#1492)", () => 
 			expect(withRegistryDark(() => claim(`${map}#B1`)).verdict).toBe(
 				"claimed",
 			);
-			expect(errorLog()).toContain("this region claim goes ahead");
+			expect(readErrors()).toContain("this region claim goes ahead");
 		},
 	);
 
@@ -1177,7 +1175,7 @@ describe("a claim meets an overlapping lock on the regioned map (#1492)", () => 
 			expect(withRegistryDark(() => claim(`${map}#B1`)).verdict).toBe(
 				"claimed",
 			);
-			expect(errorLog()).not.toContain("this region claim goes ahead");
+			expect(readErrors()).not.toContain("this region claim goes ahead");
 		},
 	);
 });

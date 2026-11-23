@@ -6,12 +6,12 @@ import { assert, beforeEach, describe, expect, it } from "vitest";
 import {
 	acquireSeeing,
 	breaks,
+	buildLockRecord,
 	DEAD,
 	durably,
 	freshSandbox,
 	live,
 	liveHolder,
-	lockRecord,
 	noSessions,
 	readBreakAt,
 	readLockAt,
@@ -23,7 +23,10 @@ const sb = freshSandbox();
 const put = (rel: string, fields: object) => {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 	const p = store.paths.lock(rel);
-	fs.writeFileSync(p, JSON.stringify(lockRecord({ path: rel, ...fields })));
+	fs.writeFileSync(
+		p,
+		JSON.stringify(buildLockRecord({ path: rel, ...fields })),
+	);
 	return p;
 };
 
@@ -74,7 +77,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 	});
 
 	it("records nothing when the lock went back", () => {
-		const existing = lockRecord({ path: rel, ...DEAD });
+		const existing = buildLockRecord({ path: rel, ...DEAD });
 		put(rel, { ...liveHolder(), claimId: "fresh" });
 
 		expect(acquireSeeing(rel, existing, durably("bob")).verdict).toBe("held");

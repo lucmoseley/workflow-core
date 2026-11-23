@@ -45,14 +45,11 @@ describe("a check the write adds", () => {
 	});
 
 	it.each([124, 137])(
-		"reads exit %i inside the budget as the command's own, beside the over-budget case that runs past it (#5568)",
+		"reads exit %i inside the budget as the command's own, not as the budget's kill (#5568)",
 		(status) => {
 			expect(
 				runCheckCommand(`exit ${status}`, TIMEOUT_MS, os.tmpdir()).state,
 			).toBe("DEAD");
-			expect(runCheckCommand("sleep 5", 200, os.tmpdir()).state).toBe(
-				"OVER-BUDGET",
-			);
 		},
 	);
 

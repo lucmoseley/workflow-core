@@ -1,46 +1,4 @@
 #!/usr/bin/env node
-/*
- * `npm run test:py`, wrapped so a green pytest run leaves the suite certificate
- * that vitest leaves (mantahostels#987, mantahostels#1256).
- *
- * WHY A WRAPPER AND NOT ONLY A PLUGIN. The marker records the tree the suite
- * read — what was already uncommitted, who else held it, what moved mid-run —
- * and that policy lives in `lib/tree-drift.js` and `lib/test-pass-marker.js`.
- * Reimplementing it in Python would make a second copy that drifts from the
- * first. So the plugin answers "did it pass, and how much ran", this answers
- * everything else, and the two meet in a JSON temp file.
- *
- * IT MUST NOT CHANGE WHAT `test:py` MEANS. Arguments but a lone `--full` pass
- * straight through, pytest writes to the terminal unbuffered, and a red run
- * stays red — a marker that cannot be written costs a warning at the next
- * push, never a red run. EXIT 0 OR 1, NEVER PYTEST'S OWN CODE (#4779): the
- * helper surface lists this command's exits, and pytest's set grows with its
- * version, so every failing exit reads as 1 and pytest's own report says
- * which.
- *
- * A BARE RUN IS A TOUCHED ONE (#2934): it hands
- * pytest only the test files `lib/touched-tests.js` resolves from the
- * session's own changed paths, as a bare `npm run test` does vitest (#2930).
- * With a session id those are the paths its overlay would carry, read in the
- * working tree, so a file it did not write selects nothing (#2958). An empty set spawns nothing, records no marker, writes its ledger
- * line and exits 0; the lander runs the full suite. Any argument at all keeps
- * the run exactly as typed. A lone `--full` is the whole suite, handed to
- * pytest as no argument: a full-suite caller — CI, the lander — runs
- * from a clean checkout, where a bare run selects nothing (#3508). Beside
- * other words it is pytest's, which refuses it, so it never quietly narrows.
- *
- * THE SUITE CEILING (#2702, ruled at #2667). pytest leads a process group of
- * its own, and at the ceiling `lib/suite-ceiling.js` sets, the whole group is
- * killed, xdist workers included: the run exits 1 and records no certificate. The
- * group is not the terminal's foreground one, so a Ctrl-C reaches this
- * wrapper alone and is passed on to the group. RESIDUAL: a pytest that reads
- * the terminal (`--pdb`, `breakpoint()`, `input()` under `-s`) is stopped by
- * it and waits out the ceiling, and a Ctrl-Z stops this wrapper, not pytest.
- *
- * A SCOPE OF ITS OWN (#3401). pytest starts in a pids-capped user scope
- * (lib/user-scope.js), killed whole when the run ends; a run that hit the cap
- * exits 1 and records no certificate.
- */
 // cli-args-exempt: #5540
 
 const fs = require("node:fs");

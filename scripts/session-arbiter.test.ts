@@ -52,7 +52,7 @@ const { claudeBin: claudePrimitive, listedSessionIds } = createRequire(
 const { attributeDirty } = createRequire(__filename)("./lib/own-selection.js");
 
 const sb = freshSandbox();
-const oracleKey = (bin: string) =>
+const buildOracleKey = (bin: string) =>
 	JSON.stringify([bin, fs.realpathSync(sb.home)]);
 
 const CLOSED = { "*": ghPrinted('{"state":"CLOSED"}\n') };
@@ -4094,7 +4094,7 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 			};
 			const first = waitAs("bob", ["540", "2"], env);
 			const published = () =>
-				oracleCache.readFresh(oracleKey(env.WFC_CLAUDE_BIN)) !== null;
+				oracleCache.readFresh(buildOracleKey(env.WFC_CLAUDE_BIN)) !== null;
 			for (let i = 0; i < 200 && !published(); i++)
 				await new Promise((r) => setTimeout(r, 25));
 			expect(published()).toBe(true);
@@ -4116,7 +4116,7 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 				WFC_ORACLE_CACHE: "1",
 			};
 			oracleCache.write(
-				oracleKey(env.WFC_CLAUDE_BIN),
+				buildOracleKey(env.WFC_CLAUDE_BIN),
 				JSON.stringify([
 					{ sessionId: "alice", kind: "background", state: "done" },
 					{ sessionId: "bob" },

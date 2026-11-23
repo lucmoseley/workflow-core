@@ -309,7 +309,7 @@ function settle(ctx, added, { baseline }) {
 }
 
 const REMEDY = [
-	"Delete each comment, or reshape it to a permitted kind (#5455): a licence header; a suppression of a rule on scripts/lib/style-only-rules.json; a bare `#N`, `ADR-NNNN` or RFC pointer; a one-line `measured` or `guess` derivation with its `#N`; a note of at most two lines naming its source, a URL, other than a link behind a `#N` pointer, or a manifest dependency; a doc on an export the helper surface lists, or atop a file it lists.",
+	"Delete each comment, or reshape it to a permitted kind (#5455): a licence header; a suppression of a rule on scripts/lib/style-only-rules.json; a bare `#N`, `ADR-NNNN` or RFC pointer; a one-line `measured` or `guess` derivation with its `#N`; a note of at most two lines naming its source, a URL, other than a link behind a `#N` pointer, or a manifest dependency; a doc on an export the helper surface lists; atop a file it lists, a usage block that invokes the file and cites no issue.",
 ];
 
 /** @type {import("./lib/check").CheckSpec} */
@@ -363,6 +363,7 @@ const factsFor = (tree, rel, lang) => ({
 	exports: new Set(tree.entryPoints[rel] ?? []),
 	shipped:
 		rel in tree.entryPoints || tree.commands.has(rel) || tree.copies.has(rel),
+	fileName: path.basename(rel),
 	adrs: tree.adrs,
 	deps: tree.deps,
 	styleOnly: STYLE_ONLY,

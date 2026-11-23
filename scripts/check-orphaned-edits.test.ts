@@ -8,11 +8,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildAgentsBranch, buildListedRow } from "./lib/agents-stop-fake";
 import {
 	AS_ROOT,
+	buildLockRecord,
 	commitAll,
 	DEAD,
 	freshSandbox,
 	gitRepo,
-	lockRecord,
 	proc,
 	putLock,
 	registerSession,
@@ -178,7 +178,7 @@ describe("check-orphaned-edits", () => {
 		it("by a live claim", async () => {
 			dirty("docs/b.md", 30);
 			fs.mkdirSync(store.paths.locksDir(), { recursive: true });
-			const rec = lockRecord({
+			const rec = buildLockRecord({
 				path: "docs/b.md",
 				sessionId: "holder",
 				pid: process.pid,

@@ -4,12 +4,12 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import {
 	breaks,
+	buildLockRecord,
 	core,
 	freshSandbox,
 	live,
 	liveHolder,
 	lockFiles,
-	lockRecord,
 	proc,
 	records,
 	store,
@@ -23,7 +23,10 @@ const sb = freshSandbox();
 
 describe("a lock record — where its fields are written down", () => {
 	it("reads a lock with no observed process as dead, so a bare one is breakable", () => {
-		const lock = lockRecord({ path: "docs/doc-map.md", sessionId: "ancient" });
+		const lock = buildLockRecord({
+			path: "docs/doc-map.md",
+			sessionId: "ancient",
+		});
 		expect(proc.holderAlive(lock)).toBe(false);
 	});
 
@@ -37,7 +40,7 @@ describe("a lock record — where its fields are written down", () => {
 });
 
 const AT = new Date().toISOString();
-const lock = lockRecord({
+const lock = buildLockRecord({
 	path: "docs/a.md",
 	sessionId: "alice",
 	priorBlobs: [{ sha: "abc", at: null }],

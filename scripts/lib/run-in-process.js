@@ -1,9 +1,10 @@
 /*
- * runInProcess — run one of this repo's node CLI scripts inside the current
- * process, in place of `spawnSync("node", [script, ...args])`.
+ * Usage:
+ *   const { runInProcess } = require("./lib/run-in-process.js");
+ *   const { status, stdout, stderr } = runInProcess(script, args, options);
  *
- * WHY: the suite's largest single term was `node` startup (mantahostels#1907). Loading the
- * script into this process instead pays parse-and-run only.
+ * Runs a node CLI script inside the current process, in place of
+ * `spawnSync("node", [script, ...args])`.
  *
  * FOR TESTS ONLY. Nothing under scripts/ that runs in a hook, a gate or CI
  * should require this: a real invocation wants the process boundary.
@@ -31,7 +32,7 @@
  *            (lib/hook-deadline.js) starts at the call.
  *   module   the script's own `module` object is the entry module, so a
  *            `require.main === module` guard fires as it does under node —
- *            true throughout for `runInProcess`. `runInProcessAsync` (mantahostels#1944)
+ *            true throughout for `runInProcess`. `runInProcessAsync`
  *            is the one exception: see its own header for why that guard
  *            reads false for the whole call, load included.
  *
@@ -45,7 +46,7 @@
  *      the call must be the only thing running: no `describe.concurrent`, no
  *      `it.concurrent`, no overlapping async work in the same file. Enforced
  *      by the re-entrancy throw below rather than left to the reader — for a
- *      claim under `staleMs` (mantahostels#2254 below); an `it.concurrent` call that
+ *      claim under `staleMs`; an `it.concurrent` call that
  *      arrives once the first has been running longer than that reads as
  *      abandoned rather than as the misuse it is, and is taken over instead
  *      of refused.
@@ -75,9 +76,8 @@
  *   6. A REAL FD FOR A GRANDCHILD. A script that spawns its own child with
  *      `stdio: "inherit"` on fd 1/2 (lib/check.js's `reread`, for one) hands
  *      that grandchild the real OS fd, which writes straight past the patches
- *      below — `state.stdout`/`state.stderr` never see it (mantahostels#1945).
+ *      below — `state.stdout`/`state.stderr` never see it.
  */
-
 const asyncHooks = require("node:async_hooks");
 const { Console } = require("node:console");
 const fs = require("node:fs");
