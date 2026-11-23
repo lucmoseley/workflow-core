@@ -133,7 +133,7 @@ it("warns of no stall on the reading that finds the machine has slept since the 
 	const rec = JSON.parse(
 		fs.readFileSync(path.join(markers(), ".machine-wake.json"), "utf8"),
 	);
-	expect(rec.wokeAt).toBeGreaterThanOrEqual(before);
+	expect(rec.floor).toBeGreaterThanOrEqual(before);
 });
 
 it("warns of a stall where the machine woke over 2 h ago and has not slept since (#4055)", () => {
