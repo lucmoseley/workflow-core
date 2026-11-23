@@ -174,9 +174,8 @@ function readJob(payload, env) {
 	const root = mainCheckout(cwd);
 	if (root === null || fs.realpathSync(root) !== cwd) return null;
 	return {
+		...ref,
 		root: cwd,
-		seat: ref.seat,
-		jobId: ref.jobId,
 		jobDir: path.resolve(jobDir),
 		intent: typeof record.intent === "string" ? record.intent : "",
 		name: String(record.name ?? "session"),
