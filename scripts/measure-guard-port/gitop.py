@@ -226,9 +226,6 @@ sys.exit(done.returncode)
 
 
 def write_wrappers(dispatch: str, husky: str, out: str, log: str) -> list[str]:
-    """A wrapper per `dispatch` shim whose hook `husky` holds: it runs the
-    shim, and so the hook, as its child on the same argv and stdin, appends
-    that child's CPU to `log`, and exits with the hook's code."""
     os.makedirs(out, exist_ok=True)
     names = []
     for entry in sorted(os.listdir(dispatch)):

@@ -1,21 +1,3 @@
-"""Tests for scripts/measure_model_switch_cache.py — the parsing seam.
-
-The script's claims (mantahostels#1092) rest entirely on three judgements about a transcript
-line: which turns count, which turns are the same turn repeated, and which
-model change is a real switch rather than two spellings of one model. Those are
-what is tested here. The dollar arithmetic in
-https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/opusplan-model-switch-cache.md is done by hand and is not this
-script's output.
-
-The corpus these run against is fixtures, never the machine's real transcripts:
-a test asserting a figure from a live, still-growing corpus would go red on its
-own.
-
-The script is a measurement a session runs by hand: loosen a case and it reports
-a cache discard that never happened, or hides one, and the model-switch choice
-mantahostels#1092 rests on is priced off a wrong count.
-"""
-
 import json
 from collections import Counter
 

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * scripts/public-push-gate.js and its .husky/pre-push limb (#1954).
- *
- * Each case builds a throwaway repo holding the tracker's history (`old`), a
- * squashed root of its tree (`root`) grafted onto it as the clones are, and a
- * commit on that root (`next`), then judges a ref list against a remote url.
- *
- * Loosen it and one push from an old worktree publishes the tracker's whole
- * history; tighten it and the squashed root, or work built on it, can never
- * reach the public repo.
- */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

@@ -1,39 +1,4 @@
 #!/usr/bin/env python3
-"""scan_burn.py — re-measure this machine's Claude Code token burn, correctly.
-
-Supersedes the method behind https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/allowance-burn-measurement.md
-(mantahostels#830), which deduplicated assistant records on
-`(message.id, output_tokens, cache_creation_input_tokens)`. Two facts make that key wrong (mantahostels#1121, the
-ticket that restated every figure resting on it):
-
-  * `message.id` and `requestId` are 1:1, so deduplicating on `requestId` is
-    not a new key — it is what deduplicating on `message.id` alone already does.
-  * Within one request, a **main-session** transcript repeats byte-identical
-    records, while a **subagent** transcript streams: `output_tokens` rises
-    monotonically across the records while `cache_read`/`cache_write` repeat
-    identically. Carrying `output_tokens` and `cache_creation_input_tokens` in
-    the key therefore let 2-3 records per subagent request through, multiplying
-    the identical cache fields. Since 23 Aug 2026 a second shape also occurs
-    (mantahostels#1420): every field rises together, the later record restating the
-    request's usage in full. What MAX needs is common to both — that the last
-    record be a superset of every earlier one — so `--audit` tests that, and
-    FAILs only where a field *falls*.
-
-So the inflation is confined to subagent spend. Taking the first record per
-request instead is also wrong — it truncates streamed subagent output.
-
-**The rule: one billable unit per `requestId`, each token field the MAX across
-that request's records.** A record whose `message.model` is `<synthetic>` is
-Claude Code's own placeholder for a failed call, all-zero usage under a random
-`message.id`, and is skipped everywhere, the audit included (#1210).
-
-Every dollar is a weighting of the four token classes at Opus 5 API list
-ratios, never a bill — what a Max plan meters is unpublished (mantahostels#829).
-
-A session the launch record marks overflow is left out of every token and dollar
-figure: it bills a key, not a plan (#3696).
-"""
-
 import argparse
 import datetime as dt
 import json
@@ -108,25 +73,6 @@ UNDATED_REQUESTS = "undated requests"
 
 
 def requests(tally, window=None, keep_records=False):
-    """One entry per billable request, token fields maxed across its records.
-
-    Keyed by (relpath, requestId) rather than requestId alone: a requestId can
-    appear in both a main and a subagent transcript, and collapsing those
-    globally would book a subagent's turn to its parent. How many, and what
-    the key is worth: https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/burn-measurement-method-correction.md,
-    re-derived at mantahostels#1121. The relpath is the file's path under its
-    seat root, so the same transcript under two roots is one set of requests.
-
-    `window` filters whole requests on their earliest record, never individual
-    records: filtering first would let a request straddling the boundary
-    contribute only part of itself to the MAX, which is the truncation the MAX
-    rule exists to prevent.
-
-    `tally` is the caller's accumulator, a Counter it prints: it receives
-    `tc.records`'s skip counts and `unkeyed`, records carrying neither
-    `requestId` nor `message.id`, each its own billable unit and so an
-    inflation of the count.
-    """
     agg, group_rel, group_path = {}, None, None
     for rel, path, is_sub, owner in tc.transcript_files():
         if rel != group_rel:
@@ -639,9 +585,7 @@ def normalise_bound(ap, raw, flag):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    ap = argparse.ArgumentParser()
     ap.add_argument(
         "--all", action="store_true", help="whole corpus, not mantahostels#830's window"
     )

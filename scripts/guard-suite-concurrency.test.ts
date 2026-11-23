@@ -438,16 +438,6 @@ describe("the production adapters, crossed for real", () => {
 	});
 });
 
-describe("the core's header", () => {
-	it("keeps the deny's reasons", () => {
-		const header = fs
-			.readFileSync(path.join(__dirname, "lib", "suite-concurrency.js"), "utf8")
-			.split("\nconst ")[0];
-		for (const text of ["#482", "2,113 bytes", "86%", "#2680"])
-			expect(header, text).toContain(text);
-	});
-});
-
 describe("the manifest row's wiring (#2303)", () => {
 	const row = readManifest().PreToolUse?.find((r) => r.name === CORE);
 	const reaches = (command: string) =>

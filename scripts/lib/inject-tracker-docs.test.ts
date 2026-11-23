@@ -1076,15 +1076,6 @@ describe("the standards base and local file (#965)", () => {
 	});
 });
 
-/*
- * mantahostels#1117 — both hook events are wired, so a background job whose opening prompt
- * names a tracker command fires SessionStart AND UserPromptSubmit against the
- * same prompt, handing the session the same payload twice
- * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/tracker-injection-frequency.md).
- *
- * Suppressing the wrong firing is far worse than suppressing none: the tracker
- * rules reach the session by no other route.
- */
 describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", () => {
 	const fire = (
 		session: string,
@@ -1241,25 +1232,6 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 });
 
 describe("every command's payload lands whole, under the cut (mantahostels#1870)", () => {
-	/*
-	 * THE WHOLE OF THE GUARANTEE THIS TICKET BOUGHT. A hook payload over 10,000
-	 * CHARACTERS is written to a file, and the session is handed a ~2 KB preview
-	 * plus a link it followed 10.2% of the time under /implement (n=850,
-	 * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/hook-payload-persistence.md). Under the cut there is no
-	 * preview and no link: the payload arrives inline and entire, so POSITION
-	 * INSIDE IT STOPS MATTERING and every rule in it arrives.
-	 *
-	 * The constant is read out of the shipped 2.1.251 binary by mantahostels#1868 (`V5n=1e4`).
-	 * THIS MODELS A CONSUMER THE REPO DOES NOT OWN: the harness can move it
-	 * without anything here going red.
-	 *
-	 * `String.length`, not a byte count and not code points — the harness slices
-	 * with `String.prototype.length`, so this must count the same units. A byte
-	 * count reads ~1.5% high on a payload this dense with `§`, `—` and `→`.
-	 *
-	 * PERSIST_CHARS is declared at module scope, above.
-	 */
-
 	const allCommands = [
 		"wayfinder",
 		"to-spec",

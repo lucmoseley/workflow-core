@@ -1,22 +1,3 @@
-/*
- * git.js — the seam between the Node scripts and the `git` CLI: they route
- * every spawn through here and never name the binary themselves (#2636).
- * Test support, lib/precommit-gate-harness.js among it, builds its repos
- * with the real `git`, since the test it serves may stub WFC_GIT.
- * lib/resolve-core.js, copied into adopters and run before any core is found,
- * requires builtins only.
- *
- * The binary is injected at one named point, WFC_GIT, so a test feeding git
- * chosen output stubs it there rather than on PATH (base §N7, #2581, #2589).
- * Read on every call, as the in-process runner swaps process.env between runs.
- *
- * A caller whose spawn is injected for tests (an `execFn` that runs `vitest`
- * as well as `git`) passes gitBinary() to it and wraps its options in
- * gitSpawnOptions(), which carries the options every git spawn shares (#2734);
- * execProgram is that spawn with git's reads kept in lib/git-read-memo.js, which
- * execGit and spawnGitSync consult (#4127).
- */
-
 const { execFile, execFileSync, spawnSync } = require("node:child_process");
 const { promisify } = require("node:util");
 

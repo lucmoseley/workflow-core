@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * The four .husky/pre-commit gates that run an adopter's declared command —
- * `commands.check_staged`, `commands.typecheck`, `commands.lint` and
- * `commands.test` in `.claude/workflow-core.json` (#2, #740). The test gate
- * skips a command whose verdict probe passed (#5294).
- *
- * The fixture copies the real readers into a throwaway repo, and stands a stub
- * on PATH for `eslint`, the one binary a gate names itself.
- *
- * The check_staged gate also refuses, before it runs, a command that runs
- * `biome check --staged` (#2775). The gate's classifier, infer-commands.js
- * check-staged, also runs here as a program through run-in-process.
- *
- * These gates run in every adopter's `.husky/pre-commit`: loosen a case and a
- * red declared check or test commits unrefused, or a fresh adopter with no
- * command declared cannot commit at all.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

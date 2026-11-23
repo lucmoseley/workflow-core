@@ -258,11 +258,9 @@ function takePair(arg, pair) {
 }
 
 /**
- * One `--<name>` flag, bare or taking the value after it.
  * @param {string} arg
  * @param {string|undefined} next
- * @returns {{name: string, value?: string}} the flag, with `value` where it
- *   consumed `next`
+ * @returns {{name: string, value?: string}}
  */
 function takeFlag(arg, next) {
 	const name = arg.slice(2);

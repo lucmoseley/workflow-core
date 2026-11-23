@@ -1,40 +1,4 @@
 #!/usr/bin/env node
-/*
- * measure-turn-band.js — where does the 100-turn band sit on the instrument it
- * actually counts on, and how does that scale relate to the two the corpus
- * figures were written on?
- *
- *   node scripts/measure-turn-band.js
- *   node scripts/measure-turn-band.js --threshold 200000 --band 100
- *
- * `scripts/guard-session-ceiling.js`'s turn band counts API RESPONSES,
- * deduplicated by `requestId` (`lib/transcript.js` `countTurns`). Run at
- * mantahostels#2618, 200,000 tokens is first reached at a median of the 104th response,
- * which is what 100 rests on.
- *
- * THREE SCALES, ALL COMPUTED HERE: RESPONSES (the band's own), ASSISTANT
- * RECORDS (what https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-ceiling-firing-rates.md counts), and
- * TOOL CALLS. Records read ~2x responses; tool calls ~1x.
- *
- * IT SHARES THE DEDUPE KEY WITH THE GUARD rather than restating it —
- * `turnRecords` is exported from `lib/transcript.js` for this, so the rule
- * under calibration cannot drift from the rule in force. The aggregation on
- * top of it is this file's own; `measure-turn-band.test.ts` pins it to
- * `countTurns` by running this file over a fixture corpus.
- *
- * MAIN-TIER ONLY, and `sdk-py` sessions excluded by requiring a user turn:
- * `readdirSync` never descends into a `subagents/` directory, and pooling
- * hook-started runs corrupts every per-session statistic (mantahostels#830).
- *
- * TWO BOUNDS ON EVERY FIGURE. This reads each transcript whole, where the guard
- * reads only the tail of one over 16 MB (`lib/session-transcript.js`), so on a
- * corpus holding a larger file the guard's count is the lower. And a crossing
- * ordinal is a floor on where the notice actually fires: the guard reads a
- * transcript one turn stale, so it speaks at or after the response named here.
- *
- * NOT IN A PREFIX FAMILY: it gates nothing and files nothing. It borrows only
- * exit 2 for BROKEN.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");

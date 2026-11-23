@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * The seam's own suite: rowsFrom, shares and the CSV round trip in isolation
- * (mantahostels#2039).
- * In-process with injected values and asserted return values, which is what a
- * `lib/**` test is for — the CLI's end-to-end behaviour is
- * scripts/suite-timings.test.ts's, not this file's.
- *
- * WHAT BREAKING THESE COSTS. Every figure in
- * the suite-file-timings note (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/suite-file-timings.md)'s appended correction was produced by
- * `shares`, and docs/agents/guard-registry.md §Conventions rests a live rule on that table. A
- * silently wrong share here is a wrong rule with nothing to catch it: the
- * dataset is a dated record, so the number is quoted long after the run that
- * made it.
- */
-
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {

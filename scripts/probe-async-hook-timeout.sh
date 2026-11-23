@@ -1,28 +1,4 @@
 #!/usr/bin/env bash
-# Re-runs mantahostels#2331's measurement: does this CLI build cancel an `async` SessionStart
-# hook at its configured `timeout`? On 2.1.252 it does not — the hook runs until
-# the session's own process exits (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/async-hook-timeout-enforcement.md).
-#
-# NOT a test and never wired into one: each arm spends a real `claude -p` turn.
-# Run it by hand after a CLI upgrade, or when the answer is doubted.
-#
-#   scripts/probe-async-hook-timeout.sh
-#
-# EXIT: 0 the finding still holds; 1 the build has changed and the doc is stale;
-# 2 an arm did not run, which is neither — a missing `claude`, an exhausted
-# allowance or a retired MODEL id all land here.
-#
-# A scratch project under $TMPDIR carries the wiring, so this repo's own
-# .claude/settings.json is never touched. Two arms, one field apart:
-#   sync  — the ceiling under test, expected to kill the hook on schedule
-#   async — the same hook and ceiling with "async": true
-# The async arm also wires a synchronous `sleep $HOLD` hook to hold the session
-# alive well past the ceiling; without it a `claude -p` session exits in ~5 s and
-# proves nothing. The sync arm needs none: a hook that blocks the start cannot
-# outlive the start.
-#
-# BOTH ARMS DECIDE THE VERDICT. A build that cancels nothing at all — an async
-# hook surviving because no ceiling is enforced anywhere — is not this finding.
 set -euo pipefail
 
 CEILING=${CEILING:-5}

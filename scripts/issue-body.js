@@ -688,11 +688,6 @@ function buildTransform(o) {
 }
 
 /**
- * Whole-body replacement, for the one job no idempotent transform can express:
- * rewriting a body wholesale (mantahostels#133). It is NOT re-appliable, so it must not
- * retry — a retry here is the clobber. A dry run prints `next` where a real
- * run would write it, and writes nothing (#821).
- *
  * @param {number|string} issue
  * @param {string|undefined} repo
  * @param {string} next
