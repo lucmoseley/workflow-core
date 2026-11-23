@@ -34,6 +34,7 @@ const { QUEUE_POLL_MS } = require("./queue-poll.js");
 const { peakClause } = require("./part-suite-peak.js");
 const { TSC_QUEUE_NAME, isTscRunner, runnerPeakMb } = require("./tsc-slot.js");
 const { describeWindowsHold } = require("./windows-memory.js");
+const { sweepJoinFiles } = require("./tsc-join-files.js");
 
 /**
  * @typedef {{ mb?: number, rungMb?: number, climbMb?: number, busy?: number, ladderMb?: number, peak?: import("./part-suite-peak.js").PeakCharge }} MemoryReading
@@ -68,6 +69,7 @@ const MARKER_STAMPS = [
 ];
 /**
  * @typedef {{ repo: string | null, session: string | null, command: string }} SeatHolder
+ * @typedef {import("./tsc-join-files.js").TscHolder} TscHolder
  * @typedef {import("./part-suite-peak.js").PartKind} PartKind
  * @typedef {{ chargeMb?: number }} SpawnCharge
  * @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, memoryRungMb?: number, part?: boolean, kind?: PartKind, files?: number, spawned?: boolean } & Partial<SeatHolder> & { [K in MarkerStamp]?: boolean }} QueueRecord
@@ -454,7 +456,7 @@ function readMarkers(dir, fsImpl = fs) {
 }
 
 /**
- * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, kind?: PartKind, holder?: SeatHolder }} [options]
+ * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, kind?: PartKind, holder?: SeatHolder | TscHolder }} [options]
  */
 function queueJoin({
 	queueDir = defaultQueueDir(),
@@ -745,6 +747,10 @@ function readTurn({
 		}
 		live.push(record);
 	}
+	sweepJoinFiles(queueDir, {
+		queueFs,
+		isStale: (r) => isMarkerStale(r, { alive }),
+	});
 	const mine = live.find((r) => r.pid === pid) ?? {
 		pid,
 		at: Number.POSITIVE_INFINITY,
@@ -1258,7 +1264,7 @@ function changesOnly(listener) {
 }
 
 /**
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, onMemoryRung?: (rungMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, monoClock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, onMemoryRung?: (rungMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, monoClock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined, waitedMs?: number } & HoldListeners} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
@@ -1288,6 +1294,7 @@ function waitForGate({
 	monoClock: clock = monotonicMs,
 	traceLimbs = false,
 	turnHold = () => undefined,
+	waitedMs = 0,
 	...holdOptions
 }) {
 	if (typeof admit !== "function")
@@ -1307,7 +1314,7 @@ function waitForGate({
 				climbMb: charged,
 				onAdmission: hearAdmission,
 			}));
-	const started = clock();
+	const started = clock() - waitedMs;
 	const secs = () => Math.round((clock() - started) / 1000);
 	let announced = false;
 	let held = false;
@@ -1548,9 +1555,16 @@ function releaseOnSignal(host, signal, code) {
 }
 
 /**
- * @param {{ queue?: QueueOptions, join?: false | { role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, kind?: PartKind, holder?: SeatHolder }, turn?: () => boolean, logExit?: (reason: import("./queue-exit-log.js").QueueExitReason, waitMs: number, extra?: object) => void, signals?: true | { emitter?: SignalEmitter, exit?: (code: number) => void, onSignal?: (signal: NodeJS.Signals, code: number) => boolean } }} [options]
+ * @param {{ queue?: QueueOptions, join?: false | { role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, kind?: PartKind, holder?: SeatHolder | TscHolder, clock?: () => number }, waitedMs?: number, turn?: () => boolean, logExit?: (reason: import("./queue-exit-log.js").QueueExitReason, waitMs: number, extra?: object) => void, signals?: true | { emitter?: SignalEmitter, exit?: (code: number) => void, onSignal?: (signal: NodeJS.Signals, code: number) => boolean } }} [options]
  */
-function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
+function queueSeat({
+	queue = {},
+	join = {},
+	waitedMs = 0,
+	turn,
+	logExit,
+	signals,
+} = {}) {
 	const ticket = join === false ? "" : queueJoin({ ...queue, ...join });
 	const stamps = queueStamps(ticket, queue);
 	const passing = turn ? null : passingTurn(queue);
@@ -1558,7 +1572,7 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 	const exitFields = passing
 		? passing.exitFields
 		: (_reason, heldBy) => ({ ...heldBy });
-	const started = monotonicMs();
+	const started = monotonicMs() - waitedMs;
 	let waiting = false;
 	let held = true;
 	/** @type {SignalHost | null} */
@@ -1599,6 +1613,7 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 				turn: passing ? passing.turn : turn,
 				...(passing ? { turnHold: passing.turnHold } : {}),
 				...options,
+				...(waitedMs > 0 ? { waitedMs } : {}),
 				...stamps,
 				admit: options.admit ?? stamps.admit,
 				onExit: (reason, waitMs, heldBy) => {
@@ -1689,6 +1704,8 @@ function readGateSeats({ queueDir, parentOf = readParentOf } = {}) {
 }
 
 module.exports = {
+	QUEUE_TIMEOUT_MS,
+	joinedBefore,
 	readGateSeats,
 	readLiveGateSeats,
 	PART_PASS_AGE_MS,

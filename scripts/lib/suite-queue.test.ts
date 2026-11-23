@@ -1127,6 +1127,63 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		expect(fs.readdirSync(queueDir)).toEqual([path.basename(mine.ticket)]);
 	});
 
+	describe("a joined type-check's files (#5640)", () => {
+		const join = (queueDir: string, pid: number, start: number, run: number) =>
+			fs.writeFileSync(
+				path.join(queueDir, `wfc-tsc-join-${pid}.json`),
+				JSON.stringify({
+					pid,
+					start,
+					at: 1,
+					session: null,
+					run: { pid: run, start: 0 },
+				}),
+			);
+		const capture = (queueDir: string, pid: number, start = 0) => {
+			for (const ext of ["out", "err", "result.json"])
+				fs.writeFileSync(
+					path.join(queueDir, `wfc-tsc-run-${pid}-${start}.${ext}`),
+					"",
+				);
+		};
+
+		it("reaps a dead joiner's marker and a dead runner's capture no live joiner names", async () => {
+			const queueDir = qdir();
+			const mine = joined(queueDir, 11, 100);
+			join(queueDir, 30, 0, 40);
+			capture(queueDir, 40);
+			join(queueDir, 31, 0, 41);
+			capture(queueDir, 41);
+			capture(queueDir, 42);
+			await turnOpen({ queueDir, pid: 11, alive: deadOnly(30, 40, 41) });
+			expect(fs.readdirSync(queueDir).sort()).toEqual(
+				[
+					path.basename(mine.ticket),
+					"wfc-tsc-join-31.json",
+					"wfc-tsc-run-41-0.err",
+					"wfc-tsc-run-41-0.out",
+					"wfc-tsc-run-41-0.result.json",
+					"wfc-tsc-run-42-0.err",
+					"wfc-tsc-run-42-0.out",
+					"wfc-tsc-run-42-0.result.json",
+				].sort(),
+			);
+		});
+
+		it("reaps them on a reused pid, alive but started anew", async () => {
+			const queueDir = qdir();
+			const mine = joined(queueDir, 11, 100);
+			join(queueDir, process.pid, 999_999_999, 40);
+			capture(queueDir, process.pid, 999_999_999);
+			await turnOpen({
+				queueDir,
+				pid: 11,
+				alive: (pid) => pid === process.pid || pid === 11,
+			});
+			expect(fs.readdirSync(queueDir)).toEqual([path.basename(mine.ticket)]);
+		});
+	});
+
 	it("falls back to liveness alone when a marker carries no start time", async () => {
 		const queueDir = qdir();
 		joined(queueDir, 11, 100);
