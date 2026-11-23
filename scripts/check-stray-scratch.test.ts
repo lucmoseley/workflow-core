@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -15,10 +16,7 @@ const NAMED_MAX = 5;
 let root: string;
 let oracleDirs: string[];
 
-function makeRepo(): string {
-	const dir = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), "stray-scratch-")),
-	);
+const baseRepo = defineTemplate((dir) => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: dir, stdio: "ignore" });
 	git("init", "-q", "-b", "main");
@@ -28,7 +26,12 @@ function makeRepo(): string {
 	fs.writeFileSync(path.join(dir, "tracked.md"), "one\n");
 	git("add", ".gitignore", "tracked.md");
 	git("commit", "-qm", "base");
-	return dir;
+});
+
+function makeRepo(): string {
+	return baseRepo.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "stray-scratch-"))),
+	);
 }
 
 function write(rel: string, body = "x\n") {

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-hand-callers.js");
@@ -33,12 +34,19 @@ const run = (...args: string[]) => {
 	return { status: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
 };
 
+const repoTemplate = defineTemplate((at) => {
+	execFileSync("git", ["init", "-q", "-b", "main"], { cwd: at });
+	execFileSync("git", ["config", "user.email", "test@example.com"], {
+		cwd: at,
+	});
+	execFileSync("git", ["config", "user.name", "test"], { cwd: at });
+});
+
 beforeEach(() => {
-	root = fs.mkdtempSync(path.join(os.tmpdir(), "hand-callers-"));
+	root = repoTemplate.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "hand-callers-")),
+	);
 	hooks = fs.mkdtempSync(path.join(os.tmpdir(), "hand-callers-hooks-"));
-	git("init", "-q", "-b", "main");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
 	git("config", "core.hooksPath", hooks);
 });
 afterEach(() => {

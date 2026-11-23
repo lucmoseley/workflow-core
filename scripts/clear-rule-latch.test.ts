@@ -1,9 +1,10 @@
 // @vitest-environment node
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 
 const HOOK = path.resolve(__dirname, "clear-rule-latch.sh");
 
@@ -20,6 +21,7 @@ fs.unlinkSync(at);
 process.stdout.write(at);`;
 
 describe("clear-rule-latch.sh", () => {
+	const emptyRepo = defineTemplate(emptyRepoTemplate);
 	let base: string;
 	let root: string;
 
@@ -145,7 +147,7 @@ describe("clear-rule-latch.sh", () => {
 		});
 
 		it("clears one written from a subdirectory, with no root in the environment", () => {
-			execFileSync("git", ["init", "-q", root]);
+			emptyRepo.instantiate(root);
 			const sub = path.join(root, "deep");
 			fs.mkdirSync(sub);
 			const unset: NodeJS.ProcessEnv = {

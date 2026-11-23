@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-restatement-edges.js");
@@ -80,14 +81,25 @@ const check = (...args: string[]) => {
 
 const json = (...args: string[]) => JSON.parse(check("--json", ...args).stdout);
 
+const stagedSeed = defineTemplate((at) => {
+	const own = repo;
+	repo = at;
+	try {
+		git("init", "-q", ".");
+		git("config", "user.email", "test@example.com");
+		git("config", "user.name", "test");
+		track("docs/history.bin", "on its date the figure was $45\n");
+		edges({ B1: { paths: [{ path: "docs/owner.md" }] } });
+		track("docs/owner.md", "the blended average order value is $45\n");
+	} finally {
+		repo = own;
+	}
+});
+
 beforeEach(() => {
-	repo = fs.mkdtempSync(path.join(os.tmpdir(), "restatement-edges-test-"));
-	git("init", "-q", ".");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
-	track("docs/history.bin", "on its date the figure was $45\n");
-	edges({ B1: { paths: [{ path: "docs/owner.md" }] } });
-	track("docs/owner.md", "the blended average order value is $45\n");
+	repo = stagedSeed.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "restatement-edges-test-")),
+	);
 });
 afterEach(() => {
 	fs.rmSync(repo, { recursive: true, force: true });

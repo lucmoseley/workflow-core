@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-roadmap-pair.js");
@@ -26,15 +27,26 @@ const check = (env: NodeJS.ProcessEnv = process.env) => {
 	return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 };
 
+const pairedRepo = defineTemplate((at) => {
+	const own = repo;
+	repo = at;
+	try {
+		git("init", "-q", ".");
+		git("config", "user.email", "test@example.com");
+		git("config", "user.name", "test");
+		fs.mkdirSync(path.join(repo, "docs"));
+		stage(HTML, "roadmap v1\n");
+		stage(DIGEST, "digest v1\n");
+		git("commit", "-qm", "init");
+	} finally {
+		repo = own;
+	}
+});
+
 beforeEach(() => {
-	repo = fs.mkdtempSync(path.join(os.tmpdir(), "pair-test-"));
-	git("init", "-q", ".");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
-	fs.mkdirSync(path.join(repo, "docs"));
-	stage(HTML, "roadmap v1\n");
-	stage(DIGEST, "digest v1\n");
-	git("commit", "-qm", "init");
+	repo = pairedRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "pair-test-")),
+	);
 });
 afterEach(() => {
 	fs.rmSync(repo, { recursive: true, force: true });

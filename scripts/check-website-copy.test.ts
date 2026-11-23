@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -45,12 +46,23 @@ const check = (...args: string[]) => {
 	};
 };
 
+const cleanRepo = defineTemplate((at) => {
+	const own = repo;
+	repo = at;
+	try {
+		git("init", "-q", ".");
+		git("config", "user.email", "test@example.com");
+		git("config", "user.name", "test");
+		commit("app/clean.tsx", 'export const c = "Surf, sleep, repeat.";\n');
+	} finally {
+		repo = own;
+	}
+});
+
 beforeEach(() => {
-	repo = fs.mkdtempSync(path.join(os.tmpdir(), "website-copy-test-"));
-	git("init", "-q", ".");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
-	commit("app/clean.tsx", 'export const c = "Surf, sleep, repeat.";\n');
+	repo = cleanRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "website-copy-test-")),
+	);
 });
 afterEach(() => {
 	fs.rmSync(repo, { recursive: true, force: true });

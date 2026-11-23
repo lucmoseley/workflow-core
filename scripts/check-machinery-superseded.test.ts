@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-machinery-superseded.js");
@@ -74,11 +75,18 @@ const check = (...args: string[]) => {
 
 const json = (...args: string[]) => JSON.parse(check("--json", ...args).stdout);
 
+const repoTemplate = defineTemplate((at) => {
+	execFileSync("git", ["init", "-q", "."], { cwd: at });
+	execFileSync("git", ["config", "user.email", "test@example.com"], {
+		cwd: at,
+	});
+	execFileSync("git", ["config", "user.name", "test"], { cwd: at });
+});
+
 beforeEach(() => {
-	repo = fs.mkdtempSync(path.join(os.tmpdir(), "machinery-test-"));
-	git("init", "-q", ".");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
+	repo = repoTemplate.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "machinery-test-")),
+	);
 });
 afterEach(() => {
 	fs.rmSync(repo, { recursive: true, force: true });

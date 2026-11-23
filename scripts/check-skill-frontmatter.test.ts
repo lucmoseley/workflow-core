@@ -13,6 +13,7 @@ import {
 	expect,
 	it,
 } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { buildTree } from "./lib/plugin-tree.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -45,12 +46,19 @@ const run = (...args: string[]) => {
 const UNQUOTED = "Turn it on or off: Sonnet up to Opus.";
 const QUOTED = `"${UNQUOTED}"`;
 
+const repoTemplate = defineTemplate((at) => {
+	execFileSync("git", ["init", "-q", "-b", "main"], { cwd: at });
+	execFileSync("git", ["config", "user.email", "test@example.com"], {
+		cwd: at,
+	});
+	execFileSync("git", ["config", "user.name", "test"], { cwd: at });
+});
+
 beforeEach(() => {
-	root = fs.mkdtempSync(path.join(os.tmpdir(), "skill-frontmatter-"));
+	root = repoTemplate.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "skill-frontmatter-")),
+	);
 	hooks = fs.mkdtempSync(path.join(os.tmpdir(), "skill-frontmatter-hooks-"));
-	git("init", "-q", "-b", "main");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
 	git("config", "core.hooksPath", hooks);
 });
 afterEach(() => {

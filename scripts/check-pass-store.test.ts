@@ -1,10 +1,10 @@
 // @vitest-environment node
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-pass-store.js");
@@ -12,9 +12,12 @@ const DAY_MS = 86_400_000;
 
 let dir: string;
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-pass-store-"));
-	spawnSync("git", ["init", "-q", dir]);
+	dir = emptyRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "check-pass-store-")),
+	);
 });
 
 afterEach(() => {

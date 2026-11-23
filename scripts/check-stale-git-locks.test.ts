@@ -1,9 +1,9 @@
 // @vitest-environment node
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-stale-git-locks.js");
@@ -11,9 +11,11 @@ const STATUS = path.join(__dirname, "status-report.js");
 const HOUR = 60 * 60 * 1000;
 
 let repo: string;
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 beforeEach(() => {
-	repo = fs.mkdtempSync(path.join(os.tmpdir(), "git-locks-"));
-	execFileSync("git", ["init", "-q"], { cwd: repo });
+	repo = emptyRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "git-locks-")),
+	);
 });
 afterEach(() => {
 	fs.rmSync(repo, { recursive: true, force: true });

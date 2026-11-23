@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-guard-test-isolation.js");
@@ -58,11 +59,16 @@ const run = (...args: string[]) => {
 	};
 };
 
+const repoTemplate = defineTemplate((at) => {
+	execFileSync("git", ["init", "-q"], { cwd: at });
+	execFileSync("git", ["config", "user.email", "t@t"], { cwd: at });
+	execFileSync("git", ["config", "user.name", "t"], { cwd: at });
+});
+
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-test-isolation-"));
-	git("init", "-q");
-	git("config", "user.email", "t@t");
-	git("config", "user.name", "t");
+	dir = repoTemplate.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "guard-test-isolation-")),
+	);
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
