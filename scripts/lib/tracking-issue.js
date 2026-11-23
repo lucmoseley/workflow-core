@@ -2,7 +2,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { gh, ghIssueListAll } = require("./gh");
+const { GH_TIMEOUT_MS, gh, ghIssueListAll } = require("./gh");
 
 const issueBodyScript = () =>
 	process.env.WFC_ISSUE_BODY || path.join(__dirname, "..", "issue-body.js");
@@ -101,7 +101,11 @@ function refresh(number, wanted, { repo } = {}) {
 				"--file",
 				tmp,
 			],
-			{ encoding: "utf8", stdio: ["ignore", "inherit", "inherit"] },
+			{
+				encoding: "utf8",
+				stdio: ["ignore", "inherit", "inherit"],
+				timeout: GH_TIMEOUT_MS,
+			},
 		);
 		return `Refreshed #${number}.`;
 	} finally {

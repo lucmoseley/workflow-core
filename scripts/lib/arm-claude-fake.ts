@@ -91,7 +91,7 @@ export function createArmClaudeFake(opts: ArmClaudeOptions = {}) {
 			: answer(0, `${FAKE_VERSION} (Claude Code)\n`);
 
 	const onAuth = (args: string[], o: CallOpts) => {
-		const r = runInProcess(AUTH_STATUS_FAKE, args.slice(1), {
+		const r = runInProcess(AUTH_STATUS_FAKE, args, {
 			cwd: o.cwd ?? path.parse(process.cwd()).root,
 			env: o.env ?? process.env,
 		});
@@ -110,7 +110,7 @@ export function createArmClaudeFake(opts: ArmClaudeOptions = {}) {
 		calls.push({ bin, args });
 		const [verb] = args;
 		if (verb === "--version") return onVersion(bin);
-		if (verb === "auth") return onAuth(args, o);
+		if (verb === "auth" || verb === "daemon") return onAuth(args, o);
 		if (verb === "agents") return onAgents(o);
 		if (verb === "stop") return onStop(String(args[1]));
 		return onLaunch(bin, args, o);

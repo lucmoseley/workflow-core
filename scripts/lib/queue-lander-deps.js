@@ -6,6 +6,7 @@ const { dropTicketFiler, liveFilerDeps } = require("./fix-ticket.js");
 const { adoptGuardCodeAt, adoptionLine } = require("./guard-code.js");
 const {
 	fileLedger,
+	beatingBefore,
 	heartbeatWriter,
 	landerLock,
 	queueLanderFiles,
@@ -75,15 +76,16 @@ function readMedianRun(root) {
  * @param {string} root
  * @param {Admit|undefined} admit
  * @param {(line: string) => void} say
+ * @param {() => void} beat
  * @returns {import("./queue-lander.js").QueueTester}
  */
-function configuredTester(root, admit, say) {
+function configuredTester(root, admit, say, beat) {
 	const pinned = readConfig({ root, quiet: true }).landingTester;
 	if (pinned === "actions") {
 		say("tester: actions, as landingTester pins it");
-		return queueTester({ root });
+		return queueTester({ root, beat });
 	}
-	const local = localTester({ root, admit });
+	const local = localTester({ root, admit, beat });
 	if (pinned === "local") {
 		say("tester: local, as landingTester pins it");
 		return local;
@@ -97,23 +99,28 @@ function configuredTester(root, admit, say) {
 	say(
 		`tester: ${onActions ? "actions" : "local"}, ${read} (Actions over ${ACTIONS_OVER_S} s)`,
 	);
-	return onActions ? adopterTester({ root, fallback: local, say }) : local;
+	return onActions
+		? adopterTester({ root, fallback: local, say, beat })
+		: local;
 }
 
 /**
  * @param {string} root
- * @param {(line: string) => void} say
- * @param {RunCode|null} code
+ * @param {{say: (line: string) => void, code: RunCode|null,
+ *   beat: () => void}} run
  * @param {string} sha
  * @returns {boolean}
  */
-function afterMainMove(root, say, code, sha) {
+function afterMainMove(root, { say, code, beat }, sha) {
+	beat();
 	const adoption = adoptGuardCodeAt(root, { fetch: false });
 	if (adoption) say(adoptionLine(adoption));
+	beat();
 	startLevelling(root, (err) =>
 		say(`levelling not started: ${parseErrorText(err)}`),
 	);
 	if (code === null) return false;
+	beat();
 	try {
 		return readSupersededFiles(root, code, sha).length > 0;
 	} catch (err) {
@@ -126,13 +133,14 @@ function afterMainMove(root, say, code, sha) {
 
 /**
  * @param {string} root
+ * @param {() => void} beat
  * @returns {import("./queue-lander.js").QueueTracker}
  */
-function trackerOf(root) {
-	const deps = liveFilerDeps(root);
+function trackerOf(root, beat) {
+	const deps = beatingBefore(beat, liveFilerDeps(root));
 	return {
 		...dropTicketFiler(deps),
-		...baseRedFiler(liveQueueDeps(root)),
+		...baseRedFiler(beatingBefore(beat, liveQueueDeps(root))),
 		stateOf: deps.stateOf,
 	};
 }
@@ -147,14 +155,16 @@ function buildLanderDeps(
 	{ tester, admit, say, code = readRunCode(root) },
 ) {
 	const files = queueLanderFiles(root);
+	const beat = heartbeatWriter(files.heartbeat);
 	const built =
 		tester === undefined
-			? configuredTester(root, admit, say)
+			? configuredTester(root, admit, say, beat)
 			: commandTester(tester, root);
 	return {
 		git: queueGit(root, {
 			ciRepeats: built.repeatsGates === true,
 			suiteRepeats: built.repeatsSuite === true,
+			beat,
 		}),
 		tester: built,
 		ledger: fileLedger(files.ledger),
@@ -162,7 +172,7 @@ function buildLanderDeps(
 		refused: refusedRecord(files.refused),
 		record: pipelineRecord(files.batch, now),
 		drops: dropRecord(files.drops),
-		tracker: trackerOf(root),
+		tracker: trackerOf(root, beat),
 		logQueue: queueLogger(root),
 		landings: () =>
 			readQueueRows(queueLogFile(root))
@@ -170,10 +180,10 @@ function buildLanderDeps(
 				.map((r) => ({ name: queueNameOf(r.ref), at: r.at })),
 		owningSessionStateOf: (name) => readOwningSessionState(root, name),
 		lock: landerLock(root),
-		beat: heartbeatWriter(files.heartbeat),
+		beat,
 		log: (action) =>
 			say(`${new Date(now()).toISOString()} ${buildQueueActionLine(action)}`),
-		mainMoved: (sha) => afterMainMove(root, say, code, sha),
+		mainMoved: (sha) => afterMainMove(root, { say, code, beat }, sha),
 		now,
 		say,
 	};

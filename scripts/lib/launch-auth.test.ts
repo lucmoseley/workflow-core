@@ -37,6 +37,7 @@ const refusal = (extra: Record<string, string> = {}, cwd = dir) =>
 		bin,
 		env: { PATH: process.env.PATH, HOME: home, ...extra },
 		cwd,
+		bg: false,
 	});
 
 describe("a plan seat", () => {
@@ -103,6 +104,7 @@ describe("an overflow seat's helper under its plan dir (#3699)", () => {
 			settings: JSON.stringify({
 				apiKeyHelper: buildKeyHelper(keyVar, secrets),
 			}),
+			bg: false,
 		});
 
 	it("admits the plan login and no login", () => {
@@ -181,6 +183,7 @@ describe("an overflow seat's helper under its plan dir (#3699)", () => {
 				env: { PATH: process.env.PATH, HOME: home, CLAUDE_CONFIG_DIR: plan() },
 				cwd: dir,
 				settings: JSON.stringify({ apiKeyHelper: "echo K" }),
+				bg: false,
 			}),
 		).toContain("no declared overflow seat's");
 	});
@@ -193,6 +196,7 @@ describe("an overflow seat's helper under its plan dir (#3699)", () => {
 				env: { PATH: process.env.PATH, HOME: home, CLAUDE_CONFIG_DIR: plan() },
 				cwd: dir,
 				settings: "/tmp/settings.json",
+				bg: false,
 			}),
 		).toContain("--settings is not inline JSON");
 	});
@@ -207,5 +211,77 @@ describe("a status that will not read", () => {
 	it("refuses where the binary is missing", () => {
 		fs.rmSync(bin);
 		expect(refusal()).toContain("auth status` failed");
+	});
+});
+
+describe("a --bg launch, which runs under the daemon's environment (#5607)", () => {
+	const Daemon = "4242";
+	let proc = "";
+	beforeEach(() => {
+		proc = path.join(dir, "proc");
+		vi.stubEnv("WFC_PROC", proc);
+	});
+
+	const daemonWith = (env: Record<string, string>) => {
+		fs.mkdirSync(path.join(proc, Daemon), { recursive: true });
+		fs.writeFileSync(
+			path.join(proc, Daemon, "environ"),
+			Object.entries({ CLAUDE_CONFIG_DIR: "/c", ...env })
+				.map(([k, v]) => `${k}=${v}\0`)
+				.join(""),
+		);
+	};
+	const bgRefusal = (extra: Record<string, string> = {}) =>
+		launchAuthRefusal({
+			bin,
+			env: { PATH: process.env.PATH, HOME: home, ...extra },
+			cwd: dir,
+			bg: true,
+		});
+
+	it.each([
+		[{ ANTHROPIC_API_KEY: "k" }, "ANTHROPIC_API_KEY"],
+		[{ ANTHROPIC_AUTH_TOKEN: "t" }, "ANTHROPIC_AUTH_TOKEN"],
+		[{ ANTHROPIC_BASE_URL: "http://x" }, "ANTHROPIC_BASE_URL"],
+		[{ CLAUDE_CODE_USE_BEDROCK: "1" }, "CLAUDE_CODE_USE_BEDROCK"],
+	])(
+		"refuses a daemon whose environment carries %o, naming the daemon",
+		(env, named) => {
+			daemonWith(env);
+			const why = bgRefusal({ WFC_FAKE_DAEMON: Daemon });
+			expect(why).toContain(`the Claude daemon (pid ${Daemon})`);
+			expect(why).toContain(`${named} set in its environment`);
+			expect(why).toContain("let it idle-exit");
+			expect(why).toContain("#2236");
+		},
+	);
+
+	it("admits a clean daemon, and a provider flag turned off", () => {
+		daemonWith({ CLAUDE_CODE_USE_VERTEX: "0" });
+		expect(bgRefusal({ WFC_FAKE_DAEMON: Daemon })).toBeNull();
+	});
+
+	it("admits where no daemon runs, the launch starting one from its own env", () => {
+		expect(bgRefusal()).toBeNull();
+		expect(bgRefusal({ ANTHROPIC_API_KEY: "k" })).toContain(
+			"ANTHROPIC_API_KEY is set",
+		);
+	});
+
+	it("refuses a daemon whose environment will not read", () => {
+		expect(bgRefusal({ WFC_FAKE_DAEMON: Daemon })).toContain(
+			`the Claude daemon (pid ${Daemon}) this --bg launch hands its session to has an environment that will not read`,
+		);
+	});
+
+	it("refuses a status that names no daemon pid, quoting it", () => {
+		expect(bgRefusal({ WFC_FAKE_DAEMON_GARBLED: "1" })).toContain(
+			"daemon status` named no daemon pid (exit 3: daemon: confused)",
+		);
+	});
+
+	it("reads no daemon on a launch that is not --bg", () => {
+		daemonWith({ ANTHROPIC_API_KEY: "k" });
+		expect(refusal({ WFC_FAKE_DAEMON: Daemon })).toBeNull();
 	});
 });

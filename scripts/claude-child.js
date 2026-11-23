@@ -352,7 +352,7 @@ async function stopOrWait(run) {
 function seatLaunch(seat, cwd) {
 	const env = buildSeatEnv(process.env, seat);
 	const bin = claudeBin(env);
-	return launchAuthRefusal({ bin, env, cwd }) ?? { bin, env, cwd };
+	return launchAuthRefusal({ bin, env, cwd, bg: false }) ?? { bin, env, cwd };
 }
 
 /**
