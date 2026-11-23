@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { pidAlive } = require("./arbiter-proc.js");
+const { holderAlive } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { orFallback } = require("./caught.js");
 const {
@@ -9,7 +9,15 @@ const {
 	queueLanderFiles,
 	readHeartbeat,
 } = require("./lander-files.js");
-const { readGit, short } = require("./lander-git.js");
+const { GH_TIMEOUT_MS } = require("./gh-binary.js");
+const {
+	GATED_COMMIT_TIMEOUT_MS,
+	LANDER_GIT_TIMEOUT_MS,
+	PUSH_TIMEOUT_MS,
+	readGit,
+	short,
+} = require("./lander-git.js");
+const { INSTALL_TIMEOUT_MS } = require("./npm-ci-staging.js");
 const { queueBranch } = require("./landing-refs.js");
 const { readOwedDrops } = require("./lander-records.js");
 const { markersDir } = require("./marker-root.js");
@@ -27,10 +35,20 @@ const { parseLanderLog, readLogSince } = require("./time-to-land.js");
 const STALE_MS = 5 * HEARTBEAT_MS;
 // guess, #5436
 const HELD_WINDOW_MS = DAY_MS;
+const LONGEST_CALL_MS = Math.max(
+	PUSH_TIMEOUT_MS,
+	INSTALL_TIMEOUT_MS,
+	GATED_COMMIT_TIMEOUT_MS,
+	GH_TIMEOUT_MS,
+	LANDER_GIT_TIMEOUT_MS,
+);
+// guess, #5644
+const HUNG_MS = 2 * LONGEST_CALL_MS;
 
 /**
  * @typedef {{tag: "LANDING-STALLED", line: string, movedAt: number}
  *   | {tag: "LANDER-DEAD", line: string}
+ *   | {tag: "LANDER-HUNG", line: string}
  *   | {tag: "LANDER-HELD", line: string}
  *   | {tag: "LANDER-LOG-UNREAD", line: string}} StallFinding
  * @typedef {{kind: "held", at: number, reason: string}
@@ -42,13 +60,13 @@ const HELD_WINDOW_MS = DAY_MS;
  * @property {import("./queue-gauge.js").QueueGauge} gauge
  * @property {number} wokeAt
  * @property {import("./lander-files.js").Heartbeat|null} heartbeat
- * @property {(pid: number) => boolean} alive
+ * @property {(beat: import("./lander-files.js").Heartbeat) => boolean} alive
  * @property {number} owed
  * @property {HeldRead} held
  */
 
 /** @param {QueueReading} r */
-const running = (r) => r.heartbeat !== null && r.alive(r.heartbeat.pid);
+const running = (r) => r.heartbeat !== null && r.alive(r.heartbeat);
 
 /**
  * @param {QueueReading} r
@@ -74,7 +92,15 @@ function stallFindings(r) {
 		found.push({ tag: "LANDER-HELD", line: buildHeldLine(r.held) });
 	if (r.held.kind === "unread")
 		found.push({ tag: "LANDER-LOG-UNREAD", line: buildUnreadLine(r.held) });
-	if (running(r)) return found;
+	if (heartbeat && running(r)) {
+		const age = now - Date.parse(heartbeat.at);
+		if (age > HUNG_MS)
+			found.push({
+				tag: "LANDER-HUNG",
+				line: `${at} waits and the queue lander, pid ${heartbeat.pid}, still runs but last beat ${Math.round(age / 60_000)} min ago, past the ${HUNG_MS / 60_000} min its longest step between beats can take`,
+			});
+		return found;
+	}
 	if (!(heartbeat && now - Date.parse(heartbeat.at) <= STALE_MS))
 		found.push({
 			tag: "LANDER-DEAD",
@@ -172,7 +198,7 @@ function readQueue(root, now) {
 			now,
 		}),
 		heartbeat: readHeartbeat(queueLanderFiles(root).heartbeat),
-		alive: pidAlive,
+		alive: holderAlive,
 		owed: readOwedDrops(queueLanderFiles(root).drops).length,
 		held: readHeldExit(root, now),
 	};

@@ -1,9 +1,11 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { readCurrentBootId, readProcStartOf } = require("./arbiter-proc.js");
 const { now } = require("./check.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { markersDir } = require("./marker-root.js");
 const { pidLock } = require("./pid-lock.js");
+const { REAL_PROC } = require("./proc-root.js");
 const { readText } = require("./file-read.js");
 
 // guess, #2402
@@ -13,7 +15,8 @@ const HEARTBEAT_MS = 60 * 1000;
  * @typedef {object} Ledger
  * @property {(sha: string) => boolean} has
  * @property {(sha: string) => void} add
- * @typedef {{pid: number, at: string, batch: string|null}} Heartbeat
+ * @typedef {{pid: number, procStart?: string|null, bootId?: string|null,
+ *   at: string, batch: string|null}} Heartbeat
  */
 
 /** @param {string} root */
@@ -80,11 +83,16 @@ function fileLedger(file) {
 function heartbeatWriter(file) {
 	/** @type {string|null} */
 	let last = null;
+	const self = {
+		pid: process.pid,
+		procStart: readProcStartOf(process.pid, REAL_PROC),
+		bootId: readCurrentBootId(),
+	};
 	return (batch = last) => {
 		last = batch;
 		writeFileAtomic(
 			file,
-			`${JSON.stringify({ pid: process.pid, at: new Date(now()).toISOString(), batch })}\n`,
+			`${JSON.stringify({ ...self, at: new Date(now()).toISOString(), batch })}\n`,
 		);
 	};
 }
