@@ -7,7 +7,7 @@ import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { stubGhScript } from "./gh-stub";
 import { initGitRepo } from "./git-fixture";
-import { takesPort, tierPort } from "./inject-tracker-docs-testkit";
+import { logPort, takesPort, tierPort } from "./inject-tracker-docs-testkit";
 import { withStubbedEnv } from "./scoped-env-testkit";
 import { shellQuote } from "./sh-quote.js";
 
@@ -17,8 +17,7 @@ const { buildHostPorts } =
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), "inject-host-contract-"));
 afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
 
-const production = (logged: string[] = []) =>
-	buildHostPorts((what) => logged.push(what));
+const production = () => buildHostPorts(logPort().port);
 
 describe("the `takes:` read", () => {
 	const dir = fs.mkdtempSync(path.join(SCRATCH, "takes-"));

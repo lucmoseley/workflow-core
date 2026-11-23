@@ -7,14 +7,18 @@ import path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { seenFrom } from "./core-path-testkit";
 import { initGitRepo } from "./git-fixture";
-import { takesPort, tierPort } from "./inject-tracker-docs-testkit";
+import { logPort, takesPort, tierPort } from "./inject-tracker-docs-testkit";
 import { runInProcess } from "./run-in-process.js";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const { injectTrackerDocs } =
 	require("./inject-tracker-docs.js") as typeof import("./inject-tracker-docs.js");
-const { readRuleText } = require("./rule-text") as {
-	readRuleText: (id: string) => string;
+const { readRuleText: readRuleTextAt } = require("./rule-text") as {
+	readRuleText: (
+		id: string,
+		root?: string,
+		env?: Record<string, string>,
+	) => string;
 };
 const { compactPayloads } =
 	require("./compact-payload-fixture") as typeof import("./compact-payload-fixture.js");
@@ -34,14 +38,18 @@ type Ports = import("./inject-tracker-docs.js").Ports;
 
 const NOW = 1_800_000_000;
 
-const logged: string[] = [];
-const readLog = () => logged.join("\n");
+const { port: log, read: readLog } = logPort();
+
+// #448
+const BASE_ENV = { CLAUDE_PROJECT_DIR: ROOT };
+const readRuleText = (id: string): string =>
+	readRuleTextAt(id, undefined, BASE_ENV);
 
 const FAKE_PORTS: Omit<Ports, "env"> = {
 	takesLabel: () => "",
 	reviewTier: () => "",
 	now: () => NOW,
-	log: (what, detail) => logged.push(`${what}\t${detail ?? ""}`),
+	log,
 };
 
 const runRaw = (
@@ -55,8 +63,7 @@ const runRaw = (
 			...FAKE_PORTS,
 			...ports,
 			env: {
-				// #448
-				CLAUDE_PROJECT_DIR: ROOT,
+				...BASE_ENV,
 				TMPDIR: SCRATCH,
 				CLAUDE_CONFIG_DIR: SCRATCH,
 				...env,

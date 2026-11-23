@@ -5,7 +5,7 @@ const { shellQuote } = require("./sh-quote.js");
  * @param {NodeJS.ProcessEnv} env
  * @returns {(text: TemplateStringsArray, ...words: (string | number | string[])[]) => string}
  */
-const arbiterCommandIn =
+const buildArbiterCommandIn =
 	(env) =>
 	(text, ...words) => {
 		const quoted = words.map((word) =>
@@ -17,6 +17,6 @@ const arbiterCommandIn =
 		return `node ${scriptPath("session-arbiter.js", env)} ${String.raw({ raw: text }, ...quoted)}`;
 	};
 
-const buildArbiterCommand = arbiterCommandIn(process.env);
+const buildArbiterCommand = buildArbiterCommandIn(process.env);
 
-module.exports = { arbiterCommandIn, buildArbiterCommand };
+module.exports = { buildArbiterCommand, buildArbiterCommandIn };

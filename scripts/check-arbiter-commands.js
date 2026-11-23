@@ -20,7 +20,7 @@ const HAND_SPELT = new RegExp(
 		`(?:scriptPath|corePath)\\(\\s*${QUOTE}(?:\\./|scripts/)?${ARBITER}${QUOTE}\\s*\\)`,
 		`${NODE_ARBITER}${ARGUMENTS} +["']?${TOKEN}*\\$\\{`,
 		`${NODE_ARBITER}${ARGUMENTS} ${QUOTE}\\s*\\+`,
-		`${TAG}\`[^\`]*\\$\\{\\s*shellQuote\\(`,
+		`${TAG}(?:In\\([^)]*\\))?\`[^\`]*\\$\\{\\s*shellQuote\\(`,
 	].join("|"),
 	"g",
 );

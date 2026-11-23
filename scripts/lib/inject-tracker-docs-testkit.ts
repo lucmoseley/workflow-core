@@ -25,6 +25,14 @@ export const tierPort =
 		}
 	};
 
+export function logPort() {
+	const lines: string[] = [];
+	const port: Ports["log"] = (what, detail) => {
+		lines.push(detail === undefined ? what : `${what}\t${detail}`);
+	};
+	return { port, read: () => lines.join("\n") };
+}
+
 export function takesPort(label: () => string) {
 	const calls: string[] = [];
 	const port: Ports["takesLabel"] = ({ issue, repo, cwd }) => {

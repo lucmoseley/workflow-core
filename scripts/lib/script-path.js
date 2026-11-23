@@ -111,6 +111,7 @@ function absoluteScriptPath(name, env = process.env) {
 /**
  * @param {string} text
  * @param {string} host
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {string}
  */
 function expandPastePaths(text, host, env = process.env) {

@@ -369,7 +369,7 @@ function injectTrackerDocs(stdin, ports) {
 			takesIssue,
 			otherTakes,
 			pricedOptions,
-			claimIssue: require("./build-arbiter-command.js").arbiterCommandIn(
+			claimIssue: require("./build-arbiter-command.js").buildArbiterCommandIn(
 				ports.env,
 			)`claim-issue <n>`,
 		}),
