@@ -182,15 +182,22 @@ const logPollMsFor = (intervalMs) => Math.min(LOG_POLL_MS, intervalMs / 4);
 /**
  * @param {string} log
  * @param {string} meanwhile
- * @returns {() => "in-flight" | "stopped" | "unread"}
+ * @returns {() => "in-flight" | "paused" | "stopped" | "unread"}
  */
 function makeLogReader(log, meanwhile) {
 	let unreadSaid = false;
+	let pausedSaid = false;
 	return () => {
 		const read = readSubagentLogState(log);
 		if (read.state === "unread" && !unreadSaid)
 			writeFd(2, `watch-artefact: ${read.why}; ${meanwhile}\n`);
+		if (read.state === "paused" && !pausedSaid)
+			writeFd(
+				2,
+				"watch-artefact: the agent is paused on background work of its own, not stopped; waiting for it to resume\n",
+			);
 		unreadSaid ||= read.state === "unread";
+		pausedSaid ||= read.state === "paused";
 		return read.state;
 	};
 }
@@ -230,7 +237,7 @@ async function main() {
 	);
 
 	const readLog = log ? makeLogReader(log, "judging on growth alone") : null;
-	/** @returns {"in-flight" | "stopped" | "unread" | "none"} */
+	/** @returns {"in-flight" | "paused" | "stopped" | "unread" | "none"} */
 	const readLogState = () => (readLog ? readLog() : "none");
 
 	/** @param {keyof typeof ADVICE} verdict */
@@ -271,7 +278,7 @@ async function main() {
 		const verdict = tracker.observe(
 			readSizeOf(file),
 			check * intervalMs,
-			state === "in-flight",
+			state === "in-flight" || state === "paused",
 		);
 		if (verdict) finish(verdict);
 	}
