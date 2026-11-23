@@ -698,3 +698,45 @@ describe("from a linked worktree, the file read is the worktree's (#4242)", () =
 		expect(catFromWorktree()).toBeNull();
 	});
 });
+
+describe("its deliberate limits", () => {
+	it("reads the raw command for a bound, so a quoted `|` or `>` silences it", () => {
+		expect(run("cat big.md && echo 'a | b'")).toEqual(silent);
+		expect(run('cat big.md && echo "a > b"')).toEqual(silent);
+	});
+
+	it("drops a file word it cannot fully read, never judging its visible part", () => {
+		expect(run('cat "$DIR"big.md')).toEqual(silent);
+		expect(run("cat $(echo big).md")).toEqual(silent);
+	});
+
+	it("measures a relative path where a `cd` would have led, though the `cd` fails", () => {
+		expect(run("cd absent; cat big.md")).toEqual(silent);
+	});
+
+	it("stays silent where a launcher flag unwrap does not know takes a value", () => {
+		expect(run("sudo -Z x cat big.md")).toEqual(silent);
+	});
+
+	it("warns on every Bash read of a wide file, latching none", () => {
+		const bash = () =>
+			runCore(
+				"guard-wide-read",
+				{
+					session_id: "mine",
+					tool_name: "Bash",
+					tool_input: { command: "cat big.md" },
+				},
+				{ root: repo, cwd: repo, env: envWith({}) },
+			).output?.additionalContext;
+		expect(bash()).toContain("big.md is");
+		expect(bash()).toContain("big.md is");
+	});
+
+	it("compares bytes with the cap, so multibyte text under it in characters may be cut", () => {
+		fs.writeFileSync(path.join(repo, "wide.md"), "é".repeat(1000));
+		expect(
+			run("cat wide.md", { WFC_WIDE_READ_CUT_BYTES: "2000" }).warning,
+		).toContain("may cut this off");
+	});
+});

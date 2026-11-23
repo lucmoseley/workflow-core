@@ -28,20 +28,29 @@ const emission = (
 	command: string,
 	{
 		session = "test",
+		agent,
 		cwd = at.shared,
 		env = {},
 	}: {
 		session?: string;
+		agent?: string;
 		cwd?: string;
 		env?: Record<string, string | undefined>;
 	} = {},
 ) =>
-	dispatchCoreOutput(CORE, buildBashPayload(command, session), {
-		project: at.shared,
-		config: at.config,
-		cwd,
-		env,
-	});
+	dispatchCoreOutput(
+		CORE,
+		{
+			...buildBashPayload(command, session),
+			...(agent === undefined ? {} : { agent_id: agent }),
+		},
+		{
+			project: at.shared,
+			config: at.config,
+			cwd,
+			env,
+		},
+	);
 
 describe("the push rules, end to end", () => {
 	const template = defineTemplate(trioTemplate({ worktree: "detach" }));
@@ -116,6 +125,28 @@ describe("the push rules, end to end", () => {
 		expect(
 			emission(at, "git push origin main", { session: "sess-B" }),
 		).not.toBeNull();
+	});
+
+	it("states the rules once an agent, so a subagent's push in a told session is told afresh", () => {
+		expect(
+			emission(at, "git push origin main", { session: "sess-A" }),
+		).not.toBeNull();
+		expect(
+			emission(at, "git push origin main", { session: "sess-A", agent: "sub" }),
+		).not.toBeNull();
+		expect(
+			emission(at, "git push origin main", { session: "sess-A", agent: "sub" }),
+		).toBeNull();
+	});
+
+	it("fails open, recorded, on a push whose tree git cannot answer for", () => {
+		const broken = path.join(at.shared, "broken");
+		fs.mkdirSync(broken);
+		fs.writeFileSync(path.join(broken, ".git"), "gitdir: /nonexistent\n");
+		expect(emission(at, `git -C ${broken} push origin main`)).toBeNull();
+		expect(readFailOpenLog(at.config, at.shared)).toMatch(
+			/git could not answer for .*broken/,
+		);
 	});
 
 	it("a held-back rule stays unlatched, so the session is told once the host meets it", () => {

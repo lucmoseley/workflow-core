@@ -532,3 +532,58 @@ describe("a queued suite detached from a session in its own worktree (#4242)", (
 		expect(detached()).toBe("deny");
 	});
 });
+
+describe("its deliberate limits", () => {
+	it("reads a detachment lexically, so a quoted `&` is one and its fix rewrites it", () => {
+		const command = "npm run test -- -t 'a & b'";
+		expect(run(command)?.permissionDecision).toBe("deny");
+		expect(readDenyReason(command).split("\n")[0]).toBe(
+			`${FIX_OPENER}npm run test -- -t 'a ; b'`,
+		);
+	});
+
+	it.each([
+		"sh -c 'npm run test &'",
+		["bash <<'EOF'", "npm run test &", "EOF"].join("\n"),
+	])(
+		"leaves a launch behind a wrapper it does not strip unjudged: `%s`",
+		(command) => {
+			expect(verdict(command)).toBe("allow");
+		},
+	);
+
+	it("refuses a subagent's detached suite as it refuses the session's", () => {
+		const out = runCore(
+			"guard-suite-background",
+			{
+				session_id: "test",
+				agent_id: "sub",
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: { command: "npm run test &" },
+			},
+			{ root: dir },
+		).output;
+		expect(out?.permissionDecision).toBe("deny");
+	});
+
+	it("honours one segment's detach escape for the whole command", () => {
+		expect(verdict("WFC_SUITE_DETACH=1 npm run test; npm run test:py &")).toBe(
+			"allow",
+		);
+	});
+
+	it.each([
+		"timeout 60 pytest",
+		"timeout 60 node --test",
+		"env -S 'timeout 590 npm run test'",
+	])("reads no shell timeout on `%s`", (command) => {
+		expect(verdict(command)).toBe("allow");
+	});
+
+	it("re-joins a timed segment's words on single spaces", () => {
+		expect(readDenyReason("timeout 590 npm  run   test").split("\n")[0]).toBe(
+			`${FIX_OPENER}npm run test`,
+		);
+	});
+});
