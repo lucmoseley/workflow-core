@@ -281,7 +281,7 @@ export function listedClaims() {
 	return listed.claims;
 }
 
-export const lockRecord = (
+export const buildLockRecord = (
 	fields: { path: string } & Partial<LockRecord>,
 ): LockRecord => ({
 	sessionId: null,
@@ -300,7 +300,7 @@ export function putLock(rel: string, fields: object) {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 	fs.writeFileSync(
 		store.paths.lock(rel),
-		JSON.stringify(lockRecord({ path: rel, ...fields })),
+		JSON.stringify(buildLockRecord({ path: rel, ...fields })),
 	);
 }
 
@@ -310,15 +310,17 @@ export function acquireSeeing(
 	me: Parameters<typeof store.acquire>[1],
 ) {
 	const real = core.probeRecord;
-	const read = vi
-		.spyOn(core, "probeRecord")
-		.mockImplementation((file) =>
-			file === store.paths.lock(rel)
-				? { state: "ok", record: seen }
-				: real(file),
-		);
+	let stale = false;
+	// #5628
+	const read = vi.spyOn(core, "probeRecord").mockImplementation((file) => {
+		if (file !== store.paths.lock(rel)) return real(file);
+		stale = true;
+		return { state: "ok", record: seen };
+	});
 	try {
-		return store.acquire(rel, me);
+		const verdict = store.acquire(rel, me);
+		if (!stale) throw new Error(`acquire never read the lock at ${rel}`);
+		return verdict;
 	} finally {
 		read.mockRestore();
 	}

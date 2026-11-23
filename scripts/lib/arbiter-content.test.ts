@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { assert, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	buildLockRecord,
 	commitAll,
 	content,
 	core,
@@ -13,7 +14,6 @@ import {
 	listedLocks,
 	live,
 	lockFiles,
-	lockRecord,
 	noSessions,
 	registerSession,
 	store,
@@ -43,7 +43,7 @@ describe("content identity — what the file held when its claimant last touched
 	const readLock = () => core.readRecord(store.paths.lock(rel));
 
 	it("records the blob on the claim, and an unrecorded claim reads as unknown", () => {
-		const unrecorded = lockRecord({ path: rel });
+		const unrecorded = buildLockRecord({ path: rel });
 		expect(unrecorded.blob).toBeNull();
 		expect(store.contentState(rel, unrecorded).state).toBe("unknown");
 

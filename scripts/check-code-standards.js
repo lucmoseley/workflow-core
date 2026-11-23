@@ -328,6 +328,7 @@ const REQUIRE_MAIN = /\brequire\.main\b/g;
 const EXPORT_CALLERS = "docs/export-callers.json";
 const GATE_TABLE = "scripts/lib/precommit-gates.js";
 const GATE_SCRIPT_RE = /\bscript:\s*"([^"]+)"/g;
+const GATE_EXPORTS = new Set(["SPEC", "PROGRAM"]);
 const BINARY_EXT =
 	/\.(?:png|jpe?g|gif|webp|avif|ico|pdf|woff2?|ttf|zip|gz|xlsx?|docx?|ods)$/i;
 
@@ -443,7 +444,10 @@ function blockEntries(entries, { blockExempt, isEntryPoint }) {
 function consumersOf(paths, blocks) {
 	/** @type {Map<string, Map<string, Set<string>>>} */
 	const consumers = new Map();
-	const loaded = { dispatched: dispatchedModules(), gated: gatedModules() };
+	const loaded = {
+		dispatched: dispatchedModules(),
+		gated: readGatedModules(),
+	};
 	for (const { rel, entries } of blocks)
 		for (const { name } of entries) {
 			const byExporter = consumers.get(name) ?? new Map();
@@ -462,7 +466,7 @@ function consumersOf(paths, blocks) {
 /** @typedef {{dispatched: string[], gated: string[]}} Loaded */
 
 /** @returns {string[]} */
-function gatedModules() {
+function readGatedModules() {
 	const table = readText(GATE_TABLE);
 	if (table === null) return [];
 	return [...firstGroups(GATE_SCRIPT_RE, table)].map((rel) =>
@@ -488,27 +492,49 @@ function dispatchedModules() {
 function addConsumer(consumers, rel, text, loaded) {
 	const defined = firstGroups(DEFINITION_RE, text);
 	const read = firstGroups(MEMBER_RE, text);
-	const reached = withDispatched(modulesNamed(text), text, loaded);
+	const reachOf = reachFor(text, loaded);
 	for (const token of new Set(text.match(TOKEN_RE) ?? [])) {
 		if (defined.has(token) && !read.has(token)) continue;
 		if (token === "main" && rel === RUN_IN_PROCESS) continue;
+		const reach = reachOf(token);
 		for (const [exporter, takers] of consumers.get(token) ?? [])
-			if (reached.has(path.basename(exporter).replace(SCRIPT_EXT, "")))
+			if (reach.has(path.basename(exporter).replace(SCRIPT_EXT, "")))
 				takers.add(rel);
 	}
 }
 
 /**
- * @param {Set<string>} reached
  * @param {string} text
  * @param {Loaded} loaded
+ * @returns {(token: string) => Set<string>}
  */
-function withDispatched(reached, text, { dispatched, gated }) {
+function reachFor(text, loaded) {
+	const reached = modulesNamed(text);
+	withDispatched(reached, text, loaded.dispatched);
+	const gateReach = withGates(reached, text, loaded.gated);
+	return (token) => (GATE_EXPORTS.has(token) ? gateReach : reached);
+}
+
+/**
+ * @param {Set<string>} reached
+ * @param {string} text
+ * @param {string[]} gated
+ * @returns {Set<string>}
+ */
+function withGates(reached, text, gated) {
+	if (!reached.has("precommit-gates") || !text.includes("fromCoreRoot("))
+		return reached;
+	return new Set([...reached, ...gated]);
+}
+
+/**
+ * @param {Set<string>} reached
+ * @param {string} text
+ * @param {string[]} dispatched
+ */
+function withDispatched(reached, text, dispatched) {
 	if (reached.has("guard-cores") && text.includes("corePath("))
 		for (const m of dispatched) reached.add(m);
-	if (reached.has("precommit-gates") && text.includes("fromCoreRoot("))
-		for (const m of gated) reached.add(m);
-	return reached;
 }
 
 /**

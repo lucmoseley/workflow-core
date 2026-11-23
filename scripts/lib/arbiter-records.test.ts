@@ -1,12 +1,21 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { freshSandbox, live, lockRecord, proc, store } from "./arbiter-testkit";
+import {
+	buildLockRecord,
+	freshSandbox,
+	live,
+	proc,
+	store,
+} from "./arbiter-testkit";
 
 const sb = freshSandbox();
 
 describe("a lock record — where its fields are written down", () => {
 	it("reads a lock with no observed process as dead, so a bare one is breakable", () => {
-		const lock = lockRecord({ path: "docs/doc-map.md", sessionId: "ancient" });
+		const lock = buildLockRecord({
+			path: "docs/doc-map.md",
+			sessionId: "ancient",
+		});
 		expect(proc.holderAlive(lock)).toBe(false);
 	});
 
