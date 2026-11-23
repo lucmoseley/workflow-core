@@ -23,7 +23,7 @@ const LOG_SUBPATH = nodePath.join(
 /** @param {string} root */
 const logPath = (root) => nodePath.join(root, LOG_SUBPATH);
 
-// lucmoseley/mantahostels#628
+// guess, lucmoseley/mantahostels#628
 const MIN_RUNS = 10;
 
 const CAUSES = ["never", "body-changed", "path-gone", "unknown"];
@@ -423,7 +423,7 @@ function windowOf(usable) {
  *      high: number}} BoundVerdict
  */
 
-// lucmoseley/mantahostels#1054
+// guess, lucmoseley/mantahostels#1054
 const MIN_PROVISIONAL_RUNS = 10;
 
 /** @param {Run|null|undefined} r */

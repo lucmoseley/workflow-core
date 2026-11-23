@@ -152,6 +152,8 @@ function swappableAbove(dir) {
 	return null;
 }
 
+// Linux follows at most 40 symlinks in one resolve, then fails ELOOP:
+// https://man7.org/linux/man-pages/man7/path_resolution.7.html
 const MAX_SYMLINKS = 40;
 
 /** @typedef {{ dir: string, linkStat?: fs.Stats } | { dir: string, why: string }} Hop */

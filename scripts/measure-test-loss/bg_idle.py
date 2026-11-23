@@ -8,6 +8,7 @@ from blocked import kind_of, test_segment
 from corpus import epoch
 
 ASSISTANT = '"role":"assistant"'
+# guess, #2812
 ROLE_WITHIN = 600
 NOTICE = "<task-notification>"
 

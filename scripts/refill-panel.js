@@ -29,9 +29,11 @@ Shows the refill loop, away mode, burn mode, the goal and the repos it can serve
 
 const LOOP_PROGRAM = path.join(__dirname, "refill-loop.js");
 const BURN_PROGRAM = path.join(__dirname, "burn-mode.sh");
+// guess: past the control lock's 10 s wait, #3861
 const READ_TIMEOUT_MS = 30_000;
 // #3861
 const PRESS_TIMEOUT_MS = READ_TIMEOUT_MS + FETCH_TIMEOUT_MS;
+// guess: need only outlast a slow cmd.exe, #3887
 const FOCUS_TIMEOUT_MS = 10_000;
 const FOCUS_NOT_MOVED = { code: 0, stdout: "", stderr: "" };
 

@@ -149,6 +149,7 @@ const CONTRADICTIONS = [
 /** @param {string[]} names */
 const takesOf = (names) => names.filter((n) => n.startsWith("takes:"));
 
+// guess: sized for a SessionStart hook's stdout, lucmoseley/mantahostels#1148
 const NOTIFY_CAP = 3;
 
 /** @param {TakesFault[]} list */

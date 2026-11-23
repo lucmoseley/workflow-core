@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 
+// Linux pipe capacity, 16 pages: https://man7.org/linux/man-pages/man7/pipe.7.html
 const FULL_PIPE_BYTES = 65_536;
 // guess, #5529
 const HANG_CEILING_MS = 20_000;

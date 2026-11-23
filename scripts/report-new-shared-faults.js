@@ -77,6 +77,7 @@ function parseLeftover(/** @type {string} */ base) {
 		: null;
 }
 
+// guess, origin untraced, #5621
 const STALE_MS = 24 * 60 * 60 * 1000;
 
 function isStale(

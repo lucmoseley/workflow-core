@@ -7,6 +7,7 @@ import {
 	type Get,
 	type PyPI,
 	pypiAnswer,
+	pypiBody,
 	statsAnswer,
 } from "./pypi-registry-fake";
 import { readRuleText } from "./rule-text";
@@ -780,5 +781,58 @@ describe("the declaring files", () => {
 		decide(`pip install ${BIN} a && pip install ${BIN} b`, h.ctx);
 		decide("pip install -r requirements.txt", h.ctx);
 		expect(h.calls.filter((c) => c.startsWith("git ")).length).toBe(1);
+	});
+});
+
+describe("its deliberate limits", () => {
+	it.each([
+		"-i https://example.com/simple",
+		"--index-url https://example.com/simple",
+		"--extra-index-url https://example.com/simple",
+		"-f https://example.com/links",
+	])("asks PyPI whatever index the command names: `%s`", (index) => {
+		expect(callsOf(`pip install ${BIN} ${index} left-pad`)).toEqual([
+			"pypi left-pad",
+			"stats left-pad",
+		]);
+	});
+
+	it("reads an option by its whole spelling, so `--req reqs.txt` asks PyPI for `reqs.txt`", () => {
+		expect(callsOf(`pip install ${BIN} --req reqs.txt`)).toEqual([
+			"pypi reqs-txt",
+			"stats reqs-txt",
+		]);
+	});
+
+	it.each([
+		"PIP_ONLY_BINARY=:all: pip install left-pad",
+		"UV_NO_BUILD=1 uv add left-pad",
+	])("reads no install setting from the environment: `%s`", (command) => {
+		expect(denial(command)).toMatch(/does not carry/);
+	});
+
+	it.each([
+		"sudo pip install left-pad",
+		"env pip install left-pad",
+		"sh -c 'pip install left-pad'",
+	])(
+		"reads only a command's own first word, so `%s` goes unjudged",
+		(command) => {
+			expect(allows(command, { created: "404" })).toBe(true);
+		},
+	);
+
+	it("reads no script's inline metadata", () => {
+		expect(allows("uv run script.py", { created: "404" })).toBe(true);
+	});
+
+	it("vets only the packages named, never what they depend on", () => {
+		const body = JSON.parse(pypiBody(daysAgo(4000)));
+		body.info.requires_dist = ["evil-dep>=1"];
+		expect(
+			callsOf(`pip install ${BIN} left-pad`, {
+				pypiOut: { code: 200, body: JSON.stringify(body) },
+			}),
+		).toEqual(["pypi left-pad", "stats left-pad"]);
 	});
 });

@@ -3,7 +3,6 @@ const { trimEndRun } = require("./trim-run.js");
 // guess, #1769
 const NAMED_PATHS_MAX = 10;
 
-// #5153
 const QUOTED_MAX = 40;
 
 /**

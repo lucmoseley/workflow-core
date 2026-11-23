@@ -8,6 +8,7 @@ const {
 	resolveKey,
 } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
+const { withoutTestClocks } = require("./clock.js");
 const { readLandingOffWhy } = require("./landing-pin.js");
 const { isSameRepo } = require("./issue-ref.js");
 
@@ -166,7 +167,7 @@ function startDetachedIn(root, args, notStarted) {
 	try {
 		const child = spawn(process.execPath, args, {
 			cwd: root,
-			env: buildCheckoutEnv(root),
+			env: withoutTestClocks(buildCheckoutEnv(root)),
 			detached: true,
 			stdio: ["ignore", "ignore", "inherit"],
 		});

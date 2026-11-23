@@ -20,6 +20,7 @@ const REPORTED = new Map([
 	["refused", { tag: "JEV-REFUSED", label: "REFUSED   ", count: "refused" }],
 ]);
 
+// guess: holds three sessions of the guard's three-warn budget, #202
 const MAX_LISTED = 10;
 
 /**

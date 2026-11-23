@@ -50,6 +50,7 @@ export const TIDES_BLOCK = [
 
 const made: string[] = [];
 
+// guess: one run commits through the real hook stack, #4297
 export const RUN_TIMEOUT_MS = 170_000;
 
 const STUB = String.raw`

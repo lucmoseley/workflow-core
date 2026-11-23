@@ -43,6 +43,7 @@ const CLOBBER_KEPT_SHARE = 0.99;
 // guess from three events, lucmoseley/mantahostels#141
 const SUSPECT_WINDOW_MIN = 15;
 
+// guess: bodies run to 80 KB, lucmoseley/mantahostels#283
 const REV_PAGE = 20;
 
 // measured ~2 s for 25 histories, #1574; BATCH_BYTES a guess, #1628
@@ -98,6 +99,7 @@ const lines = (body) =>
 		.map((l) => l.trim())
 		.filter(Boolean);
 
+// guess, lucmoseley/mantahostels#283
 const KEY_LEN = 60;
 
 /** @param {string} l */

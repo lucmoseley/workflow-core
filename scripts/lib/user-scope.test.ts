@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { writeSystemdRun } from "./systemd-run-fake";
 
 const require = createRequire(import.meta.url);
-const { forgetSession } = require("./session-id.js");
+const { outlivingEnv } = require("./session-id.js");
 const {
 	probeUserScope,
 	spawnInRunScope,
@@ -109,7 +109,7 @@ describe("the outliving launch", () => {
 		const recorder = path.join(dir, "rec.sh");
 		fs.writeFileSync(
 			recorder,
-			`#!/bin/sh\nprintf '%s\\n' "$* sid=\${CLAUDE_CODE_SESSION_ID-} job=\${CLAUDE_JOB_DIR-} owner=\${WFC_REPORT_OWNER-} outlives=\${WFC_OUTLIVES-}" >> "${rec}"\n`,
+			`#!/bin/sh\nprintf '%s\\n' "$* sid=\${CLAUDE_CODE_SESSION_ID-} job=\${CLAUDE_JOB_DIR-} owner=\${WFC_REPORT_OWNER-} outlives=\${WFC_OUTLIVES-} now=\${WFC_NOW-} step=\${WFC_STEP_MS-}" >> "${rec}"\n`,
 			{ mode: 0o755 },
 		);
 		const fake = writeSystemdRun(dir, { answers });
@@ -147,7 +147,9 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 				owner: "starter",
 			},
 		]);
-		expect(ran).toBe("job sid= job= owner=starter outlives=4242:2700");
+		expect(ran).toBe(
+			"job sid= job= owner=starter outlives=4242:2700 now= step=",
+		);
 	});
 
 	it.each([
@@ -164,13 +166,21 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 		},
 	);
 
+	it("starts the job on the wall clocks, whatever test clocks its starter carries (#5615)", () => {
+		const { ran } = launch(false, "{}", {
+			WFC_NOW: "2020-01-01T00:00:00Z",
+			WFC_STEP_MS: "5",
+		});
+		expect(ran).toMatch(/ now= step=$/);
+	});
+
 	it("starts it unscoped, still stripped and owner-tagged, where no manager answers", () => {
 		const { ran, scoped } = launch(
 			false,
 			'{ owner: "starter", ceilingS: 2700 }',
 		);
 		expect(scoped).toEqual([]);
-		expect(ran).toBe("job sid= job= owner=starter outlives=");
+		expect(ran).toBe("job sid= job= owner=starter outlives= now= step=");
 	});
 
 	it("strips the same keys and stops at the same ceiling as its shell twin", () => {
@@ -192,14 +202,18 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 			"CLAUDE_CODE_SESSION_ID",
 			"CLAUDE_JOB_DIR",
 			"WFC_REPORT_OWNER",
+			"WFC_NOW",
+			"WFC_STEP_MS",
 		])
 			env[key] = "x";
-		const before = Object.keys(env);
-		forgetSession(env);
-		expect(before.filter((k) => !(k in env)).sort()).toEqual(
-			[...stripped].sort(),
-		);
+		const kept = outlivingEnv(env);
+		expect(
+			Object.keys(env)
+				.filter((k) => !(k in kept))
+				.sort(),
+		).toEqual([...stripped].sort());
 		expect(stripped).toContain("WFC_REPORT_OWNER");
+		expect(stripped).toContain("WFC_NOW");
 		expect(shellCeiling).toBe("2700");
 	});
 
@@ -211,19 +225,21 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 				owner: "inherited",
 			},
 		]);
-		expect(ran).toBe("job sid= job= owner=inherited outlives=4242:2700");
+		expect(ran).toBe(
+			"job sid= job= owner=inherited outlives=4242:2700 now= step=",
+		);
 	});
 
 	it("names no owner and sets no ceiling where both are null", () => {
 		const { ran, scoped } = launch(true, "{ owner: null, ceilingS: null }");
 		expect(scoped).toEqual([{ words: "--user --scope --quiet --", owner: "" }]);
-		expect(ran).toBe("job sid= job= owner= outlives=4242:");
+		expect(ran).toBe("job sid= job= owner= outlives=4242: now= step=");
 	});
 
 	it("marks no job outliving where its starter is no session", () => {
 		const { ran } = launch(true, '{ owner: "starter", ceilingS: 2700 }', {
 			CLAUDE_PID: "",
 		});
-		expect(ran).toBe("job sid= job= owner=starter outlives=");
+		expect(ran).toBe("job sid= job= owner=starter outlives= now= step=");
 	});
 });

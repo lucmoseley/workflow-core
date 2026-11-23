@@ -8,6 +8,7 @@ const SWEEP_WORKFLOW = "scheduled-checks.yml";
 
 const SWEEP_BRANCH = "main";
 
+// guess: four runs a day plus repairs, well past 24 h, #4447
 const LEDGER_RUN_LIMIT = 50;
 
 const SLOT_INPUT = "slot";
@@ -17,6 +18,7 @@ const SWEEP_HOURS_UTC = [3, 9, 15, 21];
 // lucmoseley/mantahostels#1816 measured 5h cleared the latest lag to 26 Aug 2026 by ~7 min
 const SWEEP_GRACE_MS = 5 * 60 * 60 * 1000;
 
+// guess: four slots at the 6 h gap, lucmoseley/mantahostels#3490
 const SWEEP_LEDGER_MS = 24 * 60 * 60 * 1000;
 
 /**

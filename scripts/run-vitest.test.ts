@@ -54,6 +54,7 @@ const FULL_FLAG = "--full";
 const EMPTY_SELECTION_FILTER = "wfc-empty-selection";
 
 const REPO_ROOT = path.resolve(__dirname, "..");
+// guess: well past a real child's few seconds, #2284
 const REAL_CHILD_TIMEOUT_MS = 20_000;
 
 const dirs: string[] = [];

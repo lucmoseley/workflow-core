@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import corpus
 from corpus import epoch
 
+# guess, #2812
 CMD_CHARS = 160
 
 PREFIX = re.compile(

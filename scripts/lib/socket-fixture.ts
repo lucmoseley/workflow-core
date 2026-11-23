@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+// guess: a node start plus one bind takes well under a second, #5177
 const BIND_TIMEOUT_MS = 10_000;
 
 export const plantSocket = (

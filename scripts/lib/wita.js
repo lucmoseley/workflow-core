@@ -1,4 +1,3 @@
-// lucmoseley/mantahostels#919
 const WITA_OFFSET_MS = 8 * 3_600_000;
 
 function witaDay(at = Date.now()) {

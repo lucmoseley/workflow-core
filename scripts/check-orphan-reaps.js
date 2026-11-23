@@ -7,6 +7,7 @@ const { ARGV_SHOWN, reapLogPath } = require("./lib/orphan-hooks.js");
 const { DAY_MS } = require("./lib/retained-jsonl.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 
+// guess: a week spans a weekend away from the machine, #4342
 const WINDOW_DAYS = 7;
 
 runCheck({

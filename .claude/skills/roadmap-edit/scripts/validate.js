@@ -88,8 +88,10 @@ function resolveExpectedMajor(warnings, root = hostRoot()) {
 // measured on the live distribution, lucmoseley/mantahostels#2979
 const BODY_WORD_CEILING = 250;
 
+// guess, lucmoseley/mantahostels#3186
 const WHY_WORD_CEILING = 40;
 
+// guess, lucmoseley/mantahostels#3190
 const DW_WORD_CEILING = 60;
 
 // measured near each field's p85, lucmoseley/mantahostels#3187

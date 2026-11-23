@@ -250,8 +250,7 @@ export const stubBrokenRepo = () => {
 // #2231
 export const FIXTURE_DRAW = { sessionMeanMb: 429, sessionSigmaMb: 154 };
 export const WORKING_PAIR_KB = 640 * 1024;
-// #2223
-export const IDLE_PAIR_MB = 106;
+
 const stubOracle = () => {
 	const bin = path.join(kit.dir, "claude");
 	fs.writeFileSync(

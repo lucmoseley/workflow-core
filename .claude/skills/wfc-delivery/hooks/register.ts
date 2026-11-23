@@ -3,11 +3,11 @@ import type { Register, Timer } from "claude-code";
 export const register: Register = (on) => {
 	// measured, #851
 	const versionFloor = [2, 1, 289];
-	// #849
+	// guess, #849
 	const tickMs = 30_000;
 	// guess, #849
 	const runTimeoutMs = 5000;
-	// #849
+	// guess: the session-start check covers the first 10 minutes, #849
 	const ciIntervalMs = 10 * 60_000;
 	// guess, #854
 	const ciRunTimeoutMs = 30_000;

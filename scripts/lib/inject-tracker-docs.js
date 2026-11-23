@@ -15,6 +15,7 @@ const TOKEN_SEPARATORS = " \t\n\v\f\r,&+";
  * @property {(q: {payload: string, cwd: string}) => string} reviewTier
  * @property {() => number} now
  * @property {(what: string, detail?: string) => void} log
+ * @property {NodeJS.ProcessEnv} env
  */
 
 /** @param {string} stdin */
@@ -109,12 +110,13 @@ const SWEEP_AGE_S = 24 * 60 * 60;
 /**
  * @param {string} session
  * @param {string} matched
+ * @param {string | undefined} tmpRoot
  * @returns {{dir: string, file: string} | null}
  */
-function markerFor(session, matched) {
+function markerFor(session, matched, tmpRoot) {
 	if (!session) return null;
 	const dir = path.join(
-		process.env.TMPDIR || "/tmp",
+		tmpRoot || "/tmp",
 		`wfc-tracker-inject-${process.getuid?.() ?? 0}`,
 	);
 	try {
@@ -199,12 +201,14 @@ function coreVoiceLoaded(root, configDir) {
 	return false;
 }
 
-function pricedOptionsFor() {
+/** @param {NodeJS.ProcessEnv} env */
+function pricedOptionsFor(env) {
 	const { hostRoot } = require("./host-root.js");
-	const { configDir } = require("./config-dir.js");
+	const { configDirFrom } = require("./config-dir.js");
 	const { readOutputStylePath } = require("./workflow-core-config.js");
 	const root = hostRoot();
-	if (coreVoiceLoaded(root, configDir())) return text.PRICED_OPTIONS_POINTER;
+	if (coreVoiceLoaded(root, configDirFrom(env.CLAUDE_CONFIG_DIR)))
+		return text.PRICED_OPTIONS_POINTER;
 	return text.pricedOptionsWhole(
 		readOutputStylePath({ root, say: () => undefined }),
 	);
@@ -240,7 +244,7 @@ function codeReviewRules(ports, session, pricedOptions) {
 	const { reviewAgentType } = require("./review-agent-type.js");
 	const { fragmentLookup } = require("./rule-text.js");
 	const host = hostRoot();
-	const core = coreRoot();
+	const core = coreRoot(ports.env);
 	const glossary = rs.standardsGlossary(host);
 	const read = fragmentLookup(host);
 	return text.codeReviewRules(
@@ -266,17 +270,19 @@ function codeReviewRules(ports, session, pricedOptions) {
 /** @param {Ports} ports */
 function logMissingBase(ports) {
 	const { coreRoot } = require("./script-path.js");
-	const missing = require("./review-standards.js").missingBase(coreRoot());
+	const missing = require("./review-standards.js").missingBase(
+		coreRoot(ports.env),
+	);
 	if (missing) ports.log(missing.what, missing.detail);
 }
 
 /**
- * @param {{source: string, session: string, matched: string, takesIssue: string, now: number}} firing
+ * @param {{source: string, session: string, matched: string, takesIssue: string, now: number, tmpRoot: string | undefined}} firing
  * @returns {ReturnType<typeof markerFor> | "duplicate"}
  */
-function openMarker({ source, session, matched, takesIssue, now }) {
+function openMarker({ source, session, matched, takesIssue, now, tmpRoot }) {
 	if (["compact", "clear", "resume"].includes(source)) return null;
-	const marker = markerFor(session, matched);
+	const marker = markerFor(session, matched, tmpRoot);
 	if (!marker) return null;
 	const state = settleMarker(marker, takesIssue, now);
 	if (state === "duplicate") return "duplicate";
@@ -290,7 +296,7 @@ function openMarker({ source, session, matched, takesIssue, now }) {
 function injectTrackerDocs(stdin, ports) {
 	const f = parseFields(stdin);
 	if (f.agentId) return "";
-	const prompt = f.prompt || readJobIntent(readJobDir(process.env));
+	const prompt = f.prompt || readJobIntent(readJobDir(ports.env));
 	if (!prompt) return "";
 	const hit = matchCommand(prompt);
 	if (!hit) return "";
@@ -301,7 +307,7 @@ function injectTrackerDocs(stdin, ports) {
 		? takesReference(hit.arg)
 		: { issue: "", repo: "" };
 
-	const session = f.session || process.env.CLAUDE_CODE_SESSION_ID || "";
+	const session = f.session || ports.env.CLAUDE_CODE_SESSION_ID || "";
 	const now = ports.now();
 	const opened = openMarker({
 		source: f.source,
@@ -309,6 +315,7 @@ function injectTrackerDocs(stdin, ports) {
 		matched,
 		takesIssue,
 		now,
+		tmpRoot: ports.env.TMPDIR,
 	});
 	if (opened === "duplicate") return "";
 	let marker = opened;
@@ -340,7 +347,7 @@ function injectTrackerDocs(stdin, ports) {
 			.replace(/^takes:/, "");
 	if (otherTakes === matched) otherTakes = "";
 
-	const pricedOptions = pricedOptionsFor();
+	const pricedOptions = pricedOptionsFor(ports.env);
 
 	if (matched === "code-review") {
 		logMissingBase(ports);

@@ -9,10 +9,13 @@ const { writeFd } = require("./lib/write-fd.js");
 
 const MIB = 2 ** 20;
 const GIB = 2 ** 30;
+// guess, #5041
 const COMPACT_BYTES = MIB;
-/* #5041 */
+// guess, #5041
 const REBUILD_BYTES = 4 * MIB;
+// guess: the packed 0-128 GiB reads as two bands, #5054
 const BAND_GIB = 64;
+// mke2fs.conf's default blocksize, https://github.com/tytso/e2fsprogs/blob/master/misc/mke2fs.conf.in
 const TABLE_BLOCK_BYTES = 4096;
 const USAGE = `Usage: node ${scriptPath("disk-frag.js")} [--mount <path>] [--table <file>] [--json]`;
 const ROW = /^#(\d+)\s*:\s*(\d+)\s+\d+\s+\d+\s*\[([\d\s]*)\]/;

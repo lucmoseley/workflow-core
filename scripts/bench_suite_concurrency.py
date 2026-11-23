@@ -220,6 +220,7 @@ def too_busy(sessions, required):
     return f"{sessions} sessions live, above the --require-quiet={required} this run demands"
 
 
+# guess, lucmoseley/mantahostels#352
 SETTLE_S = 20
 
 

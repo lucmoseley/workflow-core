@@ -31,6 +31,7 @@ const {
 } = require("./lib/breach-score-rule.js");
 
 const DENY_HEAD = /^PreToolUse:\S+ hook error: /;
+// guess, #2042
 const STOP_KEY_CHARS = 200;
 
 /**

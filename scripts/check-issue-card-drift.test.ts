@@ -241,6 +241,12 @@ describe("child tickets are not their card", () => {
 		expect(r.status).toBe(0);
 	});
 
+	it("leaves a closed child of a done card out of CHILD TICKETS", () => {
+		const r = run([], stubGh([issue(7, "done-card — a child", 145)], []));
+		expect(r.out).not.toContain("CHILD TICKETS");
+		expect(r.status).toBe(0);
+	});
+
 	it("does not read an open child ticket as its card's issue left open", () => {
 		const r = run([], stubGh([], [issue(8, "done-card — a child", 96)]));
 		expect(r.out).not.toContain("DONE-BUT-STILL-OPEN");

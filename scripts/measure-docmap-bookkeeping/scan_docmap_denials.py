@@ -133,6 +133,7 @@ def main():
         f"{(total / days / base['total'] - 1) * 100:+8.0f}%"
     )
 
+    # measured 14.6/day whole-file, the recomputed baseline, lucmoseley/mantahostels#2430
     rival = 14.6
     whole = counts["whole-file"] / days
     print(

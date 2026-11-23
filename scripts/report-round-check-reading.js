@@ -58,6 +58,7 @@ const SECOND_TITLE = `Round-check second reading, at ${SECOND_TARGET} rated roun
 // #1701 guess
 const MIN_REPO_ROUNDS = 10;
 
+// guess: #1691 Q1 (A)'s failure line, #1691
 const NOT_WORKING_SHARE = 0.5;
 const PADDED_LINE = 0.25;
 const PADDED_MAX_CALLS = 2;

@@ -7,6 +7,7 @@ const { resolveKey } = require("./workflow-core-config.js");
 
 const SUITE_WORKFLOW = "scheduled-checks.yml";
 
+// guess: past the first few green runs no report is coming, #4579
 const SOURCES_TRIED = 5;
 const RUNS_LISTED = 30;
 

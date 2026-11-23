@@ -128,6 +128,7 @@ function actPart(line) {
 const TRIED_LINE = /^[ \t]*(\*\*)?Tried(:\*\*|\*\*:|:)/;
 const LIST_ITEM = /^([ \t]*)([-*+]|[0-9]+[.)])[ \t]+\S/;
 const TRIED_MIN = 3;
+// guess: the ladder names two routes for a screen, #4142
 const TRIED_MIN_ROUTES = 2;
 const TRIED_WAY = `add a **Tried:** line followed directly by at least ${TRIED_MIN} list items, one per different method you actually ran and what it showed`;
 

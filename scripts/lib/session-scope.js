@@ -2,6 +2,7 @@ const { isClaudeArgv0 } = require("./claude-argv0.js");
 
 const UNIT_PREFIX = "wfc-session-";
 const SLICE = "wfc-sessions.slice";
+// measured 3,145 MiB p99 host plus tsc max, with a 10% margin, #4590
 const MEMORY_MAX_BYTES = 3.5 * 1024 ** 3;
 // #4590
 const MEMORY_BOUND = [

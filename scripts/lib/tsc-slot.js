@@ -14,9 +14,9 @@ const TSC_PEAK_MB = chargeMb({ kind: "tsc" });
 // #3163 guess
 const TSC_MAX = 1;
 
-// 75 is EX_TEMPFAIL: https://man.freebsd.org/cgi/man.cgi?query=sysexits
 const TSC_NO_WAIT_ENV = "WFC_TSC_NO_WAIT";
-const TSC_BUSY_EXIT = 75;
+const EX_TEMPFAIL = 75;
+const TSC_BUSY_EXIT = EX_TEMPFAIL;
 
 const TSC_SLOT_ENV = "WFC_TSC_SLOT";
 

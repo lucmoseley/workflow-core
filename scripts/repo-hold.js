@@ -4,7 +4,7 @@ const { buildErrorText, caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { parseIssueNumbers } = require("./lib/issue-number.js");
-const { parseJobDir } = require("./lib/job-paths.js");
+const { readJobRef } = require("./lib/job-paths.js");
 const { appendLoopLog } = require("./lib/refill-files.js");
 const holds = require("./lib/repo-holds.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -22,8 +22,7 @@ const USAGE = `usage: node ${scriptPath("repo-hold.js")} raise | attach | list |
   lift <id>                                    end a hold, whatever its clear check reads`;
 
 /** @param {NodeJS.ProcessEnv} env */
-const isSession = (env) =>
-	fromEnv(env) !== null || parseJobDir(env.CLAUDE_JOB_DIR) !== null;
+const isSession = (env) => fromEnv(env) !== null || readJobRef(env) !== null;
 
 /** @param {string} line */
 const say = (line) => writeFd(1, `${line}\n`);
@@ -84,7 +83,7 @@ function raise({ flags }) {
 		act,
 		issue,
 		clearCheck,
-		session: parseJobDir(process.env.CLAUDE_JOB_DIR)?.jobId ?? null,
+		session: readJobRef(process.env)?.jobId ?? null,
 		now: Date.now(),
 	});
 	const line = holds.buildRaisedLine(hold);
@@ -108,7 +107,7 @@ const buildEndingText = (hold) =>
 /** @param {import("./lib/cli-args").Parsed} parsed */
 function attach({ positionals: [id] }) {
 	if (id === undefined) throw new Error("cli-args' min let no id through");
-	const job = parseJobDir(process.env.CLAUDE_JOB_DIR)?.jobId;
+	const job = readJobRef(process.env)?.jobId;
 	if (!job)
 		return refuse(
 			"attach parks a background job, and this is none: ask the founder here",

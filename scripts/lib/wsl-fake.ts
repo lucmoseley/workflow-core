@@ -14,6 +14,7 @@ export type WslBehaviour =
 	| { hangs: true }
 	| { stallsOnce: true; version: string };
 
+// guess: far over any budget a test passes, #4082
 const HANG_S = 30;
 
 const utf16 = (lines: string[]) =>

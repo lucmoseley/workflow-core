@@ -149,6 +149,8 @@ def test_an_unparsable_session_list_is_none_and_named(stub_bin, monkeypatch, cap
     )
 
 
+# Above Linux's 2^22 PID_MAX_LIMIT:
+# https://man7.org/linux/man-pages/man5/proc_sys_kernel.5.html
 GONE = 99_999_999
 
 

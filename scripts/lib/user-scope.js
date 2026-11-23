@@ -2,7 +2,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught, ignoreFailure } = require("./caught.js");
-const { forgetSession, REPORT_OWNER, reportOwner } = require("./session-id.js");
+const { outlivingEnv, REPORT_OWNER, reportOwner } = require("./session-id.js");
 const { REAL_PROC } = require("./proc-root.js");
 const { OUTLIVES_KEY, outlivesMark } = require("./session-scope.js");
 const {
@@ -16,7 +16,7 @@ const USER_SCOPE = ["--user", "--scope", "--quiet"];
 
 // #3407 guess
 const TASKS_MAX = 1024;
-// #2667
+// guess, #2667
 const RUNTIME_MAX_SEC = 900;
 const TASKS_MAX_ENV = "WFC_RUN_TASKS_MAX";
 const UNIT_PREFIX = "wfc-test-";
@@ -46,6 +46,7 @@ const managerAnswersOnce = () => {
 	return managerAnswers;
 };
 
+// guess: repo-checks.js's 30-minute RUN_MS plus a 15-minute tail for its report, #4706
 const OUTLIVE_CEILING_S = 2700;
 
 /** @param {number|null} ceilingS @returns {string[]} */
@@ -68,9 +69,8 @@ function spawnOutliving(
 	{ owner, ceilingS = OUTLIVE_CEILING_S, wrap, ...options },
 ) {
 	const starterEnv = options.env ?? process.env;
-	const env = { ...starterEnv };
+	const env = outlivingEnv(starterEnv);
 	const named = owner === undefined ? reportOwner(starterEnv) : owner;
-	forgetSession(env);
 	if (named) env[REPORT_OWNER] = named;
 	const [cmd, ...pre] = wrap ?? buildOutlivingScope(ceilingS);
 	if (cmd !== undefined && starterEnv.CLAUDE_PID)

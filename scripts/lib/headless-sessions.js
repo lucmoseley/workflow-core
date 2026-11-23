@@ -12,6 +12,7 @@ const {
 } = require("./model-table.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
+const { withoutTestClocks } = require("./clock.js");
 const {
 	readEndResult,
 	freshRunDir,
@@ -59,7 +60,7 @@ function launch({
 	if (!seat)
 		return { why: `${keyVar} is not an overflow seat's key in the seat file` };
 	const built = buildOverflowLaunch(seat.keyVar, {
-		...process.env,
+		...withoutTestClocks(process.env),
 		CLAUDE_CONFIG_DIR: seat.dir,
 	});
 	if ("why" in built) return built;
