@@ -199,6 +199,12 @@ const CLOSING_STEPS = {
 		"\n\nA `kind:spec` whose every ticket has closed gets a whole-spec review before you decide it: run `node scripts/spec-commits.js <n>`, then /code-review over the `git show` it prints, handing the reviewers the touched files at the spec's last commit, not only the diff lines. Record every finding in your triage comment, which ends with the `**Reviewed through:** <40-hex sha>` line the script prints. Fix first, on every pass: the `review-finding-destination` rule /code-review hands you says which findings are FIXED here and which TICKETED, and what a TICKETED line names (#4284, #4492). On a first pass a TICKETED one is filed under the spec while it is open — retag the spec `takes:triage` → `takes:children` yourself; standalone, its body citing the spec, only where the spec had already closed (#897). A spec back at triage whose earlier comment carries a `**Reviewed through:**` line is reviewed over the commits since that sha only: `node scripts/spec-commits.js <n> --since <sha>`. From the second pass on, each TICKETED finding gets a class, picking only where it is filed (#3811). Live: it names a route ordinary use reaches and the wrong behaviour on it; file it under the spec, with the same retag. Corner: it needs an unusual input or state; file it standalone, its body citing the spec. Tidying: it changes no behaviour; file it standalone, one ticket per pass. The first pass that files no live finding closes the spec, naming any open standalone tickets on `**Outstanding:**`. No pass count stops a spec. At a fifth or later pass, counting the earlier `**Reviewed through:**` comments, your triage comment also says whether to redesign rather than patch.",
 };
 
+const FILING_VALUES =
+	"\n\nA ticket filed from the founder's ask quotes his words verbatim; a build ticket lists under `## Values` each value the build will set that no ruling sets. A `wayfinder:task` has no value to set that a goal of the founder's decides: put such a value to him first. At a build's close, `resolve-ticket.js` refuses a `**Values:**` entry marked untraced, a guess or an estimate unless it is tagged `delegated — <why no goal of the founder's turns on it>` or `house: #N` (#5647).";
+
+/** @type {Record<string, string>} */
+const FILING_TEXT = { implement: FILING_VALUES, wayfinder: FILING_VALUES };
+
 /** @param {string} matched @param {string} claimIssue */
 const header = (matched, claimIssue) =>
 	"You invoked /" +
@@ -247,6 +253,7 @@ const trackerContext = ({
 	takesLine(takesIssue, otherTakes, matched) +
 	header(matched, claimIssue) +
 	(matched === "wayfinder" ? WAYFINDER_CLAUSES : "") +
+	(FILING_TEXT[matched] ?? "") +
 	trackerIndex(matched) +
 	(CLOSING_STEPS[matched] ?? "") +
 	pricedOptions;
