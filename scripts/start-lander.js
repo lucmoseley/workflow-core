@@ -14,7 +14,9 @@ const {
 	buildStartedLine,
 } = require("./lib/lander-start.js");
 const { queueBranch } = require("./lib/landing-refs.js");
+const { ownerDefersDrop } = require("./lib/queue-lander.js");
 const { queueGit } = require("./lib/queue-lander-adapters.js");
+const { readOwningSessionState } = require("./lib/queue-owning-session.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -41,13 +43,25 @@ function main(argv = process.argv.slice(2)) {
 	}
 	const log = landerLog(root);
 	let by = "";
+	/** @type {import("./lib/lander-records.js").Drop[]} */
+	let owedDrops = [];
 	const result = startLander({
 		holder: landerLock(root).holder,
 		waiting: () =>
 			queueGit(root)
 				.refs()
 				.queue.map((q) => queueBranch(q.name)),
-		owed: () => readOwedDrops(queueLanderFiles(root).drops).map((d) => d.ref),
+		owed: () => {
+			owedDrops = readOwedDrops(queueLanderFiles(root).drops);
+			return owedDrops.map((d) => d.ref);
+		},
+		deferred: (ref) => {
+			const drop = owedDrops.find((d) => d.ref === ref);
+			return (
+				drop !== undefined &&
+				ownerDefersDrop(readOwningSessionState(root, drop.name))
+			);
+		},
 		spawnRun: () => {
 			by =
 				flagValue(parsed.flags, "--launched-by") ??

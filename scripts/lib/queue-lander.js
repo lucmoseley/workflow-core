@@ -1269,6 +1269,12 @@ function filingOf(s, d) {
 }
 
 /**
+ * @param {OwningSessionState} state
+ * @returns {boolean}
+ */
+const ownerDefersDrop = (state) => state === "working";
+
+/**
  * @param {QueueState} s
  * @param {string} main
  * @param {readonly string[]} skip
@@ -1285,7 +1291,7 @@ function dropDecision(s, main, skip) {
 		const ticketed = d.ticket !== null;
 		if (!ticketed && s.queue.some((q) => q.name === d.name)) continue;
 		if (s.hasLandedAfter(d.name, d.at)) return settleAction(s, d, main);
-		if (ticketed || s.owningSessionStateOf(d.name) === "working") continue;
+		if (ticketed || ownerDefersDrop(s.owningSessionStateOf(d.name))) continue;
 		const filing = filingOf(s, d);
 		if (!skip.includes(filing.drop.ref)) return filing;
 	}
@@ -2797,5 +2803,6 @@ module.exports = {
 	retakesMoved,
 	buildQueueActionLine,
 	fileSetKey,
+	ownerDefersDrop,
 	runQueueLander,
 };

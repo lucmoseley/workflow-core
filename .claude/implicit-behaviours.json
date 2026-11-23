@@ -379,7 +379,7 @@
 		"TREE": "host — launches the host root's housekeeping sweeps"
 	},
 	"scripts/start-lander-on-push.js": {
-		"IMPLICIT": "after a Bash call that pushes to a queue ref, runs start-lander.js detached, which — where no lander runs and a queue ref waits on the remote or a drop is owed a decision — starts `queue-lander.js run` in a session of its own.",
+		"IMPLICIT": "after a Bash call that pushes to a queue ref, runs start-lander.js detached, which — where no lander runs and a queue ref waits on the remote or a drop is owed a decision whose owning session has stopped — starts `queue-lander.js run` in a session of its own.",
 		"JUSTIFIED": "fail-safe — a queue push that starts no lander sits untested until some later session starts, and every session meanwhile builds on a `main` behind its own work.",
 		"DEFEAT": "deleting the registration.",
 		"TREE": "both — resolves the pushed ref in the session's checkout, walked from host-root.js's sessionDir, and starts the lander in the host root",
