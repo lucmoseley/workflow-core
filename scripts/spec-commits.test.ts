@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { page, stubGhRoutes } from "./lib/gh-stub";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { runInProcess } from "./lib/run-in-process";
@@ -357,7 +358,7 @@ describe("spec-commits CLI", () => {
 			const r = run([ticket(11)], ["--since"]);
 			expect(r.status).toBe(2);
 			expect(r.out).toContain(
-				"usage: node scripts/spec-commits.js <spec> [--since <sha>]",
+				`usage: node ${coreFile("scripts/spec-commits.js")} <spec> [--since <sha>]`,
 			);
 		});
 	});

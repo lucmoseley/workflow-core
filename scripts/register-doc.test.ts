@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { arbiterCli, freshSandbox, live } from "./lib/arbiter-testkit";
+import { coreFile } from "./lib/core-path-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -720,7 +721,9 @@ describe("register-doc", () => {
 			expect(unknown.out).toContain("unknown flag: --clas");
 			const help = run("docs/x.md", "--help");
 			expect(help.status).toBe(0);
-			expect(help.out).toContain("usage: node scripts/register-doc.js");
+			expect(help.out).toContain(
+				`usage: node ${coreFile("scripts/register-doc.js")}`,
+			);
 			expect(readData()).toEqual({});
 		});
 

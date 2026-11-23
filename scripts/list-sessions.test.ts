@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeClaudeStub } from "./lib/claude-stub";
+import { coreFile } from "./lib/core-path-testkit";
 import { writeHeadlessRun } from "./lib/headless-runs-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -105,6 +106,8 @@ describe("list-sessions (#4224)", () => {
 		expect(r.status).toBe(2);
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toContain("unknown flag: --jsn");
-		expect(r.stderr).toContain("usage: node scripts/list-sessions.js [--json]");
+		expect(r.stderr).toContain(
+			`usage: node ${coreFile("scripts/list-sessions.js")} [--json]`,
+		);
 	});
 });

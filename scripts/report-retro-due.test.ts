@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -276,7 +277,9 @@ describe("the command line", () => {
 
 			const { code, output } = run(fx, TODAY, [flag]);
 			expect(code).toBe(0);
-			expect(output).toContain("usage: node scripts/report-retro-due.js");
+			expect(output).toContain(
+				`usage: node ${coreFile("scripts/report-retro-due.js")}`,
+			);
 			expect(ghCalls(fx)).toBe("");
 		}
 	});
@@ -287,7 +290,9 @@ describe("the command line", () => {
 		const { code, output } = run(fx, TODAY, ["--dry-run"]);
 		expect(code).toBe(2);
 		expect(output).toContain("unknown flag: --dry-run");
-		expect(output).toContain("usage: node scripts/report-retro-due.js");
+		expect(output).toContain(
+			`usage: node ${coreFile("scripts/report-retro-due.js")}`,
+		);
 		expect(ghCalls(fx)).toBe("");
 	});
 });

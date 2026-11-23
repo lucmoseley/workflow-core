@@ -5,7 +5,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { writePsStub } from "./lib/ps-stub";
+import { coreRoot } from "./lib/script-path.js";
 
 const ownBytes = (text: string, ...quoted: string[]) =>
 	Buffer.byteLength(
@@ -102,6 +104,7 @@ const project = (): Setup => {
 };
 
 const DISPATCH = "guard-dispatch.js";
+const CORE = `${coreRoot()}/`;
 
 const ROWS: Row[] = [
 	{
@@ -121,6 +124,7 @@ const ROWS: Row[] = [
 		tool: "Read",
 		input: { file_path: "/tmp/claude-1000/proj/sess/tasks/bw0192d7i.output" },
 		spent: 2,
+		quotes: [CORE],
 		marks: "Re-reading a background job's output file",
 		measured: 452,
 		ceiling: 502,
@@ -132,6 +136,7 @@ const ROWS: Row[] = [
 		tool: "ListAgents",
 		input: {},
 		spent: 2,
+		quotes: [CORE],
 		marks: "Polling ListAgents",
 		measured: 476,
 		ceiling: 513,
@@ -142,6 +147,7 @@ const ROWS: Row[] = [
 		decision: "warn",
 		input: { command: "sleep 120; wc -c .claude/tmp/agents/a.md" },
 		spent: 3,
+		quotes: [CORE],
 		marks: "Timed checks under two minutes apart",
 		measured: 409,
 		ceiling: 431,
@@ -163,6 +169,7 @@ const ROWS: Row[] = [
 		input: { command: "sleep 120; wc -c .claude/tmp/agents/a.md" },
 		spent: 3,
 		setup: subagent,
+		quotes: [CORE],
 		marks: "Timed checks under two minutes apart",
 		measured: 371,
 		ceiling: 421,
@@ -174,6 +181,7 @@ const ROWS: Row[] = [
 		input: { command: "sleep 120; scripts/bg-run.sh check suite" },
 		spent: 3,
 		setup: subagent,
+		quotes: [CORE],
 		marks: "KILLED or UNKNOWN twice",
 		measured: 545,
 		ceiling: 595,
@@ -185,6 +193,7 @@ const ROWS: Row[] = [
 		input: { command: "true" },
 		spent: 1,
 		setup: subagent,
+		quotes: [CORE],
 		marks: "A no-op like `true` waits on nothing",
 		measured: 375,
 		ceiling: 425,
@@ -197,6 +206,7 @@ const ROWS: Row[] = [
 		input: { file_path: "/tmp/claude-1000/proj/sess/tasks/bw0192d7i.output" },
 		spent: 2,
 		setup: subagent,
+		quotes: [CORE],
 		marks: "Re-reading a background job's output file",
 		measured: 399,
 		ceiling: 449,
@@ -209,6 +219,7 @@ const ROWS: Row[] = [
 		input: {},
 		spent: 2,
 		setup: subagent,
+		quotes: [CORE],
 		marks: "Polling ListAgents is a wait loop",
 		measured: 362,
 		ceiling: 412,
@@ -220,7 +231,7 @@ const ROWS: Row[] = [
 		decision: "deny",
 		input: { command: "npm run test &" },
 		setup: dispatched,
-		quotes: ["npm run test"],
+		quotes: ["npm run test", CORE],
 		marks: "DETACHED INSIDE THE SHELL",
 		measured: 923,
 		ceiling: 945,
@@ -303,9 +314,9 @@ const ROWS: Row[] = [
 		only: "guard-suite-concurrency",
 		decision: "deny",
 		input: { command: "node --test" },
-		quotes: ["node --test"],
+		quotes: ["node --test", CORE],
 		setup: running(3),
-		marks: "Run instead: node scripts/queue-run.js -- ",
+		marks: `Run instead: node ${coreFile("scripts/queue-run.js")} -- `,
 		measured: 375,
 		ceiling: 517,
 	},

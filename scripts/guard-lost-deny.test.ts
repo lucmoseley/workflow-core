@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 import { readStopGuardBlock, type StopRun } from "./lib/stop-guard-testkit";
 import { buildBashCall, buildToolCall } from "./lib/transcript-testkit";
 
@@ -153,7 +154,7 @@ describe("what it reports", () => {
 		expect(r.reason).toContain("guard-branch.sh");
 		expect(r.reason).toContain("git worktree add /tmp/w");
 		expect(r.reason).toContain(
-			`node scripts/guard-lost-deny.js replay ${file} toolu_A`,
+			`node ${shellQuote(path.join(core, "scripts/guard-lost-deny.js"))} replay ${file} toolu_A`,
 		);
 		expect(r.reason).toContain(
 			"guard-branch.sh was cancelled after 15003 ms against a 15000 ms timeout",

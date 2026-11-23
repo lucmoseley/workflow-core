@@ -5,7 +5,9 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { LADDER, sessionCounters } from "./lib/priced-options-testkit";
+import { escapeRe } from "./lib/regex-group.js";
 import { readStopGuardReason } from "./lib/stop-guard-testkit";
 import {
 	buildToolCall,
@@ -161,7 +163,9 @@ describe("which rungs are missing", () => {
 			"find the single fact that makes the runner-up win, and cite the tool result",
 		);
 		expect(reason.trimEnd()).toMatch(
-			/record it with `node scripts\/record-delegated-decision\.js <n> …`, its rungs and what each found\.$/,
+			new RegExp(
+				`record it with \`node ${escapeRe(coreFile("scripts/record-delegated-decision.js"))} <n> …\`, its rungs and what each found\\.$`,
+			),
 		);
 	});
 });

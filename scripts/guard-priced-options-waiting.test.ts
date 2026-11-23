@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { readStopGuardReason } from "./lib/stop-guard-testkit";
 import { buildBashCall, writeTranscript } from "./lib/transcript-testkit";
 
@@ -46,11 +47,15 @@ describe("a background job ending on `waiting:`", () => {
 		const reason = stop(WAITING);
 		expect(reason).toContain("This turn ends a background job on `waiting:`");
 		expect(reason).toContain("lists\na job whose turn has ended as completed");
-		expect(reason).toContain("timeout 540 node scripts/watch-artefact.js");
+		expect(reason).toContain(
+			`timeout 540 node ${coreFile("scripts/watch-artefact.js")}`,
+		);
 		expect(reason).toContain(
 			"run each wait with `run_in_background` (its exit re-invokes\nyou) and keep working",
 		);
-		expect(reason).toContain("scripts/bg-run.sh wait <name> 540");
+		expect(reason).toContain(
+			`${coreFile("scripts/bg-run.sh")} wait <name> 540`,
+		);
 		expect(reason).toContain(
 			"queued commits: no wait; end on `result:`, naming them queued",
 		);

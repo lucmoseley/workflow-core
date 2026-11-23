@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
+import { seenFrom } from "./lib/core-path-testkit";
 import {
 	defineTemplate,
 	mkDirOutsideRepo,
@@ -70,9 +71,14 @@ const emission = (
 
 const failOpenLog = () => readFailOpenLog(config, shared);
 
-const { readRuleText } = createRequire(__filename)("./lib/rule-text") as {
+const { readRuleText: readRule } = createRequire(__filename)(
+	"./lib/rule-text",
+) as {
 	readRuleText: (id: string) => string;
 };
+
+const readRuleText = (id: string, cwd = shared) =>
+	seenFrom(cwd, () => readRule(id));
 
 const commitRule = () =>
 	["commit-pathspec", "commit-show-diff", "commit-message", "push-cadence"]
@@ -176,13 +182,11 @@ describe("the commit rules are handed over once a session", () => {
 	it("defers what the ceiling cannot hold to the next commit, the push rule first", () => {
 		fs.mkdirSync(path.join(shared, "docs"), { recursive: true });
 		fs.mkdirSync(path.join(shared, "scripts"), { recursive: true });
-		fs.mkdirSync(path.join(shared, "app"), { recursive: true });
-		for (const rel of ["docs/roadmap-digest.md", "scripts/y.sh", "app/y.ts"])
+		for (const rel of ["docs/roadmap-digest.md", "scripts/y.sh"])
 			fs.writeFileSync(path.join(shared, rel), "x\n");
 		git(shared, "add", "-A");
 		git(shared, "commit", "-qm", "fixture");
-		const command =
-			'git commit -m "x" -- docs/roadmap-digest.md scripts/y.sh app/y.ts';
+		const command = 'git commit -m "x" -- docs/roadmap-digest.md scripts/y.sh';
 		const at = { env: { WFC_MODULES: "roadmap" } };
 		const first = emission(command, "wide", at).additionalContext as string;
 		expect(Buffer.byteLength(first, "utf8")).toBeLessThanOrEqual(4000);
@@ -279,7 +283,7 @@ describe("each production adapter, crossed for real", () => {
 		git(fresh, "config", "core.hooksPath", path.join(dir, "no-hooks"));
 		fs.writeFileSync(path.join(fresh, "docs", "doc-map.md"), "map\n");
 		const at = { cwd: fresh, project: fresh };
-		const doc = readRuleText("doc-map-precommit");
+		const doc = readRuleText("doc-map-precommit", fresh);
 		expect(
 			emission('git commit -m "init"', "p1", at).additionalContext,
 		).not.toContain(doc);
