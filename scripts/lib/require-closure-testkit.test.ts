@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { copyRequireClosure, launchedScripts } from "./require-closure";
+import { copyRequireClosure, launchedScripts } from "./require-closure-testkit";
 
 let tmp: string;
 beforeEach(() => {

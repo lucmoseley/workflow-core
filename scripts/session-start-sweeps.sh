@@ -28,7 +28,7 @@ fi
 
 outlive_live node "$here/retire-stale-containers.js"
 
-outlive_live node "$here/lib/scratch-sweep.js"
+outlive_live node "$here/sweep-scratch.js"
 
 outlive_live node "$here/report-close-check-reading.js"
 

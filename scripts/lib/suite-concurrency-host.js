@@ -93,7 +93,7 @@ function buildHostPorts(root, log) {
  * @param {string} command
  * @param {string | undefined} root
  * @param {{ weight?: import("./suite-handoff.js").CarriedWeight | null, climbMb?: number, allClimbMb: () => number, gateSeats: () => import("./suite-ladder.js").GateSeats, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void }} reads
- * @returns {import("./suite-queue.js").GateDenial | null}
+ * @returns {import("./gate-wait.js").GateDenial | null}
  */
 function readGate(
 	command,

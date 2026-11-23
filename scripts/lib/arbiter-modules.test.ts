@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { localRequires } from "./require-closure-testkit";
 
 const LIB = __dirname;
 const families = fs
@@ -37,8 +38,8 @@ const keysAfterFacade = (file: string) =>
 	) as string[];
 
 const requires = (file: string) =>
-	[...fs.readFileSync(file, "utf8").matchAll(/require\("(\.[^"]+)"\)/g)]
-		.map((m) => path.resolve(path.dirname(file), m[1]))
+	localRequires(fs.readFileSync(file, "utf8"))
+		.map((req) => path.resolve(path.dirname(file), req))
 		.map((to) => (to.endsWith(".js") ? to : `${to}.js`))
 		.filter((to) => fs.existsSync(to));
 

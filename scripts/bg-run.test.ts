@@ -47,7 +47,7 @@ import { ignoreFailure } from "./lib/caught.js";
 import { commandPath } from "./lib/command-path-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
-const { waitForGate } = require("./lib/suite-queue.js");
+const { waitForGate } = require("./lib/gate-wait.js");
 
 bgRunRoot();
 
@@ -469,7 +469,6 @@ describe("a check overlapping a same-name re-run (#3097)", () => {
 		expect(
 			run(["run", "regraved", "sh", "-c", "echo first-output; exit 7"]).status,
 		).toBe(7);
-		openGate("2");
 		openGate("record");
 		const { child, exited } = gatedCheck("regraved");
 		try {
@@ -480,6 +479,9 @@ describe("a check overlapping a same-name re-run (#3097)", () => {
 			expect(
 				run(["run", "regraved", "sh", "-c", "echo second-output"]).status,
 			).toBe(0);
+			// #5665
+			await atGate("2");
+			openGate("2");
 
 			const got = await exited;
 			expect(got.status).toBe(0);

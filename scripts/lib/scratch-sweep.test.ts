@@ -449,9 +449,9 @@ describe("what the walk cannot do, it records", () => {
 	});
 });
 
-describe("the CLI tail, which is what the session-start launcher runs", () => {
+describe("the sweep-scratch program, which is what the session-start launcher runs", () => {
 	const cli = (scratch: string, extraEnv: Record<string, string> = {}) => {
-		const r = runInProcess(path.join(__dirname, "scratch-sweep.js"), [], {
+		const r = runInProcess(path.join(__dirname, "..", "sweep-scratch.js"), [], {
 			env: { ...process.env, WFC_SCRATCH_DIR: scratch, ...extraEnv },
 		});
 		expect(r.status, r.stderr).toBe(0);

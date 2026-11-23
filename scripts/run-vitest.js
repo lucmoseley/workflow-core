@@ -1671,7 +1671,7 @@ const readTouchedRef = (options, root, execFn) =>
 		: readDefaultChangedBase(root, execFn);
 
 /**
- * @param {() => Promise<import("./lib/suite-queue.js").WaitOutcome>} wait
+ * @param {() => Promise<import("./lib/gate-wait.js").WaitOutcome>} wait
  * @param {{ err?: { write: (s: string) => unknown } }} options
  * @param {() => void} onRefused
  */
@@ -1850,7 +1850,7 @@ async function runSeated({
 	if (!seatFile) return queued();
 	/** @type {PartAdmission | undefined} */
 	let admission;
-	/** @type {(climbMb: number, hear?: (a: PartAdmission) => void) => import("./lib/suite-queue.js").GateDenial | null} */
+	/** @type {(climbMb: number, hear?: (a: PartAdmission) => void) => import("./lib/gate-wait.js").GateDenial | null} */
 	const gate =
 		options.gate ??
 		((climbMb, hear) =>
