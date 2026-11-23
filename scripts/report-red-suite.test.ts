@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -691,7 +692,9 @@ describe("the command line", () => {
 
 			const { code, output } = runWith(f, [flag]);
 			expect(code).toBe(0);
-			expect(output).toContain("usage: node scripts/report-red-suite.js");
+			expect(output).toContain(
+				`usage: node ${coreFile("scripts/report-red-suite.js")}`,
+			);
 			expect(f.ghCalls()).toEqual([]);
 		}
 	});
@@ -702,7 +705,9 @@ describe("the command line", () => {
 		const { code, output } = runWith(f, ["--dry-run"]);
 		expect(code).toBe(2);
 		expect(output).toContain("unknown flag: --dry-run");
-		expect(output).toContain("usage: node scripts/report-red-suite.js");
+		expect(output).toContain(
+			`usage: node ${coreFile("scripts/report-red-suite.js")}`,
+		);
 		expect(f.ghCalls()).toEqual([]);
 	});
 });

@@ -351,10 +351,12 @@ function noticeOf(sha, byProfile) {
 		const notice = NOTICES[profile];
 		if (notice === undefined)
 			throw new Error(`NOTICES has no row for profile ${profile}`);
-		const { why, cost, full } = notice;
+		const { why, cost, script } = notice;
 		out.push(`  ${profile} (${why}) — a red here ${cost}:`);
 		for (const line of lines) out.push(`    ${line}`);
-		out.push(`    In full, WARNs and context included: ${full}`);
+		out.push(
+			`    In full, WARNs and context included: node ${scriptPath(path.basename(script))}`,
+		);
 	}
 	out.push(
 		`  Re-read this notice after a later commit: node ${scriptPath("report-new-shared-faults.js")} ${sha}`,

@@ -3,6 +3,7 @@ const path = require("node:path");
 const { trimEndRun } = require("./trim-run.js");
 const { shellQuote } = require("./sh-quote.js");
 const { relativeUnder } = require("./is-under.js");
+const { orFallback } = require("./caught.js");
 
 /**
  * @param {NodeJS.ProcessEnv} [env]
@@ -17,8 +18,45 @@ function coreRoot(env = process.env) {
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {boolean}
  */
-function inCheckout(env = process.env) {
+function coreIsCheckout(env = process.env) {
 	return fs.existsSync(path.join(coreRoot(env), "package.json"));
+}
+
+/** @type {Map<string, boolean>} */
+const coreRepoAnswers = new Map();
+
+// #5581, #5584
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {boolean}
+ */
+function isCoreRepo(env = process.env) {
+	if (!coreIsCheckout(env)) return false;
+	const core = coreRoot(env);
+	const cwd = process.cwd();
+	const key = [core, cwd, env.GIT_DIR ?? ""].join("\0");
+	let answer = coreRepoAnswers.get(key);
+	if (answer === undefined) {
+		answer = orFallback(() => readSharesCoreRepo(core, cwd, env), false);
+		coreRepoAnswers.set(key, answer);
+	}
+	return answer;
+}
+
+/**
+ * @param {string} core
+ * @param {string} cwd
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {boolean}
+ */
+function readSharesCoreRepo(core, cwd, env) {
+	const { readGitDirCommonDir, readRepoCommonDir } = require("./git-file.js");
+	const own = readRepoCommonDir(core);
+	if (own?.top !== core || !own.common) return false;
+	const here = env.GIT_DIR
+		? readGitDirCommonDir(path.resolve(cwd, env.GIT_DIR))
+		: readRepoCommonDir(cwd)?.common;
+	return !!here && fs.realpathSync(here) === fs.realpathSync(own.common);
 }
 
 /**
@@ -27,7 +65,7 @@ function inCheckout(env = process.env) {
  * @returns {string}
  */
 function scriptPath(name, env = process.env) {
-	return inCheckout(env) ? `scripts/${name}` : absoluteScriptPath(name, env);
+	return isCoreRepo(env) ? `scripts/${name}` : absoluteScriptPath(name, env);
 }
 
 /**
@@ -36,7 +74,7 @@ function scriptPath(name, env = process.env) {
  * @returns {string}
  */
 function docPath(name, env = process.env) {
-	return inCheckout(env)
+	return isCoreRepo(env)
 		? `docs/${name}`
 		: absoluteCorePath(`docs/${name}`, env);
 }
@@ -102,7 +140,7 @@ function readHostOwnedPaths() {
  * @returns {string}
  */
 function resolveScriptPaths(text) {
-	if (inCheckout()) return text;
+	if (isCoreRepo()) return text;
 	return text.replace(CORE_PATH, (whole, dir, rest) => {
 		const name = trimEndRun(rest, ".");
 		const file = `${coreRoot()}/${dir}/${name}`;
@@ -118,7 +156,8 @@ function resolveScriptPaths(text) {
 
 module.exports = {
 	coreRoot,
-	inCheckout,
+	coreIsCheckout,
+	isCoreRepo,
 	scriptPath,
 	docPath,
 	corePath,

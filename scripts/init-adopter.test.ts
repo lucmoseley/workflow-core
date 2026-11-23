@@ -25,6 +25,7 @@ import {
 	writeClaudePluginFake,
 } from "./lib/claude-plugin-fake";
 import { skeletonPaths } from "./lib/core-owned-files.js";
+import { coreFile } from "./lib/core-path-testkit";
 import { RUFF_INSTALL } from "./lib/formatters.js";
 import {
 	GH_LOGGED_OUT,
@@ -2236,7 +2237,8 @@ describe("a run refused before it writes anything (#743)", () => {
 			"--help",
 		);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toMatch(/^usage: node scripts\/init-adopter\.js /);
+		const usage = `usage: node ${coreFile("scripts/init-adopter.js")} `;
+		expect(r.stdout.slice(0, usage.length)).toBe(usage);
 		expect(readTree(dir)).toEqual([]);
 	});
 
@@ -2251,7 +2253,9 @@ describe("a run refused before it writes anything (#743)", () => {
 		);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain('unknown flag "--no-such-flag"');
-		expect(r.stderr).toContain("usage: node scripts/init-adopter.js");
+		expect(r.stderr).toContain(
+			`usage: node ${coreFile("scripts/init-adopter.js")}`,
+		);
 		expect(readTree(dir)).toEqual([]);
 	});
 

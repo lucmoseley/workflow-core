@@ -4,17 +4,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installCommitMsgHook } from "./lib/commit-msg-testkit";
+import { seenFrom } from "./lib/core-path-testkit";
 import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
+import { readRuleText } from "./lib/rule-text.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const ROOT = path.join(__dirname, "..");
 const SCRIPT = path.join(__dirname, "check-weakens-line.js");
-const RULE = fs
-	.readFileSync(
-		path.join(ROOT, "docs", "agents", "rules", "weakens-line.txt"),
-		"utf8",
-	)
-	.trimEnd();
+const rule = () => seenFrom(dir, () => readRuleText("weakens-line"));
 
 let dir: string;
 let hooks: string;
@@ -56,7 +53,7 @@ const expectRefused = (
 ) => {
 	expect(r.status).toBe(1);
 	for (const name of names) expect(r.out).toContain(`Weakens: ${name}`);
-	expect(r.out).toContain(RULE);
+	expect(r.out).toContain(rule());
 };
 
 const CONFIG = ".claude/workflow-core.json";

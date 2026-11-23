@@ -4,11 +4,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
+import { coreFile, seenFrom } from "./lib/core-path-testkit";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
 	guardDirs,
 } from "./lib/pretool-guard-testkit";
+import { readRuleText } from "./lib/rule-text.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const CORE = "guard-vitest-wrapper";
@@ -29,6 +31,8 @@ const FRAGMENT = fs
 
 let dir: string;
 let config: string;
+
+const fragment = () => seenFrom(dir, () => readRuleText("vitest-wrapper"));
 
 beforeEach(() => {
 	({ dir, config } = guardDirs("guard-vitest-wrapper-"));
@@ -69,11 +73,13 @@ describe("each exit path", () => {
 
 	it("carries the whole fragment and the wrapped command on the first run", () => {
 		const text = message("node_modules/.bin/vitest run scripts/foo.test.ts");
-		expect(text).toContain(FRAGMENT);
+		expect(text).toContain(fragment());
 		expect(text).toContain(
 			"This command: node_modules/.bin/vitest run scripts/foo.test.ts",
 		);
-		expect(text).toContain("node scripts/run-vitest.js scripts/foo.test.ts");
+		expect(text).toContain(
+			`node ${coreFile("scripts/run-vitest.js")} scripts/foo.test.ts`,
+		);
 	});
 
 	it("keeps the latch marker where a compaction clear will find it", () => {
@@ -86,9 +92,11 @@ describe("each exit path", () => {
 	it("drops to the standing line once latched, still warning", () => {
 		message("vitest run x.test.ts");
 		const second = message("vitest run y.test.ts");
-		expect(second).not.toContain(FRAGMENT);
+		expect(second).not.toContain(fragment());
 		expect(second).toContain("rule:vitest-wrapper");
-		expect(second).toContain("node scripts/run-vitest.js y.test.ts");
+		expect(second).toContain(
+			`node ${coreFile("scripts/run-vitest.js")} y.test.ts`,
+		);
 	});
 
 	it("repeats the fragment's own first sentence, not a paraphrase of it", () => {
@@ -101,7 +109,7 @@ describe("each exit path", () => {
 describe("each input channel", () => {
 	it("keys the latch on the session: a second session is told afresh", () => {
 		message("vitest run x.test.ts");
-		expect(message("vitest run x.test.ts", "other")).toContain(FRAGMENT);
+		expect(message("vitest run x.test.ts", "other")).toContain(fragment());
 	});
 
 	it("keys the latch on the agent: a subagent is told afresh", () => {
@@ -110,15 +118,15 @@ describe("each input channel", () => {
 			...buildBashPayload("vitest run x.test.ts", "test"),
 			agent_id: "sub1",
 		});
-		expect(out.additionalContext).toContain(FRAGMENT);
+		expect(out.additionalContext).toContain(fragment());
 		expect(readLatches()).toContain(
 			".rule-injected-warn.vitest-wrapper-asub1-test",
 		);
 	});
 
 	it("warns without a session id, every time, latching nothing, logged", () => {
-		expect(message("vitest run x.test.ts", null)).toContain(FRAGMENT);
-		expect(message("vitest run x.test.ts", null)).toContain(FRAGMENT);
+		expect(message("vitest run x.test.ts", null)).toContain(fragment());
+		expect(message("vitest run x.test.ts", null)).toContain(fragment());
 		expect(readLatches()).toEqual([]);
 		expect(readFailOpenLog(config, dir)).toMatch(
 			/no session key — rule vitest-wrapper unlatchable, delivered again/,
@@ -133,7 +141,7 @@ describe("each production adapter, crossed once", () => {
 			WFC_RULES_DIR: empty,
 		});
 		expect(text).toContain("docs/agents/rules/vitest-wrapper.txt");
-		expect(text).not.toContain(FRAGMENT);
+		expect(text).not.toContain(fragment());
 		expect(readLatches()).toEqual([
 			".rule-injected-warn.vitest-wrapper-main-test",
 		]);

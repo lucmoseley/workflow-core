@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { MARKERS_REL } from "./lib/marker-root";
@@ -281,7 +282,7 @@ describe("the body carries #1157 Q7's breakdown", () => {
 
 	it("gives the replay command over its own window (#3060)", () => {
 		expect(body()).toContain(
-			`node scripts/replay-suite-queue-wait.js --since ${iso(NOW - DAY)} --until ${iso(NOW)}`,
+			`node ${coreFile("scripts/replay-suite-queue-wait.js")} --since ${iso(NOW - DAY)} --until ${iso(NOW)}`,
 		);
 	});
 });

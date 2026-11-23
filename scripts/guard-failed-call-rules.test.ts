@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
+import { seenFrom } from "./lib/core-path-testkit";
 import {
 	guardDirs,
 	guardOutput,
@@ -81,7 +82,9 @@ describe("each exit", () => {
 	it("hands a killed call the stored silent-kill rule as PostToolUseFailure additionalContext on exit 0", () => {
 		const out = killed();
 		expect(out.hookEventName).toBe("PostToolUseFailure");
-		expect(out.additionalContext).toBe(readRuleText("silent-kill"));
+		expect(out.additionalContext).toBe(
+			seenFrom(dir, () => readRuleText("silent-kill")),
+		);
 		expect(readFaults()).toBe("");
 	});
 

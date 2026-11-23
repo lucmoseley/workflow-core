@@ -13,6 +13,7 @@ import {
 	it,
 	vi,
 } from "vitest";
+import { coreFile } from "./core-path-testkit";
 import { printed, stubGhRoutes } from "./gh-stub";
 import { reportForRun } from "./run-cost-report.js";
 import { runInProcess } from "./run-in-process.js";
@@ -407,7 +408,7 @@ describe("the program entry", () => {
 		const r = run("{}", []);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
-			"usage: node scripts/lib/run-cost-report.js <timings.json>",
+			`usage: node ${coreFile("scripts/lib/run-cost-report.js")} <timings.json>`,
 		);
 	});
 });

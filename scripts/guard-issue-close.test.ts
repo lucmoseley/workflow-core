@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
+import { coreFile, seenFrom } from "./lib/core-path-testkit";
 import { asRecorded, GRAPHQL_FAKE } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import {
@@ -130,10 +131,10 @@ describe("each exit", () => {
 			"acme/tracker#181 is closed",
 		);
 		expect(out.permissionDecisionReason).toContain(
-			readRuleText("close-outstanding"),
+			seenFrom(dir, () => readRuleText("close-outstanding")),
 		);
 		expect(out.permissionDecisionReason).toContain(
-			"node scripts/resolve-ticket.js <n> --comment-file <file>",
+			`node ${coreFile("scripts/resolve-ticket.js")} <n> --comment-file <file>`,
 		);
 	});
 

@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
 const require_ = createRequire(__filename);
@@ -366,7 +367,7 @@ describe("where the trial stands", () => {
 		const { out } = run("--notify");
 
 		expect(out).toContain(
-			"node scripts/jev-verdict.js 111111111111 right|wrong",
+			`node ${coreFile("scripts/jev-verdict.js")} 111111111111 right|wrong`,
 		);
 		expect(out).toContain("| Two ways to take this.");
 		expect(out).toContain("| (A) one");

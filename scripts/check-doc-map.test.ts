@@ -220,6 +220,8 @@ const check = (env: Record<string, string> = {}, ...args: string[]) => {
 	return { status: r.status, stdout: r.stdout, out: `${r.stdout}${r.stderr}` };
 };
 
+const bareGenerator = `node ${bareCoreRoot()}/scripts/generate-doc-map-section-a.js`;
+
 const baselineRows = [row(MAP), row("docs/notes.md"), row("CLAUDE.md")];
 
 const withRepo = <T>(dir: string, fn: () => T): T => {
@@ -2794,7 +2796,7 @@ describe("typed Consumes references", () => {
 		expect(r.out).toContain("resolve to nothing");
 		expect(r.out).toContain("docs/notes.md → docs/gone.md");
 		expect(r.out).toContain("names no tracked file and nothing on disk");
-		expect(r.out).toContain("npm run gen:doc-map-section-a");
+		expect(r.out).toContain(bareGenerator);
 	});
 
 	it("WARNs at exit 0 on a `path` present on disk but untracked, naming the reference and saying to commit the file", () => {
@@ -2948,7 +2950,7 @@ describe("typed Consumes references", () => {
 		]);
 		const r = check();
 		expect(r.out).toContain("Repoint the prefix");
-		expect(r.out).toContain("npm run gen:doc-map-section-a");
+		expect(r.out).toContain(bareGenerator);
 	});
 
 	it("does not soften a pair-scope fault while the map is dirty", () => {
@@ -4357,17 +4359,42 @@ describe("Section A render agreement", () => {
 		expect(r.out).toContain("§A matches the generator against 3 sidecar rows");
 	});
 
+	const handEdited = [
+		rendered[0],
+		"| `docs/doc-map.md` | hand-written prose | `source-of-truth` | Direct | — |",
+		rendered[2],
+	];
+
 	it("fails on a hand-edited row, naming the path and the regeneration command", () => {
-		setUp([
-			rendered[0],
-			"| `docs/doc-map.md` | hand-written prose | `source-of-truth` | Direct | — |",
-			rendered[2],
-		]);
+		setUp(handEdited);
 		const r = check();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("§A does not match what the generator renders");
 		expect(r.out).toContain("docs/doc-map.md — row differs");
-		expect(r.out).toContain("npm run gen:doc-map-section-a");
+		expect(r.out).toContain(bareGenerator);
+	});
+
+	it("names the generator by its absolute path where the core is a source checkout outside the adopter (#5584)", () => {
+		const core = mkScratchDir("checkout-core-");
+		fs.writeFileSync(path.join(core, "package.json"), "{}\n");
+		execFileSync("git", ["init", "-q"], { cwd: core });
+		setUp(handEdited);
+		const r = check({ WFC_SCRIPT_ROOT: core });
+		expect(r.status).toBe(1);
+		expect(r.out).toContain(
+			`  node ${core}/scripts/generate-doc-map-section-a.js\n`,
+		);
+		expect(r.out).not.toContain("npm run");
+	});
+
+	it("names the npm script where the core is the checked repo's own worktree (#5584)", () => {
+		setUp(handEdited);
+		commit("base");
+		const core = cutWorktree(repo);
+		fs.writeFileSync(path.join(core, "package.json"), "{}\n");
+		const r = check({ WFC_SCRIPT_ROOT: core });
+		expect(r.status).toBe(1);
+		expect(r.out).toContain("  npm run gen:doc-map-section-a\n");
 	});
 
 	it("names the plugin's own generator and register-doc.js in an install, and the generator runs from the adopter (#2066)", () => {

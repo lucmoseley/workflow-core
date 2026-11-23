@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
 import { SELF_PLUGIN_DIR } from "./lib/core-hooks.js";
+import { seenFrom } from "./lib/core-path-testkit";
 import { readManifestRows } from "./lib/guard-cores.js";
 import {
 	expectShellHooks,
@@ -69,6 +70,9 @@ const spawnLine = (
 		env: { ...lineEnvAt(project), ...env },
 		stdin,
 	});
+
+const seenRule = (id: string, cwd = dir) =>
+	seenFrom(cwd, () => readRuleText(id));
 
 const emission = (
 	payload: Payload,
@@ -137,7 +141,7 @@ describe("each exit path", () => {
 		const call = bash({ command: "ls -la", run_in_background: true });
 		expect(emission(call)).toEqual({
 			hookEventName: "PreToolUse",
-			additionalContext: readRuleText("killed-background-job"),
+			additionalContext: seenRule("killed-background-job"),
 		});
 		expect(
 			fs.existsSync(
@@ -359,11 +363,11 @@ describe("the real adapters, crossed once", () => {
 		);
 		expect(out.additionalContext).toBe(
 			[
-				readRuleText("test-run-cost"),
-				readRuleText("test-time-seam"),
-				readRuleText("test-reads-visible"),
+				seenRule("test-run-cost", link),
+				seenRule("test-time-seam", link),
+				seenRule("test-reads-visible", link),
 				`a.test.ts adds ${cite(2015)} (write #2015) — the inherited tracker never used that number, so the citation means this repo's own issue.`,
-				readRuleText("citation-tracker"),
+				seenRule("citation-tracker", link),
 			].join("\n\n"),
 		);
 	});
@@ -393,7 +397,7 @@ describe("the host's disabled list, read off its config (#2786)", () => {
 	it("silences nothing for a file name that is no core's row name", () => {
 		listing(["guard-bg-job.sh"]);
 		expect(emission(call("s2")).additionalContext).toContain(
-			readRuleText("killed-background-job"),
+			seenRule("killed-background-job"),
 		);
 	});
 });
@@ -451,7 +455,7 @@ describe("the scratch-path cores through the hook line (#2789)", () => {
 			`Same command, sanctioned target: ${dir}/.claude/tmp/a.md`,
 		);
 		expect(out.permissionDecisionReason).toContain(
-			readRuleText("job-dir-scratch").trim(),
+			seenRule("job-dir-scratch").trim(),
 		);
 	});
 
@@ -584,7 +588,7 @@ describe("the session-behaviour cores through the hook line (#2790)", () => {
 	it("hands a comm-matched Claude count its rule once a session", () => {
 		const call = bash({ command: "pgrep -c claude" });
 		expect(emission(call).additionalContext).toContain(
-			readRuleText("claude-process-count").trim(),
+			seenRule("claude-process-count").trim(),
 		);
 		expect(emission(call)).toBeNull();
 	});

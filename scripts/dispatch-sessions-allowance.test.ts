@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import {
 	agentsListing,
 	dispatchFixture,
@@ -150,7 +151,7 @@ describe("the allowance cap (#371)", () => {
 		expect(r.code).toBe(3);
 		expect(r.stderr).toContain("the allowance cap cannot be sized");
 		expect(r.stderr).toContain(
-			"the session cost table is unreadable — build it: node scripts/measure-session-cost.js --write",
+			`the session cost table is unreadable — build it: node ${coreFile("scripts/measure-session-cost.js")} --write`,
 		);
 		expect(readLaunches()).toHaveLength(0);
 	});

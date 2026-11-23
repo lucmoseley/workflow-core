@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { seenFrom } from "./lib/core-path-testkit";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -33,7 +34,7 @@ describe("the core, through the dispatcher", () => {
 		const out = emission("node --max-old-space-size=8192 x.js");
 		expect(out).toEqual({
 			hookEventName: "PreToolUse",
-			additionalContext: readRuleText("node-heap"),
+			additionalContext: seenFrom(dir, () => readRuleText("node-heap")),
 		});
 		expect(
 			fs.existsSync(

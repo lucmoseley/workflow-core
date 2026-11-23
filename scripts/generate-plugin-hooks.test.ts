@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MARKER_WRITER, SELF_PLUGIN_HOOKS } from "./lib/core-hooks.js";
 import { CANARY_MAIN_SCRIPTS, MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
+import { coreFile } from "./lib/core-path-testkit";
 import { guardDirs, isDenyCapableIn } from "./lib/deny-capable.js";
 import { guardKey } from "./lib/guard-fires.js";
 import { renderAt } from "./lib/plugin-hooks-render.js";
@@ -302,6 +303,8 @@ describe("a render in a fixture repo", () => {
 		stage();
 		return run(dir, "--check");
 	};
+	const regenerate = () =>
+		`run node ${coreFile("scripts/generate-plugin-hooks.js")}`;
 
 	const readTree = () =>
 		fs
@@ -426,7 +429,7 @@ describe("a render in a fixture repo", () => {
 		const stale = check();
 		expect(stale.status).toBe(1);
 		expect(stale.stderr).toContain("hooks/hooks.json is stale");
-		expect(stale.stderr).toContain("run node scripts/generate-plugin-hooks.js");
+		expect(stale.stderr).toContain(regenerate());
 		fs.writeFileSync(path.join(dir, SELF_PLUGIN_HOOKS), "{");
 		const broken = check();
 		expect(broken.status).toBe(2);
@@ -510,7 +513,7 @@ describe("a render in a fixture repo", () => {
 			expect(r.stderr).toContain(
 				'self-plugin/hooks/hooks.json: deny.sh on PreToolUse Bash lacks onFailure "block"',
 			);
-			expect(r.stderr).toContain("run node scripts/generate-plugin-hooks.js");
+			expect(r.stderr).toContain(regenerate());
 		});
 
 		it("--check exits 1 naming a guard that cannot refuse but carries it", () => {
@@ -524,7 +527,7 @@ describe("a render in a fixture repo", () => {
 			expect(r.stderr).toContain(
 				'guard.sh on PreToolUse Bash carries onFailure "block"',
 			);
-			expect(r.stderr).toContain("run node scripts/generate-plugin-hooks.js");
+			expect(r.stderr).toContain(regenerate());
 		});
 
 		it("--check judges a guard by its staged copy, not its disk copy (#2901)", () => {

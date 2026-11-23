@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { API_PROMPT, IDLE_PROMPT, scriptPrompt } from "./lib/loop-prompts.js";
 import { ASK, SCRIPTED_PROMPT } from "./lib/recorder-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
@@ -171,8 +172,7 @@ describe("a prompt nobody typed", () => {
 
 describe("the away reminder (#4846)", () => {
 	const Reminder = JSON.stringify({
-		systemMessage:
-			"away mode is on — run `node scripts/refill-loop.js set --normal`",
+		systemMessage: `away mode is on — run \`node ${coreFile("scripts/refill-loop.js")} set --normal\``,
 	});
 	const Hour = 60 * 60 * 1000;
 	const control = (mode: string, away?: object) =>
