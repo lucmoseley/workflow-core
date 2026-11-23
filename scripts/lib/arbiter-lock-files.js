@@ -8,6 +8,7 @@ const { sleepSync } = require("./sleep-sync.js");
 const { caught, ignoreFailure } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
+/** @typedef {import("./arbiter-records.js").ReadLock} ReadLock */
 
 // guess, #5529
 const DEBRIS_AGE_MS = 60 * 60 * 1000;
@@ -93,7 +94,10 @@ function settle(ms = TORN_SETTLE_MS) {
 	sleepSync(ms);
 }
 
-/** @param {() => void} [pause] */
+/**
+ * @param {() => void} [pause]
+ * @returns {ReadLock[]|null}
+ */
 function readLocks(pause = settle) {
 	const dir = core.paths.locksDir();
 	let files = [];
@@ -115,29 +119,33 @@ function readLocks(pause = settle) {
 	/**
 	 * @param {string} f
 	 * @param {boolean} settled
+	 * @returns {ReadLock|{file: string, torn: true}|null}
 	 */
 	const judge = (f, settled) => {
 		const full = path.join(dir, f);
 		let probe;
 		try {
-			probe = core.probeRecord(full);
+			probe = core.probeRecord(full, isLockRecord);
 		} catch (e) {
 			core.logError("list", e);
 			return { file: f, unreadable: true, reason: "refused" };
 		}
 		if (probe.state === "absent") return null;
-		if (probe.state !== "unparseable") return probe.record;
+		if (probe.state === "ok") return probe.record;
 		if (!settled && !aged(full)) return { file: f, torn: true };
 		return { file: f, unreadable: true, reason: "unparseable" };
 	};
 
 	const first = files.map((f) => ({ f, l: judge(f, false) }));
-	if (!first.some(({ l }) => l?.torn))
-		return first.map(({ l }) => l).filter(Boolean);
-	pause();
-	return first
-		.map(({ f, l }) => (l?.torn ? judge(f, true) : l))
-		.filter(Boolean);
+	const anyTorn = first.some(({ l }) => l && "torn" in l);
+	if (anyTorn) pause();
+	/** @type {ReadLock[]} */
+	const locks = [];
+	for (const { f, l } of first) {
+		const judged = l && "torn" in l ? judge(f, true) : l;
+		if (judged && !("torn" in judged)) locks.push(judged);
+	}
+	return locks;
 }
 
 /** @param {string|null} sessionId */
@@ -153,8 +161,8 @@ function readLocksHeldBy(sessionId) {
 	if (!sessionId) return null;
 	const locks = readLocks();
 	if (locks === null) return null;
-	return /** @type {LockRecord[]} */ (
-		locks.filter((l) => !l.unreadable && l.sessionId === sessionId)
+	return locks.flatMap((l) =>
+		!l.unreadable && l.sessionId === sessionId ? [l] : [],
 	);
 }
 
@@ -171,21 +179,13 @@ function readOwnLockOnFile(rel, sessionId) {
 	);
 	if (direct?.sessionId === sessionId) return direct;
 	if (regions.isRegioned(file)) {
-		const all = readLocks() || [];
-		const mine = all.find(
-			(l) =>
-				l &&
-				!l.unreadable &&
-				core.splitSubject(l.path).rel === file &&
-				l.sessionId === sessionId,
+		const onFile = (readLocks() || []).flatMap((l) =>
+			!l.unreadable && core.splitSubject(l.path).rel === file ? [l] : [],
 		);
+		const mine = onFile.find((l) => l.sessionId === sessionId);
 		if (mine) return mine;
 		if (direct) return direct;
-		return (
-			all.find(
-				(l) => l && !l.unreadable && core.splitSubject(l.path).rel === file,
-			) || null
-		);
+		return onFile[0] ?? null;
 	}
 	return direct;
 }

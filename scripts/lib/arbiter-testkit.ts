@@ -326,11 +326,13 @@ export function acquireSeeing(
 	const real = core.probeRecord;
 	let stale = false;
 	// #5628
-	const read = vi.spyOn(core, "probeRecord").mockImplementation((file) => {
-		if (file !== store.paths.lock(rel)) return real(file);
-		stale = true;
-		return { state: "ok", record: seen };
-	});
+	const read = vi
+		.spyOn(core, "probeRecord")
+		.mockImplementation((file, guard) => {
+			if (file !== store.paths.lock(rel)) return real(file, guard);
+			stale = true;
+			return { state: "ok", record: seen };
+		});
 	try {
 		const verdict = store.acquire(rel, me);
 		if (!stale) throw new Error(`acquire never read the lock at ${rel}`);

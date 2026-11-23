@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ListedLock } from "./arbiter-records.js";
+import type { ReadLock } from "./arbiter-records.js";
 import { freshSandbox } from "./arbiter-testkit";
 import { defineTemplate } from "./git-fixture";
 import {
@@ -18,7 +18,7 @@ import {
 
 const sb = freshSandbox();
 
-const asLock = (o: object) => o as ListedLock;
+const asLock = (o: object) => o as ReadLock;
 
 const lock = (p: string, sessionId: string, agedHours = 24) =>
 	asLock({
@@ -65,7 +65,7 @@ describe("classifyClaims", () => {
 	) => {
 		const claim = asLock(l);
 		const r = classifyClaims([claim], ids, opts);
-		const buckets = Object.entries(r) as [string, ListedLock[]][];
+		const buckets = Object.entries(r) as [string, ReadLock[]][];
 		const hit = buckets.filter(([, v]) => v.includes(claim)).map(([k]) => k);
 		expect(hit).toHaveLength(1);
 		return hit[0];

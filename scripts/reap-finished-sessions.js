@@ -129,8 +129,12 @@ function claimHolders() {
 	/** @type {string[]} */
 	const unnamed = [];
 	for (const l of locks) {
-		if (!l || l.unreadable || !l.sessionId) {
-			unnamed.push(l?.file ?? l?.path ?? "an unnamed record");
+		if (l.unreadable) {
+			unnamed.push(l.file);
+			continue;
+		}
+		if (!l.sessionId) {
+			unnamed.push(l.path);
 			continue;
 		}
 		const mine = held.get(l.sessionId) ?? [];

@@ -424,12 +424,6 @@ describe("a lock broken on the final retry", () => {
 });
 
 describe("readLocks — a record that will not parse", () => {
-	interface Listed {
-		sessionId?: string;
-		unreadable?: boolean;
-		file?: string;
-	}
-
 	const planted = (name: string, body: string) => {
 		fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 		fs.writeFileSync(path.join(store.paths.locksDir(), name), body);
@@ -441,10 +435,26 @@ describe("readLocks — a record that will not parse", () => {
 		const locks = store.readLocks();
 		assert(locks);
 		expect(locks).toHaveLength(2);
-		expect(locks.find((l: Listed) => l.sessionId === "alice")).toBeTruthy();
-		const bad = locks.find((l: Listed) => l.unreadable);
+		expect(
+			locks.find((l) => !l.unreadable && l.sessionId === "alice"),
+		).toBeTruthy();
+		const bad = locks.find((l) => l.unreadable);
+		assert(bad?.unreadable);
 		expect(bad.file).toBe("deadbeefcafe0002.json");
 		expect(bad.reason).toBe("unparseable");
+	});
+
+	it("lists a record that parses but is no lock as unparseable", () => {
+		planted("deadbeefcafe000c.json", JSON.stringify({ path: "docs/PRD.md" }));
+		const locks = store.readLocks(noop);
+		assert(locks);
+		expect(locks).toEqual([
+			{
+				file: "deadbeefcafe000c.json",
+				unreadable: true,
+				reason: "unparseable",
+			},
+		]);
 	});
 
 	it("settles: a record finished during the pause is a lock, not a fault", () => {
@@ -460,8 +470,10 @@ describe("readLocks — a record that will not parse", () => {
 		);
 		assert(locks);
 		expect(locks).toHaveLength(2);
-		expect(locks.some((l: Listed) => l.unreadable)).toBe(false);
-		expect(locks.find((l: Listed) => l.sessionId === "bob")).toBeTruthy();
+		expect(locks.some((l) => l.unreadable)).toBe(false);
+		expect(
+			locks.find((l) => !l.unreadable && l.sessionId === "bob"),
+		).toBeTruthy();
 	});
 
 	it("does not settle twice: one pause covers the whole listing", () => {
@@ -473,7 +485,7 @@ describe("readLocks — a record that will not parse", () => {
 		});
 		expect(pauses).toBe(1);
 		assert(locks);
-		expect(locks.filter((l: Listed) => l.unreadable)).toHaveLength(2);
+		expect(locks.filter((l) => l.unreadable)).toHaveLength(2);
 	});
 
 	// #852.
@@ -490,6 +502,7 @@ describe("readLocks — a record that will not parse", () => {
 		});
 		assert(locks);
 		expect(locks).toHaveLength(1);
+		assert(locks[0]?.unreadable);
 		expect(locks[0].reason).toBe("unparseable");
 	});
 
@@ -503,7 +516,7 @@ describe("readLocks — a record that will not parse", () => {
 		});
 		expect(pauses).toBe(1);
 		assert(locks);
-		expect(locks.filter((l: Listed) => l.unreadable)).toHaveLength(2);
+		expect(locks.filter((l) => l.unreadable)).toHaveLength(2);
 	});
 
 	it("pauses for an aged record whose age cannot be read", () => {
@@ -819,17 +832,31 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 	const sleepSyncPath = path.join(__dirname, "sleep-sync.js");
 
 	describe("probeRecord — the two nulls readRecord collapses", () => {
+		const hasA = (r: unknown): r is { a: number } =>
+			typeof r === "object" && r !== null && "a" in r;
+
 		it("tells absent, unparseable and ok apart", () => {
 			const f = path.join(sb.dir, "probe.json");
-			expect(core.probeRecord(f)).toEqual({ state: "absent", record: null });
+			expect(core.probeRecord(f, hasA)).toEqual({
+				state: "absent",
+				record: null,
+			});
 			fs.writeFileSync(f, "");
-			expect(core.probeRecord(f).state).toBe("unparseable");
+			expect(core.probeRecord(f, hasA).state).toBe("unparseable");
 			fs.writeFileSync(f, "{not json");
-			expect(core.probeRecord(f).state).toBe("unparseable");
+			expect(core.probeRecord(f, hasA).state).toBe("unparseable");
 			fs.writeFileSync(f, "5");
-			expect(core.probeRecord(f).state).toBe("unparseable");
+			expect(core.probeRecord(f, hasA).state).toBe("unparseable");
+			fs.writeFileSync(f, '{"b":1}');
+			expect(core.probeRecord(f, hasA)).toEqual({
+				state: "unparseable",
+				record: null,
+			});
 			fs.writeFileSync(f, '{"a":1}');
-			expect(core.probeRecord(f)).toEqual({ state: "ok", record: { a: 1 } });
+			expect(core.probeRecord(f, hasA)).toEqual({
+				state: "ok",
+				record: { a: 1 },
+			});
 		});
 
 		it("throws on a refused read, exactly as readRecord does (mantahostels#174)", () => {
@@ -839,7 +866,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 			fs.writeFileSync(f, "{}");
 			fs.chmodSync(dir, 0o000);
 			try {
-				expect(() => core.probeRecord(f)).toThrow(/EACCES/);
+				expect(() => core.probeRecord(f, hasA)).toThrow(/EACCES/);
 			} finally {
 				fs.chmodSync(dir, 0o700);
 			}
@@ -856,6 +883,18 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		expect(taken.lock).not.toBeNull();
 		expect(readLockAt(p).sessionId).toBe("a");
 		expect(readErrors()).not.toContain("no lock written");
+	});
+
+	it("breaks a record that parses but is no lock, as it breaks a torn one", () => {
+		registerSession(sb, "a", process.pid);
+		const p = corrupt(JSON.stringify({ path: rel, sessionId: "bob" }));
+
+		const taken = store.acquire(rel, store.identify("a"));
+
+		expect(taken.verdict).toBe("claimed");
+		expect(readLockAt(p).sessionId).toBe("a");
+		expect(readBreaks()).toHaveLength(1);
+		expect(readErrors()).toContain("unparseable lock record");
 	});
 
 	it("records the break, so a destroyed claim is visible rather than silent", () => {

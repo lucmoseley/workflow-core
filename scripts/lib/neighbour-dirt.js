@@ -4,11 +4,7 @@ const store = require("./arbiter-store");
 const { readDirtyTracked, readUntrackedFiles } = require("./dirty-tree");
 
 /**
- * @typedef {{ unreadable?: boolean, sessionId?: string, path?: string, tree?: string,
- *   pid?: number, procStart?: string|number, bootId?: string }} Lock
- */
-/**
- * @typedef {{ readLocks: () => Lock[]|null,
+ * @typedef {{ readLocks: () => import("./arbiter-store").ReadLock[]|null,
  *   subjectPath: (p: string) => string }} LockSource
  */
 

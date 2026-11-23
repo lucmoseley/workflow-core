@@ -31,7 +31,9 @@ function pruneBlobRefs() {
 		core.logError("pruneBlobRefs", new Error("break records unreadable"));
 		return;
 	}
-	const claimed = new Set(locks.map((l) => l.claimId).filter(Boolean));
+	const claimed = new Set(
+		locks.flatMap((l) => (l.unreadable ? [] : [l.claimId])),
+	);
 	const observed = observations.readObservedIds();
 	if (observed === null) {
 		core.logError("pruneBlobRefs", new Error("observations unreadable"));

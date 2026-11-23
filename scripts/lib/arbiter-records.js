@@ -59,6 +59,7 @@
 
 /**
  * @typedef {{unreadable: true, reason: "refused"|"unparseable", file: string}} UnreadableRecord
+ * @typedef {(LockRecord & {unreadable?: false})|UnreadableRecord} ReadLock
  * @typedef {{sha: string, at: string|null, gone: boolean}} PinnedVersion
  * @typedef {{lock: LockRecord, versions: PinnedVersion[], unreadable?: false}|UnreadableRecord|null} ClaimVersions
  * @typedef {{versions: PinnedVersion[], unreadable?: false}|UnreadableRecord|null} ObservedVersions

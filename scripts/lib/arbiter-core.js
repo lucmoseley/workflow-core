@@ -212,8 +212,13 @@ function readRecord(file) {
 	}
 }
 
-/** @param {string} file */
-function probeRecord(file) {
+/**
+ * @template T
+ * @param {string} file
+ * @param {(record: unknown) => record is T} guard
+ * @returns {{state: "ok", record: T}|{state: "absent"|"unparseable", record: null}}
+ */
+function probeRecord(file, guard) {
 	let text;
 	try {
 		text = fs.readFileSync(file, "utf8");
@@ -223,7 +228,7 @@ function probeRecord(file) {
 	}
 	try {
 		const record = JSON.parse(text);
-		return record && typeof record === "object"
+		return guard(record)
 			? { state: "ok", record }
 			: { state: "unparseable", record: null };
 	} catch {
@@ -269,38 +274,31 @@ function readRecordOrLogAs(file, where, guard) {
 }
 
 /**
+ * @template T
  * @param {string} file
  * @param {string} where
  * @param {() => void} pause
- * @returns {{record: any, unreadable?: false}|UnreadableRecord}
+ * @param {(record: unknown) => record is T} guard
+ * @returns {{record: T|null, unreadable?: false}|UnreadableRecord}
  */
-function readRecordOrFlag(file, where, pause) {
-	/** @param {boolean} settled */
-	const probe = (settled) => {
-		let p;
+function readRecordOrFlag(file, where, pause, guard) {
+	const probe = () => {
 		try {
-			p = probeRecord(file);
+			return probeRecord(file, guard);
 		} catch (e) {
 			logError(where, e);
-			return {
-				unreadable: /** @type {const} */ (true),
-				reason: /** @type {const} */ ("refused"),
-				file,
-			};
+			return null;
 		}
-		if (p.state !== "unparseable") return { record: p.record };
-		if (!settled) return null;
-		logError(where, new Error(`record will not parse: ${file}`));
-		return {
-			unreadable: /** @type {const} */ (true),
-			reason: /** @type {const} */ ("unparseable"),
-			file,
-		};
 	};
-	const first = probe(false);
-	if (first) return first;
-	pause();
-	return /** @type {{record: any}|UnreadableRecord} */ (probe(true));
+	let p = probe();
+	if (p?.state === "unparseable") {
+		pause();
+		p = probe();
+	}
+	if (!p) return { unreadable: true, reason: "refused", file };
+	if (p.state !== "unparseable") return { record: p.record };
+	logError(where, new Error(`record will not parse: ${file}`));
+	return { unreadable: true, reason: "unparseable", file };
 }
 
 /** @param {object} body */

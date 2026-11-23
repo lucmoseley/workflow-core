@@ -159,6 +159,7 @@ function claimVersions(rel) {
 		core.paths.lock(rel),
 		`versions ${rel}`,
 		lockFiles.settle,
+		isLockRecord,
 	);
 	if (read.unreadable) return read;
 	const lock = read.record;

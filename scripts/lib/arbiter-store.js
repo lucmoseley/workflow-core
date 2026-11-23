@@ -1,5 +1,6 @@
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
 /** @typedef {import("./arbiter-records.js").ListedLock} ListedLock */
+/** @typedef {import("./arbiter-records.js").ReadLock} ReadLock */
 /** @typedef {import("./arbiter-records.js").BreakRecord} BreakRecord */
 /** @typedef {import("./arbiter-records.js").ContentState} ContentState */
 /** @typedef {import("./arbiter-records.js").ContentPin} ContentPin */

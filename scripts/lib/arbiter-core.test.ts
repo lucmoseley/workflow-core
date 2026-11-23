@@ -471,12 +471,17 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 
 	describe("readRecordOrFlag — absent, present-and-unreadable, told apart (mantahostels#2382)", () => {
 		const noPause = noop;
+		const hasA = (r: unknown): r is { a: number } =>
+			typeof r === "object" && r !== null && "a" in r;
 
 		it("re-probes after the pause, so a TORN record is not called a fault", () => {
 			const f = path.join(sb.dir, "torn.json");
 			fs.writeFileSync(f, "{not json");
-			const seen = core.readRecordOrFlag(f, "test", () =>
-				fs.writeFileSync(f, JSON.stringify({ a: 1 })),
+			const seen = core.readRecordOrFlag(
+				f,
+				"test",
+				() => fs.writeFileSync(f, JSON.stringify({ a: 1 })),
+				hasA,
 			);
 			expect(seen.unreadable).toBeUndefined();
 			assert(!seen.unreadable);
@@ -486,7 +491,7 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 		it("calls a record still unparseable after the pause a fault, and logs it", () => {
 			const f = path.join(sb.dir, "corrupt.json");
 			fs.writeFileSync(f, "{not json");
-			const seen = core.readRecordOrFlag(f, "versions corrupt", noPause);
+			const seen = core.readRecordOrFlag(f, "versions corrupt", noPause, hasA);
 			expect(seen.unreadable).toBe(true);
 			assert(seen.unreadable);
 			expect(seen.reason).toBe("unparseable");
@@ -496,11 +501,29 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 			);
 		});
 
+		it("calls a record that parses but fails its guard unparseable, after the pause", () => {
+			const f = path.join(sb.dir, "misshapen.json");
+			fs.writeFileSync(f, JSON.stringify({ b: 1 }));
+			let paused = 0;
+			const seen = core.readRecordOrFlag(
+				f,
+				"test",
+				() => {
+					paused++;
+				},
+				hasA,
+			);
+			expect(paused).toBe(1);
+			assert(seen.unreadable);
+			expect(seen.reason).toBe("unparseable");
+		});
+
 		it("reads an absent record as absent, never as a fault", () => {
 			const seen = core.readRecordOrFlag(
 				path.join(sb.dir, "never-written.json"),
 				"test",
 				noPause,
+				hasA,
 			);
 			expect(seen.unreadable).toBeUndefined();
 			assert(!seen.unreadable);
@@ -511,9 +534,14 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 			const f = path.join(sb.dir, "fine.json");
 			fs.writeFileSync(f, JSON.stringify({ a: 1 }));
 			let paused = 0;
-			core.readRecordOrFlag(f, "test", () => {
-				paused++;
-			});
+			core.readRecordOrFlag(
+				f,
+				"test",
+				() => {
+					paused++;
+				},
+				hasA,
+			);
 			expect(paused).toBe(0);
 		});
 
@@ -525,9 +553,14 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 				fs.chmodSync(f, 0o000);
 				let paused = 0;
 				try {
-					const seen = core.readRecordOrFlag(f, "test", () => {
-						paused++;
-					});
+					const seen = core.readRecordOrFlag(
+						f,
+						"test",
+						() => {
+							paused++;
+						},
+						hasA,
+					);
 					expect(seen.unreadable).toBe(true);
 					assert(seen.unreadable);
 					expect(seen.reason).toBe("refused");

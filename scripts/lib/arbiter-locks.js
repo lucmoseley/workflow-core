@@ -167,7 +167,7 @@ function breakCorrupt(rel, me = null) {
 
 	let probe;
 	try {
-		probe = core.probeRecord(aside);
+		probe = core.probeRecord(aside, isLockRecord);
 	} catch (e) {
 		core.logError(`break ${rel}`, e);
 		lockFiles.restoreAside(aside, lockPath);
@@ -225,10 +225,8 @@ function conflictingLock(subject, me) {
 	if (!regions.isRegioned(rel)) return null;
 	const all = lockFiles.readLocks();
 	if (all === null) return null;
-	const others = /** @type {LockRecord[]} */ (
-		all.filter(
-			(l) => !l.unreadable && core.splitSubject(l.path).region !== region,
-		)
+	const others = all.flatMap((l) =>
+		!l.unreadable && core.splitSubject(l.path).region !== region ? [l] : [],
 	);
 	const resumed = core.resumedHolderTest(
 		"claim",
@@ -283,7 +281,7 @@ function judgeUndurable(lockPath, me) {
 function breakIfCorrupt(rel, lockPath, me, state) {
 	if (state === "absent") return;
 	lockFiles.settle();
-	if (core.probeRecord(lockPath).state !== "unparseable") return;
+	if (core.probeRecord(lockPath, isLockRecord).state !== "unparseable") return;
 	breakCorrupt(rel, me);
 }
 
@@ -393,7 +391,7 @@ function takeSubjectLock(rel, me, attempts) {
 		const took = claimIfFree();
 		if (took) return took;
 
-		const probe = core.probeRecord(lockPath);
+		const probe = core.probeRecord(lockPath, isLockRecord);
 		const existing = probe.record;
 		if (!existing) {
 			breakIfCorrupt(rel, lockPath, me, probe.state);

@@ -32,7 +32,7 @@ function newObservation({
 /**
  * @param {string} rel
  * @param {string|null} sessionId
- * @returns {{record: any, unreadable?: false}|import("./arbiter-records.js").UnreadableRecord|null}
+ * @returns {{record: ObservationRecord|null, unreadable?: false}|import("./arbiter-records.js").UnreadableRecord|null}
  */
 function probeObservation(rel, sessionId) {
 	rel = core.subjectPath(rel);
@@ -41,6 +41,7 @@ function probeObservation(rel, sessionId) {
 		core.paths.observation(rel, sessionId),
 		`observation read ${rel}`,
 		lockFiles.settle,
+		isObservationRecord,
 	);
 }
 

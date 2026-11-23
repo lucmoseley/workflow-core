@@ -146,7 +146,7 @@ function isDirtyClaim(dirt, lock) {
 	);
 }
 
-/** @typedef {import("./arbiter-store").ListedLock} Lock */
+/** @typedef {import("./arbiter-store").ReadLock} Lock */
 
 /**
  * @param {Lock} lock

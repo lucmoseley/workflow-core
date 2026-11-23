@@ -20,8 +20,7 @@ const { cli, readListing } = arbiterCli(sb);
 const inRepo = (rel: string) => path.join(sb.repo, rel);
 const readHeldPaths = () =>
 	(store.readLocks() ?? [])
-		.filter((l: { unreadable?: boolean }) => !l.unreadable)
-		.map((l: { path: string }) => l.path)
+		.flatMap((l) => (l.unreadable ? [] : [l.path]))
 		.sort();
 
 const neighbourHolds = (sessionId: string, subject: string) => {

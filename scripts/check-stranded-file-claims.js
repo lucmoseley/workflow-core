@@ -35,7 +35,7 @@ const describeAge = (hours) =>
 	hours === null ? "held since an unreadable time" : `held ${ageOf(hours)}`;
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
-/** @typedef {import("./lib/arbiter-store").ListedLock} Lock */
+/** @typedef {import("./lib/arbiter-store").ReadLock} Lock */
 /** @typedef {import("./lib/stranded-count").WorktreeDirt} WorktreeDirt */
 /**
  * @typedef {{path: string, tree?: string, sessionId: string,

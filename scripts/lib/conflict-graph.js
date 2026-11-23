@@ -64,7 +64,7 @@ function readHeldFiles(listed, openIssues) {
 	/** @type {HeldFile[]} */
 	const files = [];
 	for (const lock of locks) {
-		if (!isReadableOtherLock(lock, me)) continue;
+		if (lock.unreadable || !isOtherLock(lock, me)) continue;
 		if (!isLiveHolder(lock.sessionId, { listed, issuesOf, openIssues }))
 			continue;
 		files.push({
@@ -83,12 +83,12 @@ function readHeldFiles(listed, openIssues) {
 }
 
 /**
- * @param {NonNullable<ReturnType<typeof arbiter.readLocks>>[number]} lock
+ * @param {import("./arbiter-records.js").LockRecord} lock
  * @param {string|null} me
  * @returns {boolean}
  */
-function isReadableOtherLock(lock, me) {
-	if (!lock || lock.unreadable || !lock.path) return false;
+function isOtherLock(lock, me) {
+	if (!lock.path) return false;
 	return !(me && lock.sessionId === me);
 }
 
