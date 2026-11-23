@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { core, freshSandbox, live, store } from "./arbiter-testkit";
+import { freshSandbox, live, readLockAt, store } from "./arbiter-testkit";
 import { runCore, splitCheckout } from "./guard-core-testkit";
 
 const sb = freshSandbox();
@@ -31,7 +31,7 @@ describe("refresh-claims — re-record what this session holds, after a Bash cal
 
 	const write = (text: string) =>
 		fs.writeFileSync(path.join(sb.repo, REL), text);
-	const readLock = () => core.readRecord(store.paths.lock(REL));
+	const readLock = () => readLockAt(store.paths.lock(REL));
 
 	const claimed = (sessionId: string, text: string) => {
 		const me = live(sb, sessionId);
@@ -149,7 +149,7 @@ describe("a Bash call from a session in its own worktree (#4242)", () => {
 		store.acquire(REL, me);
 		store.recordContent(REL, me);
 		fs.writeFileSync(file, "v1.36\n");
-		const lock = () => core.readRecord(store.paths.lock(REL));
+		const lock = () => readLockAt(store.paths.lock(REL));
 		expect(store.contentState(REL, lock()).state).toBe("changed");
 		const r = runCore(
 			"refresh-claims",

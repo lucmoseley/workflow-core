@@ -44,13 +44,13 @@ function holderAlive(lock) {
 
 /**
  * @param {string} [readerRoot]
- * @returns {{ pid: number, procStart: string | null, bootId: string | null }}
+ * @returns {{ pid: number, procStart: string | null, bootId: string | undefined }}
  */
 function readOwnIdentity(readerRoot = procRoot()) {
 	return {
 		pid: process.pid,
 		procStart: readProcStartOf(process.pid, readerRoot),
-		bootId: readCurrentBootId(),
+		bootId: readCurrentBootId() ?? undefined,
 	};
 }
 

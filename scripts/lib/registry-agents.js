@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readProcStartOf } = require("./arbiter-proc.js");
 const { readRecord, sessionDirs } = require("./arbiter-core.js");
+const { isRecordObject } = require("./arbiter-records.js");
 const { readOwnJob } = require("./claude-stop.js");
 const { caught } = require("./caught.js");
 const headless = require("./headless-runs.js");
@@ -79,7 +80,7 @@ function readSeatAgents(seat) {
 		} catch {
 			continue;
 		}
-		const agent = entry && agentOf(seat, entry);
+		const agent = isRecordObject(entry) ? agentOf(seat, entry) : null;
 		if (agent) agents.push(agent);
 	}
 	return { agents, read: true };

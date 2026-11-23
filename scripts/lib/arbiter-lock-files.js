@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const regions = require("./doc-map-regions.js");
 const core = require("./arbiter-core.js");
+const { isLockRecord } = require("./arbiter-records.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { caught, ignoreFailure } = require("./caught.js");
 
@@ -48,7 +49,7 @@ function dropIfUnchanged(rel, isDroppable) {
 	const aside = renameAside(core.paths.lock(rel));
 	if (aside === null) return { outcome: "contended", moved: null };
 
-	const moved = core.readRecordOrLog(aside, `drop ${rel}`);
+	const moved = core.readRecordOrLogAs(aside, `drop ${rel}`, isLockRecord);
 	if (moved !== null && isDroppable(moved)) {
 		ignoreFailure(() => fs.unlinkSync(aside));
 		return { outcome: "dropped", moved };
@@ -70,7 +71,7 @@ function updateIfUnchanged(rel, isOurs, mutate) {
 	const aside = renameAside(lockPath);
 	if (aside === null) return { outcome: "contended", lock: null };
 
-	const moved = core.readRecordOrLog(aside, `update ${rel}`);
+	const moved = core.readRecordOrLogAs(aside, `update ${rel}`, isLockRecord);
 	if (moved !== null && isOurs(moved)) {
 		const updated = mutate({ ...moved });
 		if (core.createOnce(lockPath, updated)) {
@@ -163,7 +164,11 @@ function readLocksHeldBy(sessionId) {
  */
 function readOwnLockOnFile(rel, sessionId) {
 	const file = core.subjectPath(rel);
-	const direct = core.readRecordOrLog(core.paths.lock(file), `observe ${file}`);
+	const direct = core.readRecordOrLogAs(
+		core.paths.lock(file),
+		`observe ${file}`,
+		isLockRecord,
+	);
 	if (direct?.sessionId === sessionId) return direct;
 	if (regions.isRegioned(file)) {
 		const all = readLocks() || [];
