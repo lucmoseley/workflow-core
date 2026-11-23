@@ -313,7 +313,9 @@ def test_a_report_it_cannot_time_never_raises_and_times_nothing(
 
     assert json.loads(out.read_text())["fileSeconds"] == {}
     told = capsys.readouterr().err.splitlines()
-    timings = [line for line in told if line.startswith("TIMINGS SHORT (#1884)")]
+    timings = [
+        line for line in told if line.startswith("fail-open: TIMINGS SHORT (#1884)")
+    ]
     assert len(timings) == 2
     assert len(set(timings)) == 2
 
@@ -344,7 +346,7 @@ def test_a_stage_it_cannot_read_leaves_the_test_where_it_was_and_says_so(
     told = capsys.readouterr().err.splitlines()
     assert len(told) == 1
     assert told[0].startswith(
-        "IN-FLIGHT STAGE UNTRACKED — a test's stage went unrecorded: "
+        "fail-open: IN-FLIGHT STAGE UNTRACKED — a test's stage went unrecorded: "
     )
 
 
@@ -424,7 +426,7 @@ def test_an_unwritable_in_flight_file_never_raises_and_says_so_once(
 
     told = capsys.readouterr().err.splitlines()
     assert len(told) == 1
-    assert told[0].startswith(f"IN-FLIGHT FILE UNWRITTEN — {out} is stale: ")
+    assert told[0].startswith(f"fail-open: IN-FLIGHT FILE UNWRITTEN — {out} is stale: ")
 
 
 def test_the_plugin_really_loads_and_reports_under_xdist(tmp_path):

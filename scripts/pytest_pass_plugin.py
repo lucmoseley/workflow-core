@@ -7,6 +7,9 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from fail_open import fail_open
+
 _OUTCOME_KEYS = ("failed", "error", "skipped", "passed")
 
 _file_seconds = {}
@@ -97,10 +100,12 @@ def describe_run(terminalreporter, config):
 
 
 def pytest_runtest_logreport(report):
-    with _told_once("TIMINGS SHORT (#1884) — a test phase went untimed"):
+    with _ReportedAs(_tell_once, "TIMINGS SHORT (#1884) — a test phase went untimed"):
         file = report.nodeid.split("::")[0]
         _file_seconds[file] = _file_seconds.get(file, 0.0) + float(report.duration)
-    with _told_once("IN-FLIGHT STAGE UNTRACKED — a test's stage went unrecorded"):
+    with _ReportedAs(
+        _tell_once, "IN-FLIGHT STAGE UNTRACKED — a test's stage went unrecorded"
+    ):
         if report.nodeid in _inflight and report.when in _NEXT_STAGE:
             _inflight[report.nodeid] = _NEXT_STAGE[report.when]
             _write_inflight()
@@ -110,7 +115,7 @@ def _write_inflight():
     out = os.environ.get("WFC_PYTEST_INFLIGHT_OUT")
     if not out or os.environ.get("PYTEST_XDIST_WORKER"):
         return
-    with _told_once(f"IN-FLIGHT FILE UNWRITTEN — {out} is stale"):
+    with _ReportedAs(_tell_once, f"IN-FLIGHT FILE UNWRITTEN — {out} is stale"):
         part = f"{out}.part"
         Path(part).write_text(
             json.dumps(
@@ -160,31 +165,32 @@ def file_seconds(config):
 
 
 class _ReportedAs(contextlib.AbstractContextManager):
-    def __init__(self, write_line, headline):
-        self._write_line = write_line
+    def __init__(self, report, headline):
+        self._report = report
         self._headline = headline
 
     def __exit__(self, exc_type, error, tb):
         if not isinstance(error, Exception):
             return False
-        self._write_line(f"{self._headline}: {error}")
+        self._report(self._headline, error)
         return True
 
 
-def _told_once(headline):
-    def write_line(line):
-        if line not in _told:
-            _told.add(line)
-            print(line, file=sys.stderr, flush=True)
-
-    return _ReportedAs(write_line, headline)
+def _tell_once(headline, error):
+    cause = (headline, str(error))
+    if cause not in _told:
+        _told.add(cause)
+        fail_open(error, headline)
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     out = os.environ.get("WFC_PYTEST_SCOPE_OUT")
     if not out or getattr(config.option, "collectonly", False):
         return
-    write_line = terminalreporter.write_line
+
+    def write_line(headline, error):
+        terminalreporter.write_line(f"{headline}: {error}")
+
     with _ReportedAs(
         write_line,
         f"VERDICT UNWRITTEN — {out} holds no record of this run",

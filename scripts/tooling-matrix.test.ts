@@ -1,4 +1,5 @@
 // @vitest-environment node
+// #5660
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
