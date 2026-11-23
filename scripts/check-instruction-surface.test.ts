@@ -1348,13 +1348,13 @@ describe("reading git rather than the working tree", () => {
 	const git = (...args: string[]) => gitIn(dir)(...args);
 
 	const committedTree = defineTemplate((at) => {
-		const g = gitIn(at);
+		const gitAt = gitIn(at);
 		buildTreeIn(at);
-		g("init", "-q");
-		g("config", "user.email", "t@t");
-		g("config", "user.name", "t");
-		g("add", "-A");
-		g("commit", "-q", "-m", "fixture");
+		gitAt("init", "-q");
+		gitAt("config", "user.email", "t@t");
+		gitAt("config", "user.name", "t");
+		gitAt("add", "-A");
+		gitAt("commit", "-q", "-m", "fixture");
 	});
 
 	beforeEach(() => {

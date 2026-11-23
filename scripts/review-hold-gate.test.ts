@@ -5,7 +5,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ledgerHead } from "./lib/arbiter-testkit";
 import { readShellConst } from "./lib/const-testkit";
-import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
+import {
+	defineTemplate,
+	identityRepoTemplate,
+	mkScratchDir,
+} from "./lib/git-fixture";
 import { ENTRY_BUDGET_MS } from "./lib/hook-deadline.js";
 import { GATES } from "./lib/precommit-gates.js";
 import { runHold } from "./lib/review-hold.js";
@@ -57,7 +61,7 @@ const quietEnv = (configDir = scratch) => {
 };
 
 const gitIn =
-	(at: string, configDir = scratch) =>
+	(at: string, configDir: string) =>
 	(...args: string[]) => {
 		const r = spawnSync("git", args, {
 			cwd: at,
@@ -67,7 +71,7 @@ const gitIn =
 		if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
 		return r.stdout.trim();
 	};
-const git = (...args: string[]) => gitIn(repo)(...args);
+const git = (...args: string[]) => gitIn(repo, scratch)(...args);
 const write = (rel: string, text: string, root = repo) => {
 	fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
 	fs.writeFileSync(path.join(root, rel), text);
@@ -302,10 +306,7 @@ const expectHeld = (
 const fixture = defineTemplate((root) => {
 	const at = path.join(root, "repo");
 	fs.mkdirSync(at);
-	const g = gitIn(at, root);
-	g("init", "-q", "-b", "main");
-	g("config", "user.email", "t@t");
-	g("config", "user.name", "t");
+	identityRepoTemplate(at);
 	write(
 		".claude/workflow-core.json",
 		JSON.stringify({
@@ -328,8 +329,9 @@ const fixture = defineTemplate((root) => {
 	write(SECRET, "old\n", at);
 	write(PRICE, "old\n", at);
 	write(PLAIN, "old\n", at);
-	g("add", "-A");
-	g("commit", "-qm", "seed");
+	const gitAt = gitIn(at, root);
+	gitAt("add", "-A");
+	gitAt("commit", "-qm", "seed");
 	fs.mkdirSync(path.join(root, "hooks"));
 	fs.writeFileSync(
 		path.join(root, "hooks", "pre-commit"),
