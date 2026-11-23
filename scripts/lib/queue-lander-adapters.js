@@ -91,6 +91,7 @@ class GateTimeout extends Error {}
  * @typedef {import("./queue-lander.js").VerdictLedger} VerdictLedger
  * @typedef {import("./queue-lander.js").RefusedRecord} RefusedRecord
  * @typedef {import("./queue-lander.js").DroppedRef} DroppedRef
+ * @typedef {import("./queue-lander.js").TrackerDroppedRef} TrackerDroppedRef
  * @typedef {import("./queue-lander.js").QueueLanderDeps} QueueLanderDeps
  * @typedef {import("./regenerated-files.js").Regenerated} Regenerated
  * @typedef {{dir: string,
@@ -232,7 +233,7 @@ function queueGit(
 		beat();
 		return readGit(root, args);
 	};
-	/** @type {DroppedRef[]|null} */
+	/** @type {TrackerDroppedRef[]|null} */
 	let trackerDropped = null;
 	// #5539
 	const readTrackerDropped = () => {
@@ -243,7 +244,7 @@ function queueGit(
 				.filter(Boolean)
 				.map((line) => {
 					const [sha = "", ref = ""] = line.split("\t");
-					return { ref: ref.slice("refs/heads/".length), sha };
+					return { ref: ref.slice("refs/heads/".length), sha, remote: r };
 				}),
 		);
 		return trackerDropped;
@@ -351,7 +352,14 @@ function queueGit(
 			}
 		},
 		isAncestor: (sha, of) => isAncestor(root, sha, of),
-		deleteRef: (branch, sha) => deleteRemoteRef(root, branch, sha),
+		deleteRef: (branch, sha, remote) => {
+			const gone = deleteRemoteRef(root, branch, sha, remote);
+			if (gone && trackerDropped !== null)
+				trackerDropped = trackerDropped.filter(
+					(r) => !(r.ref === branch && r.sha === sha && r.remote === remote),
+				);
+			return gone;
+		},
 		createRef: (branch, sha) => createRemoteRef(root, branch, sha),
 	};
 

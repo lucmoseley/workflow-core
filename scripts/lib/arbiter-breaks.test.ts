@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { assert, beforeEach, describe, expect, it } from "vitest";
 import {
+	acquireSeeing,
 	breaks,
 	core,
 	DEAD,
@@ -11,7 +12,7 @@ import {
 	freshSandbox,
 	live,
 	liveHolder,
-	locks,
+	lockRecord,
 	noSessions,
 	store,
 } from "./arbiter-testkit";
@@ -21,7 +22,7 @@ const sb = freshSandbox();
 const put = (rel: string, fields: object) => {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 	const p = store.paths.lock(rel);
-	fs.writeFileSync(p, JSON.stringify(locks.newLock({ path: rel, ...fields })));
+	fs.writeFileSync(p, JSON.stringify(lockRecord({ path: rel, ...fields })));
 	return p;
 };
 
@@ -56,10 +57,13 @@ describe("a broken claim — the clobber the content record could not reach (man
 		return { blob, lock };
 	};
 
+	const breakAs = (sessionId: string) =>
+		store.acquire(rel, live(sb, sessionId)).verdict;
+
 	it("records what the break destroyed — both sessions, and the blob", () => {
 		const { blob, lock } = staleClaim("alice's work\n");
 
-		expect(locks.breakStale(rel, lock, durably("bob"))).toBe("freed");
+		expect(breakAs("bob")).toBe("claimed");
 
 		expect(breaks.readBrokenClaimIds()).toEqual(new Set([lock.claimId]));
 		const notice = breaks.buildBreakNotice(rel, "alice");
@@ -69,25 +73,25 @@ describe("a broken claim — the clobber the content record could not reach (man
 	});
 
 	it("records nothing when the lock went back", () => {
-		const existing = locks.newLock({ path: rel, ...DEAD });
+		const existing = lockRecord({ path: rel, ...DEAD });
 		put(rel, { ...liveHolder(), claimId: "fresh" });
 
-		expect(locks.breakStale(rel, existing, durably("bob"))).toBe("retry");
+		expect(acquireSeeing(rel, existing, durably("bob")).verdict).toBe("held");
 		expect(breaks.readBrokenClaimIds()).toEqual(new Set());
 	});
 
 	it("records nothing when a session breaks its own stale lock", () => {
-		const { lock } = staleClaim("alice's work\n");
+		staleClaim("alice's work\n");
 
-		expect(locks.breakStale(rel, lock, durably("alice"))).toBe("freed");
+		expect(breakAs("alice")).toBe("claimed");
 		expect(breaks.buildBreakNotice(rel, "alice")).toBeNull();
 		expect(breaks.readBrokenClaimIds()).toEqual(new Set());
 	});
 
 	it("keeps the pin, so the lost version survives a gc after the break", () => {
-		const { blob, lock } = staleClaim("alice's work\n");
+		const { blob } = staleClaim("alice's work\n");
 		assert(blob);
-		locks.breakStale(rel, lock, durably("bob"));
+		breakAs("bob");
 		fs.writeFileSync(abs(), "bob's replacement\n");
 
 		store.pruneAll(noSessions);
@@ -103,7 +107,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 
 	it("bounds the retention: an aged-out record lets the sweep collect its pin", () => {
 		const { lock } = staleClaim("alice's work\n");
-		locks.breakStale(rel, lock, durably("bob"));
+		breakAs("bob");
 		const file = store.paths.break(rel, lock.claimId);
 		fs.writeFileSync(
 			file,
@@ -120,7 +124,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 
 	it("ages a break from when it happened, not from when it was read", () => {
 		const { lock } = staleClaim("alice's work\n");
-		locks.breakStale(rel, lock, durably("bob"));
+		breakAs("bob");
 		const file = store.paths.break(rel, lock.claimId);
 		const record = core.readRecord(file);
 		fs.writeFileSync(
@@ -138,7 +142,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 
 	it("keeps every pin when one record will not parse", () => {
 		const { lock } = staleClaim("alice's work\n");
-		locks.breakStale(rel, lock, durably("bob"));
+		breakAs("bob");
 		fs.writeFileSync(store.paths.break(rel, lock.claimId), "{not json");
 
 		store.pruneAll(noSessions);
@@ -147,7 +151,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 
 	it("ages out a record that will not parse, so nothing is pinned for ever", () => {
 		const { lock } = staleClaim("alice's work\n");
-		locks.breakStale(rel, lock, durably("bob"));
+		breakAs("bob");
 		const file = store.paths.break(rel, lock.claimId);
 		fs.writeFileSync(file, "{not json");
 		const old = new Date(Date.now() - 30 * 86_400_000);
@@ -165,7 +169,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 
 	it("keeps a pin the lock store alone would have collected", () => {
 		const { lock } = staleClaim("alice's work\n");
-		locks.breakStale(rel, lock, durably("bob"));
+		breakAs("bob");
 
 		store.pruneAll(noSessions);
 		expect(readRefs()).toEqual([`refs/arbiter/${lock.claimId}`]);
@@ -173,7 +177,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 
 	it("deletes no pin when the break records cannot be read", () => {
 		const { lock } = staleClaim("alice's work\n");
-		locks.breakStale(rel, lock, durably("bob"));
+		breakAs("bob");
 		fs.rmSync(store.paths.breaksDir(), { recursive: true, force: true });
 		fs.writeFileSync(store.paths.breaksDir(), "not a directory");
 
@@ -183,19 +187,19 @@ describe("a broken claim — the clobber the content record could not reach (man
 	});
 
 	it("frees the path anyway when the record cannot be written, and logs the fault", () => {
-		const { lock } = staleClaim("alice's work\n");
+		staleClaim("alice's work\n");
 		fs.mkdirSync(store.stateDir(), { recursive: true });
 		fs.writeFileSync(store.paths.breaksDir(), "not a directory");
 
-		expect(locks.breakStale(rel, lock, durably("bob"))).toBe("freed");
-		expect(fs.existsSync(store.paths.lock(rel))).toBe(false);
+		expect(breakAs("bob")).toBe("claimed");
+		expect(core.readRecord(store.paths.lock(rel))?.sessionId).toBe("bob");
 		expect(fs.readFileSync(sb.errorLog(), "utf8")).toContain(`break ${rel}`);
 	});
 
 	describe("the notice — the losing session, when it comes back to the file", () => {
 		it("names the breaker and how to get the version back", () => {
-			const { blob, lock } = staleClaim("alice's work\n");
-			locks.breakStale(rel, lock, durably("bob"));
+			const { blob } = staleClaim("alice's work\n");
+			breakAs("bob");
 
 			const notice = store.buildBreakNotice(rel, "alice");
 			expect(notice).toContain("bob");
@@ -203,41 +207,32 @@ describe("a broken claim — the clobber the content record could not reach (man
 		});
 
 		it("says nothing to the session that did the breaking", () => {
-			const { lock } = staleClaim("alice's work\n");
-			locks.breakStale(rel, lock, durably("bob"));
+			staleClaim("alice's work\n");
+			breakAs("bob");
 			expect(store.buildBreakNotice(rel, "bob")).toBeNull();
 		});
 
 		it("says nothing about a path this session never lost", () => {
-			const { lock } = staleClaim("alice's work\n");
-			locks.breakStale(rel, lock, durably("bob"));
+			staleClaim("alice's work\n");
+			breakAs("bob");
 			expect(store.buildBreakNotice("docs/doc-map.md", "alice")).toBeNull();
 		});
 
 		it("is said once, not on every write for a week", () => {
-			const { lock } = staleClaim("alice's work\n");
-			locks.breakStale(rel, lock, durably("bob"));
+			staleClaim("alice's work\n");
+			breakAs("bob");
 
 			expect(store.buildBreakNotice(rel, "alice")).toBeTruthy();
 			expect(store.buildBreakNotice(rel, "alice")).toBeNull();
 		});
 
 		it("says the version is gone where the broken claim recorded none", () => {
-			const { lock } = staleClaim("alice's work\n", "alice", false);
-			locks.breakStale(rel, lock, durably("bob"));
+			staleClaim("alice's work\n", "alice", false);
+			breakAs("bob");
 
 			const notice = store.buildBreakNotice(rel, "alice");
 			expect(notice).toContain("not recoverable");
 			expect(notice).not.toContain("cat-file");
 		});
-	});
-
-	it("is recorded through acquire, not only by a direct call", () => {
-		const { lock } = staleClaim("alice's work\n");
-		fs.rmSync(path.join(sb.home, "sessions", `${process.pid}.json`));
-
-		expect(store.acquire(rel, live(sb, "bob")).verdict).toBe("claimed");
-		expect(breaks.readBrokenClaimIds()).toEqual(new Set([lock.claimId]));
-		expect(breaks.buildBreakNotice(rel, "alice")).toContain("by bob");
 	});
 });

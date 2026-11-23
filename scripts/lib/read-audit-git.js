@@ -271,7 +271,6 @@ function buildGitRunner(root, spawnGit) {
 
 module.exports = {
 	buildGitRunner,
-	GIT_ANSWER_VARS,
 	GIT_DIR_VARS,
 	GIT_READS,
 	keyOf,

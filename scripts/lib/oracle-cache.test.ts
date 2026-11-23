@@ -26,7 +26,8 @@ const cachePath = (key: string) =>
 	path.join(dir, `wfc-oracle-cache-${hashOf(key)}.json`);
 const lockPath = (key: string) =>
 	path.join(dir, `wfc-oracle-cache-${hashOf(key)}.lock`);
-const live = (bin: string): string => liveness.oracleCacheKey(bin);
+const live = (bin: string): string =>
+	JSON.stringify([bin, fs.realpathSync(dir)]);
 
 function idsOf(r: { ids?: Set<string>; why?: string }) {
 	if (!r.ids) throw new Error(r.why);
@@ -43,6 +44,8 @@ let dir = "";
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "oracle-cache-"));
 	vi.stubEnv("CLAUDE_CONFIG_DIR", dir);
+	for (const seat of ["A", "B", "C"])
+		vi.stubEnv(`WFC_CLAUDE_CONFIG_${seat}`, path.join(dir, `seat-${seat}`));
 	vi.stubEnv("WFC_ORACLE_CACHE", "1");
 	vi.stubEnv("CLAUDE_CODE_SESSION_ID", "");
 });

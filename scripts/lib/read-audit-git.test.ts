@@ -21,7 +21,6 @@ const answerOf = (status: number, stdout: string | Buffer) =>
 	`${status}:${createHash("sha1").update(stdout).digest("hex")}`;
 const {
 	buildGitRunner,
-	GIT_ANSWER_VARS,
 	keyOf,
 	parseGitRecords,
 	gitCallsOf,
@@ -33,6 +32,12 @@ const GUARD_DIR = path.join(__dirname, "host-git-guard");
 const GUARD = fs.readFileSync(
 	path.join(__dirname, "host-git-guard/git"),
 	"utf8",
+);
+
+const [, guardLoop = ""] = /^\s*for name in (.*); do$/m.exec(GUARD) ?? [];
+const GUARD_LOOP = guardLoop.split(" ");
+const GUARD_RECORDS = new RegExp(
+	`^(${GUARD_LOOP.map((w) => w.replace(/^\$\{!(\w+)\*\}$/, "$1.*")).join("|")})$`,
 );
 
 const dirs: string[] = [];
@@ -86,14 +91,13 @@ describe("the guard's record is the one this module reads", () => {
 		expect(line?.split(" | ").sort()).toEqual([...GIT_VALUED].sort());
 	});
 
-	it("records the variables GIT_ANSWER_VARS names, in the guard's loop", () => {
-		const loop = /^\s*for name in (.*); do$/m.exec(GUARD)?.[1] as string;
-		const guard = loop
-			.split(" ")
-			.map((w) => w.replace(/^\$\{!(\w+)\*\}$/, "$1.*"))
-			.sort();
-		const ours = /^\^\((.*)\)\$$/.exec(GIT_ANSWER_VARS.source)?.[1] as string;
-		expect(guard).toEqual(ours.split("|").sort());
+	it("doubts a call under each variable the guard's loop records, and under none other", () => {
+		const steers = (name: string) =>
+			"doubt" in
+			gitCallsOf(records(["log"], { env: { [name]: "1" } }), NoStanding, ROOT);
+		const names = GUARD_LOOP.map((w) => w.replace(/^\$\{!(\w+)\*\}$/, "$1X"));
+		expect(names.filter((n) => !steers(n))).toEqual([]);
+		expect(["PATH", "WFC_X", "LANGX", "XHOME"].filter(steers)).toEqual([]);
 	});
 
 	it("parses a record the guard writes to the fields it was given", () => {
@@ -131,7 +135,7 @@ describe("the guard's record is the one this module reads", () => {
 				GIT_AUTHOR_NAME: "ünï",
 			});
 			for (const name of Object.keys(r.env))
-				expect(name).toMatch(GIT_ANSWER_VARS);
+				expect(name).toMatch(GUARD_RECORDS);
 		}
 		expect(begun.at).toBe(0);
 		expect(begun.answer).toBe("");

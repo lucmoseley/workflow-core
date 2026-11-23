@@ -246,7 +246,6 @@ function holdForLoad({
 module.exports = {
 	sample,
 	delta,
-	FIELDS,
 	overloadReading,
 	buildOverloadText,
 	loadCeiling,

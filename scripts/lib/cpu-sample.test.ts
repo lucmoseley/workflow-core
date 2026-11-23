@@ -7,7 +7,6 @@ import { afterAll, describe, expect, it } from "vitest";
 const {
 	sample,
 	delta,
-	FIELDS,
 	overloadReading,
 	buildOverloadText,
 	sessionCeiling,
@@ -16,10 +15,21 @@ const {
 
 const hasProc = fs.existsSync("/proc/stat");
 
+const FIELDS = [
+	"user",
+	"nice",
+	"system",
+	"idle",
+	"iowait",
+	"irq",
+	"softirq",
+	"steal",
+];
+
 function fab(counts: Record<string, number>, load1: number | null = 1.5) {
 	const jiffies: Record<string, number> = {};
 	let total = 0;
-	for (const f of FIELDS as string[]) {
+	for (const f of FIELDS) {
 		jiffies[f] = counts[f] ?? 0;
 		total += jiffies[f];
 	}
@@ -105,8 +115,7 @@ describe("sample — parsing /proc/stat", () => {
 		const s = sample();
 		expect(s).not.toBeNull();
 		expect(s.total).toBeGreaterThan(0);
-		for (const f of FIELDS as string[])
-			expect(typeof s.jiffies[f]).toBe("number");
+		for (const f of FIELDS) expect(typeof s.jiffies[f]).toBe("number");
 	});
 
 	it.skipIf(!hasProc)("takes two samples that advance", () => {

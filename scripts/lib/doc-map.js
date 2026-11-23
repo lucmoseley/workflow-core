@@ -3151,7 +3151,6 @@ module.exports = {
 	registerPaths,
 	registerRowPath,
 	registerRowPaths,
-	CORE_CLASSES,
 	coverageMatchers,
 	compileAllowlist,
 	validateAllowlist,

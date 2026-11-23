@@ -61,7 +61,6 @@ function parseRows(text) {
 }
 
 module.exports = {
-	WRITE_CALL,
 	claimable,
 	parseRows,
 	quotedTokens,

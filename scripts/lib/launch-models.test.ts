@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = path.resolve(__dirname, "../..");
 const MAP = path.join(__dirname, "launch-models.sh");
-const { RETRO_BUNDLE_MODEL } = require("./retro-bundles.js");
+const { retroLaunches } = require("./retro-bundles.js");
 const shellVar = (name: string): string => `\${${name}}`;
 
 const readMap = (): { models: Map<string, string>; fallback: string } => {
@@ -75,7 +75,7 @@ describe("launch-models.sh", () => {
 	});
 
 	it("agrees with the retro triage bundles' copy of the triage row (#1195)", () => {
-		expect(RETRO_BUNDLE_MODEL).toBe(models.get("triage"));
+		expect(retroLaunches([[1]])[0].model).toBe(models.get("triage"));
 	});
 
 	it("agrees with pick-next §6's takes: table", () => {

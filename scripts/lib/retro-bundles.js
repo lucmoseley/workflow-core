@@ -50,7 +50,6 @@ function retroBundles(frontier) {
 
 module.exports = {
 	RETRO_BUNDLE_CAP,
-	RETRO_BUNDLE_MODEL,
 	retroBundles,
 	retroLaunches,
 };

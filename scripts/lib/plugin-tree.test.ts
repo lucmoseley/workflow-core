@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildTree, isShipped, REWRITTEN } from "./plugin-tree.js";
+import { buildTree, isShipped } from "./plugin-tree.js";
 import {
 	buildCitableLineTest,
 	CITATION_CEILING,
@@ -137,7 +137,7 @@ describe("the tree rendered from the core", () => {
 			),
 		).toEqual([]);
 
-		const bodies = shipped.filter((f) => REWRITTEN.test(f));
+		const bodies = shipped.filter((f) => /^\.claude\/skills\/.*\.md$/.test(f));
 		expect(bodies).toContain(".claude/skills/pick-next/SKILL.md");
 		const repoRelative = bodies.flatMap((f) =>
 			fs

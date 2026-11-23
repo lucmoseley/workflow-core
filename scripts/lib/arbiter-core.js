@@ -875,7 +875,6 @@ module.exports = {
 	git,
 	gitDirty,
 	gitIn,
-	gitRaw,
 	identify,
 	isWarned,
 	isWatched,

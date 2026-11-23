@@ -23,12 +23,11 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const TRIAL_START_MS = Date.parse(jevTrial.TRIAL_START);
-const OUTAGE_START_MS = Date.parse(jevTrial.OUTAGE_START);
-const OUTAGE_VOIDS = jevTrial.stand({
-	lines: [],
-	verdicts: new Map(),
-}).outageVoids;
+const EMPTY_STAND = jevTrial.stand({ lines: [], verdicts: new Map() });
+const TRIAL_START: string = EMPTY_STAND.start;
+const TRIAL_START_MS = Date.parse(TRIAL_START);
+const OUTAGE_START_MS = Date.parse(EMPTY_STAND.outageStart);
+const OUTAGE_VOIDS = EMPTY_STAND.outageVoids;
 
 function voidFor(ticket: string) {
 	const found = OUTAGE_VOIDS.find((v: { why: string }) =>
@@ -131,7 +130,7 @@ describe("the start line", () => {
 
 	it("excludes a line stamped at the start line itself", () => {
 		const s = stand([
-			{ at: jevTrial.TRIAL_START, session: "boundary", outcome: "outage" },
+			{ at: TRIAL_START, session: "boundary", outcome: "outage" },
 		]);
 
 		expect(s.sessions).toBe(0);

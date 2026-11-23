@@ -1,6 +1,5 @@
 // @vitest-environment node
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,7 +16,7 @@ import { runInProcess } from "./run-in-process.js";
 import { writeSchedClock } from "./sched-clock-fake";
 
 const { readIncidents } = require("./earlyoom-kills.js");
-const { READ_TIMEOUT_MS, readBoots } = require("./journalctl.js");
+const { readBoots, runBoundedRead } = require("./journalctl.js");
 
 const KERNEL_STALL = path.join(__dirname, "..", "check-kernel-stall.js");
 const MIN = 60 * 1000;
@@ -155,10 +154,8 @@ const unindented = (lines: string[]) => lines.map((l) => l.trimStart());
 function readTail(bin: string): Side["tail"] {
 	const read = (output: string) =>
 		lineList(
-			spawnSync(bin, ["-k", "-n", TAIL_LINES, "--no-pager", "-o", output], {
-				encoding: "utf8",
-				timeout: READ_TIMEOUT_MS,
-			}).stdout ?? "",
+			runBoundedRead(bin, ["-k", "-n", TAIL_LINES, "--no-pager", "-o", output])
+				.stdout,
 		);
 	const pair = () => ({ short: read("short-iso"), cat: read("cat") });
 	const first = pair();
