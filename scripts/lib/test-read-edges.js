@@ -12,6 +12,11 @@ const { byCodeUnit } = require("./by-code-unit.js");
 const { LOADS_BODY, pragmaLine } = require("./code-edges-pragmas.js");
 const { JS_TEST_FILE, isJsTestFile, isTestKind } = require("./test-kind.js");
 const { isUnder } = require("./is-under.js");
+const {
+	DISPATCH_ENTRY,
+	MANIFEST_REL,
+	modulePath,
+} = require("./guard-cores.js");
 
 const ROOT_NAMES =
 	"ROOT|REPO|repoRoot|projectRoot|REPO_ROOT|PROJECT_ROOT|HOST_ROOT";
@@ -785,10 +790,8 @@ function ruleEdgesFor(source, tracked, self) {
 	return [...found].sort();
 }
 
-const GUARD_MANIFEST = "scripts/lib/guard-cores.json";
-
 const DISPATCHERS = [
-	"scripts/guard-dispatch.js",
+	DISPATCH_ENTRY,
 	"scripts/lib/guard-core-testkit.ts",
 	"scripts/lib/pretool-guard-testkit.ts",
 ];
@@ -800,22 +803,16 @@ const QUOTED_NAME = /["'`]([a-z0-9][a-z0-9-]*)["'`]/g;
  * @param {(p: string) => string} read
  * @returns {Map<string, string>}
  */
-function coresByName(tracked, read) {
+function readCoresByName(tracked, read) {
 	/** @type {Map<string, string>} */
 	const out = new Map();
-	if (!tracked.has(GUARD_MANIFEST)) return out;
-	let manifest;
-	try {
-		manifest = JSON.parse(read(GUARD_MANIFEST));
-	} catch {
-		return out;
+	if (!tracked.has(MANIFEST_REL)) return out;
+	/** @type {import("./guard-cores.js").Manifest} */
+	const manifest = JSON.parse(read(MANIFEST_REL));
+	for (const { name, core } of Object.values(manifest).flat()) {
+		const p = modulePath(core);
+		if (tracked.has(p)) out.set(name, p);
 	}
-	for (const rows of Object.values(manifest ?? {}))
-		if (Array.isArray(rows))
-			for (const { name, core } of rows) {
-				const p = `scripts/lib/${core}`;
-				if (typeof name === "string" && tracked.has(p)) out.set(name, p);
-			}
 	return out;
 }
 
@@ -824,16 +821,28 @@ function coresByName(tracked, read) {
  * @param {(p: string) => string} read
  * @returns {(t: string, source: string, found: Set<string>) => string[]}
  */
-function dispatchedCores(tracked, read) {
-	const cores = coresByName(tracked, read);
-	return (t, source, found) => {
-		const imports = directImports(source, t, tracked);
-		if (!DISPATCHERS.some((d) => found.has(d) || imports.has(d))) return [];
-		const out = new Set();
-		for (const m of source.matchAll(QUOTED_NAME)) {
+function buildCoreEdges(tracked, read) {
+	const cores = readCoresByName(tracked, read);
+	/** @param {string} source @param {Set<string>} reached */
+	const named = (source, reached) => {
+		if (!DISPATCHERS.some((d) => reached.has(d))) return [];
+		return [...source.matchAll(QUOTED_NAME)].flatMap((m) => {
 			const p = cores.get(requiredGroup(m, 1, QUOTED_NAME));
-			if (p) out.add(p);
-		}
+			return p ? [p] : [];
+		});
+	};
+	const helperNames = once((h) => {
+		const code = blankComments(read(h));
+		const imports = directImports(code, h, tracked);
+		return named(code, new Set([...edgesFor(code, tracked, h), ...imports]));
+	});
+	return (t, source, found) => {
+		if (cores.size === 0) return [];
+		const imports = directImports(source, t, tracked);
+		const out = new Set(named(source, new Set([...found, ...imports])));
+		for (const h of imports)
+			if (isTestSupport(h) && !DISPATCHERS.includes(h))
+				for (const p of helperNames(h)) out.add(p);
 		return [...out];
 	};
 }
@@ -1936,7 +1945,7 @@ function buildManifest(tracked, read, { sites: findSites = false } = {}) {
 			isFile: (c) => tracked.has(c),
 		}).flatMap((e) => [e.to, ...loadsOnce(e.to)]),
 	);
-	const coreEdges = dispatchedCores(tracked, read);
+	const coreEdges = buildCoreEdges(tracked, read);
 	/** @type {Record<string, Site[]>} */
 	const unseen = {};
 	for (const t of tests) {
