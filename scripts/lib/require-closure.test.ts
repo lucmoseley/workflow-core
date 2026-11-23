@@ -107,8 +107,7 @@ it("follows no require a comment shows as usage, from the caller's directory (#5
 			" * Usage:",
 			' *   const { run } = require("./lib/used.js");',
 			" */",
-			'// require("./lib/other.js");',
-			'require("./dep.js");',
+			'/* require("./lib/inline.js") */ require("./dep.js"); // require("./lib/other.js")',
 		].join("\n"),
 	);
 	write("scripts/lib/dep.js", "");
