@@ -25,7 +25,7 @@ const { parseOrExit } = require("./lib/cli-args");
 const USAGE = `Usage: node ${scriptPath("admission.js")} [--json] [--launch] [--skip-allowance]
        node ${scriptPath("admission.js")} --load-only`;
 
-// guess: 100%, the 90/97 thresholds sizing the set cap alone, #371
+// guess: 100%, the 90/99 thresholds sizing the set cap alone, #371
 const ALLOWANCE_BACKSTOP = 100;
 
 /** @returns {{ breach: string | null, warning: string | null }} */
