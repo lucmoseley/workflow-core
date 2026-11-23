@@ -1231,6 +1231,7 @@ function queueSeat({
 	 * @returns {Promise<WaitOutcome>}
 	 */
 	const wait = async ({
+		gate,
 		gateWords = [],
 		gateRead,
 		gateWeight = null,
@@ -1239,11 +1240,13 @@ function queueSeat({
 		waiting = true;
 		try {
 			const outcome = await waitForGate({
-				gate: (charged, onAdmission) =>
-					gateDenies(gateWords, gateRead, gateWeight, {
-						climbMb: charged,
-						onAdmission,
-					}),
+				gate:
+					gate ??
+					((charged, onAdmission) =>
+						gateDenies(gateWords, gateRead, gateWeight, {
+							climbMb: charged,
+							onAdmission,
+						})),
 				turn: passing ? passing.turn : turn,
 				...(passing ? { turnHold: passing.turnHold } : {}),
 				...options,
