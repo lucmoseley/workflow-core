@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
+import { seenFrom } from "./lib/core-path-testkit";
 import { defineTemplate, mkScratchDir, trioTemplate } from "./lib/git-fixture";
 import {
 	buildBashPayload,
@@ -86,8 +87,10 @@ describe("the push rules, end to end", () => {
 		const out = emission(at, "git push origin main", { env: offSuite });
 		expect(out.permissionDecision).toBeUndefined();
 		const ctx = out.additionalContext as string;
+		const seenRule = (id: string) =>
+			seenFrom(at.shared, () => readRuleText(id, at.shared));
 		for (const id of ["push-cadence", "vercel-build-on-push", "ci-status-lag"])
-			expect(ctx).toContain(readRuleText(id, at.shared));
+			expect(ctx).toContain(seenRule(id));
 		expect(ctx.indexOf(CADENCE)).toBeLessThan(
 			ctx.indexOf("IS TESTED BY THE QUEUE LANDER"),
 		);

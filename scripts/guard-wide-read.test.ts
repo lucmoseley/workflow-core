@@ -4,11 +4,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath } from "./guard-log-fixture";
+import { coreFile } from "./lib/core-path-testkit";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
 	guardDirs,
 } from "./lib/pretool-guard-testkit";
+import { escapeRe } from "./lib/regex-group.js";
 
 const { CONTRACT } = require("./lib/workflow-core-config.js");
 
@@ -46,7 +48,9 @@ describe("the guard, end to end", () => {
 			/^Reading a whole file into context: big\.md is 1001 characters/,
 		);
 		expect(out.additionalContext).toMatch(
-			/Why this fires and what the convention asks for: docs\/agents\/tool-output\.md\. It only ever warns\.$/,
+			new RegExp(
+				`Why this fires and what the convention asks for: ${escapeRe(coreFile("docs/agents/tool-output.md"))}\\. It only ever warns\\.$`,
+			),
 		);
 		expect(fs.existsSync(failOpenLogPath(config, project))).toBe(false);
 	});

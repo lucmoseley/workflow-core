@@ -3,12 +3,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import {
 	newRepo,
 	registerTempCleanup,
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
+import { escapeRe } from "./lib/regex-group.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const temps = registerTempCleanup();
@@ -51,7 +53,11 @@ describe("check-shfmt.js", () => {
 		expect(output).toMatch(/tools\/c\.sh: not shfmt-formatted/);
 		expect(output).not.toMatch(/vendor\/d\.sh/);
 		expect(output).toMatch(/FAIL: 3 of 4 file\(s\) failed/);
-		expect(output).toMatch(/Fix: node scripts\/check-shfmt\.js --write <path>/);
+		expect(output).toMatch(
+			new RegExp(
+				`Fix: node ${escapeRe(coreFile("scripts/check-shfmt.js"))} --write <path>`,
+			),
+		);
 		expect(code).toBe(1);
 		expect(fs.readFileSync(path.join(r.root, "scripts/a.sh"), "utf8")).toBe(
 			BAD,

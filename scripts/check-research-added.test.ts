@@ -3,25 +3,15 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { seenFrom } from "./lib/core-path-testkit";
 import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
 import { GATES } from "./lib/precommit-gates.js";
+import { readRuleText } from "./lib/rule-text.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const CHECKER = "scripts/check-research-added.js";
 const SCRIPT = path.join(__dirname, "check-research-added.js");
-const RULE = fs
-	.readFileSync(
-		path.join(
-			__dirname,
-			"..",
-			"docs",
-			"agents",
-			"rules",
-			"research-in-tree.txt",
-		),
-		"utf8",
-	)
-	.trimEnd();
+const rule = () => seenFrom(dir, () => readRuleText("research-in-tree"));
 
 let dir: string;
 let hooks: string;
@@ -44,7 +34,7 @@ const expectRefused = (file: string) => {
 	expect(r.status).toBe(1);
 	expect(r.out).toContain(file);
 	expect(r.out).toContain("docs/agents/issue-tracker.md §Research artefacts");
-	expect(r.out).toContain(RULE);
+	expect(r.out).toContain(rule());
 };
 
 const commitAll = () => {
@@ -84,7 +74,7 @@ describe("check-research-added", () => {
 		git("add", "--", "docs/research/kept.md");
 		const r = check();
 		expect(r.status).toBe(0);
-		expect(r.out).not.toContain(RULE);
+		expect(r.out).not.toContain(rule());
 	});
 
 	it("passes the deletion of a kept note", () => {

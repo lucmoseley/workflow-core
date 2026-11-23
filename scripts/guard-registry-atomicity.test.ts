@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
+import { coreFile } from "./lib/core-path-testkit";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { defineTemplate, initGitRepo, mkScratchDir } from "./lib/git-fixture";
 import {
@@ -85,7 +86,7 @@ describe("the registry-atomicity core", () => {
 			"Why this is a refusal and not a warning",
 		);
 		expect(out.permissionDecisionReason).toContain(
-			"add a commented CALLED_ELSEWHERE entry to scripts/checker-registrations.test.ts in THIS commit instead",
+			`add a commented CALLED_ELSEWHERE entry to ${coreFile("scripts/checker-registrations.test.ts")} in THIS commit instead`,
 		);
 		expect(readFailOpenRecords(config, repo)).toEqual([]);
 	});

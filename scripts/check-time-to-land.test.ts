@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const CHECK = path.resolve(__dirname, "check-time-to-land.js");
@@ -71,7 +72,7 @@ it("warns where enough of the week's stays are over 3 times the green suite's p5
 	expect(r.stdout).toContain(
 		"SLOW-LANDING — take-to-land p90 541 s, p50 200 s, over 100 queue ref(s) taken and landed or dropped in 7 days; target 540 s, 3 times the green suite's p50 of 180 s over 1 run(s); 16 of 100 over the target, 16 calling it over",
 	);
-	expect(r.stdout).toContain("node scripts/time-to-land.js");
+	expect(r.stdout).toContain(`node ${coreFile("scripts/time-to-land.js")}`);
 });
 
 it("warns of nothing one stay short of the count, however slow the stays over", () => {

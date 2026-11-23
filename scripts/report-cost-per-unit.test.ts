@@ -4,12 +4,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "report-cost-per-unit.js");
 const SERIES_LABEL = "docs/data/cost-per-unit.jsonl";
-const USAGE = "usage: node scripts/report-cost-per-unit.js";
+const USAGE = `usage: node ${coreFile("scripts/report-cost-per-unit.js")}`;
 const SEARCH_CAP = 1000;
 
 interface Close {

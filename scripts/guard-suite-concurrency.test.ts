@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
+import { coreFile } from "./lib/core-path-testkit";
 import { isAdmitted, readManifest } from "./lib/guard-cores.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import {
@@ -318,7 +319,7 @@ describe("the production adapters, crossed for real", () => {
 			env: { WFC_PS: psOf([RUNNER], "ps-one") },
 		});
 		expect(out.permissionDecisionReason.split("\n")[0]).toBe(
-			"Run instead: node scripts/queue-run.js -- npm run test",
+			`Run instead: node ${coreFile("scripts/queue-run.js")} -- npm run test`,
 		);
 	});
 

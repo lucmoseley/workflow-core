@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
+import { seenFrom } from "./lib/core-path-testkit";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -32,6 +33,7 @@ const emission = (command: string, session = "test") =>
 		config,
 		cwd: root,
 	});
+const seenRule = (id: string) => seenFrom(root, () => readRuleText(id));
 
 describe("each exit path", () => {
 	it("hands a direct run the two rules, in priority order, refusing nothing", () => {
@@ -39,7 +41,7 @@ describe("each exit path", () => {
 		expect(out.permissionDecision).toBeUndefined();
 		expect(out.hookEventName).toBe("PreToolUse");
 		expect(out.additionalContext).toBe(
-			`${readRuleText("shellcheck-not-installed")}\n\n${readRuleText("shellcheck-source-directive")}`,
+			`${seenRule("shellcheck-not-installed")}\n\n${seenRule("shellcheck-source-directive")}`,
 		);
 	});
 
@@ -51,7 +53,7 @@ describe("each exit path", () => {
 				"shellcheck-source-directive",
 				"shellcheck-changed-scope",
 			]
-				.map((id) => readRuleText(id))
+				.map(seenRule)
 				.join("\n\n"),
 		);
 	});

@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { sweptMarkers } from "./lib/arbiter-testkit";
+import { coreFile, seenFrom } from "./lib/core-path-testkit";
 import {
 	EXEMPT_NAMES,
 	LADDER,
@@ -122,7 +123,9 @@ describe("the threshold", () => {
 		expect(reason).toContain(
 			`Q1: ${MIN_CALLS - 1} tool calls since the founder last spoke, under the ${MIN_CALLS}`,
 		);
-		expect(reason).toContain(readRuleText("house-decision"));
+		expect(reason).toContain(
+			seenFrom(dir, () => readRuleText("house-decision")),
+		);
 	});
 
 	it("points at the rule file where the store will not read (#3189)", () => {
@@ -137,7 +140,7 @@ describe("the threshold", () => {
 		});
 		expect(reason).toContain(UNDER);
 		expect(reason).toContain(
-			"the rule could not be read from docs/agents/rules/house-decision.txt",
+			`the rule could not be read from ${coreFile("docs/agents/rules/house-decision.txt")}`,
 		);
 		expect(failOpenLog(path.join(dir, "config"))).toContain(
 			"guard-priced-options house-decision rule-text house-decision",

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { GH_FAILING_SCRIPT } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
@@ -375,7 +376,7 @@ describe("--hot-files, a saved dry run read back for the scan line (#1490)", () 
 		const { code, stdout, stderr } = run(r, ["--hot-files", saved]);
 		expect([code, stdout]).toEqual([2, ""]);
 		expect(stderr).toContain(
-			`BROKEN: ${saved} holds no hot-file row of a --dry-run output — save one with: node scripts/report-arch-scan-due.js --dry-run > ${saved}`,
+			`BROKEN: ${saved} holds no hot-file row of a --dry-run output — save one with: node ${coreFile("scripts/report-arch-scan-due.js")} --dry-run > ${saved}`,
 		);
 	});
 
@@ -385,7 +386,7 @@ describe("--hot-files, a saved dry run read back for the scan line (#1490)", () 
 		const { code, stderr } = run(r, ["--hot-files", missing]);
 		expect(code).toBe(2);
 		expect(stderr).toContain(
-			`BROKEN: ${missing} does not exist — save one with: node scripts/report-arch-scan-due.js --dry-run > ${missing}`,
+			`BROKEN: ${missing} does not exist — save one with: node ${coreFile("scripts/report-arch-scan-due.js")} --dry-run > ${missing}`,
 		);
 	});
 });
@@ -571,7 +572,7 @@ describe("refusals", () => {
 		expect([code, stdout]).toEqual([2, ""]);
 		expect(stderr).toContain(why);
 		expect(stderr).toContain(
-			"usage: node scripts/report-arch-scan-due.js [--dry-run | --next-threshold <yield> | --hot-files <file> | --partners <file>]",
+			`usage: node ${coreFile("scripts/report-arch-scan-due.js")} [--dry-run | --next-threshold <yield> | --hot-files <file> | --partners <file>]`,
 		);
 	});
 
