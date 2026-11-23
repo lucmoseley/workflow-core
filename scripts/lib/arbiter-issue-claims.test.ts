@@ -122,7 +122,7 @@ describe("issue claims — which session is working which issue (mantahostels#64
 			});
 		});
 
-	it("re-stamps a re-claim whose own record parses but is no issue claim (#5605)", () => {
+	it("re-stamps a re-claim whose own record parses but is no issue claim, where a well-formed one keeps its stamp (#5605)", () => {
 		fs.mkdirSync(store.paths.issueClaimsDir(), { recursive: true });
 		const f = claimFile(645, "alice");
 		fs.writeFileSync(
