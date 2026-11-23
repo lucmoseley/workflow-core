@@ -39,8 +39,6 @@ const {
 /** @typedef {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number, onUnread?: (dir: string, error: unknown) => void, ps?: typeof readPs, parentOf?: (pid: number) => number, carriedOf?: typeof readCarriedWeightOf, rungQueue?: string | null }} ClimbOptions */
 /** @typedef {"all" | "off-rung"} ClimbScope */
 /**
- * @typedef {import("./gate-wait.js").MemoryReading} MemoryReading
- * @typedef {import("./gate-wait.js").WindowsHold} WindowsHold
  * @typedef {import("./gate-wait.js").GateDenial} GateDenial
  * @typedef {import("./gate-wait.js").TurnHold} TurnHold
  * @typedef {import("./gate-wait.js").SessionPlace} SessionPlace

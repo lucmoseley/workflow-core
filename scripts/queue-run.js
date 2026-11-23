@@ -248,7 +248,7 @@ const waitOn = (gate) => () => gate;
 
 const refusedRun = () => 1;
 
-/** @param {{ gate: (climbMb: number) => import("./lib/suite-queue.js").GateDenial | null }} gate */
+/** @param {{ gate: (climbMb: number) => import("./lib/gate-wait.js").GateDenial | null }} gate */
 const tryOn = (gate) => (/** @type {Stamps} */ stamps) => {
 	let yielded = false;
 	return {
