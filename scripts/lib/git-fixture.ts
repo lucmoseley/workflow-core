@@ -149,15 +149,26 @@ function readRelinkCandidates(gitEntry: string): string[] {
 	const candidates = [
 		path.join(gitEntry, "config"),
 		path.join(gitEntry, "objects", "info", "alternates"),
+		path.join(gitEntry, "FETCH_HEAD"),
+		...filesUnder(path.join(gitEntry, "logs")),
 	];
 	const worktrees = path.join(gitEntry, "worktrees");
 	if (fs.existsSync(worktrees)) {
 		for (const name of fs.readdirSync(worktrees)) {
 			candidates.push(path.join(worktrees, name, "gitdir"));
 			candidates.push(path.join(worktrees, name, "commondir"));
+			candidates.push(...filesUnder(path.join(worktrees, name, "logs")));
 		}
 	}
 	return candidates.filter((p) => fs.existsSync(p));
+}
+
+function filesUnder(dir: string): string[] {
+	if (!fs.existsSync(dir)) return [];
+	return fs
+		.readdirSync(dir, { recursive: true, withFileTypes: true })
+		.filter((entry) => entry.isFile())
+		.map((entry) => path.join(entry.parentPath, entry.name));
 }
 
 function relink(
@@ -241,7 +252,19 @@ export function copyTemplate(
 	const messageOf = (err: unknown): string =>
 		err instanceof Error ? err.message : String(err);
 	const copyFrom = (source: string): string => {
-		fs.rmSync(destination, { recursive: true, force: true });
+		for (const entry of fs.readdirSync(source, {
+			recursive: true,
+			withFileTypes: true,
+		}))
+			if (!entry.isDirectory())
+				fs.rmSync(
+					path.join(
+						destination,
+						path.relative(source, entry.parentPath),
+						entry.name,
+					),
+					{ recursive: true, force: true },
+				);
 		cpSync(source, destination, { recursive: true });
 		return source;
 	};
@@ -286,9 +309,7 @@ function git(cwd: string, ...args: string[]): string {
 
 export function initGitRepo(at: string, hooks: string): void {
 	fs.mkdirSync(at, { recursive: true });
-	git(at, "init", "-q", "-b", "main", ".");
-	git(at, "config", "user.email", "test@example.com");
-	git(at, "config", "user.name", "test");
+	identityRepoTemplate(at);
 	git(at, "config", "core.hooksPath", hooks);
 	fs.writeFileSync(path.join(at, "a.md"), "a\n");
 	git(at, "add", "a.md");
@@ -297,6 +318,16 @@ export function initGitRepo(at: string, hooks: string): void {
 
 export const emptyRepoTemplate: BuildFn = (dir) => {
 	git(dir, "init", "-q");
+};
+
+export const bareRepoTemplate: BuildFn = (dir) => {
+	git(dir, "init", "-q", "--bare");
+};
+
+export const identityRepoTemplate: BuildFn = (dir) => {
+	git(dir, "init", "-q", "-b", "main");
+	git(dir, "config", "user.email", "test@example.com");
+	git(dir, "config", "user.name", "test");
 };
 
 export const committedRepoTemplate: BuildFn = (dir) => {

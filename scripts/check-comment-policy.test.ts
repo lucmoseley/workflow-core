@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHookShim } from "./lib/adopter-skeleton.js";
 import { CODE_FILE } from "./lib/comment-policy.js";
 import { coreOwnedPaths } from "./lib/core-owned-files.js";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { dispatch } from "./lib/precommit-dispatch.js";
 import { factsAt } from "./lib/precommit-dispatch-ports.js";
 import { GATES } from "./lib/precommit-gates.js";
@@ -28,6 +29,8 @@ let hooks: string;
 
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: root, stdio: "pipe" });
+
+const mainRepo = defineTemplate(identityRepoTemplate);
 
 const write = (rel: string, text: string) => {
 	fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
@@ -54,11 +57,10 @@ const runWith = (env: NodeJS.ProcessEnv, ...args: string[]) => {
 const run = (...args: string[]) => runWith({}, ...args);
 
 beforeEach(() => {
-	root = fs.mkdtempSync(path.join(os.tmpdir(), "comment-policy-"));
+	root = mainRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "comment-policy-")),
+	);
 	hooks = fs.mkdtempSync(path.join(os.tmpdir(), "comment-policy-hooks-"));
-	git("init", "-q", "-b", "main");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
 	git("config", "core.hooksPath", hooks);
 });
 afterEach(() => {

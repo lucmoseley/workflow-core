@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installCommitMsgHook } from "./lib/commit-msg-testkit";
 import { seenFrom } from "./lib/core-path-testkit";
-import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
+import { defineTemplate, initGitRepo, mkScratchDir } from "./lib/git-fixture";
 import { readRuleText } from "./lib/rule-text.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -80,19 +80,26 @@ const TEST_FILE = "scripts/a.test.ts";
 const testFile = (...lines: string[]) =>
 	['import { it, expect } from "vitest";', ...lines, ""].join("\n");
 
-beforeEach(() => {
-	dir = mkScratchDir("weakens-line-");
-	hooks = mkScratchDir("weakens-line-hooks-");
+const hookedRepo = defineTemplate((at) => {
+	const atHooks = path.join(at, "hooks");
+	fs.mkdirSync(atHooks);
 	fs.writeFileSync(
-		path.join(hooks, "commit-msg"),
+		path.join(atHooks, "commit-msg"),
 		`#!/bin/sh\nexec node ${shellQuote(SCRIPT)} "$1"\n`,
 		{ mode: 0o755 },
 	);
-	initGitRepo(dir, hooks);
+	initGitRepo(path.join(at, "repo"), atHooks);
+});
+
+let scratch: string;
+
+beforeEach(() => {
+	scratch = hookedRepo.instantiate(mkScratchDir("weakens-line-"));
+	dir = path.join(scratch, "repo");
+	hooks = path.join(scratch, "hooks");
 });
 afterEach(() => {
-	fs.rmSync(dir, { recursive: true, force: true });
-	fs.rmSync(hooks, { recursive: true, force: true });
+	fs.rmSync(scratch, { recursive: true, force: true });
 });
 
 describe("check-weakens-line (#2235)", () => {

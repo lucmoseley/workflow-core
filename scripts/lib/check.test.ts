@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENVELOPE_FRAME_KEYS } from "./envelope-frame-keys";
+import { defineTemplate } from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
 import {
 	base as notifyBase,
@@ -21,6 +22,22 @@ const LIB = path.resolve(__dirname, "check.js");
 const REPO = path.resolve(__dirname, "..", "..");
 
 let dir: string;
+
+const configureIdentity = (root: string) => {
+	execFileSync("git", ["init", "-q", "."], { cwd: root });
+	execFileSync("git", ["config", "user.email", "t@t"], { cwd: root });
+	execFileSync("git", ["config", "user.name", "t"], { cwd: root });
+};
+
+const identityRepo = defineTemplate({
+	configured: configureIdentity,
+	seeded: (root) => {
+		configureIdentity(root);
+		execFileSync("git", ["commit", "-q", "--allow-empty", "-m", "seed"], {
+			cwd: root,
+		});
+	},
+});
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-lib-test-"));
@@ -687,12 +704,11 @@ describe("an async run() (#1586)", () => {
 	});
 
 	it("is refused as BROKEN under --against where a plain run() returns a Promise", () => {
-		const root = fs.mkdtempSync(path.join(dir, "repo-"));
+		const root = identityRepo.instantiate(
+			fs.mkdtempSync(path.join(dir, "repo-")),
+			"seeded",
+		);
 		const git = (...a: string[]) => spawnSync("git", a, { cwd: root });
-		git("init", "-q", ".");
-		git("config", "user.email", "t@t");
-		git("config", "user.name", "t");
-		git("commit", "-q", "--allow-empty", "-m", "seed");
 		const file = path.join(root, "fixture-check.js");
 		fs.copyFileSync(checker("return Promise.resolve({});", AGAINST_SPEC), file);
 		git("add", "--", "fixture-check.js");
@@ -865,12 +881,12 @@ describe("--against <rev>", () => {
 	const rootLog = () => path.join(dir, "roots.log");
 
 	const repo = (head: string) => {
-		const root = fs.mkdtempSync(path.join(dir, "repo-"));
+		const root = identityRepo.instantiate(
+			fs.mkdtempSync(path.join(dir, "repo-")),
+			"configured",
+		);
 		const git = (...args: string[]) =>
 			spawnSync("git", args, { cwd: root, encoding: "utf8" });
-		git("init", "-q", ".");
-		git("config", "user.email", "t@t");
-		git("config", "user.name", "t");
 		fs.writeFileSync(
 			path.join(root, "fixture-check.js"),
 			`const fs = require("node:fs");
@@ -1351,12 +1367,12 @@ runCheck({
 });
 describe("--against with the blobs materialisation", () => {
 	const gitRepo = (prefix: string) => {
-		const root = fs.mkdtempSync(path.join(dir, prefix));
+		const root = identityRepo.instantiate(
+			fs.mkdtempSync(path.join(dir, prefix)),
+			"configured",
+		);
 		const git = (...args: string[]) =>
 			spawnSync("git", args, { cwd: root, encoding: "utf8" });
-		git("init", "-q", ".");
-		git("config", "user.email", "t@t");
-		git("config", "user.name", "t");
 		return { root, git };
 	};
 

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -208,9 +209,7 @@ describe("task: one run's sandbox", () => {
 			},
 		);
 
-	const sourceRepo = (prepare = "git config core.hooksPath .hooks") => {
-		const repo = path.join(tmp, "source");
-		fs.mkdirSync(repo);
+	const sourceBuild = (prepare: string) => (repo: string) => {
 		git(repo, "init", "--quiet", "-b", "main");
 		git(repo, "config", "user.email", "test@example.com");
 		git(repo, "config", "user.name", "test");
@@ -231,8 +230,17 @@ describe("task: one run's sandbox", () => {
 		git(repo, "commit", "--quiet", "-m", "one");
 		fs.writeFileSync(path.join(repo, "f.txt"), "after\n");
 		git(repo, "commit", "--quiet", "-am", "the landing commit");
-		return repo;
 	};
+
+	const sources = defineTemplate({
+		hooksPath: sourceBuild("git config core.hooksPath .hooks"),
+		noop: sourceBuild("true"),
+		breaksConfig: sourceBuild("printf '[broken' >> .git/config"),
+	});
+
+	const sourceRepo = (
+		prepare: "hooksPath" | "noop" | "breaksConfig" = "hooksPath",
+	) => sources.instantiate(path.join(tmp, "source"), prepare);
 
 	const buildTask = (repo: string, ...extra: string[]) =>
 		run([
@@ -249,13 +257,13 @@ describe("task: one run's sandbox", () => {
 		]);
 
 	it("records the hooks path as none where prepare sets none", () => {
-		const r = buildTask(sourceRepo("true"));
+		const r = buildTask(sourceRepo("noop"));
 		expect(r.code, r.err).toBe(0);
 		expect(JSON.parse(r.out).hooksPath).toBe("none");
 	});
 
 	it("throws where git cannot read the clone's config, rather than calling it none", () => {
-		const r = buildTask(sourceRepo("printf '[broken' >> .git/config"));
+		const r = buildTask(sourceRepo("breaksConfig"));
 		expect(r.code).not.toBe(0);
 		expect(r.err).toContain("git config core.hooksPath:");
 	});

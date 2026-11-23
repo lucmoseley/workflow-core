@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const { REPO_CHECKS } = require("./lib/repo-checks-registry.js");
@@ -18,11 +19,14 @@ let state: string;
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, stdio: "ignore" });
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "tracker-sweep-test-"));
+	dir = emptyRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "tracker-sweep-test-")),
+	);
 	state = path.join(dir, "claude");
 	fs.mkdirSync(state, { recursive: true });
-	git(dir, "init", "-q");
 });
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });

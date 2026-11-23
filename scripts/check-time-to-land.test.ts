@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { coreFile } from "./lib/core-path-testkit";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const CHECK = path.resolve(__dirname, "check-time-to-land.js");
@@ -13,9 +14,14 @@ const S = 1000;
 
 let work: string;
 
+const mainRepo = defineTemplate((at) => {
+	execFileSync("git", ["init", "-q", "-b", "main", at]);
+});
+
 beforeEach(() => {
-	work = fs.mkdtempSync(path.join(os.tmpdir(), "time-to-land-check-"));
-	execFileSync("git", ["init", "-q", "-b", "main", work]);
+	work = mainRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "time-to-land-check-")),
+	);
 });
 
 afterEach(() => fs.rmSync(work, { recursive: true, force: true }));

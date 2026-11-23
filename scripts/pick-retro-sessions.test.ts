@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { API_PROMPT, scriptPrompt } from "./lib/loop-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
 import { seatDirs } from "./lib/seat-testkit";
@@ -28,6 +29,44 @@ const writeJson = (file: string, value: unknown) => {
 	mkdir(path.dirname(file));
 	fs.writeFileSync(file, JSON.stringify(value));
 };
+
+const ADOPTER_SETTINGS = {
+	enabledPlugins: { "workflow-core@workflow-core": true },
+	extraKnownMarketplaces: {
+		"workflow-core": { source: { source: "git", ref: "v1.3.4" } },
+	},
+};
+
+const committedPin = defineTemplate((dir) => {
+	const git = (...args: string[]) =>
+		spawnSync("git", ["-C", dir, ...args], {
+			encoding: "utf8",
+			env: {
+				...process.env,
+				GIT_AUTHOR_DATE: "2026-10-01T00:00:00Z",
+				GIT_COMMITTER_DATE: "2026-10-01T00:00:00Z",
+			},
+		});
+	writeJson(path.join(dir, ".claude", "settings.json"), ADOPTER_SETTINGS);
+	git("init", "-q");
+	git(
+		"-c",
+		"user.name=t",
+		"-c",
+		"user.email=t@t",
+		"add",
+		".claude/settings.json",
+	);
+	git(
+		"-c",
+		"user.name=t",
+		"-c",
+		"user.email=t@t",
+		"commit",
+		"-qm",
+		"pin v1.3.4",
+	);
+});
 
 const later = iso(NOW - HOUR * 30);
 const toolError = (text = "boom") =>
@@ -197,12 +236,10 @@ beforeEach(() => {
 	writeJson(path.join(repos.core, ".claude-plugin", "plugin.json"), {
 		name: "workflow-core",
 	});
-	writeJson(path.join(repos.adopter, ".claude", "settings.json"), {
-		enabledPlugins: { "workflow-core@workflow-core": true },
-		extraKnownMarketplaces: {
-			"workflow-core": { source: { source: "git", ref: "v1.3.4" } },
-		},
-	});
+	writeJson(
+		path.join(repos.adopter, ".claude", "settings.json"),
+		ADOPTER_SETTINGS,
+	);
 	writeJson(path.join(repos.plain, ".claude", "settings.json"), {
 		enabledPlugins: { "github@claude-plugins-official": true },
 	});
@@ -255,34 +292,7 @@ describe("pool", () => {
 	});
 
 	it("reports the pin committed when the session started, not one bumped since", () => {
-		const git = (...args: string[]) =>
-			spawnSync("git", ["-C", repos.adopter, ...args], {
-				encoding: "utf8",
-				env: {
-					...process.env,
-					GIT_AUTHOR_DATE: "2026-10-01T00:00:00Z",
-					GIT_COMMITTER_DATE: "2026-10-01T00:00:00Z",
-				},
-			});
-		fs.rmSync(path.join(repos.adopter, ".git"), { recursive: true });
-		git("init", "-q");
-		git(
-			"-c",
-			"user.name=t",
-			"-c",
-			"user.email=t@t",
-			"add",
-			".claude/settings.json",
-		);
-		git(
-			"-c",
-			"user.name=t",
-			"-c",
-			"user.email=t@t",
-			"commit",
-			"-qm",
-			"pin v1.3.4",
-		);
+		committedPin.instantiate(repos.adopter);
 		writeJson(path.join(repos.adopter, ".claude", "settings.json"), {
 			enabledPlugins: { "workflow-core@workflow-core": true },
 			extraKnownMarketplaces: {

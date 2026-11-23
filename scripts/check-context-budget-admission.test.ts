@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -14,10 +15,14 @@ import { textModuleSource, writeTextModule } from "./lib/tracker-text-fixture";
 const SCRIPT = path.resolve(__dirname, "check-context-budget.js");
 const LEDGER = "docs/pool-admission-ledger.json";
 
+const mainRepo = defineTemplate(identityRepoTemplate);
+
 let dir: string;
 
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-admission-"));
+	dir = mainRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-admission-")),
+	);
 	vi.stubEnv(
 		"WFC_TRACKER_TEXT_FILE",
 		writeTextModule(dir, textModuleSource("fixture")),
@@ -82,9 +87,6 @@ function git(...args: string[]) {
 }
 
 function baseline() {
-	git("init", "-q", "-b", "main");
-	git("config", "user.email", "t@example.invalid");
-	git("config", "user.name", "t");
 	git("add", "-A");
 	git("commit", "-q", "--no-verify", "-m", "baseline");
 }

@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerSession } from "./lib/arbiter-testkit.js";
 import { coreFile } from "./lib/core-path-testkit";
+import { defineTemplate } from "./lib/git-fixture";
 import {
 	FILED_DIR,
 	markerName,
@@ -25,7 +26,6 @@ const HOUR = 60 * 60_000;
 const DAY = 24 * HOUR;
 
 let tmp: string;
-let origin: string;
 let main: string;
 let seat: string;
 let npmStub: string;
@@ -127,10 +127,24 @@ const holdProcess = (cwd: string, marker = "held") => {
 
 const deadPid = () => spawnSync("true").pid;
 
+const template = defineTemplate((dir) => {
+	const bare = path.join(dir, "origin.git");
+	const clone = path.join(dir, "main");
+	git(dir, "init", "-q", "--bare", "-b", "main", bare);
+	git(dir, "clone", "-q", bare, clone);
+	fs.writeFileSync(
+		path.join(clone, ".gitignore"),
+		"/node_modules\n.claude/worktrees/\n",
+	);
+	fs.writeFileSync(path.join(clone, "package.json"), "{}\n");
+	commitIn(clone, "package-lock.json", "lock-1\n");
+	git(clone, "push", "-q", "origin", "HEAD:main");
+});
+
 beforeEach(() => {
 	vi.useFakeTimers({ toFake: ["Date"] });
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "reap-")));
-	origin = path.join(tmp, "origin.git");
+	template.instantiate(tmp);
 	main = path.join(tmp, "main");
 	seat = path.join(tmp, "seat");
 	npmStub = path.join(tmp, "npm");
@@ -140,15 +154,6 @@ beforeEach(() => {
 		"#!/bin/sh\nmkdir node_modules && cp package-lock.json node_modules/lock\n",
 	);
 	fs.chmodSync(npmStub, 0o755);
-	git(tmp, "init", "-q", "--bare", "-b", "main", origin);
-	git(tmp, "clone", "-q", origin, main);
-	fs.writeFileSync(
-		path.join(main, ".gitignore"),
-		"/node_modules\n.claude/worktrees/\n",
-	);
-	fs.writeFileSync(path.join(main, "package.json"), "{}\n");
-	commitIn(main, "package-lock.json", "lock-1\n");
-	git(main, "push", "-q", "origin", "HEAD:main");
 });
 
 afterEach(() => {

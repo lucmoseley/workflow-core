@@ -12,6 +12,7 @@ import {
 	renderRange,
 } from "./commit-range.js";
 import { writeFaultyGit } from "./git-fault-fake";
+import { defineTemplate, identityRepoTemplate } from "./git-fixture";
 
 type Read = ReturnType<typeof readRange>;
 type Listed = Extract<Read, { ok: true }>;
@@ -32,11 +33,12 @@ function commit(subject: string, files: Record<string, string>) {
 	return git(["rev-parse", "HEAD"]);
 }
 
+const configuredRepo = defineTemplate(identityRepoTemplate);
+
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "commit-range-"));
-	git(["init", "-q", "-b", "main"], dir);
-	git(["config", "user.email", "t@example.invalid"]);
-	git(["config", "user.name", "Test"]);
+	dir = configuredRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "commit-range-")),
+	);
 });
 
 describe("readRange names every commit and the files it touched (mantahostels#945)", () => {

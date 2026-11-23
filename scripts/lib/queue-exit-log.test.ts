@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { committedRepoTemplate, defineTemplate } from "./git-fixture";
 
 const require = createRequire(import.meta.url);
 const { queueExitLogPath, queueExitLogger } = require("./queue-exit-log.js");
@@ -83,18 +84,19 @@ describe("queueExitLogger's store (#1215)", () => {
 });
 
 describe("queueExitLogPath", () => {
+	const withWorktree = defineTemplate((dir) => {
+		committedRepoTemplate(dir);
+		spawnSync(
+			"git",
+			["worktree", "add", "-q", "--detach", path.join(dir, "wt")],
+			{
+				cwd: dir,
+			},
+		);
+	});
+
 	it("roots a worktree's log in the canonical checkout's markers", () => {
-		const repo = tmp();
-		for (const args of [
-			["init", "-q"],
-			["-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q"].concat([
-				"--allow-empty",
-				"-m",
-				"root",
-			]),
-			["worktree", "add", "-q", "--detach", path.join(repo, "wt")],
-		])
-			spawnSync("git", args, { cwd: repo });
+		const repo = withWorktree.instantiate(tmp());
 		const want = path.join(
 			repo,
 			".claude",

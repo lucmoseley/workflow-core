@@ -1,13 +1,13 @@
 // @vitest-environment node
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
 import { sweptMarkers } from "./lib/arbiter-testkit";
-import { initGitRepo } from "./lib/git-fixture";
+import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const CANARY = path.resolve(__dirname, "self-plugin-canary.sh");
@@ -17,6 +17,9 @@ const SID = "aaaaaaaa-1111-2222-3333-444444444444";
 
 let dir: string;
 let base: string;
+const checkoutTemplate = defineTemplate((at) =>
+	initGitRepo(at, path.join(at, "no-hooks")),
+);
 let repo: string;
 
 beforeEach(() => {
@@ -160,7 +163,8 @@ function checkout(name: string) {
 	const at = path.join(base, name);
 	const hooks = path.join(base, "no-hooks");
 	fs.mkdirSync(hooks, { recursive: true });
-	initGitRepo(at, hooks);
+	checkoutTemplate.instantiate(at);
+	execFileSync("git", ["-C", at, "config", "core.hooksPath", hooks]);
 	return at;
 }
 

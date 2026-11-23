@@ -5,32 +5,42 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 
 const { isCarried, levelUntilCarried, readRunCode, readSupersededFiles } =
 	createRequire(__filename)("./lander-code.js");
 
 const OWN = "scripts/queue-lander.js";
 let repo = "";
-const git = (...args: string[]) =>
-	execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
-const write = (file: string, text: string) => {
-	fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
-	fs.writeFileSync(path.join(repo, file), text);
+const gitIn =
+	(at: string) =>
+	(...args: string[]) =>
+		execFileSync("git", args, { cwd: at, encoding: "utf8" }).trim();
+const git = (...args: string[]) => gitIn(repo)(...args);
+const writeIn = (at: string, file: string, text: string) => {
+	fs.mkdirSync(path.dirname(path.join(at, file)), { recursive: true });
+	fs.writeFileSync(path.join(at, file), text);
 };
-const commit = (file: string, text: string) => {
-	write(file, text);
-	git("add", "-A");
-	git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", file);
-	return git("rev-parse", "HEAD");
+const write = (file: string, text: string) => writeIn(repo, file, text);
+const commitIn = (at: string, file: string, text: string) => {
+	const g = gitIn(at);
+	writeIn(at, file, text);
+	g("add", "-A");
+	g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", file);
+	return g("rev-parse", "HEAD");
 };
+const commit = (file: string, text: string) => commitIn(repo, file, text);
+
+const seeded = defineTemplate((dir) => {
+	gitIn(dir)("init", "-q");
+	commitIn(dir, OWN, "module.exports = 1;\n");
+	commitIn(dir, "docs/notes.md", "v1\n");
+});
 
 beforeEach(() => {
-	repo = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), "lander-code-")),
+	repo = seeded.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "lander-code-"))),
 	);
-	git("init", "-q");
-	commit(OWN, "module.exports = 1;\n");
-	commit("docs/notes.md", "v1\n");
 });
 afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
 

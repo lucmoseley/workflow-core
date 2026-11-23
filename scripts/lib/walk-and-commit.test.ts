@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bringCoreFiles } from "./core-owned-files.js";
+import { defineTemplate } from "./git-fixture";
 import { noop } from "./noop.js";
 import { runInProcess } from "./run-in-process.js";
 import { walkAndCommit } from "./walk-and-commit.js";
@@ -71,19 +72,19 @@ function readLog(cwd: string) {
 		.filter(Boolean);
 }
 
-function pinAt(ref: string) {
+function pinAt(ref: string, at = root, plugin = pluginRoot) {
 	const source = {
 		source: "url",
 		url: "https://example.invalid/wc.git",
 		ref,
 	};
-	writeJson(root, ".claude/settings.json", {
+	writeJson(at, ".claude/settings.json", {
 		enabledPlugins: { "workflow-core@wc": true },
 		extraKnownMarketplaces: { wc: { source } },
 	});
 	bringCoreFiles({
-		root,
-		pluginRoot,
+		root: at,
+		pluginRoot: plugin,
 		dryRun: false,
 		out: noop,
 		record: null,
@@ -91,26 +92,34 @@ function pinAt(ref: string) {
 	});
 }
 
+const pinnedAdopter = defineTemplate((tmp) => {
+	const adopter = path.join(tmp, "adopter");
+	const plugin = path.join(tmp, "plugin");
+	const bare = path.join(tmp, "remote.git");
+	fs.mkdirSync(adopter, { recursive: true });
+	fs.mkdirSync(plugin, { recursive: true });
+	writeJson(plugin, ".claude-plugin/plugin.json", {
+		name: "workflow-core",
+		version: "1.0.0",
+	});
+	pinAt("v1.0.0", adopter, plugin);
+	execFileSync("git", ["init", "-q", "-b", "main"], { cwd: adopter });
+	git(["config", "user.email", "t@t"], adopter);
+	git(["config", "user.name", "t"], adopter);
+	execFileSync("git", ["init", "-q", "--bare", bare]);
+	git(["remote", "add", "origin", bare], adopter);
+	commitAll(adopter, "initial");
+	git(["push", "-q", "-u", "origin", "main"], adopter);
+});
+
 beforeEach(() => {
-	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "walk-and-commit-test-"));
+	const tmp = pinnedAdopter.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "walk-and-commit-test-")),
+	);
 	made.push(tmp);
 	root = path.join(tmp, "adopter");
 	pluginRoot = path.join(tmp, "plugin");
 	remote = path.join(tmp, "remote.git");
-	fs.mkdirSync(root, { recursive: true });
-	fs.mkdirSync(pluginRoot, { recursive: true });
-	writeJson(pluginRoot, ".claude-plugin/plugin.json", {
-		name: "workflow-core",
-		version: "1.0.0",
-	});
-	pinAt("v1.0.0");
-	execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });
-	git(["config", "user.email", "t@t"], root);
-	git(["config", "user.name", "t"], root);
-	execFileSync("git", ["init", "-q", "--bare", remote]);
-	git(["remote", "add", "origin", remote], root);
-	commitAll(root, "initial");
-	git(["push", "-q", "-u", "origin", "main"], root);
 });
 
 afterEach(() => {

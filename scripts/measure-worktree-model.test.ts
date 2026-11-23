@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { projectSlug } from "./lib/project-slug.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
@@ -66,21 +67,27 @@ function writeTranscript(at: number) {
 	fs.utimesSync(path.join(dir, "s1.jsonl"), when, when);
 }
 
-beforeEach(() => {
-	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wtm-")));
-	const origin = path.join(tmp, "origin.git");
-	const seed = path.join(tmp, "seed");
-	main = path.join(tmp, "main");
-	seat = path.join(tmp, "seat-a");
-	git(tmp, "init", "-q", "--bare", "-b", "main", origin);
-	git(tmp, "init", "-q", "-b", "main", seed);
+const cloned = defineTemplate((dir) => {
+	const origin = path.join(dir, "origin.git");
+	const seed = path.join(dir, "seed");
+	const clone = path.join(dir, "main");
+	git(dir, "init", "-q", "--bare", "-b", "main", origin);
+	git(dir, "init", "-q", "-b", "main", seed);
 	fs.writeFileSync(path.join(seed, "a.txt"), "v1\n");
 	git(seed, "add", "-A");
 	git(seed, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "v1");
 	git(seed, "push", "-q", origin, "main", "main:landing");
-	git(tmp, "clone", "-q", origin, main);
-	git(main, "config", "user.email", "t@t");
-	git(main, "config", "user.name", "t");
+	git(dir, "clone", "-q", origin, clone);
+	git(clone, "config", "user.email", "t@t");
+	git(clone, "config", "user.name", "t");
+});
+
+beforeEach(() => {
+	tmp = cloned.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wtm-"))),
+	);
+	main = path.join(tmp, "main");
+	seat = path.join(tmp, "seat-a");
 	since = new Date(Date.now() + 1000).toISOString();
 	writeTranscript(Date.parse(since) + 1000);
 });

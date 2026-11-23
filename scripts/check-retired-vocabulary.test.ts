@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -107,11 +108,12 @@ const checkWithin = (timeout: number, ...args: string[]) =>
 const check = (...args: string[]) =>
 	shape(runInProcess(SCRIPT, args, { cwd: repo }));
 
+const repoTemplate = defineTemplate(identityRepoTemplate);
+
 beforeEach(() => {
-	repo = fs.mkdtempSync(path.join(os.tmpdir(), "vocab-"));
-	git("init", "-q");
-	git("config", "user.email", "t@example.com");
-	git("config", "user.name", "t");
+	repo = repoTemplate.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "vocab-")),
+	);
 });
 
 afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));

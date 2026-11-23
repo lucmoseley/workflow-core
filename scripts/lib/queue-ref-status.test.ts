@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { redPathAtRest } from "./lander-records.js";
 import type { QueueEvent } from "./queue-log.js";
 import { buildQueueRefLine, readQueueRefStates } from "./queue-ref-status.js";
@@ -18,30 +19,43 @@ let member: string;
 let merged: string;
 let later: string;
 
-const git = (...args: string[]) =>
-	execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+const gitIn =
+	(at: string) =>
+	(...args: string[]) =>
+		execFileSync("git", args, { cwd: at, encoding: "utf8" }).trim();
+const git = (...args: string[]) => gitIn(root)(...args);
 
-const commit = (name: string) => {
-	fs.writeFileSync(path.join(root, `${name}.txt`), name);
-	git("add", "-A");
-	git("commit", "-qm", name);
-	return git("rev-parse", "HEAD");
+const commitIn = (at: string, name: string) => {
+	const g = gitIn(at);
+	fs.writeFileSync(path.join(at, `${name}.txt`), name);
+	g("add", "-A");
+	g("commit", "-qm", name);
+	return g("rev-parse", "HEAD");
 };
 
 const markers = () => path.join(root, ".claude", "tmp", "markers");
 const short = (sha: string) => sha.slice(0, 9);
 
+const history = defineTemplate((dir) => {
+	const g = gitIn(dir);
+	g("init", "-q", "-b", "main");
+	g("config", "user.email", "t@t");
+	g("config", "user.name", "t");
+	const base = commitIn(dir, "seed");
+	const side = commitIn(dir, "member");
+	commitIn(dir, "later");
+	g("checkout", "-q", "--detach", base);
+	g("merge", "-q", "--no-ff", "--no-edit", side);
+});
+
 beforeEach(() => {
-	root = fs.mkdtempSync(path.join(os.tmpdir(), "queue-ref-status-"));
-	git("init", "-q", "-b", "main");
-	git("config", "user.email", "t@t");
-	git("config", "user.name", "t");
-	seed = commit("seed");
-	member = commit("member");
-	later = commit("later");
-	git("checkout", "-q", "--detach", seed);
-	git("merge", "-q", "--no-ff", "--no-edit", member);
+	root = history.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "queue-ref-status-")),
+	);
 	merged = git("rev-parse", "HEAD");
+	seed = git("rev-parse", "HEAD^1");
+	member = git("rev-parse", "HEAD^2");
+	later = git("rev-parse", "main");
 	tree = path.join(root, ".claude", "worktrees", "alpha");
 	fs.mkdirSync(tree, { recursive: true });
 	fs.writeFileSync(path.join(tree, ".git"), "gitdir: elsewhere\n");

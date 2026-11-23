@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -34,43 +35,51 @@ const env = () => {
 	return e;
 };
 
-beforeEach(() => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pre-push-wt-config-"));
-	const remote = path.join(tmp, "remote.git");
-	shared = path.join(tmp, "shared");
-	wt = path.join(tmp, "wt");
-	git(tmp, "init", "-q", "--bare", remote);
-	git(tmp, "init", "-q", "-b", "main", shared);
-	git(shared, "config", "user.email", "t@t");
-	git(shared, "config", "user.name", "t");
-	git(shared, "remote", "add", "origin", remote);
-	git(shared, "commit", "-q", "--allow-empty", "-m", "base");
-	git(remote, "fetch", "-q", shared, "main:refs/heads/main");
-	writeConfig(shared, {
+const carried = defineTemplate((dir) => {
+	const remote = path.join(dir, "remote.git");
+	const main = path.join(dir, "shared");
+	const tree = path.join(dir, "wt");
+	git(dir, "init", "-q", "--bare", remote);
+	git(dir, "init", "-q", "-b", "main", main);
+	git(main, "config", "user.email", "t@t");
+	git(main, "config", "user.name", "t");
+	git(main, "remote", "add", "origin", remote);
+	git(main, "commit", "-q", "--allow-empty", "-m", "base");
+	git(remote, "fetch", "-q", main, "main:refs/heads/main");
+	writeConfig(main, {
 		contract: 1,
 		tracker: "o/tracker",
 		codeRepo: "o/code",
 	});
-	git(shared, "add", ".");
-	git(shared, "commit", "-q", "-m", "seed");
-	git(shared, "worktree", "add", "-q", "--detach", wt);
-	git(wt, "commit", "-q", "--allow-empty", "-m", "carry");
-	sha = git(wt, "rev-parse", "HEAD");
-	writeConfig(shared, {
+	git(main, "add", ".");
+	git(main, "commit", "-q", "-m", "seed");
+	git(main, "worktree", "add", "-q", "--detach", tree);
+	git(tree, "commit", "-q", "--allow-empty", "-m", "carry");
+	writeConfig(main, {
 		contract: 1,
 		tracker: "o/tracker",
 		codeRepo: "o/tracker",
 		modules: [],
 	});
 
-	const hooks = path.join(tmp, "hooks");
+	const hooks = path.join(dir, "hooks");
 	fs.mkdirSync(hooks);
 	fs.writeFileSync(
 		path.join(hooks, "pre-push"),
 		`#!/bin/sh\nexec node ${shellQuote(gate("landing-push-gate.js"))}\n`,
 		{ mode: 0o755 },
 	);
-	git(shared, "config", "core.hooksPath", hooks);
+	git(main, "config", "core.hooksPath", hooks);
+});
+
+beforeEach(() => {
+	tmp = carried.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "pre-push-wt-config-")),
+		{ extraPaths: [path.join("remote.git", "FETCH_HEAD")] },
+	);
+	shared = path.join(tmp, "shared");
+	wt = path.join(tmp, "wt");
+	sha = git(wt, "rev-parse", "HEAD");
 });
 
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));

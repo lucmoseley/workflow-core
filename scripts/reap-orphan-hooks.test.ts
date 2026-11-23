@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readRunningHooks } from "./lib/core-hooks.js";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { noop } from "./lib/noop.js";
 import { readRegistry } from "./lib/orphan-hooks.js";
 import { makeProcRoot, writeEnviron } from "./lib/proc-fake";
@@ -20,6 +21,7 @@ import {
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "reap-orphan-hooks.js");
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 const { ceilingS, invocations } = readRegistry(
 	JSON.parse(
 		fs.readFileSync(
@@ -201,8 +203,9 @@ describe("a real orphaned guard", () => {
 	});
 
 	function sweepOrphanHook(args = ["--json"], prepare: () => void = noop) {
-		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-orphan-hooks-real-"));
-		spawnSync("git", ["init", "-q", dir]);
+		dir = emptyRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "reap-orphan-hooks-real-")),
+		);
 		fs.mkdirSync(path.join(dir, ".claude"));
 		prepare();
 		const name = `reap-fixture-${process.pid}.sh`;
@@ -308,8 +311,9 @@ describe("a real process of an ended session", () => {
 	});
 
 	function sweepEndedSession(log: string, args = ["--json"]) {
-		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-ended-session-"));
-		spawnSync("git", ["init", "-q", dir]);
+		dir = emptyRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "reap-ended-session-")),
+		);
 		const res0 = spawnSync(
 			"bash",
 			[
@@ -419,8 +423,9 @@ describe("a session start after the timer's kills", () => {
 	});
 
 	it("names the logged kills no start here has named, then never again (#4342)", () => {
-		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-unseen-"));
-		spawnSync("git", ["init", "-q", dir]);
+		dir = emptyRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "reap-unseen-")),
+		);
 		const log = path.join(dir, "session-reaps.jsonl");
 		fs.writeFileSync(
 			log,
@@ -450,8 +455,9 @@ describe("a session start after the timer's kills", () => {
 	});
 
 	it("warns of an unreadable kill log, naming it and the remedy, and finishes its run", () => {
-		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-unseen-"));
-		spawnSync("git", ["init", "-q", dir]);
+		dir = emptyRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "reap-unseen-")),
+		);
 		const log = path.join(dir, ".git/HEAD/session-reaps.jsonl");
 		const res = run(
 			["--notify"],

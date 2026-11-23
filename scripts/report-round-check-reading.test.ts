@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { readLogs } from "./lib/log-reading";
 import { MARKERS_REL } from "./lib/marker-root";
 import { ROUND_CHECK_LOG } from "./lib/priced-options-limbs";
@@ -48,6 +49,15 @@ let seats: string[];
 let systmp: string;
 let roots: Record<Repo, string>;
 
+const REPOS: Repo[] = ["workflow-core", "mantahostels", "fantasy-books"];
+const reposTemplate = defineTemplate((root) => {
+	for (const name of REPOS) {
+		const r = path.join(root, "repos", name);
+		fs.mkdirSync(r, { recursive: true });
+		execFileSync("git", ["init", "-q", r]);
+	}
+});
+
 const rows = (repo: string, n: number, sent: number, tools: number) =>
 	Array.from({ length: n }, (_, i) => ({
 		repo,
@@ -85,7 +95,9 @@ const writeClassed = (data: unknown) => {
 };
 
 beforeEach(() => {
-	home = fs.mkdtempSync(path.join(os.tmpdir(), "round-reading-"));
+	home = reposTemplate.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "round-reading-")),
+	);
 	seats = seatDirs(home);
 	for (const s of seats)
 		fs.mkdirSync(path.join(s, "projects"), { recursive: true });
@@ -96,10 +108,6 @@ beforeEach(() => {
 		mantahostels: path.join(home, "repos", "mantahostels"),
 		"fantasy-books": path.join(home, "repos", "fantasy-books"),
 	};
-	for (const r of Object.values(roots)) {
-		fs.mkdirSync(r, { recursive: true });
-		execFileSync("git", ["init", "-q", r]);
-	}
 	writeBaseline(FIXTURE_BASELINE);
 	writeClassed({});
 	fs.mkdirSync(path.join(roots["workflow-core"], ".claude-plugin"));

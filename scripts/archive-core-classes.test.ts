@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const CORE = path.resolve(__dirname, "..");
@@ -13,16 +14,17 @@ let dir: string;
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
-beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "archive-core-classes-"));
-	git("init", "-q", "-b", "main", ".");
-	git("config", "user.email", "fixture@example.invalid");
-	git("config", "user.name", "Archive Fixture");
+const skeleton = defineTemplate((at) => {
+	const g = (...args: string[]) =>
+		execFileSync("git", args, { cwd: at, encoding: "utf8" });
+	g("init", "-q", "-b", "main", ".");
+	g("config", "user.email", "fixture@example.invalid");
+	g("config", "user.name", "Archive Fixture");
 	const init = runInProcess(
 		script("init-adopter.js"),
 		[
 			"--root",
-			dir,
+			at,
 			"--plugin-root",
 			CORE,
 			"--no-plugin-install",
@@ -32,11 +34,17 @@ beforeEach(() => {
 			"--modules",
 			"governance,roadmap",
 		],
-		{ cwd: dir, env: process.env },
+		{ cwd: at, env: process.env },
 	);
 	if (init.status !== 0) throw new Error(`init failed: ${init.stderr}`);
-	git("add", "-A");
-	git("-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "skeleton");
+	g("add", "-A");
+	g("-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "skeleton");
+});
+
+beforeEach(() => {
+	dir = skeleton.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "archive-core-classes-")),
+	);
 }, 60_000);
 
 afterEach(() => {

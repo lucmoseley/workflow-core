@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-release-lag.js");
@@ -26,10 +27,10 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const git = (args: string[], at = 0): string => {
+const gitIn = (cwd: string, args: string[], at = 0): string => {
 	const date = `@${T0 + at} +0000`;
 	return execFileSync("git", args, {
-		cwd: repo,
+		cwd,
 		encoding: "utf8",
 		env: {
 			...process.env,
@@ -43,6 +44,19 @@ const git = (args: string[], at = 0): string => {
 	}).trim();
 };
 
+const git = (args: string[], at = 0): string => gitIn(repo, args, at);
+
+const seededCore = defineTemplate((root) => {
+	gitIn(root, ["init", "-q", "-b", "main"]);
+	fs.mkdirSync(path.join(root, ".claude-plugin"));
+	fs.writeFileSync(
+		path.join(root, ".claude-plugin", "plugin.json"),
+		JSON.stringify({ name: "workflow-core" }),
+	);
+	gitIn(root, ["add", "."]);
+	gitIn(root, ["commit", "-q", "-m", "init"], 0);
+});
+
 const commit = (at: number) =>
 	git(["commit", "-q", "--allow-empty", "-m", `c${at}`], at);
 
@@ -55,14 +69,7 @@ const buildCore = ({
 	ahead?: number;
 	message?: (source: string) => string;
 }) => {
-	git(["init", "-q", "-b", "main"]);
-	fs.mkdirSync(path.join(repo, ".claude-plugin"));
-	fs.writeFileSync(
-		path.join(repo, ".claude-plugin", "plugin.json"),
-		JSON.stringify({ name: "workflow-core" }),
-	);
-	git(["add", "."]);
-	git(["commit", "-q", "-m", "init"], 0);
+	seededCore.instantiate(repo);
 	const source = git(["rev-parse", "HEAD"]);
 	for (let i = 1; i <= ahead; i++)
 		commit(Math.round((lagDays * DAY * i) / ahead));

@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { coreFile } from "./lib/core-path-testkit";
-import { cutWorktree } from "./lib/git-fixture";
+import { cutWorktree, defineTemplate } from "./lib/git-fixture";
 import { ROWS } from "./lib/post-commit-rows.js";
 import {
 	hookEnv,
@@ -39,10 +39,7 @@ function git(...args: string[]): string {
 	return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 }
 
-function makeRepo(): string {
-	const base = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), "unpushed-")),
-	);
+const pushedRepo = defineTemplate((base) => {
 	const dir = path.join(base, "work");
 	const origin = path.join(base, "origin.git");
 	execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
@@ -54,7 +51,13 @@ function makeRepo(): string {
 	fixtureGit("remote", "add", "origin", origin);
 	fixtureGit("commit", "-q", "--allow-empty", "-m", "base");
 	fixtureGit("push", "-q", "-u", "origin", "main");
-	return dir;
+});
+
+function makeRepo(): string {
+	const base = pushedRepo.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "unpushed-"))),
+	);
+	return path.join(base, "work");
 }
 
 function commit(subject: string): string {

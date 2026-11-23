@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { runInProcess } from "./run-in-process";
 
 const { ownQueueRef, pushedRef, readUnpushedRef } =
@@ -25,10 +26,12 @@ afterEach(() => {
 const gitIn = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, stdio: "ignore" });
 
-function sessionWorktree(name: string) {
-	gitIn(root, "init", "-q", "-b", "main");
+const SESSION = "fix-it";
+
+const sessionTemplate = defineTemplate((dir) => {
+	gitIn(dir, "init", "-q", "-b", "main");
 	gitIn(
-		root,
+		dir,
 		"-c",
 		"user.name=t",
 		"-c",
@@ -39,26 +42,36 @@ function sessionWorktree(name: string) {
 		"-m",
 		"c",
 	);
-	const tree = path.join(root, ".claude", "worktrees", name);
-	gitIn(root, "worktree", "add", "-q", "--detach", tree);
-	return tree;
+	gitIn(
+		dir,
+		"worktree",
+		"add",
+		"-q",
+		"--detach",
+		path.join(dir, ".claude", "worktrees", SESSION),
+	);
+});
+
+function sessionWorktree() {
+	sessionTemplate.instantiate(root);
+	return path.join(root, ".claude", "worktrees", SESSION);
 }
 
 describe("pushedRef", () => {
 	it("is a session worktree's own queue ref once it stands", () => {
-		const tree = sessionWorktree("fix-it");
+		const tree = sessionWorktree();
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
 		expect(pushedRef({ tree })).toBe("origin/queue/fix-it");
 	});
 
 	it("is origin/main for a session worktree whose queue ref does not stand", () => {
-		const tree = sessionWorktree("fix-it");
+		const tree = sessionWorktree();
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/other", "HEAD");
 		expect(pushedRef({ tree })).toBe("origin/main");
 	});
 
 	it("names the queue ref a land pushes for a symlinked path to the worktree", () => {
-		sessionWorktree("fix-it");
+		sessionWorktree();
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
 		const link = `${root}-link`;
 		fs.symlinkSync(root, link);
@@ -78,9 +91,9 @@ describe("pushedRef", () => {
 });
 
 describe("readUnpushedRef", () => {
-	function checkout(branch: string, upstream?: string) {
+	const branchBuild = (branch: string, upstream?: string) => (dir: string) => {
 		const git = (...args: string[]) =>
-			execFileSync("git", args, { cwd: root, stdio: "ignore" });
+			execFileSync("git", args, { cwd: dir, stdio: "ignore" });
 		git("init", "-q", "-b", branch);
 		git(
 			"-c",
@@ -94,7 +107,7 @@ describe("readUnpushedRef", () => {
 			"c",
 		);
 		if (!upstream) return;
-		git("remote", "add", "origin", root);
+		git("remote", "add", "origin", dir);
 		git("update-ref", `refs/remotes/${upstream}`, "HEAD");
 		git("config", `branch.${branch}.remote`, "origin");
 		git(
@@ -102,21 +115,26 @@ describe("readUnpushedRef", () => {
 			`branch.${branch}.merge`,
 			`refs/heads/${upstream.slice("origin/".length)}`,
 		);
-	}
+	};
+
+	const branches = defineTemplate({
+		spike: branchBuild("spike/x", "origin/spike/x"),
+		wip: branchBuild("wip"),
+	});
 
 	it("is a spike branch's own upstream", () => {
-		checkout("spike/x", "origin/spike/x");
+		branches.instantiate(root, "spike");
 		expect(readUnpushedRef({ root })).toBe("origin/spike/x");
 	});
 
 	it("is the pushed ref in a session worktree, its own queue ref", () => {
-		const tree = sessionWorktree("fix-it");
+		const tree = sessionWorktree();
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
 		expect(readUnpushedRef({ root, tree })).toBe("origin/queue/fix-it");
 	});
 
 	it("is the pushed ref on a branch with no upstream", () => {
-		checkout("wip");
+		branches.instantiate(root, "wip");
 		expect(readUnpushedRef({ root })).toBe("origin/main");
 	});
 });
@@ -162,7 +180,7 @@ describe("the CLI", () => {
 	});
 
 	it("prints a linked worktree's own queue ref, pushed and unpushed (#4692)", () => {
-		const tree = sessionWorktree("fix-it");
+		const tree = sessionWorktree();
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
 		for (const [verb, out] of [
 			["pushed", "origin/queue/fix-it"],

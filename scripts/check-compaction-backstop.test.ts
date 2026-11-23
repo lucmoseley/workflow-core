@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { page, stubGhRoutes } from "./lib/gh-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "check-compaction-backstop.js");
@@ -14,19 +15,23 @@ const SPEC_URL = `https://api.github.com/repos/o/r/issues/${SPEC}`;
 let dir: string;
 let repo: string;
 let sha101: string;
-beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "compaction-backstop-"));
-	repo = path.join(dir, "repo");
-	fs.mkdirSync(repo);
-	const git = (...args: string[]) =>
+const gitIn =
+	(cwd: string) =>
+	(...args: string[]) =>
 		execFileSync(
 			"git",
 			["-c", "user.name=t", "-c", "user.email=t@t", ...args],
-			{ cwd: repo, encoding: "utf8" },
+			{ cwd, encoding: "utf8" },
 		).trim();
+const chunkRepo = defineTemplate((at) => {
+	const git = gitIn(at);
 	git("init", "-q");
 	git("commit", "-q", "--allow-empty", "-m", "Build the chunk (#101)");
-	sha101 = git("rev-parse", "HEAD");
+});
+beforeEach(() => {
+	dir = fs.mkdtempSync(path.join(os.tmpdir(), "compaction-backstop-"));
+	repo = chunkRepo.instantiate(path.join(dir, "repo"));
+	sha101 = gitIn(repo)("rev-parse", "HEAD");
 });
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });

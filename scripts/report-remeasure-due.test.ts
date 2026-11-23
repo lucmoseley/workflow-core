@@ -193,9 +193,10 @@ const ticket = (number: number, ns: number[], extra: string[] = []): Hit => ({
 	comments: [TIER_LINE, ...ns.map((n) => record(n)), ...extra],
 });
 
-const checkoutTemplate = defineTemplate((dir) => {
+const checkoutTemplate = defineTemplate((root) => {
+	const dir = path.join(root, "code");
 	const hooks = path.join(dir, ".hooks");
-	fs.mkdirSync(hooks);
+	fs.mkdirSync(hooks, { recursive: true });
 	initGitRepo(dir, hooks);
 	const git = (...a: string[]) =>
 		execFileSync("git", a, { cwd: dir, encoding: "utf8" }).trim();
@@ -220,23 +221,28 @@ const checkoutTemplate = defineTemplate((dir) => {
 	);
 	git("add", ".claude");
 	git("commit", "-qm", "config");
+	addNewOrigin(dir);
+	pushToOrigin(dir);
 });
 
 const gitIn = (cwd: string, ...a: string[]) =>
 	execFileSync("git", a, { cwd, encoding: "utf8" }).trim();
 
-function pushToNewOrigin(code: string) {
+function addNewOrigin(code: string) {
 	const origin = `${code}-origin.git`;
 	execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
 	execFileSync("git", ["remote", "add", "origin", origin], { cwd: code });
+}
+
+function pushToOrigin(code: string) {
 	execFileSync("git", ["push", "-q", "--no-verify", "origin", "HEAD:main"], {
 		cwd: code,
 	});
 }
 
 function checkout(fx: ReturnType<typeof fixture>) {
-	const code = checkoutTemplate.instantiate(path.join(fx.root, "code"));
-	pushToNewOrigin(code);
+	checkoutTemplate.instantiate(fx.root);
+	const code = path.join(fx.root, "code");
 	return (rev: string) =>
 		execFileSync("git", ["rev-parse", rev], {
 			cwd: code,
@@ -247,17 +253,9 @@ function checkout(fx: ReturnType<typeof fixture>) {
 const buildUnrecordedFault = (landed: string | undefined) =>
 	`o/manta@${landed} changes the sensitive area secrets and carries neither a Review-Tier: trailer nor a **Review findings:** record, so nothing answers for it until a record names it as landed, or its message cites that record's ticket within the record's base..landed; \`${coreFile("scripts/lib/rule-text.sh")} review-tier-records\` gives the record's form`;
 
-function trailerCheckout(
-	fx: ReturnType<typeof fixture>,
-	commits: {
-		file: string;
-		trailer?: string;
-		date?: string;
-		message?: string;
-	}[],
-) {
-	const code = path.join(fx.root, "manta");
-	initGitRepo(code, path.join(fx.root, ".hooks"));
+const trailerTemplate = defineTemplate((root) => {
+	const code = path.join(root, "manta");
+	initGitRepo(code, path.join(root, ".hooks"));
 	fs.mkdirSync(path.join(code, ".claude"));
 	fs.writeFileSync(
 		path.join(code, ".claude", "workflow-core.json"),
@@ -274,6 +272,20 @@ function trailerCheckout(
 			],
 		}),
 	);
+	addNewOrigin(code);
+});
+
+function trailerCheckout(
+	fx: ReturnType<typeof fixture>,
+	commits: {
+		file: string;
+		trailer?: string;
+		date?: string;
+		message?: string;
+	}[],
+) {
+	trailerTemplate.instantiate(fx.root);
+	const code = path.join(fx.root, "manta");
 	const git = (date: string, ...a: string[]) =>
 		execFileSync("git", a, {
 			cwd: code,
@@ -298,7 +310,7 @@ function trailerCheckout(
 			return git(date, "rev-parse", "HEAD");
 		},
 	);
-	pushToNewOrigin(code);
+	pushToOrigin(code);
 	return shas;
 }
 

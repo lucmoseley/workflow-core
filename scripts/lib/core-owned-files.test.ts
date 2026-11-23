@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CI_WORKFLOW } from "./adopter-ci.js";
 import { labelPlan } from "./adopter-skeleton.js";
 import { bringCoreFiles, skeletonPaths } from "./core-owned-files.js";
+import { defineTemplate } from "./git-fixture";
 import { SESSION_COST_TABLE } from "./session-spend.js";
 import { upgrade } from "./upgrade-walk.js";
 
@@ -35,8 +36,16 @@ beforeEach(() => {
 		JSON.stringify({ name: "workflow-core", version: "1.0.0" }),
 	);
 	write(pluginRoot, HELPER, PLUGIN_HELPER);
+	seedAdopter(root);
+});
+afterEach(() => {
+	for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
+	made = [];
+});
+
+function seedAdopter(at: string) {
 	write(
-		root,
+		at,
 		".claude/settings.json",
 		JSON.stringify({
 			enabledPlugins: { "workflow-core@wc": true },
@@ -52,15 +61,11 @@ beforeEach(() => {
 		}),
 	);
 	write(
-		root,
+		at,
 		".claude/workflow-core.json",
 		JSON.stringify({ contract: 1, founder: "A Founder", modules: [] }),
 	);
-});
-afterEach(() => {
-	for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
-	made = [];
-});
+}
 
 function run(labels?: Parameters<typeof upgrade>[0]["labels"]) {
 	const lines: string[] = [];
@@ -324,6 +329,19 @@ describe("the core's own wfc-self self-plugin (#2440)", () => {
 });
 
 describe("the labels (#1484)", () => {
+	const originRemoteAdopter = defineTemplate((at) => {
+		seedAdopter(at);
+		execFileSync("git", ["init", "-q", at]);
+		execFileSync("git", [
+			"-C",
+			at,
+			"remote",
+			"add",
+			"origin",
+			"https://github.com/acme/widgets.git",
+		]);
+	});
+
 	interface Label {
 		name: string;
 		color: string;
@@ -346,15 +364,7 @@ describe("the labels (#1484)", () => {
 	}
 
 	it("derives an undeclared tracker from the origin remote and syncs through it", () => {
-		execFileSync("git", ["init", "-q", root]);
-		execFileSync("git", [
-			"-C",
-			root,
-			"remote",
-			"add",
-			"origin",
-			"https://github.com/acme/widgets.git",
-		]);
+		originRemoteAdopter.instantiate(root);
 		const { calls, gh } = stubGh();
 		const lines = run(gh);
 		const plan = labelPlan({ modules: [], categories: {}, ciWorkflow: false });

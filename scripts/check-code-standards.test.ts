@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-code-standards.js");
@@ -15,6 +16,8 @@ let repo: string;
 
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: repo, encoding: "utf8" });
+
+const identityRepo = defineTemplate(identityRepoTemplate);
 
 const track = (file: string, body: string) => {
 	fs.mkdirSync(path.join(repo, path.dirname(file)), { recursive: true });
@@ -48,10 +51,9 @@ const SUBJECT = [
 ].join("\n");
 
 beforeEach(() => {
-	repo = fs.mkdtempSync(path.join(os.tmpdir(), "code-standards-"));
-	git("init", "-q");
-	git("config", "user.email", "t@example.com");
-	git("config", "user.name", "t");
+	repo = identityRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "code-standards-")),
+	);
 });
 
 afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));

@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-git-fixture-identity.js");
@@ -14,6 +15,8 @@ let dir: string;
 
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+
+const identityRepo = defineTemplate(identityRepoTemplate);
 
 const track = (rel: string, body: string) => {
 	fs.mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
@@ -34,10 +37,9 @@ const run = (...args: string[]) => {
 };
 
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "git-fixture-identity-"));
-	git("init", "-q");
-	git("config", "user.email", "t@t");
-	git("config", "user.name", "t");
+	dir = identityRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "git-fixture-identity-")),
+	);
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 

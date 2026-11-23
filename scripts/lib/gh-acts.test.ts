@@ -4,7 +4,8 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { freshSandbox, gitRepo, store } from "./arbiter-testkit";
+import { freshSandbox, store } from "./arbiter-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { kitContextFake } from "./kit-context-fake";
 
 const { decide } = require("./gh-acts.js") as {
@@ -22,13 +23,22 @@ const sb = freshSandbox();
 let logged: string[];
 let handed: string[];
 
-beforeEach(() => {
-	gitRepo(sb);
+const ownerRepo = defineTemplate((dir) => {
+	fs.mkdirSync(path.join(dir, "docs"));
+	emptyRepoTemplate(dir);
+	fs.appendFileSync(
+		path.join(dir, ".git", "config"),
+		"[user]\n\temail = t@t\n\tname = t\n",
+	);
 	execFileSync(
 		"git",
 		["remote", "add", "origin", "https://github.com/owner/repo.git"],
-		{ cwd: sb.repo },
+		{ cwd: dir },
 	);
+});
+
+beforeEach(() => {
+	ownerRepo.instantiate(sb.repo);
 	logged = [];
 	handed = [];
 });
@@ -235,15 +245,17 @@ describe("block", () => {
 });
 
 describe("the repo a line names", () => {
-	it("reads the origin of the directory a `cd` moves the call into", () => {
-		const other = path.join(sb.dir, "other");
-		fs.mkdirSync(other);
-		execFileSync("git", ["init", "-q"], { cwd: other });
+	const elsewhereRepo = defineTemplate((at) => {
+		emptyRepoTemplate(at);
 		execFileSync(
 			"git",
 			["remote", "add", "origin", "git@github.com:else/where.git"],
-			{ cwd: other },
+			{ cwd: at },
 		);
+	});
+
+	it("reads the origin of the directory a `cd` moves the call into", () => {
+		const other = elsewhereRepo.instantiate(path.join(sb.dir, "other"));
 		run(`cd ${other} && gh issue close 4`);
 		expect(readActs()).toEqual(["close else/where#4"]);
 	});

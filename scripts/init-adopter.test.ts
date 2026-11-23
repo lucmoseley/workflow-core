@@ -34,6 +34,7 @@ import {
 	readGhAnswer,
 } from "./lib/gh-fake";
 import { printed, refused, stubGhRoutes } from "./lib/gh-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { initPaths } from "./lib/init-adopter-core.js";
 import { installPathFor } from "./lib/plugin-state.js";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -423,6 +424,17 @@ describe("init in a fresh repository", () => {
 	});
 
 	describe("recording the installed plugin commit (#108)", () => {
+		const ancestorRepo = defineTemplate((root) => {
+			const git = (...args: string[]) =>
+				execFileSync("git", args, { cwd: root, encoding: "utf8" });
+			git("init", "-q", "-b", "main", ".");
+			git("config", "user.email", "fixture@example.invalid");
+			git("config", "user.name", "Adopter Fixture");
+			fs.writeFileSync(path.join(root, "f"), "1");
+			git("add", "f");
+			git("commit", "-q", "-m", "seed");
+		});
+
 		it("directory-source run records the plugin root's HEAD sha and dirty flag", () => {
 			const { dir } = repo();
 			const r = init(dir, "--founder", "A", "--no-tracker", "--dry-run");
@@ -548,14 +560,7 @@ describe("init in a fresh repository", () => {
 				path.join(os.tmpdir(), "adopter-ancestor-"),
 			);
 			made.push(ancestorRoot);
-			const git = (...args: string[]) =>
-				execFileSync("git", args, { cwd: ancestorRoot, encoding: "utf8" });
-			git("init", "-q", "-b", "main", ".");
-			git("config", "user.email", "fixture@example.invalid");
-			git("config", "user.name", "Adopter Fixture");
-			fs.writeFileSync(path.join(ancestorRoot, "f"), "1");
-			git("add", "f");
-			git("commit", "-q", "-m", "seed");
+			ancestorRepo.instantiate(ancestorRoot);
 			const nested = path.join(ancestorRoot, "a", "b");
 			fs.mkdirSync(nested, { recursive: true });
 			const r = adoptWith(

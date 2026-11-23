@@ -4,7 +4,11 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkScratchDir } from "./lib/git-fixture";
+import {
+	defineTemplate,
+	identityRepoTemplate,
+	mkScratchDir,
+} from "./lib/git-fixture";
 import { buildReleaseMessage } from "./lib/release-tags.js";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -13,20 +17,36 @@ const SCRIPT = path.resolve(__dirname, "release-contains.js");
 let dir: string;
 let repo: string;
 
-const git = (...args: string[]) =>
-	execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
+const gitIn = (cwd: string, ...args: string[]) =>
+	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+const git = (...args: string[]) => gitIn(repo, ...args);
 
-const commit = (name: string) => {
-	fs.writeFileSync(path.join(repo, name), name);
-	git("add", name);
-	git("commit", "-qm", name);
-	return git("rev-parse", "HEAD");
+const commitIn = (cwd: string, name: string) => {
+	fs.writeFileSync(path.join(cwd, name), name);
+	gitIn(cwd, "add", name);
+	gitIn(cwd, "commit", "-qm", name);
+	return gitIn(cwd, "rev-parse", "HEAD");
 };
 
-const cut = (tag: string, message: string) => {
-	const tree = git("write-tree");
-	git("tag", tag, git("commit-tree", tree, "-m", message));
+const cutIn = (cwd: string, tag: string, message: string) => {
+	const tree = gitIn(cwd, "write-tree");
+	gitIn(cwd, "tag", tag, gitIn(cwd, "commit-tree", tree, "-m", message));
 };
+const cut = (tag: string, message: string) => cutIn(repo, tag, message);
+
+const released = defineTemplate((root) => {
+	const at = path.join(root, "repo");
+	fs.mkdirSync(at);
+	identityRepoTemplate(at);
+	gitIn(at, "config", "core.hooksPath", path.join(root, "no-hooks"));
+
+	cutIn(at, "v0.9.0", "Release demo v0.9.0");
+	const a = commitIn(at, "a");
+	cutIn(at, "v1.0.0", buildReleaseMessage("demo", "v1.0.0", a));
+	const b = commitIn(at, "b");
+	cutIn(at, "v1.1.0", buildReleaseMessage("demo", "v1.1.0", b));
+	commitIn(at, "c");
+});
 
 const ask = (...args: string[]) => {
 	const r = runInProcess(SCRIPT, args, { cwd: repo });
@@ -38,19 +58,11 @@ let second: string;
 let unreleased: string;
 
 beforeEach(() => {
-	dir = mkScratchDir("release-contains-test-");
+	dir = released.instantiate(mkScratchDir("release-contains-test-"));
 	repo = path.join(dir, "repo");
-	execFileSync("git", ["init", "-q", "-b", "main", repo]);
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
-	git("config", "core.hooksPath", path.join(dir, "no-hooks"));
-
-	cut("v0.9.0", "Release demo v0.9.0");
-	first = commit("a");
-	cut("v1.0.0", buildReleaseMessage("demo", "v1.0.0", first));
-	second = commit("b");
-	cut("v1.1.0", buildReleaseMessage("demo", "v1.1.0", second));
-	unreleased = commit("c");
+	first = git("rev-parse", "HEAD~2");
+	second = git("rev-parse", "HEAD~1");
+	unreleased = git("rev-parse", "HEAD");
 });
 
 afterEach(() => {
