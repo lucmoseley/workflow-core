@@ -220,14 +220,15 @@ function claimIssueExclusive(issue, me, listed, listedAt) {
 	const dir = core.paths.issueClaimsDir();
 	try {
 		return withIssueMutex(n, (stillMine) => {
-			const scanned = scanIssueClaims(n);
-			const torn = scanned.find((e) => !e.record);
-			if (torn)
-				return {
-					status: "unreadable",
-					why: `the issue-claim record ${torn.file} could not be read`,
-				};
-			const records = scanned.flatMap((e) => (e.record ? [e.record] : []));
+			const records = [];
+			for (const { file, record } of scanIssueClaims(n)) {
+				if (!record)
+					return {
+						status: "unreadable",
+						why: `the issue-claim record ${file} could not be read`,
+					};
+				records.push(record);
+			}
 			const holdMs = Number(process.env.WFC_CLAIM_HOLD_MS);
 			if (holdMs > 0) sleepSync(holdMs);
 			const holder = records

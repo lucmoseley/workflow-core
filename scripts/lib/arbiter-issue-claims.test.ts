@@ -102,20 +102,37 @@ describe("issue claims — which session is working which issue (mantahostels#64
 		).toEqual(["alice"]);
 	});
 
-	it("refuses an exclusive claim on doubt where a held record parses but is no issue claim (#5605)", () => {
-		fs.mkdirSync(store.paths.issueClaimsDir(), { recursive: true });
-		const f = claimFile(645, "bob");
-		fs.writeFileSync(f, JSON.stringify(misshapen[0]));
-		const r = issueClaims.claimIssueExclusive(
-			645,
-			me("alice"),
-			{ ids: new Set(["alice"]) },
-			Date.now(),
-		);
-		expect(r).toEqual({
-			status: "unreadable",
-			why: `the issue-claim record ${f} could not be read`,
+	for (const [kind, body] of [
+		["does not parse", "not json"],
+		["parses but is no issue claim (#5605)", JSON.stringify(misshapen[0])],
+	])
+		it(`refuses an exclusive claim on doubt where a held record ${kind}`, () => {
+			fs.mkdirSync(store.paths.issueClaimsDir(), { recursive: true });
+			const f = claimFile(645, "bob");
+			fs.writeFileSync(f, body);
+			const r = issueClaims.claimIssueExclusive(
+				645,
+				me("alice"),
+				{ ids: new Set(["alice"]) },
+				Date.now(),
+			);
+			expect(r).toEqual({
+				status: "unreadable",
+				why: `the issue-claim record ${f} could not be read`,
+			});
 		});
+
+	it("re-stamps a re-claim whose own record parses but is no issue claim (#5605)", () => {
+		fs.mkdirSync(store.paths.issueClaimsDir(), { recursive: true });
+		const f = claimFile(645, "alice");
+		fs.writeFileSync(
+			f,
+			JSON.stringify({ issue: 645, sessionId: "alice", claimedAt: 7 }),
+		);
+		store.claimIssue(645, me("alice"));
+		expect(JSON.parse(fs.readFileSync(f, "utf8")).claimedAt).toEqual(
+			expect.any(String),
+		);
 	});
 
 	it("refuses an argument that is not an issue number", () => {
