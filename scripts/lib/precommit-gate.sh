@@ -1,63 +1,7 @@
 # shellcheck shell=sh
-# The shape .husky/pre-commit's staged gates share (mantahostels#1793).
-#
-# SOURCED, NEVER RUN.
-#
-# Every gate that stages blobs out of the index, bar one, is a single
-# staged_gate declaration. The doc-map gate is a pre-commit dispatcher row
-# (scripts/lib/doc-map-gate.js) — it holds a `--map-dirty` flag, a temp
-# index its baseline needs, and an untracked-entry replay that no other gate
-# has — and prints these functions' skip and deletion lines through
-# lib/precommit-gate-verdicts.js.
-#
-# POSIX sh, not bash: every hook sourcing it runs as `sh`, under `set -e`.
-#
-# THREE PARAMETERS ARE DELIBERATELY NOT HERE — two of mantahostels#1793's five proposed,
-# and one removed after it was built:
-#
-# - SEVERITY. Every gate using staged_gate today is hard-failing, and a
-#   warn-severity one is two lines at the call site — read $sg_status and do not
-#   exit. The exit CODE does vary between gates, so that one IS a parameter.
-# - A `*-new-faults` PROFILE NAME. The whole-repo direction gate is
-#   `--against <rev>` inside scripts/lib/check.js, which owns the profile, both
-#   materialisations and the fail-closed rule (mantahostels#1801, mantahostels#1833).
-# - THE REVISION gate_stage_out STAGED FROM, so a gate could take a HEAD
-#   baseline as well as the index. The hook's one HEAD read is the doc-map
-#   gate's, a dispatcher row (scripts/lib/doc-map-gate-program.js) — so re-add it
-#   only for a SECOND such gate (mantahostels#2032).
+# Usage: . scripts/lib/precommit-gate.sh, then one staged_gate call per gate.
+# Sourced, never run, by a POSIX sh hook under `set -e`.
 
-# --- arming ------------------------------------------------------------------
-#
-# EVERY GATE ARMS THROUGH `armed` (#1504). The hook holds no `git diff --cached`
-# of its own — scripts/precommit-gate-input-deletion.test.ts refuses one — so a
-# rule about which staged paths arm a gate is changed here, once, for all of
-# them. A checker the hook runs unarmed may arm itself on its own reads, as
-# check-lockfile-sync.js does (#3434); a change here owes it the same change.
-#
-# THE READ IS --no-renames (mantahostels#2903, widened to every gate at #1483).
-# git's rename detection collapses a delete and an add into one `R` entry
-# naming the NEW path alone, so a gate armed on the OLD path never fired. Under
-# --no-renames the pair is a `D` plus an `A` and the old path is back. That
-# adds paths and removes none, so an ordinary rename never disarms a gate, and
-# every checker already meets an armed path absent, a `git rm` arming it too —
-# PROVIDED a checker that re-reads the index takes the flag as well, or it meets
-# an `R` where it looks for a `D`. check-roadmap-valid.js does (#1483).
-#
-# AND -z, because git's default renders a path outside ASCII double-quoted and
-# C-escaped, so it starts `"` and no prefix pattern matches it.
-#
-# The deletion probe in gate_stage_out needs neither — measured: its pathspec
-# limits the diff to the old path, leaving git nothing to pair the rename with,
-# so it reports `D` either way.
-
-# staged_names — reads the commit's staged entries, ONCE per hook run, into
-# $staged_entries (`<status><TAB><path>` lines) and $staged_paths (the paths).
-#
-# REFUSES THE COMMIT where git will not answer: every gate arms off this one
-# read, so a failure here would otherwise pass the commit with none of them run.
-#
-# Through a file, not a pipe, so git's own status is the one read. mktemp, not
-# gate_tmpdir, which would rebind a caller's $GATE_DIR.
 staged_read=""
 staged_names() {
   [ -z "$staged_read" ] || return 0

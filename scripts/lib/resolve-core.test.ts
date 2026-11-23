@@ -7,6 +7,7 @@ import { keptSpawn } from "./kept-spawn.js";
 import { adopterFixtures } from "./plugin-state-testkit.js";
 import { resolveCore } from "./resolve-core.js";
 import { shellQuote } from "./sh-quote.js";
+import { stripComments } from "./strip-comments.js";
 
 const fixture = adopterFixtures("wfc-resolve-core-");
 
@@ -389,9 +390,9 @@ describe("resolve-core.js before the core is found (#457)", () => {
 			path.join(__dirname, "resolve-core.js"),
 			"utf8",
 		);
-		const required = [...source.matchAll(/require\(\s*["']([^"']+)["']/g)].map(
-			(m) => m[1],
-		);
+		const required = [
+			...stripComments(source).matchAll(/require\(\s*["']([^"']+)["']/g),
+		].map((m) => m[1]);
 		expect(required.length).toBeGreaterThan(0);
 		expect(required.filter((id) => !id?.startsWith("node:"))).toEqual([]);
 	});

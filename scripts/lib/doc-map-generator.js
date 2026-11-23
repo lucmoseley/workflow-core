@@ -1,13 +1,3 @@
-/*
- * doc-map-generator.js — the CLI argv parser and the claim/release stanza
- * shared by generate-doc-map-section-a.js and register-doc.js. mantahostels#1596: each carried its own near-verbatim
- * copy, so a correction to the fail-open wording or the claim command landed
- * in one and read as done everywhere.
- *
- * Each generator keeps its own derivation and its own DATA_FILES key; only
- * the argv handling and the claim move here.
- */
-
 const { claimByArbiter, releaseByArbiter } = require("./script-claim.js");
 const { writeFd } = require("./write-fd.js");
 

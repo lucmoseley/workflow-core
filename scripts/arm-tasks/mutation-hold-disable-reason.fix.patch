@@ -933,38 +933,10 @@ index a538d07a98e363a00ce25eaaaed6e8d7dea9da8f..b5df679960da5566a583fa784ada5c9c
  });
 -
 diff --git a/scripts/mutation-hold-gate.js b/scripts/mutation-hold-gate.js
-index 6a0e00a30b6aae811fe9a9396dcc454255e2a3f1..c04deb0bd8fe468c857368252fcb5bca1bebb20c 100644
+index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..3de3c19d18cae6f15f846b7e64a79c3ec648e4f4 100644
 --- a/scripts/mutation-hold-gate.js
 +++ b/scripts/mutation-hold-gate.js
-@@ -4,9 +4,9 @@
-  * declared sensitive path, while a planted bug on it survives every test
-  * (#1906, spec #1871).
-  *
-- * IMPLICIT:  with the `mutation` module on, refuses a commit whose staged code paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json` while any mutant StrykerJS plants on a line the commit adds or changes survives, or has no covering test, or while the suite is red on HEAD plus the commit's changes; the refusal names the areas, one line per mutant and rule:mutation-hold.
-+ * IMPLICIT:  with the `mutation` module on, refuses a commit whose staged code paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json` while any mutant StrykerJS plants on a line the commit adds or changes survives, or has no covering test, or while the suite is red on HEAD plus the commit's changes; the refusal names the areas, one line per mutant and rule:mutation-hold. It refuses too, running nothing, a `Stryker disable` comment stating no reason that the commit adds, arms, or widens over a line it adds.
-  * JUSTIFIED: fail-safe — branch coverage reads high where planted bugs survive every test (#1851), so a test gap on money or personal-data code is seen at commit or not at all.
-- * DEFEAT:    a `// Stryker disable` comment over the mutant; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack; WFC_STRYKER names the Stryker binary, so a value writing an all-killed report defeats it.
-+ * DEFEAT:    a reasoned `// Stryker disable` comment over the mutant; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack; WFC_STRYKER names the Stryker binary, so a value writing an all-killed report defeats it; WFC_MUTATION_COMMENTS_TIMEOUT_MS set too short leaves the disable comments unread, so Stryker honours an unreasoned one.
-  *
-  *   node scripts/mutation-hold-gate.js             from .husky/pre-commit
-  *   node scripts/mutation-hold-gate.js --due       from commit-paths
-@@ -59,6 +59,15 @@
-  * report carries cached results from other ranges (#1901). A failed initial
-  * test run refuses as red tests.
-  *
-+ * DISABLE COMMENTS are read after the missing-tool check (#2366): the read
-+ * goes through the instrumenter's `@babel/core` under the host's Babel config
-+ * and `mutator.plugins`, asynchronously as Stryker parses (#2573, #2624), so a
-+ * missing Stryker refuses first, and an unreasoned comment refuses before
-+ * Stryker runs. Residual: a Babel that will not load, a file it or git will
-+ * not read, or a config that throws, ignores the file or runs past
-+ * COMMENTS_TIMEOUT_MS leaves that file's comments unread, named on stderr and
-+ * logged, and Stryker still judges every file (#2727).
-+ *
-  * MISSING TOOLS refuse, never pass (#1911): either Stryker package, or vitest,
-  * absent from the checkout's own `node_modules`, the one the run's worktree
-  * links, or a Stryker package older than STRYKER_VERSION (#5180). The refusal
-@@ -108,19 +117,21 @@ const { pathToFileURL } = require("node:url");
+@@ -12,19 +12,21 @@ const { pathToFileURL } = require("node:url");
  const { writeFileAtomic } = require("./lib/atomic-write.js");
  const { parseOrCode } = require("./lib/cli-args.js");
  const { caught } = require("./lib/caught.js");
@@ -988,7 +960,7 @@ index 6a0e00a30b6aae811fe9a9396dcc454255e2a3f1..c04deb0bd8fe468c857368252fcb5bca
  const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
  const { writeFd } = require("./lib/write-fd.js");
  
-@@ -139,8 +150,13 @@ const isMutable = (p) => MUTABLE.test(p) && !TEST_NAME.test(p);
+@@ -43,8 +45,13 @@ const isMutable = (p) => MUTABLE.test(p) && !TEST_NAME.test(p);
  /* #1901 */
  const RED_INITIAL = "There were failed tests in the initial test run";
  
@@ -1003,7 +975,7 @@ index 6a0e00a30b6aae811fe9a9396dcc454255e2a3f1..c04deb0bd8fe468c857368252fcb5bca
  
  const REFUSING = new Set(["Survived", "NoCoverage"]);
  const PASSING = new Set(["Killed", "Timeout", "Ignored"]);
-@@ -188,7 +204,21 @@ const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
+@@ -90,7 +97,21 @@ const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
  const POOL = "forks";
  const DISABLE_TYPE_CHECKS = false;
  
@@ -1025,7 +997,7 @@ index 6a0e00a30b6aae811fe9a9396dcc454255e2a3f1..c04deb0bd8fe468c857368252fcb5bca
  
  const CACHE_NAME = "wfc-mutation-incremental.json";
  
-@@ -342,8 +372,22 @@ const addedRanges = (hunks) =>
+@@ -244,8 +265,22 @@ const addedRanges = (hunks) =>
  		.map((h) => ({ start: h.newStart, end: h.newStart + h.newCount - 1 }));
  
  /**
@@ -1050,7 +1022,7 @@ index 6a0e00a30b6aae811fe9a9396dcc454255e2a3f1..c04deb0bd8fe468c857368252fcb5bca
   * @param {string} logLine
   */
  function reportFailOpen(stderrLine, logLine) {
-@@ -352,8 +396,319 @@ function reportFailOpen(stderrLine, logLine) {
+@@ -254,8 +289,319 @@ function reportFailOpen(stderrLine, logLine) {
  }
  
  /**
@@ -1372,7 +1344,7 @@ index 6a0e00a30b6aae811fe9a9396dcc454255e2a3f1..c04deb0bd8fe468c857368252fcb5bca
   * @param {string[]} lines
   * @param {{start: {line: number, column: number}, end: {line: number, column: number}}} loc
   * @param {string} at
-@@ -656,8 +1011,6 @@ function judge(report, ranges) {
+@@ -558,8 +904,6 @@ function judge(report, ranges) {
  }
  
  /**
@@ -1381,7 +1353,7 @@ index 6a0e00a30b6aae811fe9a9396dcc454255e2a3f1..c04deb0bd8fe468c857368252fcb5bca
   * @param {ConfigCopy[]} copies
   * @param {string[]} staged
   */
-@@ -674,11 +1027,16 @@ function readHeldRanges(copies, staged) {
+@@ -576,11 +920,16 @@ function readHeldRanges(copies, staged) {
  		}
  	/** @type {Map<string, LineRange[]>} */
  	const ranges = new Map();
@@ -1401,7 +1373,7 @@ index 6a0e00a30b6aae811fe9a9396dcc454255e2a3f1..c04deb0bd8fe468c857368252fcb5bca
  }
  
  /**
-@@ -791,6 +1149,16 @@ function readRuleOrPointer() {
+@@ -693,6 +1042,16 @@ function readRuleOrPointer() {
  	);
  }
  
@@ -1418,7 +1390,7 @@ index 6a0e00a30b6aae811fe9a9396dcc454255e2a3f1..c04deb0bd8fe468c857368252fcb5bca
  /**
   * @param {ReturnType<typeof runStryker>} run
   * @param {string[]} areas
-@@ -842,6 +1210,12 @@ function hold(mode) {
+@@ -744,6 +1103,12 @@ function hold(mode) {
  		const missing = missingToolRefusal(root, HOOK_VOICE);
  		if (missing !== null) return refuse(missing);
  		const tree = gitOr(["write-tree"], "could not read the staged tree").trim();

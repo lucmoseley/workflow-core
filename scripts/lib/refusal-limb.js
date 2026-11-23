@@ -4,8 +4,6 @@ const hookBlock = require("./hook-block");
 const { caught, orFallback } = require("./caught.js");
 const { failOpenLogger } = require("./fail-open-logger");
 
-const since = () => require("./tool-calls-since");
-
 /**
  * @param {unknown} value
  * @returns {value is Record<string, unknown>}
@@ -150,7 +148,7 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 		if (!record || record.questions.length === 0) return record;
 		const { at } = record;
 		const spoke = fromTranscript(transcript, "record kept", (file) =>
-			since().founderMessagesSince(file, at),
+			require("./tool-calls-since").founderMessagesSince(file, at),
 		);
 		return spoke ? null : record;
 	}
@@ -170,7 +168,7 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 				running.set(
 					at,
 					fromTranscript(transcript, "pass retired", (file) =>
-						since().isTurnRefusedSince(file, at),
+						require("./tool-calls-since").isTurnRefusedSince(file, at),
 					) === true,
 				);
 			return running.get(at);

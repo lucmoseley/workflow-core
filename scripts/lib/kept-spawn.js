@@ -1,13 +1,3 @@
-/*
- * kept-spawn.js — a test's spawn of node on the program under test, with the
- * reason docs/code-standards-base.md §X3 keeps it as a typed value (#5483).
- *
- * `keptSpawn("fd").spawnSync(process.execPath, [script], options)` is
- * child_process's own `spawnSync`.
- * scripts/check-test-spawn.js passes a spawn of node in a test only when it is
- * called this way.
- */
-
 const {
 	spawn,
 	spawnSync,

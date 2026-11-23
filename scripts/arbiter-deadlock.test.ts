@@ -6,9 +6,9 @@ import { describe, expect, it } from "vitest";
 import {
 	arbiterCli,
 	breaks,
+	buildLockRecord,
 	freshSandbox,
 	live,
-	lockRecord,
 	registerSession,
 	store,
 } from "./lib/arbiter-testkit";
@@ -156,7 +156,7 @@ describe("claim-all keeps the notices claim gives (mantahostels#1195's review)",
 		live(sb, "mine");
 		breaks.recordBreak(
 			"docs/a.md",
-			lockRecord({
+			buildLockRecord({
 				path: "docs/a.md",
 				sessionId: "mine",
 				claimId: "lost-claim",
