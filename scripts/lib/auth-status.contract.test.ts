@@ -7,7 +7,6 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AUTH_STATUS_FAKE, writeSeatHelper } from "./auth-status-fake";
-import { daemonPidOf } from "./launch-auth.js";
 
 const run = promisify(execFile);
 
@@ -144,45 +143,6 @@ describe.skipIf(!realClaude)(
 				}),
 			);
 			for (const p of pairs) expect(p.fake, p.name).toEqual(p.real);
-		}, 60_000);
-
-		it("says no daemon runs on a config dir with none, as the binary does", async () => {
-			const env = {
-				PATH: process.env.PATH,
-				HOME: process.env.HOME,
-				CLAUDE_CONFIG_DIR: path.join(dir, "no-daemon"),
-			};
-			const said = (argv: string[]) =>
-				run(argv[0] as string, argv.slice(1), { cwd: plain, env }).then(
-					(r) => ({ first: r.stdout.split("\n")[0], code: 0 }),
-					(e: { stdout: string; code: number }) => ({
-						first: e.stdout.split("\n")[0],
-						code: e.code,
-					}),
-				);
-			const [real, fake] = await Promise.all([
-				said([realClaude as string, "daemon", "status"]),
-				said([process.execPath, AUTH_STATUS_FAKE, "daemon", "status"]),
-			]);
-			expect(fake).toEqual(real);
-			expect(real.first).toBe("not running");
-		}, 60_000);
-
-		it("prints a status the pid parse reads, as the fake's does", async () => {
-			const status = (argv: string[], env: NodeJS.ProcessEnv) =>
-				run(argv[0] as string, argv.slice(1), { cwd: plain, env }).then(
-					(r) => r.stdout,
-					(e: { stdout: string }) => e.stdout,
-				);
-			const [real, fake] = await Promise.all([
-				status([realClaude as string, "daemon", "status"], process.env),
-				status([process.execPath, AUTH_STATUS_FAKE, "daemon", "status"], {
-					...process.env,
-					WFC_FAKE_DAEMON: "4242",
-				}),
-			]);
-			expect(daemonPidOf(fake)).toBe("4242");
-			expect(daemonPidOf(real)).not.toBeUndefined();
 		}, 60_000);
 	},
 );

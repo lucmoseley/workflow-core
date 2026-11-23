@@ -2,6 +2,7 @@ const { parseArgs } = require("node:util");
 const { spawnRaw } = require("./child-spawn.js");
 const { claudeBin } = require("./claude-bin.js");
 const { secretsFile } = require("./env-file.js");
+const { parseDaemonStatus } = require("./daemon-status.js");
 const { buildKeyHelper } = require("./overflow-key.js");
 const { readEnviron } = require("./proc-environ.js");
 const {
@@ -94,15 +95,6 @@ const providerFlags = (env) =>
 	);
 
 /**
- * @param {string} out
- * @returns {string|null|undefined}
- */
-function daemonPidOf(out) {
-	if (out.split("\n")[0]?.trim() === "not running") return null;
-	return /^pid:[ \t]+(\d+)[ \t]*$/m.exec(out)?.[1];
-}
-
-/**
  * @param {string} bin
  * @param {NodeJS.ProcessEnv} env
  * @param {string} cwd
@@ -118,12 +110,13 @@ function daemonRefusal(bin, env, cwd, spawn) {
 	});
 	if (r.error) return `\`${bin} daemon status\` failed: ${r.error.message}`;
 	const out = String(r.stdout ?? "");
-	const pid = daemonPidOf(out);
-	if (pid === null) return null;
-	if (pid === undefined) {
+	const status = parseDaemonStatus(out);
+	if (status.state === "none") return null;
+	if (status.state === "unread") {
 		const said = (String(r.stderr ?? "") || out).trim().split("\n")[0];
 		return `\`${bin} daemon status\` named no daemon pid (exit ${r.status}${said ? `: ${said}` : ""})`;
 	}
+	const { pid } = status;
 	const daemon = `the Claude daemon (pid ${pid}) this --bg launch hands its session to`;
 	const read = readEnviron(pid);
 	if (!read.ok) return `${daemon} has an environment that will not read`;
@@ -223,4 +216,4 @@ if (require.main === module) {
 	}
 }
 
-module.exports = { daemonPidOf, launchAuthRefusal };
+module.exports = { launchAuthRefusal };
