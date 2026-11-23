@@ -3,7 +3,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { isUnder } = require("./is-under.js");
 const { readProcCwd } = require("./claude-sessions.js");
-const { procRoot } = require("./proc-root.js");
+const { REAL_PROC, procRoot } = require("./proc-root.js");
+const { parentInFields, readStatFields } = require("./proc-stat.js");
 const { readProcTable } = require("./proc-table.js");
 const {
 	PROGRAM,
@@ -275,6 +276,24 @@ function registrationKeeper(root, codeDir, log) {
 	};
 }
 
+// guess, #5668
+const HOLD_RELOG_MS = 10 * 60 * 1000;
+
+/** @returns {string[] | null} */
+function readChildPids() {
+	let entries;
+	try {
+		entries = fs.readdirSync(REAL_PROC);
+	} catch {
+		return null;
+	}
+	return entries.filter(
+		(e) =>
+			/^\d+$/.test(e) &&
+			parentInFields(readStatFields(e, REAL_PROC)) === process.pid,
+	);
+}
+
 /** @typedef {(file: string, args: string[], env: NodeJS.ProcessEnv) => void} Exec */
 const proc = /** @type {NodeJS.Process & {execve: Exec}} */ (process);
 
@@ -291,8 +310,13 @@ function codeUpdater({ program, codeDir, log }) {
 		log(`code update off: git would not read ${root}, ${whyOf(err)}`);
 		return null;
 	}
+	// #5668
+	const inherited = new Set(readChildPids());
 	/** @type {string|null} */
 	let refused = null;
+	/** @type {{tip: string, since: number, logged: number}|null} */
+	let held = null;
+	let unread = false;
 	/** @type {string|null} */
 	let fetchFailed = null;
 	let linked = false;
@@ -352,11 +376,41 @@ function codeUpdater({ program, codeDir, log }) {
 		}
 	};
 
+	/** @param {string} tip */
+	const readUnreaped = (tip) => {
+		const children = readChildPids();
+		if (children === null && !unread) {
+			unread = true;
+			log(
+				`adopting ${short(tip)} unchecked: /proc will not read, so a child the exec carries may be left a zombie`,
+			);
+		}
+		return (children ?? []).filter((pid) => !inherited.has(pid));
+	};
+
+	/** @param {string} tip @param {string[]} unreaped */
+	const logHold = (tip, unreaped) => {
+		const now = Date.now();
+		if (held?.tip !== tip)
+			held = { tip, since: now, logged: Number.NEGATIVE_INFINITY };
+		if (now - held.logged < HOLD_RELOG_MS) return;
+		const minutes = Math.floor((now - held.since) / 60_000);
+		log(
+			`holding ${short(tip)}${minutes > 0 ? ` for ${minutes} min` : ""} until pid ${unreaped.join(", ")} is reaped: an exec now would leave it a zombie`,
+		);
+		held.logged = now;
+	};
+
 	return {
 		/** @param {{hold: boolean}} opts */
 		adoptIfMoved({ hold }) {
 			const tip = hold ? null : newTip();
-			if (tip !== null) adopt(tip);
+			if (tip === null) return;
+			const unreaped = readUnreaped(tip);
+			if (unreaped.length === 0) {
+				held = null;
+				adopt(tip);
+			} else logHold(tip, unreaped);
 		},
 		afterTick() {
 			keepRegistered();
