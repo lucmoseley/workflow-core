@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import {
 	GATES,
 	PROFILE_GATES as PRECOMMIT_GATES,
@@ -23,22 +24,24 @@ interface Diagnostic {
 	location?: { path?: string };
 }
 
+const biomeProject = defineTemplate((dir) => {
+	fs.copyFileSync(path.join(ROOT, "biome.json"), path.join(dir, "biome.json"));
+	fs.copyFileSync(
+		path.join(ROOT, "package.json"),
+		path.join(dir, "package.json"),
+	);
+	fs.writeFileSync(path.join(dir, ".gitignore"), "");
+	emptyRepoTemplate(dir);
+});
+
 function biomeDiagnostics(
 	files: Record<string, string>,
 	lint: string[] = Object.keys(files),
 ): Diagnostic[] {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-biome-"));
+	const dir = biomeProject.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "wfc-biome-")),
+	);
 	try {
-		fs.copyFileSync(
-			path.join(ROOT, "biome.json"),
-			path.join(dir, "biome.json"),
-		);
-		fs.copyFileSync(
-			path.join(ROOT, "package.json"),
-			path.join(dir, "package.json"),
-		);
-		fs.writeFileSync(path.join(dir, ".gitignore"), "");
-		execFileSync("git", ["init", "-q"], { cwd: dir });
 		for (const [relPath, source] of Object.entries(files)) {
 			const target = path.join(dir, relPath);
 			fs.mkdirSync(path.dirname(target), { recursive: true });
