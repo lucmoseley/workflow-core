@@ -44,6 +44,15 @@ function parseJobDir(jobDir) {
 }
 
 /**
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {{seat: string, jobId: string}|null}
+ */
+function readJobRef(env) {
+	const jobDir = readJobDir(env);
+	return jobDir === null ? null : parseJobDir(jobDir);
+}
+
+/**
  * @param {string} seat
  */
 const rosterPath = (seat) => path.join(seat, "daemon", "roster.json");
@@ -107,6 +116,7 @@ module.exports = {
 	jobDirPath,
 	parseJobDir,
 	readJobDir,
+	readJobRef,
 	jobStateIn,
 	jobStatePath,
 	isAbsentFault,

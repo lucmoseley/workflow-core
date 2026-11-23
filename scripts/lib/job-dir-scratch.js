@@ -3,6 +3,7 @@ const { parseCommand, walkCommands, normAbs } = require("./shell-parse.js");
 const { literal } = require("./shell-words.js");
 const { SCRATCH_DIR } = require("./scratch-dir.js");
 const { isJobDir, jobRel } = require("./job-dir.js");
+const { readJobDir } = require("./job-paths.js");
 const { remedyKind } = require("./scratch-remedy.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
 const { treeOrHost } = require("./tree-or.js");
@@ -49,7 +50,7 @@ function inCheckoutScratch(rel) {
 function decide(subject, ctx) {
 	/** @type {Found} */
 	const found = { flat: "", flatName: "", stray: "" };
-	const live = ctx.env.CLAUDE_JOB_DIR ?? "";
+	const live = readJobDir(ctx.env) ?? "";
 	/** @param {string} shown @param {string} p @param {string} jobDir */
 	const classify = (shown, p, jobDir) => {
 		const raw = jobRel(p, { pwd: ctx.fallbackCwd, jobDir });

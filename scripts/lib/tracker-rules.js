@@ -3,6 +3,7 @@ const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
 const { expandHome } = require("./home-path.js");
 const { NOT_READY_OPENING } = require("./prose-blockers.js");
 const { isJobDir } = require("./job-dir.js");
+const { readJobDir } = require("./job-paths.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { ghCall, literal, scanFlags } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
@@ -221,7 +222,7 @@ function bodyPathWords(words, spans) {
 /** @param {Parsed} parsed @param {TrackerContext} ctx */
 function scanJobDir(parsed, ctx) {
 	if (!parsed.subject.includes("gh")) return false;
-	const jobDir = ctx.env.CLAUDE_JOB_DIR ?? "";
+	const jobDir = readJobDir(ctx.env) ?? "";
 	const home = ctx.vars.HOME ?? "";
 	let seen = false;
 	walkCommands(
