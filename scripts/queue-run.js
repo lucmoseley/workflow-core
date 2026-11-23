@@ -383,6 +383,8 @@ function withJoining(plain, options, key) {
 					...queue,
 					pid,
 					queueDir: queue.queueDir ?? defaultTscQueueDir(),
+					out: options.out ?? process.stderr,
+					label: LABEL,
 				}),
 			}),
 		joining: {
@@ -392,6 +394,7 @@ function withJoining(plain, options, key) {
 			session,
 			key,
 			asked,
+			...(options.clock ? { wallClock: options.clock } : {}),
 			out: options.out ?? process.stderr,
 			stdout: options.stdout ?? STDOUT,
 			err: options.err ?? STDERR,
