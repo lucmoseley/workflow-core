@@ -19,10 +19,15 @@ import {
 	registerSession,
 	store,
 } from "./arbiter-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { noop } from "./noop.js";
 import { shellQuote } from "./sh-quote.js";
 
 const sb = freshSandbox();
+const sandboxRepo = defineTemplate((dir) => {
+	emptyRepoTemplate(dir);
+	fs.mkdirSync(path.join(dir, "docs"));
+});
 
 const record = (rel: string, sessionId: string) =>
 	store.recordWrite(path.join(sb.repo, rel), sessionId);
@@ -959,7 +964,7 @@ describe("subject handling — review findings", () => {
 	});
 
 	it("finds a Bash-route baseline recorded under the plain path from a region claim", () => {
-		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
+		sandboxRepo.instantiate(sb.repo);
 		const body = (entry: string) =>
 			`# map\n\nv1.0 · 21 August 2026\n\n## Section B\n\n### B1 · One\n\n${entry}\n`;
 		fs.writeFileSync(path.join(sb.repo, docMap), body("body"));
@@ -974,7 +979,7 @@ describe("subject handling — review findings", () => {
 	});
 
 	it("refreshes the whole-file pin as well as the regions a session holds", () => {
-		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
+		sandboxRepo.instantiate(sb.repo);
 		fs.writeFileSync(path.join(sb.repo, docMap), "### B1 · One\n\nbody\n");
 		registerSession(sb, "alice", process.pid);
 		const me = store.identify("alice");

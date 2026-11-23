@@ -1,20 +1,23 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 
 const require = createRequire(import.meta.url);
 const { readCommittedBytes } = require("./census-digest.js");
 const { CeilingPassed, buildGitCeiling } = require("./git-ceiling.js");
 const { TOUCHED_BY_CEILING_MS } = require("./touched-by.js");
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 let dir: string;
 
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "git-ceiling-"));
-	execFileSync("git", ["init", "-q", dir]);
+	dir = emptyRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "git-ceiling-")),
+	);
 });
 
 afterEach(() => {

@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { cutover, isCutOver, renderCutover } from "./cutover.js";
 import { GIT_TIMEOUT_MS, gitReader } from "./git.js";
+import { defineTemplate } from "./git-fixture";
 import {
 	level,
 	readOrphanedEdits,
@@ -14,7 +15,6 @@ import {
 } from "./level-main.js";
 
 let tmp: string;
-let origin: string;
 let main: string;
 let other: string;
 
@@ -66,21 +66,35 @@ const render = (r: ReturnType<typeof cutover>) =>
 		renderLevel: (o) => renderOutcome(o, Date.now()),
 	}).join("\n");
 
+const pair = defineTemplate((at) => {
+	const bare = path.join(at, "origin.git");
+	const first = path.join(at, "main");
+	const second = path.join(at, "other");
+	git(at, "init", "-q", "--bare", "-b", "main", bare);
+	git(at, "clone", "-q", bare, first);
+	git(first, "config", "user.email", "t@t");
+	git(first, "config", "user.name", "t");
+	commitIn(first, { "a.md": "a\n", "package-lock.json": "{}\n" }, "seed");
+	git(first, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git(first, "branch", "-q", "--set-upstream-to=origin/landing", "main");
+	git(at, "clone", "-q", bare, second);
+	git(second, "config", "user.email", "t@t");
+	git(second, "config", "user.name", "t");
+});
+
+const CLONE_REFLOGS = [
+	"other/.git/logs/HEAD",
+	"other/.git/logs/refs/heads/main",
+	"other/.git/logs/refs/remotes/origin/HEAD",
+];
+
 beforeEach(() => {
-	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cutover-")));
-	origin = path.join(tmp, "origin.git");
+	tmp = pair.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cutover-"))),
+		{ extraPaths: CLONE_REFLOGS },
+	);
 	main = path.join(tmp, "main");
 	other = path.join(tmp, "other");
-	git(tmp, "init", "-q", "--bare", "-b", "main", origin);
-	git(tmp, "clone", "-q", origin, main);
-	git(main, "config", "user.email", "t@t");
-	git(main, "config", "user.name", "t");
-	commitIn(main, { "a.md": "a\n", "package-lock.json": "{}\n" }, "seed");
-	git(main, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
-	git(main, "branch", "-q", "--set-upstream-to=origin/landing", "main");
-	git(tmp, "clone", "-q", origin, other);
-	git(other, "config", "user.email", "t@t");
-	git(other, "config", "user.name", "t");
 });
 
 afterEach(() => {

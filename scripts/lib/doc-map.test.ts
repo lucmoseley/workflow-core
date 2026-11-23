@@ -12,6 +12,40 @@ import {
 	syntheticSidecar,
 	writeSidecar,
 } from "./doc-map-testkit";
+import { defineTemplate } from "./git-fixture";
+
+const gitAt = (at: string, ...args: string[]) =>
+	execFileSync("git", args, { cwd: at, encoding: "utf8" });
+
+const configureRepo = (at: string) => {
+	gitAt(at, "init", "-q", "-b", "main", ".");
+	gitAt(at, "config", "user.email", "test@example.com");
+	gitAt(at, "config", "user.name", "test");
+};
+
+const docRepo = defineTemplate({
+	main: (at) => {
+		gitAt(at, "init", "-q", "-b", "main", ".");
+	},
+	configured: configureRepo,
+	conflicted: (at) => {
+		configureRepo(at);
+		fs.writeFileSync(path.join(at, "clean.md"), "untouched\n");
+		fs.writeFileSync(path.join(at, "contested.md"), "base\n");
+		gitAt(at, "add", "--", "clean.md", "contested.md");
+		gitAt(at, "commit", "-qm", "base");
+
+		gitAt(at, "checkout", "-qb", "other");
+		fs.writeFileSync(path.join(at, "contested.md"), "theirs\n");
+		gitAt(at, "commit", "-qm", "theirs", "--", "contested.md");
+
+		gitAt(at, "checkout", "-q", "main");
+		fs.writeFileSync(path.join(at, "contested.md"), "ours\n");
+		gitAt(at, "commit", "-qm", "ours", "--", "contested.md");
+
+		ignoreFailure(() => gitAt(at, "merge", "other"));
+	},
+});
 
 const {
 	CLASSES_FILE,
@@ -259,11 +293,13 @@ const scopeIn = (opts: {
 	mapPath?: string;
 	checker?: string;
 }) => {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scan-scope-"));
+	const dir = docRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "scan-scope-")),
+		"main",
+	);
 	try {
 		const git = (...args: string[]) =>
 			execFileSync("git", args, { cwd: dir, encoding: "utf8" });
-		git("init", "-q", "-b", "main", ".");
 		for (const rel of opts.files) {
 			fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
 			fs.writeFileSync(path.join(dir, rel), "{}\n");
@@ -1371,10 +1407,10 @@ describe("sectionBEntryRate", () => {
 	};
 
 	beforeEach(() => {
-		repo = fs.mkdtempSync(path.join(os.tmpdir(), "doc-map-rate-"));
-		git(["init", "-q", "-b", "main", "."]);
-		git(["config", "user.email", "test@example.com"]);
-		git(["config", "user.name", "test"]);
+		repo = docRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "doc-map-rate-")),
+			"configured",
+		);
 		cwd = process.cwd();
 		process.chdir(repo);
 	});
@@ -1484,10 +1520,10 @@ describe("the pairing faults' datings", () => {
 	const hours = (ms: number | null) => (ms as number) / (60 * 60 * 1000);
 
 	beforeEach(() => {
-		repo = fs.mkdtempSync(path.join(os.tmpdir(), "doc-map-pairing-"));
-		git(["init", "-q", "-b", "main", "."]);
-		git(["config", "user.email", "test@example.com"]);
-		git(["config", "user.name", "test"]);
+		repo = docRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "doc-map-pairing-")),
+			"configured",
+		);
 		cwd = process.cwd();
 		process.chdir(repo);
 	});
@@ -1713,24 +1749,10 @@ describe("a conflicted index", () => {
 		execFileSync("git", args, { cwd: repo, encoding: "utf8" });
 
 	beforeEach(() => {
-		repo = fs.mkdtempSync(path.join(os.tmpdir(), "doc-map-conflict-"));
-		git("init", "-q", "-b", "main", ".");
-		git("config", "user.email", "test@example.com");
-		git("config", "user.name", "test");
-		fs.writeFileSync(path.join(repo, "clean.md"), "untouched\n");
-		fs.writeFileSync(path.join(repo, "contested.md"), "base\n");
-		git("add", "--", "clean.md", "contested.md");
-		git("commit", "-qm", "base");
-
-		git("checkout", "-qb", "other");
-		fs.writeFileSync(path.join(repo, "contested.md"), "theirs\n");
-		git("commit", "-qm", "theirs", "--", "contested.md");
-
-		git("checkout", "-q", "main");
-		fs.writeFileSync(path.join(repo, "contested.md"), "ours\n");
-		git("commit", "-qm", "ours", "--", "contested.md");
-
-		ignoreFailure(() => git("merge", "other"));
+		repo = docRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "doc-map-conflict-")),
+			"conflicted",
+		);
 		expect(git("ls-files", "--unmerged")).not.toBe("");
 
 		cwd = process.cwd();
@@ -2512,10 +2534,10 @@ describe("the new-entry cap's git readers", () => {
 	};
 
 	beforeEach(() => {
-		repo = fs.mkdtempSync(path.join(os.tmpdir(), "doc-map-births-"));
-		git(["init", "-q", "-b", "main", "."]);
-		git(["config", "user.email", "test@example.com"]);
-		git(["config", "user.name", "test"]);
+		repo = docRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "doc-map-births-")),
+			"configured",
+		);
 		cwd = process.cwd();
 		process.chdir(repo);
 	});

@@ -16,25 +16,38 @@ import {
 } from "./arbiter-testkit";
 import { warnings } from "./claim-warning.js";
 import { buildHostPorts } from "./claimed-bash-write-host.js";
+import { defineTemplate } from "./git-fixture";
 import { runCore } from "./guard-core-testkit";
 import { buildBashPayload } from "./pretool-guard-testkit";
 
 const lockFile = (rel: string) =>
 	`${createHash("sha256").update(rel).digest("hex").slice(0, 16)}.json`;
 
-const sb = freshSandbox((fresh) => {
-	fs.mkdirSync(path.join(fresh.repo, "docs"), { recursive: true });
-	fs.mkdirSync(path.join(fresh.repo, "scripts"), { recursive: true });
+const gitIn =
+	(cwd: string) =>
+	(...args: string[]) =>
+		execFileSync("git", args, { cwd, stdio: "ignore" });
+
+const sandboxRepo = defineTemplate((dir) => {
+	fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+	fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
 	fs.writeFileSync(
-		path.join(fresh.repo, "package.json"),
+		path.join(dir, "package.json"),
 		'{"scripts":{"test":"node scripts/run-vitest.js"}}',
 	);
-	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: fresh.repo, stdio: "ignore" });
+	const git = gitIn(dir);
 	git("init", "-q", "-b", "main", ".");
 	git("config", "user.email", "test@example.com");
 	git("config", "user.name", "test");
-	git("config", "core.hooksPath", path.join(fresh.dir, "no-hooks"));
+});
+
+const sb = freshSandbox((fresh) => {
+	sandboxRepo.instantiate(fresh.repo);
+	gitIn(fresh.repo)(
+		"config",
+		"core.hooksPath",
+		path.join(fresh.dir, "no-hooks"),
+	);
 });
 
 function claimedBy(subject: string, sessionId: string) {

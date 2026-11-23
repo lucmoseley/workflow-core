@@ -13,6 +13,9 @@ import {
 const SEAM = path.join(__dirname, "host-root.js");
 
 const template = defineTemplate(trioTemplate());
+const bareRepo = defineTemplate((at) => {
+	spawnSync("git", ["init", "-q", "--bare", at]);
+});
 
 describe("the host seam", () => {
 	let dir: string;
@@ -264,8 +267,7 @@ describe("the host seam", () => {
 		});
 
 		it("answers the working directory in a bare repository, which has no top level, and says so on stderr", () => {
-			const bare = path.join(dir, "bare.git");
-			spawnSync("git", ["init", "-q", "--bare", bare]);
+			const bare = bareRepo.instantiate(path.join(dir, "bare.git"));
 			fs.writeFileSync(path.join(bare, "a.md"), "bare\n");
 			const r = spawnThrough(
 				`require(${JSON.stringify(SEAM)}).resolveCommitHost()`,

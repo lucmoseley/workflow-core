@@ -9,11 +9,12 @@ import { baselineOf } from "./check.js";
 import { readBaselineCommit } from "./citation-tracker.js";
 import { commitSha, readCommit } from "./commit-sha.js";
 import { gitReader } from "./git.js";
+import { defineTemplate } from "./git-fixture";
 
 let dir: string;
 
-const git = (args: string[]) =>
-	execFileSync("git", args, { encoding: "utf8", cwd: dir }).trim();
+const git = (args: string[], cwd = dir) =>
+	execFileSync("git", args, { encoding: "utf8", cwd }).trim();
 
 function commitOnce() {
 	fs.mkdirSync(path.join(dir, "sub"));
@@ -23,11 +24,16 @@ function commitOnce() {
 	return git(["rev-parse", "HEAD"]);
 }
 
+const configuredRepo = defineTemplate((at) => {
+	git(["init", "-q", "-b", "main"], at);
+	git(["config", "user.email", "t@example.invalid"], at);
+	git(["config", "user.name", "Test"], at);
+});
+
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "commit-sha-"));
-	git(["init", "-q", "-b", "main"]);
-	git(["config", "user.email", "t@example.invalid"]);
-	git(["config", "user.name", "Test"]);
+	dir = configuredRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "commit-sha-")),
+	);
 });
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));

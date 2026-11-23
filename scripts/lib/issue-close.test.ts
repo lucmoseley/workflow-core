@@ -13,6 +13,7 @@ import {
 	readGhAnswer,
 } from "./gh-fake";
 import { printed, stubGhRoutes } from "./gh-stub";
+import { defineTemplate } from "./git-fixture";
 import {
 	runCore,
 	splitCheckout,
@@ -188,17 +189,7 @@ const writeTracker = (config: object) =>
 		JSON.stringify({ contract: 1, ...config }),
 	);
 
-const OUTSTANDING = "This close does not say what is still outstanding";
-const CARD_STILL = "and that card is still";
-
-beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "issue-close-"));
-	shared = path.join(dir, "shared");
-	faults = [];
-	calls = [];
-	clock = 0;
-	fs.mkdirSync(path.join(shared, ".claude"), { recursive: true });
-	writeTracker({ tracker: "acme/tracker" });
+const seededShared = defineTemplate((at) => {
 	for (const args of [
 		["init", "-q"],
 		["commit", "-q", "--allow-empty", "-m", "seed"],
@@ -208,9 +199,23 @@ beforeEach(() => {
 			"git",
 			["-c", "user.email=t@t", "-c", "user.name=t", ...args],
 			{
-				cwd: shared,
+				cwd: at,
 			},
 		);
+});
+
+const OUTSTANDING = "This close does not say what is still outstanding";
+const CARD_STILL = "and that card is still";
+
+beforeEach(() => {
+	dir = fs.mkdtempSync(path.join(os.tmpdir(), "issue-close-"));
+	shared = path.join(dir, "shared");
+	faults = [];
+	calls = [];
+	clock = 0;
+	seededShared.instantiate(shared);
+	fs.mkdirSync(path.join(shared, ".claude"), { recursive: true });
+	writeTracker({ tracker: "acme/tracker" });
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 

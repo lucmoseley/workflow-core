@@ -10,6 +10,7 @@ import {
 	live,
 	markers as markersMod,
 } from "./arbiter-testkit";
+import { committedRepoTemplate, defineTemplate } from "./git-fixture";
 import { readParkedBy, writeParkedBy } from "./parked.js";
 import { REFILL_STATE_FILE } from "./refill-dir.js";
 import { record } from "./refill-loop-fixture";
@@ -387,14 +388,27 @@ describe("self-plugin marker sweep — a linked worktree's markers (#4531)", () 
 	const wt = () => path.join(sb.repo, ".claude", "worktrees", "s1");
 	const wtMarkers = () => path.join(wt(), ".claude", "tmp", "markers");
 
-	const git = (...args: string[]) => {
+	const git = (cwd: string, ...args: string[]) => {
 		const res = spawnSync(
 			"git",
 			["-c", "user.name=t", "-c", "user.email=t@t", ...args],
-			{ cwd: sb.repo, encoding: "utf8" },
+			{ cwd, encoding: "utf8" },
 		);
 		expect(res.status, res.stderr).toBe(0);
 	};
+
+	const worktreeRepo = defineTemplate((dir) => {
+		fs.mkdirSync(path.join(dir, "docs"));
+		committedRepoTemplate(dir);
+		git(
+			dir,
+			"worktree",
+			"add",
+			"-q",
+			"--detach",
+			path.join(dir, ".claude", "worktrees", "s1"),
+		);
+	});
 
 	const aged = (name: string) => {
 		fs.mkdirSync(wtMarkers(), { recursive: true });
@@ -406,9 +420,7 @@ describe("self-plugin marker sweep — a linked worktree's markers (#4531)", () 
 	};
 
 	const withWorktree = () => {
-		git("init", "-q");
-		git("commit", "-q", "--allow-empty", "-m", "base");
-		git("worktree", "add", "-q", "--detach", wt());
+		worktreeRepo.instantiate(sb.repo);
 	};
 
 	it("sweeps a finished session's aged marker in a worktree", () => {
