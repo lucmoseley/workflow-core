@@ -1040,7 +1040,7 @@ function spawnCommand(words, { handed, seat, options, err, finish, capture }) {
 		end(127);
 	});
 	running.once(capture ? "close" : "exit", (code, signal) => {
-		if (spawnedAt !== null && code !== null)
+		if (spawnedAt !== null)
 			capture?.settle({ code, signal, spawnedAt, endedAt: wall() });
 		end(exitStatus(code, signal));
 	});

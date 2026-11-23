@@ -116,7 +116,7 @@ function openCapture(dir, run, { queueFs = fs, say, label }) {
 	} catch (error) {
 		removeRunFiles(dir, run, queueFs);
 		say.write(
-			`${label}: could not open this type-check's capture files in ${dir} (${error instanceof Error ? error.message : error}) — it runs, but a request that joined it falls back to a run of its own (#5639).\n`,
+			`${label}: could not open this type-check's capture files in ${dir} (${error instanceof Error ? error.message : error}) — it runs, but a request that joined it joins another queued run or runs its own (#5639).\n`,
 		);
 	}
 	/** @param {"out" | "err"} stream */
@@ -135,11 +135,11 @@ function openCapture(dir, run, { queueFs = fs, say, label }) {
 	return {
 		out: into("out"),
 		err: into("err"),
-		/** @param {RunResult} result */
+		/** @param {Omit<RunResult, "code"> & { code: number | null }} result */
 		settle: (result) => {
 			const opened = fds !== null;
 			close();
-			if (!opened) return;
+			if (!opened || result.code === null) return;
 			const tmp = `${files.result}.${process.pid}.tmp`;
 			ignoreFailure(() => {
 				queueFs.writeFileSync(tmp, JSON.stringify(result));
@@ -161,7 +161,10 @@ function readResult(dir, run, queueFs = fs) {
 		const record = JSON.parse(
 			String(queueFs.readFileSync(runFiles(dir, run).result, "utf8")),
 		);
-		return typeof record?.spawnedAt === "number" ? record : null;
+		return typeof record?.spawnedAt === "number" &&
+			typeof record?.code === "number"
+			? record
+			: null;
 	} catch {
 		return null;
 	}

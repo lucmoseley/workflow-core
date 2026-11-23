@@ -90,7 +90,7 @@ function isSameKey(record, key) {
  * @param {Joining} j
  * @returns {Resolved}
  */
-const resolve = (j) => ({
+const withJoiningDefaults = (j) => ({
 	...j,
 	queueFs: j.queueFs ?? fs,
 	monoClock: j.monoClock ?? monotonicMs,
@@ -99,7 +99,8 @@ const resolve = (j) => ({
 	pollMs: j.pollMs ?? QUEUE_POLL_MS,
 	sleepFn:
 		j.sleepFn ??
-		((/** @type {number} */ ms) => new Promise((done) => setTimeout(done, ms))),
+		((/** @type {number} */ ms) =>
+			new Promise((resolve) => setTimeout(resolve, ms))),
 });
 
 /** @param {((pid: number) => boolean) | undefined} alive */
@@ -362,7 +363,7 @@ async function tryJoin(j, leaveSeat, fallingBack) {
  * @returns {Promise<{ code: number } | { seat: S }>}
  */
 async function joinOrSeat(joining, seat, reseat) {
-	const j = resolve(joining);
+	const j = withJoiningDefaults(joining);
 	/** @type {S | null} */
 	let current = seat;
 	for (;;) {
