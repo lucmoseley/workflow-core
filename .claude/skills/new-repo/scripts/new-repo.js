@@ -1983,6 +1983,7 @@ function bashrcPreflight(inp) {
 			`for n in ${names.join(" ")}; do printf 'new-repo-type %s %s\\n' "$n" "$(type -t "$n")"; done`,
 		],
 		process.env,
+		// guess, #719
 		30_000,
 	);
 	const seen = [...r.output.matchAll(/^new-repo-type (\S+) ?(\S*)$/gm)];

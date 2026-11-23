@@ -1,46 +1,53 @@
-// guess, #5435
-const CADENCE_DAYS = 7;
-const DAY_MS = 86_400_000;
+const { parseSteps } = require("./migration-note.js");
+
 const CUT_TITLE = "Release cut due";
+const OWED_TYPES = ["act", "choice"];
 
 /**
- * @typedef {{ tag: string, cutSec: number, commits: number }} CutReading
+ * @typedef {{ note: string, version: string, text: string }} NoteFile
+ * @typedef {{ note: string, owedSteps: number }} OwedNote
+ * @typedef {{ tag: string, cutSec: number, notes: NoteFile[] }} CutReading
  * @typedef {{ due: boolean, why: string }} CutVerdict
  */
 
 /**
- * @param {number} cutSec
- * @param {number} nowMs
+ * @param {string} tag
+ * @param {NoteFile[]} notes
+ * @returns {OwedNote[]}
  */
-const daysSinceCut = (cutSec, nowMs) => (nowMs - cutSec * 1000) / DAY_MS;
+function selectOwed(tag, notes) {
+	const { TAG_RE, newestTag } = require("./release-tags.js");
+	/** @type {OwedNote[]} */
+	const owed = [];
+	for (const { note, version, text } of notes) {
+		if (!TAG_RE.test(version) || version === tag) continue;
+		if (newestTag([tag, version]) !== version) continue;
+		const owedSteps = parseSteps(text).filter((s) =>
+			OWED_TYPES.includes(s.type),
+		).length;
+		if (owedSteps > 0) owed.push({ note, owedSteps });
+	}
+	return owed;
+}
 
 /**
- * @param {CutReading} reading
- * @param {number} nowMs
+ * @param {Pick<CutReading, "tag" | "notes">} reading
+ * @param {string} [because]
  * @returns {CutVerdict}
  */
-function judgeCut({ tag, cutSec, commits }, nowMs) {
-	const days = daysSinceCut(cutSec, nowMs);
-	const gap = `${tag} was cut ${days.toFixed(1)} days ago`;
-	if (days < CADENCE_DAYS) {
-		const from = new Date(cutSec * 1000 + CADENCE_DAYS * DAY_MS)
-			.toISOString()
-			.slice(0, 16)
-			.replace("T", " ");
+function judgeCut({ tag, notes }, because) {
+	if (because) return { due: true, why: because };
+	const owed = selectOwed(tag, notes);
+	if (owed.length === 0)
 		return {
 			due: false,
-			why: `${gap}, under the ${CADENCE_DAYS}-day cadence; a cut is allowed from ${from} UTC`,
+			why: `no migration note newer than ${tag} carries an [act] or [choice] step`,
 		};
-	}
-	if (commits === 0)
-		return {
-			due: false,
-			why: `${gap}, but origin/main holds no commit it does not carry`,
-		};
+	const listed = owed.map((o) => `${o.note} (${o.owedSteps})`).join(", ");
 	return {
 		due: true,
-		why: `${gap}, and origin/main holds ${commits} commit(s) it does not carry`,
+		why: `migration notes newer than ${tag} owe adopters [act] or [choice] steps: ${listed}`,
 	};
 }
 
-module.exports = { CADENCE_DAYS, CUT_TITLE, daysSinceCut, judgeCut };
+module.exports = { CUT_TITLE, judgeCut };

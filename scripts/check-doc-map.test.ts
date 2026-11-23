@@ -2198,6 +2198,18 @@ describe("Section B entries inside Section B", () => {
 		expect(check().out).toContain("B2 — line");
 	});
 
+	it("spells the mover from the plugin and the map the host's own, though the plugin ships one too (#5598)", () => {
+		const plugin = mkScratchDir("plugin-");
+		for (const f of ["scripts/move-stray-doc-map-entries.js", MAP]) {
+			fs.mkdirSync(path.join(plugin, path.dirname(f)), { recursive: true });
+			fs.writeFileSync(path.join(plugin, f), "x\n");
+		}
+		writeMap(baselineRows, withSectionC(["B1"], ["B2"]));
+		expect(check({ WFC_SCRIPT_ROOT: plugin }).out).toContain(
+			`  node ${plugin}/scripts/move-stray-doc-map-entries.js docs/doc-map.md`,
+		);
+	});
+
 	it("routes the fix to relocation, never a rewrite", () => {
 		writeMap(baselineRows, withSectionC(["B1"], ["B2"]));
 		const r = check();
@@ -2500,6 +2512,23 @@ describe("Section B pointer shape", () => {
 		const r = check({}, path.join(dir, "doc-map.md"), "--data-dir", dir);
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("B1 — pointer says 3 path(s)");
+	});
+
+	it("names the host's own sidecars in the templates, though the plugin ships them too, the mover case pinning the core half (#5598)", () => {
+		const plugin = mkScratchDir("plugin-");
+		fs.mkdirSync(path.join(plugin, "docs"));
+		for (const f of [RESTATEMENTS, SUPERSEDED])
+			fs.writeFileSync(path.join(plugin, f), "{}\n");
+		fixture(entry("B1", pointer(3)), {
+			B1: { paths: [{ path: "docs/notes.md" }] },
+		});
+		const r = check({ WFC_SCRIPT_ROOT: plugin });
+		expect(r.out).toContain(
+			"- **Restated in:** <n> paths, in `docs/doc-map-restatements.json`.",
+		);
+		expect(r.out).toContain(
+			"- **Supersedes:** see `docs/doc-map-superseded.json`.",
+		);
 	});
 
 	it("prints the three templates when it FAILs", () => {
@@ -4733,6 +4762,37 @@ describe("live section references (#805)", () => {
 		const r = check();
 		expect(r.out).not.toContain("DEAD-SECTION-REF");
 		expect(r.out).toContain("every doc-map section reference live");
+	});
+});
+
+describe("live assertion citations (#5551)", () => {
+	it("fails a citation of a number no assertion carries, naming the file", () => {
+		writeMap(baselineRows);
+		track("CLAUDE.md", "`check-doc-map.js` refuses it (assertion 3).\n");
+		const r = check();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain(
+			"1 citation(s) of a check-doc-map assertion number no assertion carries:",
+		);
+		expect(r.out).toContain("CLAUDE.md: assertion 3");
+		const envelope = JSON.parse(check({}, "--json").stdout);
+		expect(envelope.assertionCitations).toEqual([
+			{ file: "CLAUDE.md", assertion: 3 },
+		]);
+		expect(
+			envelope.findings.find(
+				(f: { tag: string }) => f.tag === "DEAD-ASSERTION-CITATION",
+			).assertion,
+		).toBe(34);
+	});
+
+	it("passes a carried number, and skips a test file", () => {
+		writeMap(baselineRows);
+		track("CLAUDE.md", "`check-doc-map.js` assertions 12 and 13 refuse it.\n");
+		track("scripts/x.test.ts", "// check-doc-map assertion 3\n");
+		const r = check();
+		expect(r.out).not.toContain("DEAD-ASSERTION-CITATION");
+		expect(r.out).toContain("every assertion citation live");
 	});
 });
 

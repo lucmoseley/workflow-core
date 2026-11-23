@@ -159,14 +159,14 @@ that turns the hooks into shims.
 
 ## Which release carries a commit
 
-`git tag --contains <sha>` is always empty: every release is a root commit, off every branch. In a workflow-core checkout, `node scripts/release-contains.js <sha>` answers it instead (#797).
+`git tag --contains <sha>` is always empty: every release is a root commit, off every branch. In a workflow-core checkout, `node scripts/release-contains.js <sha>` answers it instead (#797). Where none carries it and work is blocked on it, a cut is due: from that checkout, `node scripts/report-release-due.js --because "<repo>#<n> is blocked on <sha>, which no release carries"` files the cut ticket (#5538).
 
 ## Enforcement
 
 <!-- guard-registry:begin -->
 <!-- Every rule here carries **Enforced** / **Advisory** / **Unenforced** / **Unenforceable**; `scripts/check-guard-registry.js` gates it. -->
 
-- **`rule:adopter-materialise-sequence`** — the three `claude` calls above are one sequence, never alternatives. `marketplace add` is the only step that rotates the supply's ref; `install` no-ops on an already-installed plugin; `update` is the only one that re-pulls. **Unenforceable** (#231): the typed route is guardable in principle but deliberately not guarded, and the prose route — a session recommending the wrong command in chat — is unobservable by any `PreToolUse` hook.
+- **`rule:adopter-materialise-sequence`** — the three `claude` calls above are one sequence, never alternatives. `marketplace add` is the only step that rotates the supply's ref; `install` no-ops on an already-installed plugin; `update` is the only one that re-pulls, and it detects a change by `plugin.json`'s `version`, not the git ref, so a tag shipping an unbumped `version` leaves it a no-op. **Unenforceable** (#231): the typed route is guardable in principle but deliberately not guarded, and the prose route — a session recommending the wrong command in chat — is unobservable by any `PreToolUse` hook.
 - **`rule:adopter-pin-consent`** — the committed pin is the consent token. An agent session may advance it as a deliberate act — told to update the repo, editing the line and committing it — but an unattended advance never. **Unenforceable** (#231): the writer is a script no hook sees.
 
 <!-- guard-registry:end -->

@@ -5,13 +5,11 @@ const regions = require("./doc-map-regions.js");
 const { readCurrentBootId, holderAlive } = require("./arbiter-proc.js");
 const { buildArbiterCommand } = require("./build-arbiter-command.js");
 const breaks = require("./arbiter-breaks.js");
-// biome-ignore lint/suspicious/noImportCycles: cyclic by design — arbiter-store.js's THE SPLIT RULE (mantahostels#1795).
 const contentMod = require("./arbiter-content.js");
 const core = require("./arbiter-core.js");
 const ledger = require("./arbiter-ledger.js");
-// biome-ignore lint/suspicious/noImportCycles: cyclic by design — arbiter-store.js's THE SPLIT RULE (mantahostels#1795).
+const lockFiles = require("./arbiter-lock-files.js");
 const observations = require("./arbiter-observations.js");
-const { sleepSync } = require("./sleep-sync.js");
 const { caught, ignoreFailure } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
@@ -53,38 +51,6 @@ function newLock({
 	};
 }
 
-// guess, #5529
-const DEBRIS_AGE_MS = 60 * 60 * 1000;
-
-/** @param {string} lockPath */
-function renameAside(lockPath) {
-	const aside = `${lockPath}.stale-${crypto.randomBytes(6).toString("hex")}`;
-	try {
-		fs.renameSync(lockPath, aside);
-	} catch {
-		return null;
-	}
-	ignoreFailure(() => {
-		const now = new Date();
-		fs.utimesSync(aside, now, now);
-	});
-	return aside;
-}
-
-/**
- * @param {string} aside
- * @param {string} lockPath
- */
-function restoreAside(aside, lockPath) {
-	try {
-		fs.linkSync(aside, lockPath);
-	} catch {
-		return false;
-	}
-	ignoreFailure(() => fs.unlinkSync(aside));
-	return true;
-}
-
 function sweepDebris() {
 	ignoreFailure(() => {
 		const now = Date.now();
@@ -116,7 +82,8 @@ function sweepDebrisEntry(dir, f, now, wasResumed) {
 	const full = path.join(dir, f);
 	if (f.includes(".json.stale-") && keepLiveAside(full, wasResumed)) return;
 	ignoreFailure(() => {
-		if (now - fs.statSync(full).mtimeMs > DEBRIS_AGE_MS) fs.unlinkSync(full);
+		if (now - fs.statSync(full).mtimeMs > lockFiles.DEBRIS_AGE_MS)
+			fs.unlinkSync(full);
 	});
 }
 
@@ -134,7 +101,7 @@ function keepLiveAside(full, wasResumed) {
 	}
 	if (!(moved && core.liveOrResumed(moved, wasResumed))) return false;
 	const lockPath = full.slice(0, full.lastIndexOf(".stale-"));
-	if (restoreAside(full, lockPath)) {
+	if (lockFiles.restoreAside(full, lockPath)) {
 		core.logError(
 			"sweep",
 			`found ${moved.path}'s live lock (session ${moved.sessionId}, pid ${moved.pid}) stranded aside and restored it — a breaker died between moving it and putting it back`,
@@ -145,56 +112,11 @@ function keepLiveAside(full, wasResumed) {
 
 /**
  * @param {string} rel
- * @param {(lock: LockRecord) => boolean} isDroppable
- */
-function dropIfUnchanged(rel, isDroppable) {
-	const aside = renameAside(core.paths.lock(rel));
-	if (aside === null) return { outcome: "contended", moved: null };
-
-	const moved = core.readRecordOrLog(aside, `drop ${rel}`);
-	if (moved !== null && isDroppable(moved)) {
-		ignoreFailure(() => fs.unlinkSync(aside));
-		return { outcome: "dropped", moved };
-	}
-	return {
-		outcome: "kept",
-		moved,
-		restored: restoreAside(aside, core.paths.lock(rel)),
-	};
-}
-
-/**
- * @param {string} rel
- * @param {(lock: LockRecord) => boolean} isOurs
- * @param {(lock: LockRecord) => LockRecord} mutate
- */
-function updateIfUnchanged(rel, isOurs, mutate) {
-	const lockPath = core.paths.lock(rel);
-	const aside = renameAside(lockPath);
-	if (aside === null) return { outcome: "contended", lock: null };
-
-	const moved = core.readRecordOrLog(aside, `update ${rel}`);
-	if (moved !== null && isOurs(moved)) {
-		const updated = mutate({ ...moved });
-		if (core.createOnce(lockPath, updated)) {
-			ignoreFailure(() => fs.unlinkSync(aside));
-			return { outcome: "updated", lock: updated };
-		}
-	}
-	return {
-		outcome: "kept",
-		lock: moved,
-		restored: restoreAside(aside, lockPath),
-	};
-}
-
-/**
- * @param {string} rel
  * @param {LockRecord} existing
  * @param {{pid: number|null, procStart: string|number|null}} resumed
  */
 function repointLock(rel, existing, resumed) {
-	const { outcome, lock } = updateIfUnchanged(
+	const { outcome, lock } = lockFiles.updateIfUnchanged(
 		rel,
 		(m) => m.claimId === existing.claimId,
 		(m) => ({
@@ -213,7 +135,7 @@ function repointLock(rel, existing, resumed) {
  * @param {Identity|null} [me]
  */
 function breakStale(rel, existing, me = null) {
-	const { outcome, moved, restored } = dropIfUnchanged(
+	const { outcome, moved, restored } = lockFiles.dropIfUnchanged(
 		rel,
 		(m) => m.claimId === existing.claimId || !holderAlive(m),
 	);
@@ -233,20 +155,13 @@ function breakStale(rel, existing, me = null) {
 	return "retry";
 }
 
-// guess, lucmoseley/mantahostels#1691
-const TORN_SETTLE_MS = 50;
-
-function settle(ms = TORN_SETTLE_MS) {
-	sleepSync(ms);
-}
-
 /**
  * @param {string} rel
  * @param {Identity|null} [me]
  */
 function breakCorrupt(rel, me = null) {
 	const lockPath = core.paths.lock(rel);
-	const aside = renameAside(lockPath);
+	const aside = lockFiles.renameAside(lockPath);
 	if (aside === null) return "retry";
 
 	let probe;
@@ -254,12 +169,12 @@ function breakCorrupt(rel, me = null) {
 		probe = core.probeRecord(aside);
 	} catch (e) {
 		core.logError(`break ${rel}`, e);
-		restoreAside(aside, lockPath);
+		lockFiles.restoreAside(aside, lockPath);
 		return "retry";
 	}
 	if (probe.state === "absent") return "retry";
 	if (probe.state === "ok") {
-		if (!restoreAside(aside, lockPath))
+		if (!lockFiles.restoreAside(aside, lockPath))
 			core.logError(
 				"claim",
 				`broke a live lock on ${rel} and could not restore it — session ` +
@@ -307,7 +222,7 @@ function acquire(rel, me, attempts = 3) {
 function conflictingLock(subject, me) {
 	const { rel, region } = core.splitSubject(subject);
 	if (!regions.isRegioned(rel)) return null;
-	const all = readLocks();
+	const all = lockFiles.readLocks();
 	if (all === null) return null;
 	const others = all.filter(
 		(l) => l.unreadable || core.splitSubject(l.path).region !== region,
@@ -333,7 +248,7 @@ function takeLock(rel, me, attempts) {
 	const clash = conflictingLock(rel, me);
 	if (!clash) return taken;
 	if (taken.verdict === "claimed" && taken.lock)
-		dropIfUnchanged(rel, (m) => m.claimId === taken.lock.claimId);
+		lockFiles.dropIfUnchanged(rel, (m) => m.claimId === taken.lock.claimId);
 	return { verdict: "held", lock: clash };
 }
 
@@ -363,7 +278,7 @@ function judgeUndurable(lockPath, me) {
  */
 function breakIfCorrupt(rel, lockPath, me, state) {
 	if (state === "absent") return;
-	settle();
+	lockFiles.settle();
 	if (core.probeRecord(lockPath).state !== "unparseable") return;
 	breakCorrupt(rel, me);
 }
@@ -591,7 +506,7 @@ function dropCleanInTree(
 	if (dirty === null)
 		return { verdict: "uncheckable", lock: existing, content };
 
-	const { outcome, moved } = dropIfUnchanged(
+	const { outcome, moved } = lockFiles.dropIfUnchanged(
 		subject,
 		(m) => m.claimId === existing.claimId,
 	);
@@ -607,7 +522,7 @@ function listLocks() {
 
 /** @returns {{locks: ListedLock[] | null, registryUnreadable: boolean}} */
 function listLocksJudged() {
-	const locks = readLocks();
+	const locks = lockFiles.readLocks();
 	if (locks === null) return { locks: null, registryUnreadable: false };
 	const wasResumed = core.resumedHolderTest(
 		"list",
@@ -622,64 +537,12 @@ function listLocksJudged() {
 	return { locks: judged, registryUnreadable: wasResumed.registryUnreadable() };
 }
 
-/** @param {() => void} [pause] */
-function readLocks(pause = settle) {
-	const dir = core.paths.locksDir();
-	let files = [];
-	try {
-		files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
-	} catch (e) {
-		if (caught(e).code === "ENOENT") return [];
-		core.logError("list", e);
-		return null;
-	}
-	/** @param {string} full */
-	const aged = (full) => {
-		try {
-			return Date.now() - fs.statSync(full).mtimeMs > DEBRIS_AGE_MS;
-		} catch {
-			return false;
-		}
-	};
-	/**
-	 * @param {string} f
-	 * @param {boolean} settled
-	 */
-	const judge = (f, settled) => {
-		const full = path.join(dir, f);
-		let probe;
-		try {
-			probe = core.probeRecord(full);
-		} catch (e) {
-			core.logError("list", e);
-			return { file: f, unreadable: true, reason: "refused" };
-		}
-		if (probe.state === "absent") return null;
-		if (probe.state !== "unparseable") return probe.record;
-		if (!settled && !aged(full)) return { file: f, torn: true };
-		return { file: f, unreadable: true, reason: "unparseable" };
-	};
-
-	const first = files.map((f) => ({ f, l: judge(f, false) }));
-	if (!first.some(({ l }) => l?.torn))
-		return first.map(({ l }) => l).filter(Boolean);
-	pause();
-	return first
-		.map(({ f, l }) => (l?.torn ? judge(f, true) : l))
-		.filter(Boolean);
-}
-
-/** @param {string|null} sessionId */
-function readHeldBy(sessionId) {
-	return readLocksHeldBy(sessionId)?.map((l) => l.path) ?? null;
-}
-
 /**
  * @param {string|null} sessionId
  * @returns {string[]|null}
  */
 function readHeldClean(sessionId) {
-	const held = readLocksHeldBy(sessionId);
+	const held = lockFiles.readLocksHeldBy(sessionId);
 	if (held === null) return null;
 	return held
 		.filter(
@@ -691,19 +554,6 @@ function readHeldClean(sessionId) {
 		.sort();
 }
 
-/**
- * @param {string|null} sessionId
- * @returns {LockRecord[]|null}
- */
-function readLocksHeldBy(sessionId) {
-	if (!sessionId) return null;
-	const locks = readLocks();
-	if (locks === null) return null;
-	return /** @type {LockRecord[]} */ (
-		locks.filter((l) => !l.unreadable && l.sessionId === sessionId)
-	);
-}
-
 /** @param {LockRecord} lock */
 function subjectDirtyWhereHeld(lock) {
 	return core.inRecordTree(lock, () => core.subjectDirty(lock.path));
@@ -713,9 +563,9 @@ function subjectDirtyWhereHeld(lock) {
  * @param {string} subject
  * @param {string|null} sessionId
  * @param {ReturnType<typeof core.resumedHolderTest>} resumed
- * @param {ReturnType<typeof readLocks>} [locks]
+ * @param {ReturnType<typeof lockFiles.readLocks>} [locks]
  */
-function whoHolds(subject, sessionId, resumed, locks = readLocks()) {
+function whoHolds(subject, sessionId, resumed, locks = lockFiles.readLocks()) {
 	if (locks === null) return null;
 	/** @type {LockRecord|null} */
 	let holder = null;
@@ -740,7 +590,7 @@ function whoHolds(subject, sessionId, resumed, locks = readLocks()) {
 }
 
 /**
- * @param {NonNullable<ReturnType<typeof readLocks>>[number]} lock
+ * @param {NonNullable<ReturnType<typeof lockFiles.readLocks>>[number]} lock
  * @param {ReturnType<typeof core.resumedHolderTest>} resumed
  * @returns {boolean}
  */
@@ -750,7 +600,7 @@ function isLockAlive(lock, resumed) {
 
 /**
  * @param {string} rel
- * @param {string} exceptClaimId
+ * @param {string|null|undefined} exceptClaimId
  */
 function liveClaimElsewhereOnFile(rel, exceptClaimId) {
 	const file = core.subjectPath(rel);
@@ -767,52 +617,19 @@ function liveClaimElsewhereOnFile(rel, exceptClaimId) {
 	);
 }
 
-/**
- * @param {string} rel
- * @param {string|null} sessionId
- */
-function readOwnLockOnFile(rel, sessionId) {
-	const file = core.subjectPath(rel);
-	const direct = core.readRecordOrLog(core.paths.lock(file), `observe ${file}`);
-	if (direct?.sessionId === sessionId) return direct;
-	if (regions.isRegioned(file)) {
-		const all = readLocks() || [];
-		const mine = all.find(
-			(l) =>
-				l &&
-				!l.unreadable &&
-				core.splitSubject(l.path).rel === file &&
-				l.sessionId === sessionId,
-		);
-		if (mine) return mine;
-		if (direct) return direct;
-		return (
-			all.find(
-				(l) => l && !l.unreadable && core.splitSubject(l.path).rel === file,
-			) || null
-		);
-	}
-	return direct;
-}
-
-exports.acquire = acquire;
-exports.breakStale = breakStale;
-exports.dropIfUnchanged = dropIfUnchanged;
-exports.readHeldBy = readHeldBy;
-exports.readLocksHeldBy = readLocksHeldBy;
-exports.subjectDirtyWhereHeld = subjectDirtyWhereHeld;
-exports.readHeldClean = readHeldClean;
-exports.listLocks = listLocks;
-exports.listLocksJudged = listLocksJudged;
-exports.liveClaimElsewhereOnFile = liveClaimElsewhereOnFile;
-exports.newLock = newLock;
-exports.readOwnLockOnFile = readOwnLockOnFile;
-exports.readLocks = readLocks;
-exports.release = release;
-exports.repointLock = repointLock;
-exports.settle = settle;
-exports.sweepDebris = sweepDebris;
-exports.takeLock = takeLock;
-exports.takeSubjectLock = takeSubjectLock;
-exports.updateIfUnchanged = updateIfUnchanged;
-exports.whoHolds = whoHolds;
+module.exports = {
+	acquire,
+	breakStale,
+	listLocks,
+	listLocksJudged,
+	liveClaimElsewhereOnFile,
+	newLock,
+	readHeldClean,
+	release,
+	repointLock,
+	subjectDirtyWhereHeld,
+	sweepDebris,
+	takeLock,
+	takeSubjectLock,
+	whoHolds,
+};

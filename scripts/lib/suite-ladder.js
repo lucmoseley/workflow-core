@@ -93,23 +93,6 @@ const VITEST_LIST = /[.]bin\/vitest list( |$)/;
 const WRAPPER_ARGV0 =
 	/^ *-?([^ ]*\/)?(bash|sh|dash|zsh|nohup|setsid|env|timeout|time|command|stdbuf|nice|ionice|xargs|sudo)( |$)/;
 
-/*
- * MATCHES THE RUNNER PATH, NOT THE WORDS. One suite puts THREE kinds of line in
- * `ps -eo args`, and only the middle one is one-per-suite:
- *
- *   sh -c NODE_OPTIONS=... vitest run          the npm wrapper — same suite again
- *   node .../node_modules/.bin/vitest run      the runner, one per suite
- *   node .../vitest/dist/workers/forks.js      one per worker, so maxWorkers of them
- *
- * THE `run` IS NOT PART OF THE ANCHOR (mantahostels#1927): `test:watch` is
- * `vitest` with no subcommand, so an open watcher's runner line ENDS at the
- * binary.
- *
- * Any command line that merely NAMES the binary — `less .../.bin/vitest` — is
- * counted as a suite as well. Tightening the anchor to the runner alone would
- * buy an UNDER-count in exchange, the direction §6's asymmetry says costs an
- * earlyoom kill rather than a false warning.
- */
 const VITEST_RUNNER = /[.]bin\/vitest( |$)/;
 
 /** @param {string} line */
@@ -242,7 +225,6 @@ module.exports = {
 	EARLYOOM_FLOOR_MB,
 	SUITE_MAX,
 	WHOLE_SUITE_MAX,
-	LADDER_SUITE_WORKERS,
 	SUITE_DIP_MB,
 	rungMb,
 	reachableRung,

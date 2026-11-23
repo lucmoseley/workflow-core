@@ -3,13 +3,14 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import {
 	AS_ROOT,
 	core,
 	DEAD,
 	durably,
 	freshSandbox,
+	listedLocks,
 	live,
 	locks,
 	markers,
@@ -470,6 +471,7 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 				fs.writeFileSync(f, JSON.stringify({ a: 1 })),
 			);
 			expect(seen.unreadable).toBeUndefined();
+			assert(!seen.unreadable);
 			expect(seen.record).toEqual({ a: 1 });
 		});
 
@@ -478,6 +480,7 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 			fs.writeFileSync(f, "{not json");
 			const seen = core.readRecordOrFlag(f, "versions corrupt", noPause);
 			expect(seen.unreadable).toBe(true);
+			assert(seen.unreadable);
 			expect(seen.reason).toBe("unparseable");
 			expect(seen.file).toBe(f);
 			expect(fs.readFileSync(core.errorLog(), "utf8")).toContain(
@@ -492,6 +495,7 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 				noPause,
 			);
 			expect(seen.unreadable).toBeUndefined();
+			assert(!seen.unreadable);
 			expect(seen.record).toBeNull();
 		});
 
@@ -517,6 +521,7 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 						paused++;
 					});
 					expect(seen.unreadable).toBe(true);
+					assert(seen.unreadable);
 					expect(seen.reason).toBe("refused");
 					expect(paused).toBe(0);
 				} finally {
@@ -586,6 +591,7 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 			fs.chmodSync(p, 0o000);
 			try {
 				const held = store.listLocks();
+				assert(held);
 				expect(held).toHaveLength(1);
 				expect(held[0].unreadable).toBe(true);
 			} finally {
@@ -822,11 +828,9 @@ describe("several config dirs — a neighbour plan's sessions registry (mantahos
 		put("docs/resumed.md", { sessionId: "nextdoor", ...DEAD });
 		liveNextDoor("nextdoor");
 
-		expect(
-			store
-				.listLocks()
-				.find((l: { path: string }) => l.path === "docs/resumed.md")?.alive,
-		).toBe(true);
+		expect(listedLocks().find((l) => l.path === "docs/resumed.md")?.alive).toBe(
+			true,
+		);
 	});
 
 	it("sweeps as before when no neighbour config dir exists at all", () => {
@@ -886,7 +890,7 @@ describe("several config dirs — a neighbour plan's sessions registry (mantahos
 
 	describe("an unreadable registry, off the sweep path", () => {
 		const aliveOf = (rel: string) =>
-			store.listLocks().find((l: { path: string }) => l.path === rel)?.alive;
+			listedLocks().find((l) => l.path === rel)?.alive;
 
 		const sealed = () => {
 			const dir = path.join(sb.dir, "unreadable");

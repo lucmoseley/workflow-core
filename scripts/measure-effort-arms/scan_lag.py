@@ -1,30 +1,4 @@
 #!/usr/bin/env python3
-"""scan_lag.py — how long after close does rework actually land?
-
-Built for mantahostels#1215 to derive the horizon of mantahostels#1108's rework
-measurement; its reading is the 1 September addendum to
-https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/effort-low-arm-measurement.md.
-
-`scan_rework.py` counts rework inside a `--horizon` window whose default, 21
-days, is a guess: it appears once, as an argparse default, and no ticket or
-note derives it. This scans the lag distribution that should set it.
-
-The corpus is short — the first `takes:implement` close is 13 August 2026 — so
-every ticket's observation window is open-ended and unequal, and a raw
-histogram of observed lags would understate long ones badly. So the estimate
-is **Kaplan-Meier**: at each day `d` the risk set is the tickets that were
-still rework-free and had at least `d` days of exposure, and a ticket drops out
-of the denominator on the day its own exposure runs out rather than counting as
-a clean pass forever.
-
-What it cannot fix: nothing observable here reaches past the corpus age, so any
-statement about rework landing after ~19 days is extrapolation, and the script
-refuses to make one.
-
-Signals are `scan_rework.signals`' two, unchanged, read with an effectively
-infinite horizon so nothing is truncated before the lag is taken.
-"""
-
 import argparse
 import datetime as dt
 import sys
@@ -85,18 +59,18 @@ def fetch_parallel(numbers, repo, workers):
 
 
 def main():
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    ap = argparse.ArgumentParser()
     ap.add_argument("--repo", help="owner/name (default: the config's tracker)")
     ap.add_argument("--label", default="takes:implement")
     ap.add_argument("--since", default="2026-08-01")
     ap.add_argument(
         "--sample",
         type=int,
+        # guess, lucmoseley/mantahostels#1215
         default=250,
         help="how many closed issues to fetch (0 for all)",
     )
+    # guess, lucmoseley/mantahostels#1215
     ap.add_argument("--workers", type=int, default=8)
     a = ap.parse_args()
     a.repo = a.repo or sr.config_tracker()

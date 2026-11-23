@@ -10,6 +10,8 @@ const {
 	resolveGate,
 	basisFaults,
 	basisRefusal,
+	faultsAdded,
+	wordedBasisFaults,
 	gateRuleHandover,
 	isNewlyGated,
 	UNFILLED_DESTINATION,
@@ -751,6 +753,39 @@ describe("basisFaults — the warrant a basis carries (#4946)", () => {
 			`§Gating an issue. ${readRuleText("gate-basis-line")}`,
 		);
 		expect(refusal.split("The line's template:")).toHaveLength(2);
+	});
+});
+
+describe("basisFaults — a window its own figures do not give (#5406)", () => {
+	const gate = (n: number) =>
+		`**Gated on:** ${n} VM boots with no leap — check: \`echo unmet\` — abandon if: the machine leaves WSL2`;
+	const basis = (n: number) =>
+		`**Gate basis:** the leap rate is below the baseline's; baseline 3/30 VM boots (10.0%, #4081); target the baseline point; 95% one-sided, one-sided Fisher; pass = 0 leaps in n = ${n} boots (about ${Math.round(n / 1.5)} days at 1.5 boots a day); fail at the first leap`;
+	const body = (n: number) => `${gate(n)}\n${basis(n)}`;
+	const mismatches = (text: string, before: string | undefined) =>
+		faultsAdded(wordedBasisFaults(text), { body: text, before }).filter(
+			(f: { kind: string }) => f.kind === "window-mismatch",
+		);
+
+	it("passes a basis whose stated n its figures give", () => {
+		expect(mismatches(body(50), undefined)).toEqual([]);
+	});
+
+	it("refuses one whose stated n differs, naming the computed n", () => {
+		const [f] = mismatches(body(107), undefined);
+		expect(f).toMatchObject({
+			recomputed: { stated: "107", computed: "50" },
+		});
+		expect(basisRefusal([f])).toContain(
+			"it states n = 107, where one-sided Fisher, baseline 3/30 at 95% one-sided gives n = 50",
+		);
+	});
+
+	it("holds an old mismatch an edit leaves untouched, and judges it on a re-gate", () => {
+		expect(mismatches(`${body(107)}\nA note.`, body(107))).toEqual([]);
+		expect(
+			mismatches(body(107).replace("107 VM", "108 VM"), body(107)),
+		).toHaveLength(1);
 	});
 });
 

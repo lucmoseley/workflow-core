@@ -178,6 +178,7 @@ describe("inline output", () => {
 });
 
 describe("wait", () => {
+	// guess, #5143
 	const quickPoll = { WFC_BG_WAIT_POLL_S: "0.2" };
 
 	function wait(

@@ -331,7 +331,7 @@ describe("the production adapters, crossed for real", () => {
 		expect(out.permissionDecisionReason.split("\n")[0]).toBe(
 			"Run instead: npm run test -- --changed --queue",
 		);
-		expect(failOpenLog()).toContain("package.json unreadable");
+		expect(failOpenLog()).toContain("package.json is not JSON");
 	});
 
 	it("counts the host's declared suiteRunners off its config (#330)", () => {
@@ -436,16 +436,6 @@ describe("the production adapters, crossed for real", () => {
 		);
 		expect(out.additionalContext).toContain(readRuleText("suite-tree-dirty"));
 		expect(failOpenLog()).toBe("");
-	});
-});
-
-describe("the core's header", () => {
-	it("keeps the deny's reasons", () => {
-		const header = fs
-			.readFileSync(path.join(__dirname, "lib", "suite-concurrency.js"), "utf8")
-			.split("\nconst ")[0];
-		for (const text of ["#482", "2,113 bytes", "86%", "#2680"])
-			expect(header, text).toContain(text);
 	});
 });
 

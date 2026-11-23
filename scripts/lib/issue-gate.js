@@ -2,6 +2,7 @@ const { requiredGroup } = require("./regex-group.js");
 const { docPath } = require("./script-path");
 const { witaDay } = require("./wita");
 const { caught } = require("./caught.js");
+const { parseWindow } = require("./gate-window.js");
 
 const AT_LINE_HEAD = "^[ \\t]{0,3}";
 
@@ -481,6 +482,27 @@ function citedFault(ref, issue, windows) {
 }
 
 /**
+ * @param {RegExpMatchArray[]} bases
+ * @returns {WordedFault[]}
+ */
+function windowFaults(bases) {
+	return bases.flatMap((m) => {
+		const basis = requiredGroup(m, 1, BASIS_RE);
+		const w = parseWindow(basis);
+		if (!w || w.holds) return [];
+		const { stated, computed, says } = w;
+		return [
+			{
+				kind: /** @type {const} */ ("window-mismatch"),
+				text: basis,
+				words: basis,
+				recomputed: { stated, computed, says },
+			},
+		];
+	});
+}
+
+/**
  * @param {string} text
  * @param {RegExpMatchArray} m
  * @param {number|undefined} own
@@ -526,8 +548,9 @@ function followCited(text, m, own, follow) {
 }
 
 /**
- * @typedef {{kind: "no-basis"|"unnamed-window"|"no-warrant", text: string,
- *   cited?: {ref: string, reason: CitedReason}[]}} BasisFault
+ * @typedef {{kind: "no-basis"|"unnamed-window"|"no-warrant"|"window-mismatch",
+ *   text: string, cited?: {ref: string, reason: CitedReason}[],
+ *   recomputed?: {stated: string, computed: string, says: string}}} BasisFault
  * @typedef {BasisFault & {words: string, window?: string}} WordedFault
  */
 
@@ -583,7 +606,7 @@ function wordedBasisFaults(body, own, follow) {
 			const fault = warrantFault(text, m, own, follow);
 			if (fault) faults.set(fault.text.toLowerCase(), fault);
 		}
-	return [...faults.values()];
+	return [...faults.values(), ...windowFaults(bases)];
 }
 
 /**
@@ -787,6 +810,8 @@ function faultsAdded(faults, { body, before }) {
 	const isHeld = (/** @type {F} */ f) => {
 		if (f.kind === "no-warrant")
 			return owedWarrant && untouched.has(f.words.toLowerCase());
+		if (f.kind === "window-mismatch")
+			return untouched.has(f.words.toLowerCase());
 		return (
 			isLiveQuote(b, f.words, f.window ?? "", facts.isLiveAt) &&
 			(f.kind === "unnamed-window" || facts.bases.length === 0)
@@ -892,6 +917,12 @@ const CITED_SAYS = {
 };
 
 /** @param {BasisFault} f */
+const recomputedSays = ({ recomputed: r }) =>
+	r
+		? ` (it states n = ${r.stated}, where ${r.says} gives n = ${r.computed})`
+		: "";
+
+/** @param {BasisFault} f */
 function citedSays(f) {
 	if (!f.cited?.length) return "";
 	return ` (it cites ${f.cited.map((c) => `${c.ref}, ${CITED_SAYS[c.reason]}`).join("; and ")})`;
@@ -904,6 +935,8 @@ const FAULT_SAYS = {
 		`${quoted}, ${many ? "windows" : "a window"} the \`**Gate basis:**\` line does not name`,
 	"no-warrant": (quoted, many) =>
 		`the ${many ? "bases" : "basis"} ${quoted}, which ${many ? "carry" : "carries"} no warrant`,
+	"window-mismatch": (quoted, many) =>
+		`the ${many ? "bases" : "basis"} ${quoted}, whose own figures do not give the window ${many ? "they state" : "it states"}`,
 };
 
 /**
@@ -918,7 +951,9 @@ function basisRefusal(faults, reading) {
 			? []
 			: [
 					say(
-						of.map((f) => `"${f.text}"${citedSays(f)}`).join(", "),
+						of
+							.map((f) => `"${f.text}"${citedSays(f)}${recomputedSays(f)}`)
+							.join(", "),
 						of.length > 1,
 					),
 				];
@@ -1055,6 +1090,7 @@ module.exports = {
 	faultsAdded,
 	basisRefusal,
 	citedSays,
+	recomputedSays,
 	basisRule,
 	gateFacts,
 	judgeOverrideOf,

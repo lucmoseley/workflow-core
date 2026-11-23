@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 const { judgeProseRefs, proseRefsOf, unparsedBlockersOf } =
 	require("./prose-blockers.js") as typeof import("./prose-blockers");
 
+/* guess: far longer than any real blocker list or owner name (#5559) */
+const LONG = 30_000;
+
 const named = (body: string) => proseRefsOf(body).map((r) => r.number);
 const unparsed = unparsedBlockersOf;
 
@@ -42,6 +45,58 @@ describe("proseRefsOf: the numbers a marker names", () => {
 
 	it("is case-insensitive on the marker", () => {
 		expect(named("**blocked ON** #5")).toEqual([5]);
+	});
+
+	it.each([
+		[
+			"**Blocked on** o/r#5 and #6, x.y/z-w#7",
+			[
+				{ repo: "o/r", number: 5 },
+				{ repo: null, number: 6 },
+				{ repo: "x.y/z-w", number: 7 },
+			],
+		],
+		[
+			"**Blocked on** #12abc/def#3",
+			[
+				{ repo: null, number: 12 },
+				{ repo: "abc/def", number: 3 },
+			],
+		],
+		[
+			"**Blocked on** #5#6",
+			[
+				{ repo: null, number: 5 },
+				{ repo: null, number: 6 },
+			],
+		],
+		[
+			"**Blocked on**#5 AND #6",
+			[
+				{ repo: null, number: 5 },
+				{ repo: null, number: 6 },
+			],
+		],
+		["**Blocked on** #5 , and #6", [{ repo: null, number: 5 }]],
+		["**Blocked on** #5 or #6", [{ repo: null, number: 5 }]],
+		["**Blocked on** a/b/c#4 #9", []],
+		[
+			"**Blocked on** #1\n**Blocked on** #2\r\n**Blocked on** #3",
+			[1, 2, 3].map((number) => ({ repo: null, number })),
+		],
+	])("reads the list in %j up to its first non-reference", (body, refs) => {
+		expect(proseRefsOf(body)).toEqual(refs);
+	});
+
+	it("reads every reference in a long list", () => {
+		const list = Array.from({ length: LONG }, (_, i) => `#${i + 1}`);
+		expect(named(`**Blocked on** ${list.join(", ")}`)).toHaveLength(LONG);
+	});
+
+	it("reads nothing from a long owner-shaped word with no reference after it", () => {
+		expect(
+			named(`**Blocked on** ${"a".repeat(LONG)}/${"b".repeat(LONG)}`),
+		).toEqual([]);
 	});
 
 	it("ignores a bare issue mention with no marker", () => {

@@ -2,22 +2,25 @@
 
 import { describe, expect, it } from "vitest";
 import type { Command } from "./shell-parse.js";
-import { parseCommand, walkCommands } from "./shell-parse.js";
+import {
+	commitPathsArgs,
+	ghWords,
+	gitWords,
+	parseCommand,
+	unwrap,
+	walkCommands,
+} from "./shell-parse.js";
 import {
 	carriesVar,
 	commandName,
-	commitPathsArgs,
 	commitPathsParse,
 	findStarts,
-	ghWords,
 	gitValueFlags,
-	gitWords,
 	isGhCommand,
 	literal,
 	programSource,
 	scanFlags,
 	stepGitOptions,
-	unwrap,
 } from "./shell-words.js";
 
 const each = <T>(

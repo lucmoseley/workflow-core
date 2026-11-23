@@ -267,6 +267,44 @@ describe("reading the agent's own log (#5421)", () => {
 		15_000,
 	);
 
+	it("never ends DONE or STALLED on an agent paused on background work of its own, reaching the ceiling (#5554)", async () => {
+		const bashCall = record({
+			type: "assistant",
+			isSidechain: true,
+			message: {
+				content: [
+					{
+						type: "tool_use",
+						id: "t1",
+						name: "Bash",
+						input: { command: "npm test", run_in_background: true },
+					},
+				],
+				stop_reason: "tool_use",
+			},
+		});
+		const launched = record({
+			type: "user",
+			isSidechain: true,
+			message: {
+				content: [
+					{
+						type: "tool_result",
+						tool_use_id: "t1",
+						content: "Command running in background with ID: b1.",
+					},
+				],
+			},
+		});
+		writeFileSync(log, bashCall + launched + turnEnd);
+		writeFileSync(join(root, "agent-a1.meta.json"), '{"finished":true}');
+		const r = await watchLog();
+		expect(r.status).toBe(EXIT.CEILING);
+		expect(
+			r.stderr.match(/paused on background work of its own/g),
+		).toHaveLength(1);
+	}, 15_000);
+
 	it("ends DONE between checks, before any check or the ceiling, naming the size then (#5496)", async () => {
 		writeFileSync(log, toolCall);
 		const r = await watch(
@@ -355,6 +393,11 @@ describe("a bad invocation", () => {
 
 	it.each([
 		["no log", ["--no-artefact", "1"], "--no-artefact needs --log"],
+		[
+			"no ceiling",
+			["--no-artefact", "1", "--log", "l"],
+			"--no-artefact needs a ceiling",
+		],
 		[
 			"a path",
 			["--no-artefact", "x", "1", "2", "--log", "l"],

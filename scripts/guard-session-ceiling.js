@@ -49,7 +49,8 @@ function jobHoldsTurn() {
 	return require("./lib/rule-text").readRuleTextOr(
 		"job-holds-turn",
 		"A background job never ends its turn on `waiting:`: it holds the turn " +
-			"on a foreground wait until what it launched reports",
+			"until what it launched reports, waiting in the foreground only once " +
+			"no other work is left",
 		"guard-session-ceiling waiting",
 	);
 }

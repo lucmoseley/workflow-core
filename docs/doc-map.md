@@ -1,6 +1,6 @@
 # workflow-core document map
 
-v1.20 · 22 November 2026
+v1.21 · 23 November 2026
 
 > Three things live here. **Section A** says what each document is and who may edit it, rendered from `docs/doc-map-classes.json` by `npm run gen:doc-map-section-a`. **Section B** is the figure registry: a number or claim restated in more than one place, with its owner. **Section C** routes a question to the document that answers it. `scripts/check-doc-map.js` gates all three, and refuses a `docs/doc-map.md §<name>` reference that names no section here, outside binary assets and tests. **§The propagation pass** carries a settled fact to every copy of it; **§Capture and placement**, last, says where a settled fact goes and caps what every session loads.
 
@@ -95,7 +95,7 @@ npm run gen:doc-map-section-a
 |---|---|---|---|---|
 | `.claude/agents/code-reviewer.md` | The code-review axis agent: pins both review axes to Opus 5.5 at high effort through its frontmatter (#363) | `source-of-truth` | Direct | — |
 | `.claude/guard-registry-anchors.json` | Guard registry anchors — data file | `source-of-truth` | Direct | — |
-| `.claude/implicit-behaviours.json` | Each wired script's IMPLICIT / JUSTIFIED / DEFEAT / TREE row, checked both ways against the wiring by scripts/check-guard-registry.js (#5477) | `source-of-truth` | Direct | — |
+| `.claude/implicit-behaviours.json` | Each wired script's IMPLICIT / JUSTIFIED / DEFEAT / TREE / IF row, checked both ways against the wiring by scripts/check-guard-registry.js (#5477) | `source-of-truth` | Direct | — |
 | `.claude/plugin-context-cost.json` | Plugin context cost — data file | `source-of-truth` | Direct | — |
 | `.claude/settings.json` | Settings — data file | `free-edit` | Direct | — |
 | `.claude/skills/THIRD-PARTY-NOTICES.md` | Licence notices for the vendored skills | `source-of-truth` | Upstream's licence text, verbatim, one `## <source>` section per `skills-lock.json` source, its `Skills:` line matching the lock; `scripts/check-vendored-skills.js` and the release render refuse a mismatch (#1939) | — |
@@ -181,6 +181,7 @@ npm run gen:doc-map-section-a
 | `docs/agents/adopter-upgrade.md` | Adopter upgrade — agent guide | `source-of-truth` | Direct | — |
 | `docs/agents/autonomy-ceiling.md` | Autonomy ceiling — agent guide | `source-of-truth` | Direct, and only on a founder ruling — the line is not an agent's to move | `CLAUDE.md` (§Conventions: the write-scope rule that bars R3, and the *driven session* the definition serves) |
 | `docs/agents/blind-dispatch.md` | Blind dispatch — agent guide | `source-of-truth` | Direct | — |
+| `docs/agents/config-keys.md` | Config keys — adopter guide: what `.claude/workflow-core.json` keys mean where their type does not say | `source-of-truth` | Direct | — |
 | `docs/agents/dependabot.md` | Dependabot — agent guide | `source-of-truth` | Direct | — |
 | `docs/agents/domain.md` | Domain — agent guide | `source-of-truth` | Direct | — |
 | `docs/agents/guard-authoring.md` | Settled at mantahostels#1239, which refused a generator; surface 7, the fire-needles entry, added at mantahostels#1418 | `source-of-truth` | Direct | `scripts/hook-registrations.test.ts` (the wiring evidence it quotes) · `scripts/guard-fire-needles.json` (surface 7) · `scripts/check-guard-registry.js` (the gate on surface 8) · `docs/effort-guide.md` (a rule region outside the always-loaded pool) |
@@ -284,7 +285,7 @@ Every entry: **Owner** (the one document allowed to change it) · **Inputs** (wh
 - **Over cap by ruling (#<n>):** every claim here is load-bearing — never cut one to reach 300; read the count from `overCapEntries()`.
 ```
 
-**A marked entry may not grow** (mantahostels#2050): pay for an addition by cutting surplus wording in the same entry, and where it holds none the addition stands. `check-doc-map.js` FAILs a marker on an entry now at or under the cap (assertion 21), and WARNs on a marked entry that grew (22), a line reaching for the marker's shape and missing it (23), and a marker dropped while its entry is still over cap (24). **An entry carrying no marker is one nobody has touched** — its silence asserts nothing about whether its claims are cuttable.
+**A marked entry may not grow** (mantahostels#2050): pay for an addition by cutting surplus wording in the same entry, and where it holds none the addition stands. `check-doc-map.js` FAILs a marker on an entry now at or under the cap (assertion 21), and WARNs on a marked entry that grew (assertion 22), a line reaching for the marker's shape and missing it (assertion 23), and a marker dropped while its entry is still over cap (assertion 24). **An entry carrying no marker is one nobody has touched** — its silence asserts nothing about whether its claims are cuttable.
 
 **An id is never reused or renumbered.** Take one from `node scripts/session-arbiter.js alloc-entry docs/doc-map.md`, which allocates it and claims the append slot in one step (mantahostels#970); a duplicate is uncorrectable once written (assertion 6). A commit removing an entry raises `highWaterMark` in `docs/doc-map-high-water.json` to its id where the mark is lower, and a new id sits above the mark (assertions 12 and 13); the issue removing it says where its substance went.
 
@@ -321,6 +322,9 @@ None registered.
 
 ### C3 · What does an adopter get, write itself, or lack?
 - **Read:** `docs/adopter-boundary.md`.
+
+### C4 · What does a key in `.claude/workflow-core.json` mean, and what happens where it is absent or wrong?
+- **Read:** `docs/agents/config-keys.md`, then `KNOWN_KEYS` in `scripts/lib/workflow-core-config.js` for the full key list.
 
 ## The propagation pass
 

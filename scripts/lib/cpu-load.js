@@ -1,65 +1,11 @@
-/*
- * cpu-load.js — the guard-cpu-load core (#2801, #3224): a CPU load generator run
- * outside a CPU cap of at most half the machine's cores is refused, and the
- * capped form handed over (#2710).
- *
- * Why (#2710): the load ceiling (#830) gates new launches only; work inside a
- * running session is never gated, so the refusal has to come at the call.
- *
- * WHAT COUNTS AS A GENERATOR — #2710's delegated list:
- *  - `yes` whose output is not piped into a command: backgrounded, run in a
- *    subshell, sent to a file or `/dev/null`, or piped into a sink (`cat`,
- *    `tee`, `dd`, `pv`). `yes | head` passes.
- *  - `stress` and `stress-ng`, but for `--version` and `--help`.
- *  - A shell busy loop sent to the background — `while true`, `while :`,
- *    `while ((1))`, `until false` or `for ((;;))` — whose body runs only shell
- *    builtins (`:`, `true`, `echo`, `printf`, `let`, `test`, an assignment or
- *    arithmetic). A body running any other command, `sleep` or `read`
- *    included, is taken to block.
- *
- * WHAT COUNTS AS A CAP — at most half the machine's cores, #2710's delegated
- * value:
- *  - `systemd-run … -p CPUQuota=<n>%` with n at most 50 × cores;
- *  - `taskset` to at most half the cores.
- * A cap covers everything its command runs, a `bash -c` string or a script
- * included. TWO CAPS DO NOT ADD UP TO ONE: a second capped generator in the
- * same text, or one backgrounded inside a loop, is refused.
- *
- * WHERE IT LOOKS. The command; a `bash -c`/`sh -c`, `flock -c`, `watch` or
- * `eval` string; and the script a shell runs or sources — `bash x.sh`,
- * `./x.sh`, `source x.sh`, or `bg-run.sh run <name> bash x.sh` — read through
- * the `readScript` port.
- *
- * NUMBERS READ AS BASH ARITHMETIC READS THEM: 64-bit, wrapping, a leading 0
- * octal and an invalid octal no number at all. The split is this core's own,
- * kept rather than lib/shell-parse.js's segments and joins: it keeps `|&` one
- * separator, where the joins read a pipe then a background, and it rewrites
- * shell arithmetic before `;` and `(` split it, which parseCommand's one
- * masking pass leaves no room for.
- *
- * DENY, NOT WARN (mantahostels#103). NO ESCAPE VARIABLE (mantahostels#109):
- * the capped form is the route.
- *
- * LIMITS
- *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
- *    clauses admits: `if: Bash(*yes*)`, `if: Bash(*stress*)`, `if: Bash(*done*)`, `if: Bash(*.sh*)`, `if: Bash(*sh -*)` (#3224).
- *  - A script is read only where its path resolves against the payload's cwd;
- *    a `cd` before it is not followed. A script spelled through a variable, or
- *    past MAX_SCRIPT_BYTES, is unread.
- *  - A heredoc fed to a shell (`bash <<EOF`) and a string built at run time
- *    (`bash -c "$(cat x)"`) are unread.
- *  - An interpreter's own busy loop — `node -e 'for(;;);' &`,
- *    `python3 -c 'while True: pass' &` — and a compiled generator are not
- *    recognised.
- *  - `nice` is no cap. `cpulimit` and a cgroup set up by hand are not read.
- *  - A `yes` feeding a process substitution, `head < <(yes)`, is refused as a
- *    subshell is.
- *  - It FAILS OPEN on a core count that does not resolve, recorded
- *    (mantahostels#147), and takes a taskset affinity it cannot read as a cap,
- *    recorded.
- */
-const { escapeShield, parseCommand, unmask } = require("./shell-parse.js");
-const { literal, unwrap, wrapperScript } = require("./shell-words.js");
+const {
+	escapeShield,
+	parseCommand,
+	unmask,
+	unwrap,
+	wrapperScript,
+} = require("./shell-parse.js");
+const { afterSlash, literal } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 const ZERO = BigInt(0);
@@ -165,9 +111,6 @@ function lit(word, spans) {
 	const { text, known } = literal(word, spans);
 	return { text: trimEndRun(text, "\n"), known };
 }
-
-/** @param {string} w */
-const afterSlash = (w) => w.slice(w.lastIndexOf("/") + 1);
 
 /** @param {string} digits */
 function arith(digits) {
@@ -365,11 +308,8 @@ const buildGenerator = (where) => ({ kind: "generator", where });
 
 /**
  * @typedef {{ sep: string, next: string, depth: number, where: string }} At
- *   the separator after the command; `next`, the command word of the segment
- *   after it, for a pipe's reader; how deep the scan is; and how a verdict
- *   names the command
  * @typedef {(at: At, words: string[], spans: string[], scan: Scan) =>
- *   Verdict | null} Judge one command's verdict, its words unwrapped
+ *   Verdict | null} Judge
  */
 
 /**

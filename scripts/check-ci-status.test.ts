@@ -768,6 +768,7 @@ describe("a red run says whether an open issue already covers it (#532)", () => 
 				}),
 			);
 		const filerRan = () => {
+			// guess, #2480
 			const until = Date.now() + 5000;
 			while (
 				!fs.existsSync(log) ||

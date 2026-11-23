@@ -47,7 +47,12 @@ export function writeJournalctl(
 	// #4601
 	const timed = lines.flatMap((l) => {
 		const ms = Date.parse(l.split(" ")[0] ?? "");
-		return l && !Number.isNaN(ms) ? [`${ms}\t${l}\n`] : [];
+		return l && !Number.isNaN(ms)
+			? l
+					.replace(/\n$/, "")
+					.split("\n")
+					.map((part, i) => `${ms}\t${i ? "+" : "-"}${part}\n`)
+			: [];
 	});
 	fs.writeFileSync(journal, timed.join(""));
 	const listed =
@@ -85,7 +90,7 @@ case $since in
 @*) since=\${since#@} ;;
 *) echo "journalctl fake: serves only --since @<s>, not $since" >&2; exit 1 ;;
 esac
-exec awk -v s="$since" -v cat="$cat" '{ if (s == "" || $1 + 0 >= s * 1000) { l = substr($0, index($0, "\\t") + 1); if (cat) sub(/^[^ ]+ [^ ]+ [^ :]+: /, "", l); print l; n++ } } END { if (!n && !cat) print "-- No entries --" }' ${shellQuote(journal)}
+exec awk -v s="$since" -v cat="$cat" '{ if (s == "" || $1 + 0 >= s * 1000) { l = substr($0, index($0, "\\t") + 1); more = substr(l, 1, 1) == "+"; l = substr(l, 2); if (cat && !more) sub(/^[^ ]+ [^ ]+ [^ :]+: /, "", l); print l; n++ } } END { if (!n && !cat) print "-- No entries --" }' ${shellQuote(journal)}
 `,
 		{ mode: 0o755 },
 	);

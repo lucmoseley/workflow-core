@@ -1,5 +1,7 @@
 import gzip
+import json
 import os
+import subprocess
 from collections import Counter
 
 import pytest
@@ -277,3 +279,171 @@ def test_a_pid_not_ours_to_read_is_left_out_of_the_table(monkeypatch, capsys):
     monkeypatch.setattr("builtins.open", opener)
     assert m.read_proc_table() == {}
     assert capsys.readouterr().err == ""
+
+
+LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+
+JS_PARITY = """
+const lib = process.argv[1];
+const req = (name) => require(`${lib}/${name}`);
+const { kind, cases } = JSON.parse(process.argv[2]);
+const run = {
+  constants: () => ({
+    GATE_ENV: req("gate-seat.js").GATE_ENV,
+    DRAW_Z: req("admission-figures.js").DRAW_Z,
+  }),
+  ancestors: ({ pid, procs }) =>
+    req("proc-stat.js").readAncestorsOf(pid, {
+      parentOf: (p) => procs[p]?.[0] ?? 0,
+    }),
+  held: ({ pid, procs, file }) => {
+    const ports = {
+      alive: (p) => Object.hasOwn(procs, String(p)),
+      startTime: (p) => procs[p]?.[1] ?? 0,
+    };
+    const suiteQueue = req("suite-queue.js");
+    const held = suiteQueue.heldMarker("SEAT", {
+      env: { SEAT: file },
+      pid,
+      parentOf: (p) => procs[p]?.[0] ?? 0,
+      ...ports,
+    });
+    const record = (() => {
+      try {
+        return JSON.parse(require("node:fs").readFileSync(file, "utf8"));
+      } catch {
+        return null;
+      }
+    })();
+    return {
+      stale: record ? suiteQueue.isMarkerStale(record, ports) : null,
+      held: held ? held.record.pid : null,
+    };
+  },
+  descendants: ({ root, children, stops }) => {
+    const reached = [];
+    req("descendants-pss-kb.js").descendantsPssKb(
+      String(root),
+      {
+        children: new Map(Object.entries(children).map(([k, v]) => [k, v.map(String)])),
+        stopPids: new Set(stops.map(String)),
+        pssKbOf: () => 0,
+      },
+      reached,
+    );
+    return reached.map(Number).sort((a, b) => a - b);
+  },
+}[kind];
+process.stdout.write(JSON.stringify(kind === "constants" ? run() : cases.map(run)));
+"""
+
+
+def js_side(kind, cases=()):
+    out = subprocess.run(
+        [
+            "node",
+            "-e",
+            JS_PARITY,
+            LIB,
+            json.dumps({"kind": kind, "cases": list(cases)}),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={"PATH": os.environ["PATH"]},
+    )
+    return json.loads(out.stdout)
+
+
+def chain(length):
+    return {pid: (pid - 1, pid * 10) for pid in range(1, length + 1)}
+
+
+def test_the_gate_env_name_and_draw_z_are_the_js_libs_own():
+    assert js_side("constants") == {"GATE_ENV": m.GATE_ENV, "DRAW_Z": m.DRAW_Z}
+
+
+ANCESTOR_CASES = [
+    (5, chain(5)),
+    (100, chain(100)),
+    (3, {1: (3, 10), 2: (1, 20), 3: (2, 30)}),
+    (4, {4: (4, 40)}),
+    (7, {7: (6, 70)}),
+    (9, {}),
+]
+
+
+def test_the_ancestor_walk_is_read_ancestors_of_hop_cap_and_cycle_stop_included():
+    py = [m.ancestors(pid, procs) for pid, procs in ANCESTOR_CASES]
+    js = js_side(
+        "ancestors",
+        [{"pid": pid, "procs": procs} for pid, procs in ANCESTOR_CASES],
+    )
+    assert py == js
+    assert len(py[1]) == m.ANCESTOR_MAX_HOPS
+
+
+HELD_PROCS = {1: (0, 10), 3: (1, 30), 4: (3, 40), 6: (1, 60)}
+HELD_MARKERS = [
+    {"pid": 3, "start": 30},
+    {"pid": 3},
+    {"pid": 3, "start": 0},
+    {"pid": 3, "start": 31},
+    {"pid": 99},
+    {"pid": 99, "start": 990},
+    {"pid": 6, "start": 60},
+]
+
+
+@pytest.mark.parametrize("candidate", [4, 6])
+def test_marker_staleness_and_the_held_seat_are_is_marker_stale_and_held_marker(
+    candidate, tmp_path
+):
+    bodies = [json.dumps(r) for r in HELD_MARKERS] + ["{torn", "null", "[3]"]
+    files = [tmp_path / f"gate-{n}.json" for n in range(len(bodies))]
+    for file, body in zip(files, bodies, strict=True):
+        file.write_text(body)
+    py = []
+    for file in files:
+        record = m.read_marker(str(file))
+        seats = m.gate_seat_pids(
+            [candidate],
+            HELD_PROCS,
+            var_of=lambda _pid, _name, file=file: str(file),
+        )
+        py.append(
+            {
+                "stale": None
+                if record is None
+                else m.live_holder(record, HELD_PROCS) is None,
+                "held": next(iter(seats), None),
+            }
+        )
+    js = js_side(
+        "held",
+        [{"pid": candidate, "procs": HELD_PROCS, "file": str(f)} for f in files],
+    )
+    assert py[:-1] == js[:-1]
+    assert m.read_marker(str(files[-1])) is None
+    assert py[-1]["held"] == js[-1]["held"] is None
+
+
+DESCENDANT_CASES = [
+    (1, {1: [2, 3], 2: [4], 3: [5]}, {1, 3}),
+    (1, {1: [2, 6], 2: [3], 3: [4], 4: [5]}, {1}),
+    (1, {1: [2, 6], 2: [3], 3: [4], 4: [5]}, {1, 3}),
+    (1, {1: [2], 2: [3]}, {2}),
+    (1, {}, set()),
+]
+
+
+def test_the_descendant_stop_is_descendants_pss_kbs():
+    py = [sorted(m.descendants(r, c, s)) for r, c, s in DESCENDANT_CASES]
+    js = js_side(
+        "descendants",
+        [
+            {"root": r, "children": c, "stops": sorted(s)}
+            for r, c, s in DESCENDANT_CASES
+        ],
+    )
+    assert py == js

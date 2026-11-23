@@ -60,10 +60,12 @@ function callName(part) {
  */
 
 /**
+ * #5554
  * @param {string} file
+ * @param {{sidechain?: boolean}} [opts]
  * @returns {Pending}
  */
-function readPendingTasks(file) {
+function readPendingTasks(file, { sidechain = false } = {}) {
 	/** @type {Census} */
 	const census = {
 		launches: new Map(),
@@ -82,7 +84,7 @@ function readPendingTasks(file) {
 
 	const { rows } = parseJsonl(text);
 	for (const rec of /** @type {TranscriptRecord[]} */ (rows))
-		readRecord(census, rec);
+		if (sidechain || !rec.isSidechain) readRecord(census, rec);
 	const records = rows.length;
 
 	const all = [...census.launches.values()];
@@ -115,7 +117,6 @@ function readSettlements(census, text) {
  * @param {TranscriptRecord} rec
  */
 function readRecord(census, rec) {
-	if (rec.isSidechain) return;
 	const content = rec.message?.content;
 	if (!Array.isArray(content)) return;
 	for (const part of content) {

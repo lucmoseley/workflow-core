@@ -106,6 +106,49 @@ describe("the permitted shapes", () => {
 		).toEqual([]);
 	});
 
+	it("passes a source note whose fact takes one line and its URL the next (#5589)", () => {
+		expect(
+			tags(
+				"// from https://example.com/x\nconst a = 1;\n// `grep -c` exits 1 on no match:\n// https://www.gnu.org/software/grep/manual/grep.html\nconst b = 1;\n",
+				"js",
+			),
+		).toEqual([]);
+	});
+
+	it("refuses a multi-line essay that one URL or dependency would clear (#5589)", () => {
+		const essay = [
+			"/*",
+			" * WHY THIS EXISTS: the ledger drifted twice before this checker.",
+			" * We measured 40 misses a week, then 3 once it ran.",
+			" * See [#1297](https://github.com/o/r/issues/1297).",
+			" */",
+			"const a = 1;",
+			"",
+		].join("\n");
+		expect(tags(essay, "js")).toEqual(["COMMENT@1"]);
+		expect(
+			tags(
+				"# `vitest` reruns it.\n# We chose two workers.\n# Then three.\nx = 1\n",
+				"py",
+			),
+		).toEqual(["COMMENT@1"]);
+		expect(
+			tags(
+				"// `vitest` ran it twice in May,\n// `vitest` then once in June,\n// and https://example.com/x says why.\nconst a = 1;\n",
+				"js",
+			),
+		).toEqual(["COMMENT@1"]);
+	});
+
+	it("refuses a #N pointer's link as a source, and passes an upstream issue as one (#5589)", () => {
+		expect(
+			tags(
+				"// WHY THIS EXISTS: history.\n// See [#1297](https://github.com/o/r/issues/1297).\nconst a = 1;\n// kept, per [o/r#12](https://github.com/o/r/pull/12)\nconst b = 1;\n// tsc widens this: https://github.com/microsoft/TypeScript/issues/9998\nconst c = 1;\n",
+				"js",
+			),
+		).toEqual(["COMMENT@1", "COMMENT@4"]);
+	});
+
 	it("refuses a dependency's name used as a word, unquoted or bare of its scope (#5492)", () => {
 		const deps = {
 			deps: depsPattern(["next", "@biomejs/biome", "@types/node"]),
@@ -317,16 +360,15 @@ describe("what is not a comment", () => {
 		expect(tags("// foo-exempt: #1\nconst a = 1;\n", "js")).toEqual([
 			"COMMENT@1",
 		]);
-		expect(tags("// env-write-exempt: #4019\nconst a = 1;\n", "js")).toEqual(
+		expect(tags("// jsonl-read-exempt: #4019\nconst a = 1;\n", "js")).toEqual(
 			[],
 		);
 	});
 
-	it("reads a guard's DENIES-THROUGH and DENIES-BY lines as code, and refuses one carrying prose", () => {
+	it("reads a guard's DENIES-THROUGH line as code, and refuses one carrying prose", () => {
 		expect(tags("// DENIES-THROUGH: lib/guard-judge.js\nx();\n", "js")).toEqual(
 			[],
 		);
-		expect(tags("# DENIES-BY: exit 2\nx=1\n", "sh")).toEqual([]);
 		expect(
 			tags("// DENIES-THROUGH: lib/guard-judge.js, its judge\nx();\n", "js"),
 		).toEqual(["COMMENT@1"]);

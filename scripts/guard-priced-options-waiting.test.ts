@@ -41,12 +41,15 @@ const stop = (message: string, { job = true }: { job?: boolean } = {}) =>
 const WAITING = "Dispatched the review.\n\nwaiting: the review subagent.";
 
 describe("a background job ending on `waiting:`", () => {
-	it("is refused while a launch is still out, the refusal naming the foreground waits", () => {
+	it("is refused while a launch is still out, the refusal naming the backgrounded and foreground waits", () => {
 		launchOut();
 		const reason = stop(WAITING);
 		expect(reason).toContain("This turn ends a background job on `waiting:`");
 		expect(reason).toContain("lists\na job whose turn has ended as completed");
 		expect(reason).toContain("timeout 540 node scripts/watch-artefact.js");
+		expect(reason).toContain(
+			"run each wait with `run_in_background` (its exit re-invokes\nyou) and keep working",
+		);
 		expect(reason).toContain("scripts/bg-run.sh wait <name> 540");
 		expect(reason).toContain(
 			"queued commits: no wait; end on `result:`, naming them queued",

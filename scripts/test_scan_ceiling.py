@@ -1,19 +1,3 @@
-"""Tests for scripts/measure-ceiling/scan_ceiling.py — the classification seam.
-
-Every figure in https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/time-past-the-ceiling.md (mantahostels#1125) rests on three
-judgements about a transcript record: whether it is an allowance-exhaustion
-event at all, when the allowance came back, and which events belong to one
-episode. Those are what is tested here.
-
-The corpus these run against is fixtures, never the machine's real transcripts:
-a test asserting a figure from a live, still-growing corpus would go red on its
-own.
-
-The scanner is a measurement a session runs by hand: loosen a case and it
-misstates the hours lost past the allowance ceiling, which the capacity and
-procurement options of mantahostels#1122 are priced on.
-"""
-
 import datetime as dt
 import importlib.util
 import json

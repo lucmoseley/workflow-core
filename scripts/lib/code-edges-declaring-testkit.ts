@@ -18,10 +18,6 @@ export const DECLARING: Record<string, string> = {
 		ROOT,
 		"scripts/file-morning-review.test.ts",
 	),
-	"scripts/guard-selection-sum.test.ts": path.join(
-		ROOT,
-		"scripts/guard-selection-sum.test.ts",
-	),
 	"scripts/guard-uncommitted-work.test.ts": path.join(
 		ROOT,
 		"scripts/guard-uncommitted-work.test.ts",

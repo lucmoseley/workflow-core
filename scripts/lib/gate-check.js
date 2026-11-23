@@ -69,6 +69,7 @@ function unwrap(raw) {
  * @returns {Reading}
  */
 function runCheckCommand(command, timeoutMs, cwd, env) {
+	const startedMs = performance.now();
 	const r = spawnSync(
 		process.execPath,
 		[
@@ -106,7 +107,12 @@ function runCheckCommand(command, timeoutMs, cwd, env) {
 			reading: `could not run: ${r.error.message.split("\n")[0]}`,
 			detail: null,
 		};
-	return classifyExit(r, { out, err, timeoutMs });
+	return classifyExit(r, {
+		out,
+		err,
+		timeoutMs,
+		elapsedMs: performance.now() - startedMs,
+	});
 }
 
 /** @param {string} err */
@@ -116,12 +122,14 @@ function parseLastErrLine(err) {
 
 /**
  * @param {import("node:child_process").SpawnSyncReturns<string>} r
- * @param {{ out: string, err: string, timeoutMs: number }} run
+ * @param {{ out: string, err: string, timeoutMs: number, elapsedMs: number }} run
  * @returns {Reading}
  */
-function classifyExit(r, { out, err, timeoutMs }) {
+function classifyExit(r, { out, err, timeoutMs, elapsedMs }) {
 	const budgetS = Math.round(timeoutMs / 1000);
-	const overBudget = r.status === TIMEOUT_EXIT || r.status === KILLED_EXIT;
+	const overBudget =
+		elapsedMs >= timeoutMs &&
+		(r.status === TIMEOUT_EXIT || r.status === KILLED_EXIT);
 	if (overBudget)
 		return {
 			state: "OVER-BUDGET",
@@ -249,6 +257,7 @@ module.exports = {
 	PRINTING_FIX,
 	REPAIR_STATES,
 	addedCheckVerdict,
+	classifyExit,
 	runCheckCommand,
 	unwrap,
 };

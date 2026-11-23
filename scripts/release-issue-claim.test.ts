@@ -11,6 +11,7 @@ import {
 	freshSandbox,
 	gitRepo,
 	issueClaims,
+	listedClaims,
 } from "./lib/arbiter-testkit";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import {
@@ -68,12 +69,7 @@ const fire = (
 	);
 
 const claims = () =>
-	(
-		issueClaims.listIssueClaims().claims as {
-			issue: number;
-			sessionId: string;
-		}[]
-	)
+	listedClaims()
 		.map((c) => `${c.issue} ${c.sessionId}`)
 		.sort();
 

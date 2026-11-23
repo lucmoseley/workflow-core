@@ -4,7 +4,15 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	assert,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import {
 	type AgentsAnswer,
 	buildAgentsBranch,
@@ -16,7 +24,9 @@ import { readText } from "./file-read.js";
 import { writeHeadlessRun } from "./headless-runs-testkit";
 import { withStopClockLeft } from "./hook-deadline-testkit";
 
-const liveness = createRequire(__filename)("./agent-liveness.js");
+const liveness: typeof import("./agent-liveness.js") = createRequire(
+	__filename,
+)("./agent-liveness.js");
 
 let dir = "";
 
@@ -43,6 +53,26 @@ function fakeClaude(
 
 const malformed = (text: string) => ({ malformed: text });
 
+const answeredAgents = (opts?: Parameters<typeof liveness.listedAgents>[0]) => {
+	const { agents, why } = liveness.listedAgents(opts);
+	assert(agents, why);
+	return agents;
+};
+
+const answeredIds = (
+	opts?: Parameters<typeof liveness.listedSessionIds>[0],
+) => {
+	const r = liveness.listedSessionIds(opts);
+	assert(r.why === undefined, r.why);
+	return r;
+};
+
+const sweptIds = (...args: Parameters<typeof liveness.sweepSessionIds>) => {
+	const r = liveness.sweepSessionIds(...args);
+	assert(r.why === undefined, r.why);
+	return r;
+};
+
 const listing = (...sessionIds: string[]) =>
 	sessionIds.map((sessionId, i) =>
 		buildListedRow({
@@ -63,16 +93,16 @@ describe("one seat's own listing (#3512)", () => {
 
 	it("answers why where the listing is not JSON", () => {
 		fakeClaude(malformed("not json"));
-		expect(liveness.readSeatListing(dir, 1000).why).toContain(
-			"did not return JSON",
-		);
+		const r = liveness.readSeatListing(dir, 1000);
+		assert("why" in r);
+		expect(r.why).toContain("did not return JSON");
 	});
 
 	it("answers why where the listing is not an array", () => {
 		fakeClaude(malformed("{}"));
-		expect(liveness.readSeatListing(dir, 1000).why).toContain(
-			"not the expected array",
-		);
+		const r = liveness.readSeatListing(dir, 1000);
+		assert("why" in r);
+		expect(r.why).toContain("not the expected array");
 	});
 });
 
@@ -133,6 +163,7 @@ describe("the oracle times out (mantahostels#1900)", () => {
 		const { caps, run } = fakeRun(1);
 		const r = liveness.listedAgents({ run });
 		expect(r.why).toBeUndefined();
+		assert(r.agents);
 		expect(r.agents.map((a: { sessionId: string }) => a.sessionId)).toEqual([
 			"aaaa",
 		]);
@@ -338,6 +369,7 @@ describe("no record carries a sessionId", () => {
 		fakeClaude(malformed('[{"pid":1},{"pid":2,"sessionId":"a"}]'));
 		const r = liveness.listedAgents();
 		expect(r.why).toBeUndefined();
+		assert(r.agents);
 		expect(r.agents.map((a: { sessionId: string }) => a.sessionId)).toEqual([
 			"a",
 		]);
@@ -440,7 +472,7 @@ describe("requireSelf: false, the opt-in exemption from the self-test (mantahost
 describe("what it returns when it can answer", () => {
 	it("hands back the whole record, not just the id", () => {
 		fakeClaude(listing("a"));
-		const [agent] = liveness.listedAgents().agents;
+		const [agent] = answeredAgents();
 		expect(agent).toMatchObject({
 			sessionId: "a",
 			status: "busy",
@@ -476,22 +508,13 @@ describe("every plan's listing (#3512)", () => {
 
 	it("unions every existing seat's listing, one record per session, reading no absent seat", () => {
 		seats();
-		const ids = liveness
-			.listedAgents()
-			.agents.map((r: { sessionId: string }) => r.sessionId);
+		const ids = answeredAgents().map((r) => r.sessionId);
 		expect(ids.sort()).toEqual(["a1", "b1", "own", "shared"]);
 	});
 
 	it("names on each record the seat whose dir listed it (#5293)", () => {
 		seats();
-		const seatOf = new Map(
-			liveness
-				.listedAgents()
-				.agents.map((r: { sessionId: string; seat?: string }) => [
-					r.sessionId,
-					r.seat,
-				]),
-		);
+		const seatOf = new Map(answeredAgents().map((r) => [r.sessionId, r.seat]));
 		expect(seatOf.get("a1")).toBe(path.join(dir, "seat-a"));
 		expect(seatOf.get("b1")).toBe(path.join(dir, "seat-b"));
 		expect(seatOf.get("shared")).toBe(path.join(dir, "seat-a"));
@@ -543,9 +566,9 @@ describe("headless runs (#2608)", () => {
 				kind: "headless",
 			},
 		]);
-		const ids = liveness.listedSessionIds();
+		const ids = answeredIds();
 		expect([...ids.ids]).toEqual(["a", "h"]);
-		expect([...liveness.sweepSessionIds().ids]).toContain("h");
+		expect([...sweptIds().ids]).toContain("h");
 	});
 
 	it("lists a run once, though the oracle derives an interactive row from its transcript (#4588)", () => {
@@ -572,17 +595,13 @@ describe("headless runs (#2608)", () => {
 			}),
 		]);
 		headlessRun("0123abcd", "h");
-		expect(
-			liveness
-				.listedAgents()
-				.agents.map((a: { sessionId: string }) => a.sessionId),
-		).toEqual(["a", "old", "h"]);
+		expect(answeredAgents().map((a) => a.sessionId)).toEqual(["a", "old", "h"]);
 	});
 
 	it("lists no ended run, a reused pid included", () => {
 		fakeClaude(listing("a"));
 		headlessRun("0123abcd", "h", false);
-		expect([...liveness.listedSessionIds().ids]).toEqual(["a"]);
+		expect([...answeredIds().ids]).toEqual(["a"]);
 	});
 
 	it("never writes a run into the oracle cache", () => {
@@ -610,7 +629,8 @@ describe("headless runs (#2608)", () => {
 		]) {
 			const r = read();
 			expect(r.why).toContain("headless-run store could not be read");
-			expect(r.agents ?? r.ids).toBeUndefined();
+			expect("agents" in r ? r.agents : undefined).toBeUndefined();
+			expect("ids" in r ? r.ids : undefined).toBeUndefined();
 		}
 	});
 
@@ -618,7 +638,7 @@ describe("headless runs (#2608)", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "h");
 		headlessRun("0123abcd", "h");
 		fakeClaude(listing("a"));
-		expect(liveness.listedSessionIds().ids.has("h")).toBe(true);
+		expect(answeredIds().ids.has("h")).toBe(true);
 		fakeClaude([]);
 		expect(liveness.listedSessionIds().ids).toEqual(new Set(["h"]));
 	});
@@ -637,13 +657,13 @@ describe("listedSessionIds", () => {
 	it("returns the ids as a Set", () => {
 		fakeClaude(listing("a", "b"));
 		const r = liveness.listedSessionIds();
-		expect(r.why).toBeUndefined();
+		assert(r.why === undefined);
 		expect([...r.ids].sort()).toEqual(["a", "b"]);
 	});
 
 	it("maps each session id to its pid", () => {
 		fakeClaude(listing("a", "b"));
-		const r = liveness.listedSessionIds();
+		const r = answeredIds();
 		expect(r.pids.get("a")).toBe(100);
 		expect(r.pids.get("b")).toBe(101);
 	});
@@ -656,7 +676,7 @@ describe("listedSessionIds", () => {
 			buildUnrecordedRow({ sessionId: "nocwd", state: "working" }),
 		]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
-		expect([...liveness.listedSessionIds().cwds]).toEqual([
+		expect([...answeredIds().cwds]).toEqual([
 			["me", "/r/a"],
 			["w", "/r/b"],
 			["d", "/r/c"],
@@ -667,7 +687,7 @@ describe("listedSessionIds", () => {
 	it("leaves a record with no pid absent from the map", () => {
 		fakeClaude([buildListedRow({ sessionId: "me" }, ["pid", "status"])]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
-		expect(liveness.listedSessionIds().pids.has("me")).toBe(false);
+		expect(answeredIds().pids.has("me")).toBe(false);
 	});
 
 	it("derives the finished and terminal sets from the oracle's own state", () => {
@@ -682,7 +702,7 @@ describe("listedSessionIds", () => {
 			buildUnrecordedRow({ sessionId: "bare" }),
 		]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
-		const r = liveness.listedSessionIds();
+		const r = answeredIds();
 		expect([...r.finished]).toEqual(["done-1"]);
 		expect([...r.terminal]).toEqual(["done-1", "fail-1"]);
 	});
@@ -693,12 +713,9 @@ describe("listedSessionIds", () => {
 			buildListedRow({ sessionId: "done-1", state: "done" }),
 		]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
-		expect([...liveness.listedSessionIds().finished]).toEqual(["done-1"]);
+		expect([...answeredIds().finished]).toEqual(["done-1"]);
 	});
 
-	/* The reaper's gate 1 exactly (mantahostels#768; doc-map
-	 * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md). A `shell` session pairs `state: done` with `status: busy`, and must
-	 * still count here. */
 	it("reads kind and state alone, never status", () => {
 		fakeClaude([
 			buildListedRow({ sessionId: "me", kind: "session" }),
@@ -710,7 +727,7 @@ describe("listedSessionIds", () => {
 			}),
 		]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
-		expect([...liveness.listedSessionIds().finished]).toEqual(["shell"]);
+		expect([...answeredIds().finished]).toEqual(["shell"]);
 	});
 
 	it.each([
@@ -723,7 +740,7 @@ describe("listedSessionIds", () => {
 	])("leaves out %s", (_name, extra: Record<string, string>) => {
 		fakeClaude([buildUnrecordedRow({ sessionId: "me", ...extra })]);
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
-		const r = liveness.listedSessionIds();
+		const r = answeredIds();
 		expect(r.finished.size).toBe(0);
 	});
 
@@ -756,10 +773,7 @@ describe("sweepSessionIds", () => {
 	it("adds the starting session it is handed, run with no session id of its own (#4706)", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", undefined);
 		fakeClaude(listing("other"));
-		expect([...liveness.sweepSessionIds(undefined, "me").ids].sort()).toEqual([
-			"me",
-			"other",
-		]);
+		expect([...sweptIds(undefined, "me").ids].sort()).toEqual(["me", "other"]);
 	});
 
 	it("answers where the only omission is the calling session", () => {
@@ -767,19 +781,19 @@ describe("sweepSessionIds", () => {
 		fakeClaude(listing("other"));
 		expect(liveness.listedSessionIds().ids).toBeUndefined();
 		const r = liveness.sweepSessionIds();
-		expect(r.why).toBeUndefined();
+		assert(r.why === undefined);
 		expect([...r.ids].sort()).toEqual(["me", "other"]);
 	});
 
 	it("adds the caller back rather than passing the short list through", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("other"));
-		expect(liveness.sweepSessionIds().ids.has("me")).toBe(true);
+		expect(sweptIds().ids.has("me")).toBe(true);
 	});
 
 	it("adds nothing outside a session, where there is no caller to add", () => {
 		fakeClaude(listing("other"));
-		expect([...liveness.sweepSessionIds().ids]).toEqual(["other"]);
+		expect([...sweptIds().ids]).toEqual(["other"]);
 	});
 
 	it.each([
@@ -805,7 +819,7 @@ describe("sweepSessionIds", () => {
 			buildListedRow({ sessionId: "other", name: "Implement 1924" }),
 			buildUnrecordedRow({ pid: 2, sessionId: "nameless", kind: "session" }),
 		]);
-		const r = liveness.sweepSessionIds();
+		const r = sweptIds();
 		expect(r.names.get("other")).toBe("Implement 1924");
 		expect(r.names.has("nameless")).toBe(false);
 		expect(r.names.has("me")).toBe(false);
@@ -814,9 +828,10 @@ describe("sweepSessionIds", () => {
 	it("ignores a caller trying to set requireSelf back to true", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("other"));
-		expect(
-			[...liveness.sweepSessionIds({ requireSelf: true }).ids].sort(),
-		).toEqual(["me", "other"]);
+		expect([...sweptIds({ requireSelf: true }).ids].sort()).toEqual([
+			"me",
+			"other",
+		]);
 	});
 
 	it("holds the background sessions the oracle calls done, like listedSessionIds", () => {
@@ -825,13 +840,13 @@ describe("sweepSessionIds", () => {
 			buildListedRow({ sessionId: "me", kind: "session" }),
 			buildListedRow({ sessionId: "done-1", state: "done" }),
 		]);
-		expect([...liveness.sweepSessionIds().finished]).toEqual(["done-1"]);
+		expect([...sweptIds().finished]).toEqual(["done-1"]);
 	});
 
 	it("never adds the caller it added back to `ids` into `finished`", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("other"));
-		expect(liveness.sweepSessionIds().finished.has("me")).toBe(false);
+		expect(sweptIds().finished.has("me")).toBe(false);
 	});
 
 	it.each(["done", "failed", "stopped"])(
@@ -842,7 +857,7 @@ describe("sweepSessionIds", () => {
 				buildListedRow({ sessionId: "me", kind: "session" }),
 				buildUnrecordedRow({ sessionId: "ended", kind: "background", state }),
 			]);
-			expect([...liveness.sweepSessionIds().terminal]).toEqual(["ended"]);
+			expect([...sweptIds().terminal]).toEqual(["ended"]);
 		},
 	);
 
@@ -856,7 +871,7 @@ describe("sweepSessionIds", () => {
 				state: "failed",
 			}),
 		]);
-		const r = liveness.sweepSessionIds();
+		const r = sweptIds();
 		expect(r.finished.has("failed-1")).toBe(false);
 		expect(r.terminal.has("failed-1")).toBe(true);
 	});
@@ -871,13 +886,13 @@ describe("sweepSessionIds", () => {
 	])("leaves %s out of `terminal`", (_name, extra: Record<string, string>) => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude([buildUnrecordedRow({ sessionId: "me", ...extra })]);
-		expect(liveness.sweepSessionIds().terminal.size).toBe(0);
+		expect(sweptIds().terminal.size).toBe(0);
 	});
 
 	it("never adds the caller it added back to `ids` into `terminal`", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "me");
 		fakeClaude(listing("other"));
-		expect(liveness.sweepSessionIds().terminal.has("me")).toBe(false);
+		expect(sweptIds().terminal.has("me")).toBe(false);
 	});
 });
 
@@ -902,7 +917,9 @@ describe("totality", () => {
 		for (const call of [liveness.listedAgents, liveness.listedSessionIds]) {
 			const r = call();
 			expect(r).toBeTypeOf("object");
-			const answered = r.agents !== undefined || r.ids !== undefined;
+			const answered =
+				("agents" in r && r.agents !== undefined) ||
+				("ids" in r && r.ids !== undefined);
 			expect(answered || typeof r.why === "string").toBe(true);
 			expect(answered && r.why !== undefined).toBe(false);
 		}
@@ -941,18 +958,22 @@ describe("totality", () => {
 		const boom = () => {
 			throw new Error("x".repeat(5000));
 		};
-		expect(liveness.listedAgents({ read: boom }).why.length).toBeLessThan(400);
+		const { why } = liveness.listedAgents({ read: boom });
+		assert(why);
+		expect(why.length).toBeLessThan(400);
 	});
 
 	it("ignores a positional argument, so a stray caller cannot supply a reader", () => {
 		fakeClaude(listing("a"));
-		const boom = () => {
+		const stray: object = () => {
 			throw new Error("should never run");
 		};
-		expect(liveness.listedAgents(boom).agents).toHaveLength(1);
-		expect([...liveness.listedSessionIds(boom).ids]).toEqual(["a"]);
-		const mapped: { ids: Set<string> }[] = ["x"].map(liveness.listedSessionIds);
-		expect([...mapped[0].ids]).toEqual(["a"]);
+		expect(liveness.listedAgents(stray).agents).toHaveLength(1);
+		expect([...answeredIds(stray).ids]).toEqual(["a"]);
+		const positional: Record<never, never>[] = ["x"];
+		const [mapped] = positional.map(liveness.listedSessionIds);
+		assert(mapped.why === undefined);
+		expect([...mapped.ids]).toEqual(["a"]);
 	});
 
 	it("refuses when the reader answers with neither agents nor a why", () => {
@@ -977,9 +998,9 @@ describe("totality", () => {
 			const r = read({ read: () => ({}) });
 			expect(r.ids).toBeUndefined();
 			expect(typeof r.why).toBe("string");
-			expect([
-				...read({ read: () => ({ agents: [{ sessionId: "a" }] }) }).ids,
-			]).toContain("a");
+			const good = read({ read: () => ({ agents: [{ sessionId: "a" }] }) });
+			assert(good.why === undefined);
+			expect([...good.ids]).toContain("a");
 		}
 	});
 });

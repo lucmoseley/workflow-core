@@ -32,6 +32,7 @@ const USAGE = `usage: node ${scriptPath("away-load.js")} run | recover | sweep |
 const HAND_MINUTES = 20;
 const POLL_MS = Number(process.env.WFC_AWAY_LOAD_POLL_MS) || 5000;
 const FSCK_OUT_CHARS = 4000;
+// guess: twice the longest 4 Nov fsck, #5472
 const FSCK_TIMEOUT_MS = 30 * 60 * 1000;
 const WIN = "/mnt/c/Windows/System32";
 

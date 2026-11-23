@@ -5,7 +5,7 @@ const {
 	readBaselineCommit,
 	readInheritedNumbers,
 } = require("./citation-tracker.js");
-const { throwUnreadable } = require("./file-read.js");
+const { dataOrThrow } = require("./file-read.js");
 
 // guess, #5529
 const WHY_CHARS = 300;
@@ -24,7 +24,7 @@ function addedLines(rel, ctx, tree) {
 	const edit = ctx.tool === "Edit";
 	const before = edit
 		? text(ctx.input.old_string)
-		: (throwUnreadable(tree.read(rel)) ?? "");
+		: (dataOrThrow(tree.read(rel)) ?? "");
 	const after = text(edit ? ctx.input.new_string : ctx.input.content);
 	const had = new Set(before.split("\n"));
 	return after.split("\n").filter((l) => !had.has(l));

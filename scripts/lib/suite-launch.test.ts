@@ -12,9 +12,11 @@ const { parseCommand, walkCommands } = require("./shell-parse.js") as {
 		ports: object,
 	) => void;
 };
-const { QUOTED, literal, unwrap } = require("./shell-words.js") as {
+const { QUOTED, literal } = require("./shell-words.js") as {
 	QUOTED: string;
 	literal: (w: string, spans: string[]) => { known: boolean; text: string };
+};
+const { unwrap } = require("./shell-parse.js") as {
 	unwrap: (
 		words: string[],
 		spans: string[],
@@ -286,7 +288,12 @@ describe("buildIsWrapperScript (#4276)", () => {
 		const unparsed = reader("{");
 		expect(unreadable.is("test")).toBe(true);
 		expect(unparsed.is("test")).toBe(true);
-		expect([...unreadable.logs, ...unparsed.logs]).toHaveLength(2);
+		expect(unreadable.logs).toEqual([
+			expect.stringMatching(/^package\.json unreadable — /),
+		]);
+		expect(unparsed.logs).toEqual([
+			expect.stringMatching(/^package\.json is not JSON — /),
+		]);
 	});
 
 	it("lets a fault resolving the tree propagate, for the core to answer for", () => {

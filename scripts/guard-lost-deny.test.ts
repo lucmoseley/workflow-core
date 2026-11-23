@@ -710,7 +710,7 @@ describe("replay", () => {
 	});
 
 	it("counts a guard's blocking exit 2 as a deny — #3580", () => {
-		branchGuard("# DENIES-BY: exit 2\necho refused >&2\nexit 2\n");
+		branchGuard('REFUSE_EXIT=2\necho refused >&2\nexit "$REFUSE_EXIT"\n');
 		const file = transcript([
 			fileCall("git worktree add /tmp/w", "toolu_A"),
 			killed(),
@@ -724,7 +724,7 @@ describe("replay", () => {
 	});
 
 	it("counts an exit 2 from a guard that never read a payload too big for the pipe — #3794", () => {
-		branchGuard("# DENIES-BY: exit 2\necho refused >&2\nexit 2\n");
+		branchGuard('REFUSE_EXIT=2\necho refused >&2\nexit "$REFUSE_EXIT"\n');
 		const file = transcript([
 			fileCall(
 				`git worktree add /tmp/${"w".repeat(PAST_THE_PIPE_BYTES)}`,
@@ -740,7 +740,7 @@ describe("replay", () => {
 	});
 
 	it("says a guard that cannot start did not run, and counts no deny", () => {
-		branchGuard("# DENIES-BY: exit 2\nexit 2\n");
+		branchGuard('REFUSE_EXIT=2\nexit "$REFUSE_EXIT"\n');
 		fs.chmodSync(path.join(core, "scripts", "guard-branch.sh"), 0o644);
 		const file = transcript([
 			fileCall("git worktree add /tmp/w", "toolu_A"),
@@ -755,7 +755,7 @@ describe("replay", () => {
 
 	it("counts no other non-zero exit as a deny", () => {
 		branchGuard(
-			'# DENIES-BY: exit 2\n[ -n "$NEVER" ] && exit 2\necho broke >&2\nexit 1\n',
+			'REFUSE_EXIT=2\n[ -n "$NEVER" ] && exit "$REFUSE_EXIT"\necho broke >&2\nexit 1\n',
 		);
 		const file = transcript([
 			fileCall("git worktree add /tmp/w", "toolu_A"),

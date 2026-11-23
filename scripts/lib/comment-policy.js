@@ -1,8 +1,5 @@
 const { CALLER_BODY, LOADS_BODY } = require("./code-edges-pragmas.js");
-const {
-	DENIES_BY_EXIT_BODY,
-	DENIES_THROUGH_BODY,
-} = require("./deny-capable.js");
+const { DENIES_THROUGH_BODY } = require("./deny-capable.js");
 const { SHIM_MARK } = require("./hook-shim.js");
 const { EXEMPT_MARKERS, POINTER } = require("./exempt-markers.js");
 const { escapeRe } = require("./regex-group.js");
@@ -17,10 +14,7 @@ const { scanJs } = require("./strip-comments.js");
  *   jsdoc: boolean,
  *   next: string,
  *   owner: string,
- * }} Unit one comment: a block, a run of own-line line comments, a trailing
- *   comment or a Python string statement. `lines` its text, markers off;
- *   `top` no code before it; `next` the code line it sits on; `owner` for a
- *   docstring the `def` or `class` line it documents
+ * }} Unit
  * @typedef {{ tool: string, rules: string[] }} Suppression
  * @typedef {{
  *   lang: Lang,
@@ -30,10 +24,7 @@ const { scanJs } = require("./strip-comments.js");
  *   adrs: Set<string>,
  *   deps: RegExp | null,
  *   styleOnly: Record<string, string[]>,
- * }} FileFacts `exports` the names the helper surface lists for the file;
- *   `shipped` the file is a surface entry point or command; `adrs` the
- *   `NNNN` of each `docs/adr/NNNN-*.md`; `deps` matches a manifest
- *   dependency's name
+ * }} FileFacts
  * @typedef {{ tag: "COMMENT" | "SUPPRESSION" | "ADR-UNRESOLVED",
  *   line: number, match: string, why: string }} Breach
  */
@@ -632,9 +623,7 @@ const DIRECTIVES = [
 	},
 	{ re: /^Stryker\s+restore\b/i, read: readsAsCode },
 	{
-		re: new RegExp(
-			String.raw`^(?:${DENIES_THROUGH_BODY}|${DENIES_BY_EXIT_BODY})[ \t]*$`,
-		),
+		re: new RegExp(String.raw`^${DENIES_THROUGH_BODY}[ \t]*$`),
 		read: readsAsCode,
 	},
 	{
@@ -765,6 +754,7 @@ const LICENCE = /SPDX-License-Identifier:|\bcopyright\b|©/i;
 const DERIVATION = /\b(?:measured|guess)\b/i;
 const ISSUE = /(?<![\w&])#\d+|\/[\w.-]+#\d+/;
 const URL = /\bhttps?:\/\/\S/;
+const POINTER_LINK = /\[(?:[\w.-]+\/[\w.-]+)?#\d+\]\([^)\s]*\)/g;
 
 /**
  * @param {string} line
@@ -828,6 +818,21 @@ function splitDirectives(unit, facts) {
 }
 
 /**
+ * @param {string[]} prose
+ * @param {FileFacts} facts
+ * @returns {boolean}
+ */
+function isSourceNote(prose, facts) {
+	return (
+		prose.length <= 2 &&
+		prose.some(
+			(line) =>
+				URL.test(line.replace(POINTER_LINK, "")) || facts.deps?.test(line),
+		)
+	);
+}
+
+/**
  * @param {Unit} unit
  * @param {string[]} prose
  * @param {FileFacts} facts
@@ -851,7 +856,7 @@ function proseBreach(unit, prose, facts) {
 	}
 	if (prose.length === 1 && DERIVATION.test(text) && ISSUE.test(text))
 		return null;
-	if (URL.test(text) || facts.deps?.test(text)) return null;
+	if (isSourceNote(prose, facts)) return null;
 	if (onShippedExport(unit, facts)) return null;
 	return { tag: "COMMENT", ...at, why: "fits no permitted comment kind" };
 }

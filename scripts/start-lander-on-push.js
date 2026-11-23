@@ -1,27 +1,5 @@
 #!/usr/bin/env node
-/*
- * start-lander-on-push.js — PostToolUse hook: after a push to a queue ref,
- * `queue/<name>`, start the queue lander detached (#2405, spec #2261; #4458).
- * The core is lib/lander-on-push.js. Not a `guard-*`: it judges no call,
- * only starts a process after one, though it fails open as a guard does.
- *
- * PostToolUse fires only on a call that exited 0, a failed push reaching
- * PostToolUseFailure instead, where this hook is not registered
- * (hook-registrations.test.ts pins it). A push whose failure the call hides
- * (`|| true`, a later `;`) still starts start-lander.js, which reads the remote
- * and starts nothing where no queue ref waits and no drop is owed a decision.
- *
- * Wired on PostToolUse with matcher "Bash", narrowed `if: Bash(*push*)`,
- * unanchored because the walk reads a push behind a launcher wrapper.
- *
- * LIMITS
- *  - A push the walk cannot see — `sh -c`, a script, the founder's terminal —
- *    starts nothing; the session-start launcher starts the lander instead.
- *  - It never writes to stdout: a PostToolUse hook's output is context handed
- *    to the session. start-lander.js's own output, a failure included, goes
- *    to the lander's log.
- *  - Every fault allows, logged to guard-errors.log.
- */
+
 const { readSymbolicName } = require("./lib/git-tree.js");
 const { run } = require("./lib/guard-entry.js");
 const { decide } = require("./lib/lander-on-push.js");

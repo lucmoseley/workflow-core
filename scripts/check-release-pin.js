@@ -42,18 +42,13 @@ function semverParts(v) {
 	return [major, minor, patch];
 }
 
+// guess, #257
 const LS_REMOTE_TIMEOUT_MS = 15_000;
 
 // guess, two ~12h sweep intervals, #4675
 const PENDING_CUT_HOURS = 24;
 
 /**
- * Compare two git URLs for the same repository, so an `origin` spelled
- * `git@github.com:o/r.git` is recognised as the marketplace's
- * `https://github.com/o/r.git`. Scheme, credentials, a trailing slash and a
- * trailing `.git` all vary between the two spellings without changing where
- * the fetch lands.
- *
  * @param {string} url
  * @returns {string}
  */

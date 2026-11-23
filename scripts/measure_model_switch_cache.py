@@ -1,25 +1,4 @@
 #!/usr/bin/env python3
-"""measure_model_switch_cache.py — measure what a mid-session model switch does to the prompt cache.
-
-Re-runs the measurement behind https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/opusplan-model-switch-cache.md
-(mantahostels#1092): every seat root's transcripts for this repo are scanned for a
-turn whose model differs from the turn before it, and the cache counters either
-side of that turn are printed.
-
-A switch turn that kept its prefix would show a large
-cache_read_input_tokens; one that lost the cache shows ~0 read and the whole
-prefix as cache_creation_input_tokens.
-
-It also prints the two figures the note's "not partial survival" argument
-rests on: the commonest first-turn cache reads across the corpus (a small fixed
-preamble block cached against a model by other sessions' traffic), and whether
-each switch's write is read back whole on the next turn.
-
-Usage: python3 scripts/measure_model_switch_cache.py [project-dir]
-
-Scope: this repo on every seat (#379), not the whole machine; a project-dir
-argument reads that one directory instead.
-"""
 
 import collections
 import os
@@ -45,19 +24,6 @@ def is_alias_boundary(before, after):
 
 
 def turns(path, tally):
-    """Assistant turns in one transcript, de-duplicated and model-tagged.
-
-    De-duplication key is `(message.id, output_tokens,
-    cache_creation_input_tokens)` — the key
-    https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/allowance-burn-measurement.md (mantahostels#830) established, kept so
-    the counts here stay comparable with that measurement.
-
-    A turn with no `model`, and a `<synthetic>` one (a message the harness
-    wrote, carrying no real usage), is dropped rather than counted. A transcript
-    rotated or deleted between the glob and the open — the corpus is live
-    (mantahostels#1092) — is counted into `tally` with the lines that will not
-    parse.
-    """
     seen = set()
     out = []
     for entry in tc.records(path, tally):

@@ -1,45 +1,5 @@
 // @vitest-environment node
 
-/*
- * tooling-matrix.test.ts — docs/code-standards.md §W's load-bearing claims, and
- * the base's §0 floor of the shipped pre-commit's code gates, are still true
- * of the live config.
- *
- * DEPARTS FROM §X3, DELIBERATELY (§G4). That rule asks a `scripts/` test to run
- * its subject as a subprocess and assert the exit code and the message. The
- * subject here is the repo's own config files and the linters reading them, not
- * a script, so most cases read config text. What the file runs: ESLint,
- * eslint-plugin-react-hooks and TypeScript's config reader as libraries; `git
- * init` and Biome's node shim, which spawns its native binary, as subprocesses
- * in a temp probe project, Biome's exit code
- * carrying nothing its category list does not; and `scripts/lib/formatters.js
- * shell-files --tracked` in-process against this repo, which spawns `git
- * ls-files` and `git check-attr`, read for its output alone.
- *
- * THE PROBLEM. A prose matrix describing live config rots silently; these cases
- * make it rot loudly (mantahostels#1537).
- *
- * SCOPE: the claims that change a review sub-agent's behaviour, not all of §W.
- * A case here is worth its cost only where getting it wrong makes a reviewer
- * skip a convention tooling does NOT enforce, or write one it does.
- *
- * WHY THE TEMP PROJECT. A rule scoped by `biome.json` `overrides` can only be
- * tested from a real path inside a project, and mantahostels#1518 measured that
- * `biome lint --only=<rule>` cannot stand in: it forces the rule on globally
- * and ignores both configured severity and `overrides`. Writing a probe into
- * this repo's own `app/` would put a lint finding in a shared working tree
- * where a parallel session's whole-repo `npm run check` would trip over it, so
- * the probe copies the REAL biome.json and package.json into a temp project
- * instead — the two inputs that decide the answer, since Biome's `react` and
- * `next` domains auto-enable off the declared dependencies.
- *
- * It runs in CI's Vitest step: loosen a case and §W can claim a rule the live
- * config no longer sets, or miss one it does, so a review sub-agent skips a
- * convention nothing enforces or re-flags one tooling already refuses.
- *
- * Coverage is deliberately not re-pinned here: scripts/coverage-declined.test.ts
- * already owns mantahostels#1136's decline.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

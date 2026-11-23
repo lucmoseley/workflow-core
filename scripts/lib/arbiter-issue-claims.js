@@ -54,10 +54,16 @@ function scanIssueClaims(n) {
 		});
 }
 
-/** @param {number|string} issue */
+/**
+ * @param {number|string} issue
+ * @returns {{file: string, record: IssueClaimRecord}[]}
+ */
 function readIssueClaims(issue) {
 	const n = issueNumber(issue);
-	return n === null ? [] : scanIssueClaims(n).filter((e) => e.record);
+	if (n === null) return [];
+	return scanIssueClaims(n).flatMap(({ file, record }) =>
+		record ? [{ file, record }] : [],
+	);
 }
 
 // #5529
@@ -225,7 +231,10 @@ function claimIssueExclusive(issue, me, listed, listedAt) {
 	}
 }
 
-/** @param {string} [root] */
+/**
+ * @param {string} [root]
+ * @returns {{claims: IssueClaimRecord[], why: string|null}|null}
+ */
 function listIssueClaims(root) {
 	const dir = core.paths.issueClaimsDir(root);
 	let files;
@@ -236,12 +245,14 @@ function listIssueClaims(root) {
 		core.logError("issue-claims list", e);
 		return null;
 	}
+	/** @type {(IssueClaimRecord|null)[]} */
 	const records = files.map((f) =>
 		core.readRecordOrLog(path.join(dir, f), "issue-claims list"),
 	);
-	const dropped = records.filter((r) => !r).length;
+	const claims = records.flatMap((r) => (r ? [r] : []));
+	const dropped = records.length - claims.length;
 	return {
-		claims: records.filter(Boolean),
+		claims,
 		why: dropped
 			? `${dropped} issue-claim record${dropped === 1 ? "" : "s"} could not be read and ${dropped === 1 ? "was" : "were"} dropped, so what is claimed may be incomplete`
 			: null,
@@ -277,7 +288,7 @@ function standingClaims(claims, live, terminal) {
 }
 
 /**
- * @param {{ids?: Set<string>|null, terminal?: Set<string>, why?: string|null}|null} listed
+ * @param {{ids?: Set<string>|null, terminal?: Set<string>, why?: string|null}|null|undefined} listed
  * @param {string} [root]
  */
 function heldIssues(listed, root) {
@@ -308,7 +319,7 @@ function heldIssues(listed, root) {
 	};
 }
 
-/** @param {LivenessOracle} liveness */
+/** @param {LivenessOracle|undefined} liveness */
 function pruneIssueClaims(liveness) {
 	const live = core.readLiveOrLog("pruneIssueClaims");
 	if (live === null) return;

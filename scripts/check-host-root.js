@@ -5,7 +5,7 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { isUnder } = require("./lib/is-under.js");
 const { escapeRe, requiredGroup } = require("./lib/regex-group");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { readHookCode } = require("./lib/hook-code.js");
 const { isJsExt } = require("./lib/test-kind.js");
 const { isApparatus } = require("./lib/suite-apparatus.js");
@@ -168,11 +168,13 @@ const ROOT_CALLS = [
 	String.raw`hostRoot\(\)`,
 	String.raw`sessionTree\([^()]*\)`,
 ];
+const HOOK_PWD_READ = String.raw`process\.env\.PWD\b`;
 const HOOK_ROOT_CALLS = [
 	String.raw`process\.cwd\(\)`,
-	String.raw`process\.env\.PWD\b`,
+	HOOK_PWD_READ,
 	String.raw`[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*\??\.cwd\b(?![\w$(])`,
 ];
+const HOOK_ROOT_ANY = new RegExp(String.raw`\bcwd\b|\b${HOOK_PWD_READ}`);
 /** @param {string[]} calls */
 const buildJsRootCall = (calls) =>
 	new RegExp(String.raw`[^;\n]*\b(?:${calls.join("|")})`, "y");
@@ -183,7 +185,6 @@ const JS_DESTRUCTURE =
 const JS_CWD_KEY =
 	/(?:^|,)\s*cwd(?:\s*:\s*([A-Za-z_$][\w$]*))?\s*(?:=[^,]*)?(?=,|$)/;
 const JS_CWD_DEFAULT = /[(,]\s*([A-Za-z_$][\w$]*)\s*=\s*process\.cwd\(\)/g;
-const HOOK_ROOT_ANY = /\bcwd\b|\bprocess\.env\.PWD\b/;
 
 const JS_CORE_CONST = new RegExp(
 	String.raw`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:${buildPathCall("join")}${CORE_LITERAL}|["'\x60](?:scripts|\.husky)/)`,
@@ -709,7 +710,7 @@ const SPEC = {
 	against: { profile: "host-root", materialise: "tree" },
 	/** @returns {import("./lib/check").CheckResult} */
 	run(/** @type {import("./lib/check").Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		if (!shipsPlugin(root))
 			ctx.skip(
 				`${root} ships no plugin (.claude-plugin/plugin.json is absent) — its scripts run in place`,

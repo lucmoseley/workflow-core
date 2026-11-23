@@ -10,6 +10,7 @@ const { isTestKind } = require("./test-kind.js");
  *   bin: string,
  *   envVar: string,
  *   primitive: string,
+ *   reader: string,
  *   fix: Record<Shape, string>,
  *   secondVar: RegExp,
  *   exempt: RegExp,
@@ -26,6 +27,7 @@ const { isTestKind } = require("./test-kind.js");
  *   bin: "gh" | "claude",
  *   envVar: string,
  *   primitive: string,
+ *   reader?: string,
  *   secondVar: RegExp,
  *   calls: string,
  *   exemplar: string,
@@ -37,6 +39,7 @@ function buildRoute({
 	bin,
 	envVar,
 	primitive,
+	reader = primitive,
 	secondVar,
 	calls,
 	exemplar,
@@ -46,10 +49,11 @@ function buildRoute({
 		bin,
 		envVar,
 		primitive,
+		reader,
 		fix: {
-			"SECOND-VAR": `name the binary through ${envVar}, the one var ${primitive} reads, as ${exemplar} and ${shellExemplar} do.`,
+			"SECOND-VAR": `name the binary through ${envVar}, the one var ${reader} reads, as ${exemplar} and ${shellExemplar} do.`,
 			"NODE-COPY": `call ${calls} from ${primitive}, as ${exemplar} does.`,
-			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${primitive} reads, as ${shellExemplar} does; or mark it ${exemptHint(/** @type {const} */ (`${bin}-route`))} where \`${bin}\` is only text.`,
+			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${reader} reads, as ${shellExemplar} does; or mark it ${exemptHint(/** @type {const} */ (`${bin}-route`))} where \`${bin}\` is only text.`,
 			"PATH-STUB": `point ${envVar} at the stub executable, never PATH.`,
 		},
 		secondVar,
@@ -76,6 +80,7 @@ const ROUTES = [
 		bin: "gh",
 		envVar: "WFC_GH",
 		primitive: "scripts/lib/gh.js",
+		reader: "scripts/lib/gh-binary.js",
 		secondVar: /\bWFC_\w+_GH\b/,
 		calls: "`gh`, `ghJson` or their kin",
 		exemplar: "scripts/check-issue-orphans.js",
@@ -204,7 +209,7 @@ function shapeOf({ r, rel, kind, binDirs }, line) {
 			: null;
 	if (
 		kind === "node" &&
-		(r.literalSpawn.test(line) || (rel !== r.primitive && r.envRead.test(line)))
+		(r.literalSpawn.test(line) || (rel !== r.reader && r.envRead.test(line)))
 	)
 		return "NODE-COPY";
 	for (const m of line.matchAll(PATH_PREPEND))

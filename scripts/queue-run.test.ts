@@ -682,7 +682,6 @@ describe("queue-run.js", () => {
 
 			it.each([
 				["4 records", five.slice(1)],
-				["5 records, one at 61 s", [...five.slice(1), run(61, 100)]],
 				["5 records, one with no peak read", [...five.slice(1), run(20, 0)]],
 				[
 					"a slower run of another command",
@@ -693,6 +692,36 @@ describe("queue-run.js", () => {
 				expect(started).toBe(false);
 				expect(marker.part).toBeUndefined();
 				expect(marker.chargeMb).toBe(2100);
+			});
+
+			it("waits whole on 5 records with one over 60 s, charged the highest of their peaks (#5591)", async () => {
+				const { marker, started } = await seatBeside([
+					...five.slice(1),
+					run(145, 100),
+				]);
+				expect(started).toBe(false);
+				expect(marker.part).toBeUndefined();
+				expect(marker.chargeMb).toBe(189);
+			});
+
+			it("waits whole on a gate-run record that will not read, charged its configured seat", async () => {
+				const f = fixture();
+				const gateLog = path.join(f.dir, "unreadable-gate-runs");
+				fs.mkdirSync(gateLog);
+				const g = gateOptions(f, {
+					gateLog,
+					alive: () => true,
+					sleepFn: () => new Promise(noop),
+				});
+				main(gateRun, g.options);
+				await tick();
+				const mine = f.readMarkers()[0] as string;
+				expect(
+					JSON.parse(fs.readFileSync(path.join(f.dir, mine), "utf8")),
+				).toMatchObject({ role: "gate", chargeMb: 2100 });
+				expect(f.err.join("")).toMatch(
+					/would not read; this gate waits for the whole-suite slot, charged its configured or default seat/,
+				);
 			});
 
 			it("leaves a `ceiling` outcome out of the 5", async () => {
@@ -970,6 +999,23 @@ describe("queue-run.js", () => {
 				f.spawned[0].child.emit("spawn");
 				f.spawned[0].child.emit("exit", 0, null);
 				expect(await done).toBe(0);
+			});
+
+			it("reads a runner whose checkout or config will not read as no suite, so its gate takes a seat (#5303)", () => {
+				const { isInSuite } = require("./lib/gate-seat.js");
+				const w = world();
+				const loose = mkScratchDir("gate-loose-");
+				dirs.push(loose);
+				w.processAt(20, ["node", "scripts/run-all.js"], w.host);
+				expect(isInSuite({ pid: 40, parentOf })).toBe(true);
+				w.processAt(20, ["node", "scripts/run-all.js"], loose);
+				expect(isInSuite({ pid: 40, parentOf })).toBe(false);
+				fs.writeFileSync(
+					path.join(w.host, ".claude", "workflow-core.json"),
+					"{ torn",
+				);
+				w.processAt(20, ["node", "scripts/run-all.js"], w.host);
+				expect(isInSuite({ pid: 40, parentOf })).toBe(false);
 			});
 
 			it("takes a seat with the gate variable set but no runner above it", async () => {

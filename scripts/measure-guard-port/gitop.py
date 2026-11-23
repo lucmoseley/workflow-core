@@ -208,6 +208,7 @@ def timed_call(fx: Fixture, reap) -> dict:
         "denies": int(done.returncode != 0),
         "exit": done.returncode,
         "detached": detached,
+        # guess, #5208
         "stderr": done.stderr[-400:].decode(errors="replace"),
     }
 
@@ -225,9 +226,6 @@ sys.exit(done.returncode)
 
 
 def write_wrappers(dispatch: str, husky: str, out: str, log: str) -> list[str]:
-    """A wrapper per `dispatch` shim whose hook `husky` holds: it runs the
-    shim, and so the hook, as its child on the same argv and stdin, appends
-    that child's CPU to `log`, and exits with the hook's code."""
     os.makedirs(out, exist_ok=True)
     names = []
     for entry in sorted(os.listdir(dispatch)):

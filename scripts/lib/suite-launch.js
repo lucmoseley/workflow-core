@@ -1,7 +1,5 @@
-const { throwUnreadable } = require("./file-read.js");
 const { isNpmRun, scriptOfNpmCommand } = require("./npm-options.js");
 const { JS_TEST_FILE, PY_COLLECTED_TEST } = require("./test-kind.js");
-const { unwrapArgv } = require("./shell-words.js");
 
 /**
  * @typedef {"npm-vitest" | "npm-watch" | "npm-py" | "wrapper" | "other"} LaunchKind
@@ -15,18 +13,6 @@ const { unwrapArgv } = require("./shell-words.js");
 const afterSlash = (/** @type {string} */ w) => w.slice(w.lastIndexOf("/") + 1);
 
 /**
- * A SUITE RUN BY SOMETHING OTHER THAN VITEST (#330): `node --test`, `pytest`,
- * `python3 -m pytest|unittest` and a bare `python3 <x>.test.py`. Judged on
- * argv[0] and the flags BEFORE the script, where `node --test` puts its own: a
- * script taking a `--test` argument is no suite, and `node --test`'s per-file
- * children carry no `--test` of their own, so one run counts once.
- *
- * A HOST'S OWN RUNNER SCRIPTS COUNT TOO, declared under `suiteRunners` as
- * repo-relative paths, matched as a path suffix of the script word, read off
- * the `runners` the caller passes.
- *
- * A FLAG THAT TAKES A VALUE ENDS THE READ: its value is taken for the script,
- * so `node --import x --test` and `python3 -W ignore -m pytest` go uncounted.
  * @param {string[]} words
  * @param {() => string[]} runners
  */
@@ -73,13 +59,7 @@ function isSuiteScript(word, python, runners) {
 }
 
 /**
- * Whether a non-vitest runner's words name the test files it runs, so the
- * run is a part-suite (#5274): `pytest` or `python3 -m pytest` whose paths
- * are all test files, `python3 -m unittest` whose every target names a test
- * module, class or method (#5450), `node --test` whose every argument is a
- * JS test file, or a bare `python3 <x>.test.py`. A run naming no file, and a
- * host's declared runner, are whole.
- * @param {string[]} words words `isOtherRunner` takes for a runner
+ * @param {string[]} words
  */
 function hasNamedTestFiles(words) {
 	const a0 = afterSlash(words[0] ?? "");
@@ -252,6 +232,7 @@ function isWholePytestRun(argv) {
 function isQueuedLaunch(words, ports) {
 	const rest = words[0] === "--" ? words.slice(1) : words;
 	if (rest.length === 0) return false;
+	const { unwrapArgv } = require("./shell-parse.js");
 	return unwrapArgv(rest).some(
 		({ words: inner }) => inner.length > 0 && isQueueable(inner, ports),
 	);
@@ -271,6 +252,25 @@ function isQueueable(words, ports) {
 const hasWrapperCall = (body) => !body || body.includes("run-vitest.js");
 
 /**
+ * @param {import("./file-read.js").FileRead<string>} got
+ * @param {(fault: string) => void} say
+ * @returns {Record<string, unknown> | null}
+ */
+function parsePackageScripts(got, say) {
+	if (got.state === "absent") return null;
+	if (got.state === "unreadable") {
+		say("package.json unreadable");
+		return null;
+	}
+	try {
+		return JSON.parse(got.data)?.scripts ?? {};
+	} catch {
+		say("package.json is not JSON");
+		return null;
+	}
+}
+
+/**
  * @param {() => Pick<import("./guard-host-ports.js").TreePorts, "read">} tree
  * @param {(what: string) => void} log
  * @returns {LaunchPorts["isWrapperScript"]}
@@ -279,18 +279,12 @@ function buildIsWrapperScript(tree, log) {
 	/** @type {Record<string, unknown> | null | undefined} */
 	let scripts;
 	return (script) => {
-		if (scripts === undefined) {
-			const got = tree().read("package.json");
-			try {
-				const text = throwUnreadable(got);
-				scripts = text === null ? null : (JSON.parse(text)?.scripts ?? {});
-			} catch {
+		if (scripts === undefined)
+			scripts = parsePackageScripts(tree().read("package.json"), (fault) =>
 				log(
-					`package.json unreadable — \`--queue\` offered without knowing whether \`${script}\` runs run-vitest.js`,
-				);
-				scripts = null;
-			}
-		}
+					`${fault} — \`--queue\` offered without knowing whether \`${script}\` runs run-vitest.js`,
+				),
+			);
 		if (!scripts) return true;
 		const body = scripts[script];
 		return hasWrapperCall(typeof body === "string" ? body : null);

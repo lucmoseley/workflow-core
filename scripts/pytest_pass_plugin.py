@@ -2,6 +2,7 @@ import contextlib
 import fnmatch
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,8 @@ _finished = 0
 _collected = None
 
 _NEXT_STAGE = {"setup": "call", "call": "teardown"}
+
+_told = set()
 
 
 def _nodeid_outcomes(terminalreporter):
@@ -94,10 +97,10 @@ def describe_run(terminalreporter, config):
 
 
 def pytest_runtest_logreport(report):
-    with contextlib.suppress(Exception):
+    with _told_once("TIMINGS SHORT (#1884) — a test phase went untimed"):
         file = report.nodeid.split("::")[0]
         _file_seconds[file] = _file_seconds.get(file, 0.0) + float(report.duration)
-    with contextlib.suppress(Exception):
+    with _told_once("IN-FLIGHT STAGE UNTRACKED — a test's stage went unrecorded"):
         if report.nodeid in _inflight and report.when in _NEXT_STAGE:
             _inflight[report.nodeid] = _NEXT_STAGE[report.when]
             _write_inflight()
@@ -107,7 +110,7 @@ def _write_inflight():
     out = os.environ.get("WFC_PYTEST_INFLIGHT_OUT")
     if not out or os.environ.get("PYTEST_XDIST_WORKER"):
         return
-    with contextlib.suppress(Exception):
+    with _told_once(f"IN-FLIGHT FILE UNWRITTEN — {out} is stale"):
         part = f"{out}.part"
         Path(part).write_text(
             json.dumps(
@@ -157,29 +160,42 @@ def file_seconds(config):
 
 
 class _ReportedAs(contextlib.AbstractContextManager):
-    def __init__(self, terminalreporter, headline):
-        self._terminalreporter = terminalreporter
+    def __init__(self, write_line, headline):
+        self._write_line = write_line
         self._headline = headline
 
     def __exit__(self, exc_type, error, tb):
         if not isinstance(error, Exception):
             return False
-        self._terminalreporter.write_line(f"{self._headline}: {error}")
+        self._write_line(f"{self._headline}: {error}")
         return True
+
+
+def _told_once(headline):
+    def write_line(line):
+        if line not in _told:
+            _told.add(line)
+            print(line, file=sys.stderr, flush=True)
+
+    return _ReportedAs(write_line, headline)
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     out = os.environ.get("WFC_PYTEST_SCOPE_OUT")
     if not out or getattr(config.option, "collectonly", False):
         return
-    with contextlib.suppress(Exception):
+    write_line = terminalreporter.write_line
+    with _ReportedAs(
+        write_line,
+        f"VERDICT UNWRITTEN — {out} holds no record of this run",
+    ):
         result = {"passed": int(exitstatus) == 0, "scope": None, "fileSeconds": None}
         with _ReportedAs(
-            terminalreporter,
+            write_line,
             "SCOPE UNRECORDED (mantahostels#1256) — this run cannot say how much of the "
             "suite it covered",
         ):
             result["scope"] = describe_run(terminalreporter, config)
-        with _ReportedAs(terminalreporter, "TIMINGS UNRECORDED (#1884)"):
+        with _ReportedAs(write_line, "TIMINGS UNRECORDED (#1884)"):
             result["fileSeconds"] = file_seconds(config)
         Path(out).write_text(json.dumps(result), encoding="utf-8")

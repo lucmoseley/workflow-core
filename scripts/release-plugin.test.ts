@@ -23,17 +23,8 @@ const write = (rel: string, body: string) => {
 	fs.writeFileSync(path.join(dir, rel), body);
 };
 const landed = () => git("update-ref", "refs/remotes/origin/main", "HEAD");
-const NOW = Date.parse("2026-11-15T12:00:00Z");
-const priorRelease = (tag: string, daysAgo = 8) =>
-	execFileSync("git", ["tag", "-a", tag, "-m", "prior release", "HEAD"], {
-		cwd: dir,
-		env: {
-			...process.env,
-			GIT_COMMITTER_DATE: new Date(
-				NOW - daysAgo * 24 * 60 * 60 * 1000,
-			).toISOString(),
-		},
-	});
+const priorRelease = (tag: string) =>
+	git("tag", "-a", tag, "-m", "prior release", "HEAD");
 const run = (
 	env: NodeJS.ProcessEnv = {},
 	{ onMain = true, args = [] as string[] } = {},
@@ -44,7 +35,6 @@ const run = (
 		env: {
 			...process.env,
 			CLAUDE_PROJECT_DIR: dir,
-			WFC_NOW: new Date(NOW).toISOString(),
 			...env,
 		},
 	});
@@ -223,61 +213,6 @@ describe("release-plugin", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("releases are held by migrations/hold.txt");
 		expect(git("tag", "--list")).toBe("");
-	});
-
-	it("reports no last release before the first cut", () => {
-		const r = run();
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("last release: none");
-	});
-
-	it("reports the days since the last tag on a cut a week or more after it (#5231)", () => {
-		priorRelease("v2.3.3", 8);
-		const r = run();
-		expect(r.stderr).toBe("");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toMatch(/last release: v2\.3\.3, 8\.0 days ago/);
-		expect(r.stdout).not.toContain("early cut");
-	});
-
-	it("refuses a cut under 7 days after the last tag with no reason, naming the gap and tagging nothing (#5231)", () => {
-		priorRelease("v2.3.3", 2);
-		const r = run();
-		expect(r.status).toBe(1);
-		expect(r.stderr).toMatch(
-			/v2\.3\.3 was cut 2\.0 days ago, under the 7-day release cadence/,
-		);
-		expect(r.stderr).toContain("--reason");
-		expect(git("tag", "--list", "v2.3.4")).toBe("");
-	});
-
-	it("refuses a blank --reason as no reason (#5231)", () => {
-		priorRelease("v2.3.3", 2);
-		const r = run({}, { args: ["--reason", "  "] });
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("under the 7-day release cadence");
-	});
-
-	it("cuts under 7 days given a reason, reporting it and writing it into the tag's annotation (#5231)", () => {
-		priorRelease("v2.3.3", 2);
-		const r = run({}, { args: ["--reason", "v2.3.3 breaks session start"] });
-		expect(r.stderr).toBe("");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toMatch(/last release: v2\.3\.3, 2\.0 days ago/);
-		expect(r.stdout).toContain("early cut: v2.3.3 breaks session start");
-		expect(git("tag", "-l", "--format=%(contents)", "v2.3.4")).toContain(
-			"Early cut: v2.3.3 breaks session start",
-		);
-	});
-
-	it("writes no early-cut annotation for a reason given a week or more after the last tag (#5231)", () => {
-		priorRelease("v2.3.3", 8);
-		const r = run({}, { args: ["--reason", "not needed"] });
-		expect(r.status).toBe(0);
-		expect(r.stdout).not.toContain("early cut");
-		expect(git("tag", "-l", "--format=%(contents)", "v2.3.4")).not.toContain(
-			"Early cut",
-		);
 	});
 
 	it("refuses a version already tagged, naming the tag", () => {
@@ -1017,7 +952,7 @@ process.stdout.write(JSON.stringify([posted]));
 			expect(calls()).toContain("labels[]=urgent");
 			expect(calls()).toContain("labels[]=origin:release-bump");
 			expect(calls()).not.toContain("dependencies/blocked_by");
-			expect(calls()).not.toContain("walks through the notes");
+			expect(calls()).not.toContain("issue close");
 		}));
 
 	it("files the other trackers' bump issues where one tracker refuses, and reports the retry command (#242)", () =>
@@ -1058,7 +993,7 @@ process.stdout.write(JSON.stringify([posted]));
 		assignees,
 	});
 
-	it("blocks each unassigned older bump on the new one and names them for its session to close (#2562)", () =>
+	it("closes each unassigned older bump as a duplicate of the new one, which names them (#5538)", () =>
 		withBumpStub(
 			JSON.stringify([
 				bump(91, "v2.3.2"),
@@ -1071,16 +1006,15 @@ process.stdout.write(JSON.stringify([posted]));
 				expect(r.stderr).toBe("");
 				expect(r.status).toBe(0);
 				expect(calls()).toContain(
-					"It walks through the notes of #91, #92 too: close each with a comment naming the bump commit.",
+					"It supersedes #91, #92: the walk runs their notes too.",
 				);
-				expect(calls()).toContain(
-					"api --method POST repos/o/r/issues/91/dependencies/blocked_by -F issue_id=9100",
-				);
-				expect(calls()).toContain(
-					"api --method POST repos/o/r/issues/92/dependencies/blocked_by -F issue_id=9100",
-				);
-				expect(calls()).not.toContain("issues/93/dependencies");
-				expect(calls()).not.toContain("issues/94/dependencies");
+				for (const n of [91, 92])
+					expect(calls()).toContain(
+						`issue close ${n} --repo o/r --duplicate-of 100 --comment Superseded by #100, Bump workflow-core to v2.3.4: its walk runs this note too.`,
+					);
+				expect(calls()).not.toContain("issue close 93");
+				expect(calls()).not.toContain("issue close 94");
+				expect(calls()).not.toContain("dependencies/blocked_by");
 			},
 		));
 
@@ -1094,7 +1028,7 @@ process.stdout.write(JSON.stringify([posted]));
 					"api --method POST repos/o/r/issues/100/dependencies/blocked_by -F issue_id=9100",
 				);
 				expect(calls()).not.toContain("issues/91/dependencies");
-				expect(calls()).not.toContain("walks through the notes");
+				expect(calls()).not.toContain("issue close");
 			},
 		));
 

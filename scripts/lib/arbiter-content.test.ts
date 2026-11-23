@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { assert, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	commitAll,
 	content,
@@ -10,7 +10,9 @@ import {
 	durably,
 	freshSandbox,
 	gitRepo,
+	listedLocks,
 	live,
+	lockFiles,
 	locks,
 	noSessions,
 	registerSession,
@@ -65,6 +67,7 @@ describe("content identity — what the file held when its claimant last touched
 
 		execFileSync("git", ["gc", "--prune=now", "-q"], { cwd: sb.repo });
 
+		assert(blob);
 		expect(
 			execFileSync("git", ["cat-file", "-p", blob], {
 				cwd: sb.repo,
@@ -82,6 +85,7 @@ describe("content identity — what the file held when its claimant last touched
 		const seen = store.contentState(rel, readLock());
 		expect(seen.state).toBe("changed");
 		expect(seen.was).toBe(blob);
+		assert(seen.was);
 		expect(
 			execFileSync("git", ["cat-file", "-p", seen.was], {
 				cwd: sb.repo,
@@ -272,9 +276,11 @@ describe("content identity — what the file held when its claimant last touched
 
 			const r = store.release(rel, me);
 			expect(r.verdict).toBe("released");
+			assert(r.content);
 			expect(r.content.state).toBe("changed");
 			expect(r.content.was).toBe(blob);
 
+			assert(r.content.was);
 			expect(
 				execFileSync("git", ["cat-file", "-p", r.content.was], {
 					cwd: sb.repo,
@@ -286,7 +292,7 @@ describe("content identity — what the file held when its claimant last touched
 		it("reports same on a file nobody touched", () => {
 			const { me } = claimAndRecord("alice", "alice's work\n");
 			commit();
-			expect(store.release(rel, me).content.state).toBe("same");
+			expect(store.release(rel, me).content?.state).toBe("same");
 		});
 
 		it("reports unknown, never changed, on a claim never recorded", () => {
@@ -294,7 +300,7 @@ describe("content identity — what the file held when its claimant last touched
 			write("alice's work\n");
 			store.acquire(rel, me);
 			commit();
-			expect(store.release(rel, me).content.state).toBe("unknown");
+			expect(store.release(rel, me).content?.state).toBe("unknown");
 		});
 
 		it("hands the caller the content state on a dirty refusal too (mantahostels#337)", () => {
@@ -304,6 +310,7 @@ describe("content identity — what the file held when its claimant last touched
 
 			const r = store.release(rel, me);
 			expect(r.verdict).toBe("dirty");
+			assert(r.content);
 			expect(r.content.state).toBe("changed");
 			expect(r.content.was).toBe(blob);
 
@@ -314,6 +321,7 @@ describe("content identity — what the file held when its claimant last touched
 					{ cwd: sb.repo, encoding: "utf8" },
 				),
 			).toContain(`refs/arbiter/${readLock().claimId}`);
+			assert(r.content.was);
 			expect(
 				execFileSync("git", ["cat-file", "-p", r.content.was], {
 					cwd: sb.repo,
@@ -327,17 +335,17 @@ describe("content identity — what the file held when its claimant last touched
 			commit();
 			write("alice's next edit\n");
 			store.recordContent(rel, me);
-			expect(store.release(rel, me).content.state).toBe("same");
+			expect(store.release(rel, me).content?.state).toBe("same");
 		});
 	});
 
 	describe("updateIfUnchanged — the rewrite that cannot clobber a replacement", () => {
 		it("puts back a lock that is not the one it read, rather than overwriting it", () => {
 			store.acquire(rel, live(sb, "alice"));
-			const r = locks.updateIfUnchanged(
+			const r = lockFiles.updateIfUnchanged(
 				rel,
-				(m: { claimId: string }) => m.claimId === "not-this-one",
-				(m: object) => ({ ...m, blob: "deadbeef" }),
+				(m) => m.claimId === "not-this-one",
+				(m) => ({ ...m, blob: "deadbeef" }),
 			);
 			expect(r.outcome).toBe("kept");
 			expect(r.restored).toBe(true);
@@ -360,7 +368,7 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 		gitRepo(sb);
 	});
 
-	const revise = (me: object, text: string) => {
+	const revise = (me: ReturnType<typeof live>, text: string) => {
 		write(text);
 		return store.recordContent(rel, me);
 	};
@@ -414,16 +422,17 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 		revise(me, "v2\n");
 		revise(me, "v3\n");
 		const seen = store.claimVersions(rel);
+		assert(seen && !seen.unreadable);
 		expect(seen.lock.sessionId).toBe("alice");
 		expect(
-			seen.versions.map((v: { sha: string }) =>
+			seen.versions.map((v) =>
 				execFileSync("git", ["cat-file", "-p", v.sha], {
 					cwd: sb.repo,
 					encoding: "utf8",
 				}),
 			),
 		).toEqual(["v3\n", "v2\n", "v1\n"]);
-		expect(seen.versions.every((v: { gone: boolean }) => !v.gone)).toBe(true);
+		expect(seen.versions.every((v) => !v.gone)).toBe(true);
 	});
 
 	it("marks a version git has pruned as gone rather than as a recovery instruction", () => {
@@ -432,6 +441,7 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 		execFileSync("git", ["gc", "--prune=now", "-q"], { cwd: sb.repo });
 
 		const seen = store.claimVersions(rel);
+		assert(seen && !seen.unreadable);
 		expect(seen.versions[0].gone).toBe(false);
 		expect(seen.versions[1].gone).toBe(true);
 	});
@@ -478,29 +488,30 @@ describe("content identity on a region claim", () => {
 		return me;
 	};
 
+	const heldB1 = () => {
+		const lock = listedLocks().find((l) => l.path === `${docMap}#B1`);
+		assert(lock);
+		return lock;
+	};
+
 	it("stays silent when a neighbour edits a DIFFERENT region", () => {
 		claimB1();
 		writeMap("first as written", "second, rewritten by a neighbour");
-		const lock = store
-			.listLocks()
-			.find((l: { path: string }) => l.path === `${docMap}#B1`);
+		const lock = heldB1();
 		expect(store.contentState(`${docMap}#B1`, lock).state).toBe("same");
 	});
 
 	it("reports a change inside the region it claims", () => {
 		claimB1();
 		writeMap("first, overwritten by something", "second as written");
-		const lock = store
-			.listLocks()
-			.find((l: { path: string }) => l.path === `${docMap}#B1`);
+		const lock = heldB1();
 		expect(store.contentState(`${docMap}#B1`, lock).state).toBe("changed");
 	});
 
 	it("pins bytes that come back as the region's own text", () => {
 		claimB1();
-		const lock = store
-			.listLocks()
-			.find((l: { path: string }) => l.path === `${docMap}#B1`);
+		const lock = heldB1();
+		assert(lock.blob);
 		const recovered = execFileSync("git", ["cat-file", "-p", lock.blob], {
 			cwd: sb.repo,
 			encoding: "utf8",
@@ -516,6 +527,6 @@ describe("content identity on a region claim", () => {
 		store.acquire(`${docMap}#B1`, me);
 		store.acquire(`${docMap}#B2`, me);
 		store.recordContent(docMap, me);
-		for (const l of store.listLocks()) expect(l.blob).toBeTruthy();
+		for (const l of listedLocks()) expect(l.blob).toBeTruthy();
 	});
 });

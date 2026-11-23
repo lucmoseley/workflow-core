@@ -1,103 +1,7 @@
 #!/usr/bin/env node
-/*
- * check-context-budget.js — measures the context every session pays for before
- * it does any work, against the caps docs/doc-map.md §Capture and placement sets.
- *
- * Usage:
- *   node check-context-budget.js [--root <dir>] [--notify] [--against <rev>] [--json]
- *
- * FOUR CAPS now (POOL, INJECTION, the per-session-per-tool SESSION_CAP_BYTES
- * and the cross-tool RATCHET_CAP_BYTES, mantahostels#1787) — paid on different schedules.
- * Membership is
- * decided by the test settled at mantahostels#1235 and narrowed at mantahostels#1503 — bytes in EVERY
- * TOP-LEVEL session's context before any work, that THIS REPO CAN DELETE. A
- * subagent is not top-level; its dispatch is priced where it is made.
- *
- * POOL passes both limbs:
- *   - The host's declared `alwaysLoaded` files (lib/always-loaded-pool.js, #33),
- *     in bytes on disk. One of them may be the adopter's declared output
- *     style (`overrides.output_style`, lib/always-loaded-pool.js's
- *     `getDoubleLoadedFiles()`) — counted TWICE where another always-loaded
- *     file `@`-imports it, once as the active style and once as the import
- *     (mantahostels#1503, #45); once otherwise (#2034).
- *   - Own skill and command frontmatter `description` values, or the body line
- *     the harness lists for a file with none (#2054), EXCEPT where the
- *     description is not delivered at all. Two independent silencers: a skill
- *     carrying `disable-model-invocation: true` (mantahostels#1757), and a `skillOverrides`
- *     entry of `name-only`, `user-invocable-only` or `off` in
- *     `.claude/settings.json` (mantahostels#1786). A delivered description sits in the
- *     system prompt every turn whether or not the skill ever fires (mantahostels#608).
- *   - Agent definitions (.claude/agents/*.md) — their `name` and `description`
- *     ONLY, never the body. 0 B today, the directory being absent.
- *   - Whatever a pool file `@`-imports at the root and `alwaysLoaded` does not
- *     list, which the harness loads with it (lib/pool-imports.js, #1956).
- *
- * Vendored descriptions fail the second limb: symlinked from .agents/skills/, so
- * an undeclared EDIT is lost on the next vendor pull (declared ones survive via
- * .agents/vendored-skill-edits.json, mantahostels#1826). Reported, never capped.
- * ALWAYS-ENABLED PLUGINS are a third measured-and-uncapped surface (mantahostels#3116):
- * each `true` entry in `.claude/settings.json` `enabledPlugins` is priced from
- * .claude/plugin-context-cost.json in the TOKENS `claude plugin details`
- * reports — no bytes-per-token conversion — and an enabled plugin with no row
- * there is a WARN, never a silent zero. Not direction-gated: the bytes live in
- * ~/.claude/plugins/cache, outside git's sight, so the enabling commit names
- * the figure in its message instead.
- * A `skillOverrides` entry is not an edit — it lives in settings and survives the
- * pull — so it zeroes a vendored description as readily as an own one (mantahostels#1786).
- *
- * INJECTION fails the FIRST limb — scripts/inject-tracker-docs.js fires on seven
- * commands, ~41% of sessions, not all (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/tracker-injection-frequency.md,
- * mantahostels#1083). Capped separately rather than left ungoverned. Measured as a union of
- * the payload parts lib/tracker-inject-text.js holds (mantahostels#1284, mantahostels#1870).
- *
- * Severity turns on DIRECTION, not on level (mantahostels#1224). An over-cap total this commit
- * did not increase is a WARN: the caps are ratchets against drift rather than
- * measured limits, and gating on an undefended number teaches the reader to skip the
- * gate (mantahostels#155's severity model). A commit that ADDS bytes and leaves a surface at
- * or over its cap is REFUSED, whether the surface was over already or this
- * commit crossed it (#1014) — that reading turns on the sign of the delta and
- * never on the number. No second threshold: a pool one byte under cap prints its
- * headroom and raises nothing.
- *
- * --notify is the quiet path, passed only by a hand run: silent unless a cap
- * is breached.
- *
- * --against HEAD is the .husky/pre-commit path (mantahostels#1834).
- * This checker measures ONE revision and raises the level finding; the direction
- * is lib/check.js's, which materialises the index and HEAD by blob fetch, runs
- * this file over each and reports only what the commit adds. Nothing here reads
- * the working tree on either side, so a half-saved CLAUDE.md is not
- * charged to this commit.
- *
- * WHAT --against MEANS FOR A CORE FILE (#36). CAP_SOURCE is a core file
- * (lib/hook-limits.js) read off rule-emission.js's own CAP_FILE default, not off
- * `--root`, so a HOST revision comparison never varies it — the read no
- * longer depends on which tree `--root` names. The injector's text module is
- * different: THIS repo's `--against` runs are self-hosted (the core's history
- * is the host's), so lib/context-budget-pathspecs.js lists TRACKER_TEXT among the
- * paths materialised at the revision, preserving growth-detection on the
- * injector's own bytes; only where the root carries none (a plugin install,
- * whose host git never tracked the file) does readInjection() fall back to the
- * live core copy (TRACKER_TEXT_FILE), which is then constant across whatever is
- * compared.
- *
- * lib/fault-profiles.js's `context-budget` profile is what names the over-cap
- * tags gate material despite being WARN. Their `total` rides in the
- * finding so that profile's `worse` can tell growth from a shed that leaves the
- * surface still over — lib/fault-diff.js.
- *
- * The mantahostels#1177 admissibility prompt fires on the same seam: `admissibility` below
- * emits the pool's own byte total on every run, and --against prints the prompt
- * where the index's is higher than HEAD's. It never gates.
- *
- * IMPLICIT:  on `npm run status` (lifted off SessionStart into scripts/status-report.js), measures the always-loaded context every session pays for against its caps, printing the pool's own figures and raising a finding when a cap is breached.
- * JUSTIFIED: fail-safe — the pool grows a few bytes per tranche and nothing else measures it before a session has already paid.
- * DEFEAT:    none; --notify is silent while every cap holds.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { runCheck, errMessage } = require("./lib/check");
 const { SELF_PLUGIN_COST } = require("./lib/core-context-cost.js");
@@ -119,8 +23,10 @@ const { readOwnHooks } = require("./lib/core-hooks.js");
 
 /** @typedef {{ path: string, vendored: boolean, words: number, bytes: number }} DescEntry */
 
+// measured 20,334 B on 18 Oct 2026, past a 1,813 B band, #2034
 const CAP_BYTES = 22_500;
 
+// measured 9,637 B on 18 Oct 2026, past a 515 B band, #2039
 const INJECTION_CAP_BYTES = 10_500;
 
 /* #5447: measured 33,577 B for Bash at the install spelling, past a 423 B slack band. */
@@ -1377,7 +1283,7 @@ const SPEC = {
 	},
 	/** @returns {CheckResult} */
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 
 		const descs = readDescriptions(ctx, root);
 		const own = descs.filter((d) => !d.vendored);

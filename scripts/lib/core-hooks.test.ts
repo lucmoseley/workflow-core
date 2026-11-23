@@ -38,8 +38,8 @@ function git(root: string, ...args: string[]) {
 	execFileSync("git", ["-C", root, ...args], { stdio: "ignore" });
 }
 
-function initRepo(root: string) {
-	git(root, "init", "-q");
+function initRepo(root: string, ...initArgs: string[]) {
+	git(root, "init", "-q", ...initArgs);
 	git(root, "config", "user.email", "test@example.com");
 	git(root, "config", "user.name", "test");
 }
@@ -418,7 +418,21 @@ describe("selfPluginSetup (#2461)", () => {
 	});
 
 	it.each([
+		["the main checkout", () => checkout("main")],
 		["a worktree", () => worktreeOf(checkout("main"))],
+		[
+			"a checkout whose common dir is not named .git",
+			() => {
+				const at = path.join(fs.realpathSync(host), "sep");
+				fs.mkdirSync(at);
+				initRepo(at, "--separate-git-dir", path.join(host, "sep.git"));
+				return at;
+			},
+		],
+		[
+			"a checkout whose path holds an apostrophe",
+			() => checkout("the founder's checkout"),
+		],
 		["no git checkout", () => host],
 	])("is the line the canary prints from %s", (_, rootOf) => {
 		const root = rootOf();

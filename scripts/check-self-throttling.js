@@ -1,47 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-self-throttling.js — reports that the founder appears to have rationed
- * the agent allowance rather than crashed into it.
- *
- * WHY ANYTHING NEEDS TO ASK. `scripts/measure-ceiling/scan_ceiling.py` filters
- * transcripts to lines carrying `"rate_limit"` or `"apiErrorStatus":429`, so it
- * measures crashes, not scarcity (mantahostels#1342). An operator who stops work at 99% of a
- * weekly allowance generates no record at all, and the corpus carries no usage
- * percentage and no approaching-limit warning anywhere.
- *
- * WHAT IT LOOKS FOR. Not a collapse in the daily turn count, which cannot do
- * this job: the innocent collapses in it are DEEPER than the real one. The
- * shape of the silence works where the count fails — a dead window of >=20h
- * flanked on both sides by 3 active hours at >=0.65 of the trailing-7-day
- * busy-hour rate. Thresholds and reasoning: scripts/lib/turn-collapse.js and
- * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/self-throttling-turn-collapse.md (mantahostels#1362).
- *
- * IT REPORTS AND NOTHING MORE. Both thresholds were fitted after seeing the
- * answer, against one event. No spend-ladder trigger is wired to it,
- * deliberately (mantahostels#1362).
- *
- * WARN, never FAIL. A detected episode is a prompt to go and read Settings ->
- * Usage, not a fault in the repo.
- *
- * THREE PATHS, because the sweep costs 10-19s and a session start allows
- * single-digit seconds:
- *
- *   --notify   reads the state file, sweeps not at all, and kicks a detached
- *              --refresh once a day. The SessionStart path, silent by default.
- *   --refresh  sweeps, writes the state file and appends to the history.
- *              Prints nothing anyone reads.
- *   neither    sweeps live, reports a stalled collector and every candidate
- *              gap whatever the notice setting, and records.
- *              `npm run check:throttling`, and `npm run status`.
- *
- * ONCE A DAY AND NOT PER SESSION: a per-session sweep costs too much CPU,
- * and incremental scanning saves nothing (mantahostels#1362, mantahostels#1130).
- *
- * WIRED THROUGH `scripts/session-start-sweeps.sh`, whose guard-registry row in
- * .claude/implicit-behaviours.json covers this script — the hooks file
- * names the launcher, never this file (mantahostels#1362's piggyback ruling; mantahostels#1404).
- */
-
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { spawnOutliving } = require("./lib/user-scope.js");

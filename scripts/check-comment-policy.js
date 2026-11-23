@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { spawnGitSync } = require("./lib/git.js");
 const { listTree } = require("./lib/git-objects.js");
 const { readAttributeExcluded } = require("./lib/git-attributes.js");
@@ -19,6 +19,7 @@ const STYLE_ONLY = require("./lib/style-only-rules.json").rules;
 const { baselineOf, runCheck } = require("./lib/check");
 
 const SURFACE = "scripts/lib/helper-surface.json";
+const PLUGIN_SURFACE = path.join(__dirname, "lib", "helper-surface.json");
 const ADR_DIR = "docs/adr";
 const SUPPORT = [
 	SURFACE,
@@ -48,18 +49,7 @@ const readOr = (root, rel) => {
  * @returns {string[]}
  */
 function readTreeFiles(ctx, root, walked) {
-	if (!walked) {
-		const r = spawnGitSync(["ls-files", "-s", "-z"], {
-			cwd: root,
-			encoding: "utf8",
-		});
-		if (r.status !== 0) ctx.broken(`git ls-files failed: ${r.stderr}`);
-		return r.stdout
-			.split("\0")
-			.filter((e) => /^100(?:644|755) /.test(e))
-			.map((e) => e.slice(e.indexOf("\t") + 1))
-			.sort();
-	}
+	if (!walked) return readTrackedPaths(ctx, root).sort();
 	/** @type {string[]} */
 	const out = [];
 	/** @param {string} rel */
@@ -123,6 +113,7 @@ function readManifestDeps(root) {
  */
 function readTreeFacts(root) {
 	const surface = JSON.parse(readOr(root, SURFACE) ?? "{}");
+	const pluginSurface = JSON.parse(fs.readFileSync(PLUGIN_SURFACE, "utf8"));
 	const adrDir = path.join(root, ADR_DIR);
 	const adrs = new Set(
 		(fs.existsSync(adrDir) ? fs.readdirSync(adrDir) : []).flatMap((name) => {
@@ -134,6 +125,8 @@ function readTreeFacts(root) {
 		/** @type {Record<string, string[]>} */
 		entryPoints: surface.entryPoints ?? {},
 		commands: new Set(Object.keys(surface.commands ?? {})),
+		/** @type {Set<string>} */
+		copies: new Set(pluginSurface.copies),
 		adrs,
 		deps: depsPattern(readManifestDeps(root)),
 		checkJs: /"checkJs"\s*:\s*true/.test(readOr(root, "tsconfig.json") ?? ""),
@@ -209,12 +202,33 @@ function readJudgedFiles(ctx, root) {
 	if (ctx.side) return files;
 	const env = walked ? withoutGitRedirects() : undefined;
 	if (!inWorkTree(ctx, root, env)) return files;
-	const excluded = readExcludedOrBroken(ctx, files, {
+	const tracked = walked ? new Set(readTrackedPaths(ctx, root, env)) : null;
+	const judged = tracked ? files.filter((p) => tracked.has(p)) : files;
+	const excluded = readExcludedOrBroken(ctx, judged, {
 		from: walked ? "worktree" : "index",
 		cwd: root,
 		env,
 	});
-	return files.filter((p) => !excluded.has(p));
+	return judged.filter((p) => !excluded.has(p));
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string} root
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string[]}
+ */
+function readTrackedPaths(ctx, root, env) {
+	const r = spawnGitSync(["ls-files", "-s", "-z"], {
+		cwd: root,
+		encoding: "utf8",
+		...(env ? { env } : {}),
+	});
+	if (r.status !== 0) ctx.broken(`git ls-files failed: ${r.stderr}`);
+	return r.stdout
+		.split("\0")
+		.filter((e) => /^100(?:644|755) /.test(e))
+		.map((e) => e.slice(e.indexOf("\t") + 1));
 }
 
 const withoutGitRedirects = () =>
@@ -295,7 +309,7 @@ function settle(ctx, added, { baseline }) {
 }
 
 const REMEDY = [
-	"Delete each comment, or reshape it to a permitted kind (#5455): a licence header; a suppression of a rule on scripts/lib/style-only-rules.json; a bare `#N`, `ADR-NNNN` or RFC pointer; a one-line `measured` or `guess` derivation with its `#N`; a note naming its source, a URL or a manifest dependency; a doc on an export the helper surface lists.",
+	"Delete each comment, or reshape it to a permitted kind (#5455): a licence header; a suppression of a rule on scripts/lib/style-only-rules.json; a bare `#N`, `ADR-NNNN` or RFC pointer; a one-line `measured` or `guess` derivation with its `#N`; a note of at most two lines naming its source, a URL, other than a link behind a `#N` pointer, or a manifest dependency; a doc on an export the helper surface lists, or atop a file it lists.",
 ];
 
 /** @type {import("./lib/check").CheckSpec} */
@@ -312,9 +326,9 @@ const SPEC = {
 		settle,
 	},
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		if (!fs.existsSync(root))
-			ctx.broken(`the host root ${root} does not exist — nothing was read`);
+			ctx.broken(`the root ${root} does not exist — nothing was read`);
 		const tree = readTreeFacts(root);
 		/** @type {Map<string, number>} */
 		const perFile = new Map();
@@ -345,9 +359,10 @@ const SPEC = {
  */
 const factsFor = (tree, rel, lang) => ({
 	lang,
-	checkJs: tree.checkJs && /\.[cm]?jsx?$/.test(rel),
+	checkJs: (tree.checkJs || tree.copies.has(rel)) && /\.[cm]?jsx?$/.test(rel),
 	exports: new Set(tree.entryPoints[rel] ?? []),
-	shipped: rel in tree.entryPoints || tree.commands.has(rel),
+	shipped:
+		rel in tree.entryPoints || tree.commands.has(rel) || tree.copies.has(rel),
 	adrs: tree.adrs,
 	deps: tree.deps,
 	styleOnly: STYLE_ONLY,

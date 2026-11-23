@@ -154,19 +154,19 @@ describe("the composed rewrite", () => {
 			["a supplied artefact", { prompt: "Do it." }],
 			["the prompt's own artefact", { prompt: "Artefact: .claude/tmp/x.md" }],
 		])(
-			"prescribes a foreground watch for %s, never ending the turn",
+			"prescribes a backgrounded watch while work remains, a foreground one once idle, for %s, never ending the turn (#5554)",
 			(_n, input) => {
 				const prelude = String(rewrite(input, { job: true })?.prelude);
 				expect(prelude).toMatch(/hold the turn on `node .*watch-artefact\.js/);
 				expect(prelude).toContain(
-					"in the foreground as `rule:job-holds-turn` says",
+					"Run it with `run_in_background` while other work remains, in the foreground once idle, as `rule:job-holds-turn` says (#5554).",
 				);
 				expect(prelude).toContain("A `DONE` means the agent has stopped");
 				expect(prelude).not.toMatch(/end the turn|backgrounded/);
 			},
 		);
 
-		it("hands an agent with no artefact a log-only foreground wait (#5515)", () => {
+		it("hands an agent with no artefact a log-only wait, foreground once idle (#5515, #5554)", () => {
 			const prelude = String(
 				rewrite({ prompt: "Find it.", subagent_type: "Explore" }, { job: true })
 					?.prelude,
@@ -175,7 +175,7 @@ describe("the composed rewrite", () => {
 				/hold the turn on `node .*watch-artefact\.js --no-artefact 120 530 --log <output_file>`/,
 			);
 			expect(prelude).toContain(
-				"in the foreground as `rule:job-holds-turn` says",
+				"Run it with `run_in_background` while other work remains, in the foreground once idle",
 			);
 			expect(prelude).not.toContain("end the turn");
 		});

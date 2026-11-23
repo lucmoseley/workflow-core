@@ -20,7 +20,9 @@ CLK = os.sysconf("SC_CLK_TCK")
 PAGE = os.sysconf("SC_PAGE_SIZE")
 
 EARLYOOM_PCT = 8.0
+# guess against a 10 Hz watchdog, origin untraced, #5550
 DEFAULT_FLOOR_MARGIN_MB = 150.0
+# guess, origin untraced, #5550
 TRIVIAL_ABORT_S = 5.0
 
 
@@ -137,6 +139,7 @@ def sample(roots, seen):
     return sum(seen.values()), rss / 1e6, npids
 
 
+# measured 214.3 MB idle MemAvailable wander, one sample, lucmoseley/mantahostels#1449
 BASELINE_SHIFT_TOLERANCE_MB = 215.0
 
 
@@ -190,6 +193,7 @@ def parse_flags(flags, floor_mb):
     return floor_mb, require_quiet, measure_drift, workers
 
 
+# guess: the worker count the ladder ran at, #1603
 DEFAULT_WORKERS = 3
 
 
@@ -268,6 +272,7 @@ class Watchdog:
     def disarm(self):
         self._stop.set()
         if self._thread:
+            # guess, origin untraced, #5550
             self._thread.join(timeout=2)
         with self._lock:
             self._live = set()

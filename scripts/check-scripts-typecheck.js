@@ -2,7 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck, errMessage } = require("./lib/check");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { execGit } = require("./lib/git.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
@@ -114,7 +114,7 @@ runCheck({
 	valueFlags: ["--root"],
 	flags: ["--full"],
 	run(/** @type {Ctx} */ ctx) {
-		const root = ctx.value("--root") || hostRoot();
+		const root = ctx.value("--root") || worktreeRoot();
 		const { paths, silenced } = survey(ctx, root);
 
 		if (silenced.length === 0)

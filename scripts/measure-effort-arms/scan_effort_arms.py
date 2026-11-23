@@ -1,44 +1,4 @@
 #!/usr/bin/env python3
-"""scan_effort_arms.py — split this machine's transcripts into `--effort` arms and compare them.
-
-Built for mantahostels#1108, which asked for the one term mantahostels#1084 (should checkable work run
-at Opus `low` and re-run at `high` only on failure?) was missing: what `low`
-actually costs and fails at on live work. Nothing in the corpus could answer it
-retrospectively — there was not one `low` turn in it — so the arm is generated
-by launching sessions with `claude --effort low` and read back here.
-
-**The whole question is turns and tool calls, not thinking tokens.**
-https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/effort-thinking-token-share.md already priced the thinking
-term: halving thinking saves at most ~6.5% of spend, and break-even for
-low-then-re-run is `1 - L/H`, so at a 6.5% saving the strategy drowns above a
-~7% failure rate — below the 16% Anthropic's own `low` arm reported. The escape
-is that effort is not only a thinking dial: Anthropic's *Effort* doc says it
-"affects all tokens in the response", tool calls included, and spend here is
-`turns x standing context`. So this report leads on turns and tool calls.
-
-Extraction is `scripts/measure-burn/scan_burn.py`'s — one billable unit per
-`requestId`, every token field the MAX across that request's records (mantahostels#1121).
-The `effort`, thinking-token and `tool_use` fields are MAXed there beside them.
-
-Every dollar is the four token classes weighted at Opus 5 API list ratios,
-never a bill (mantahostels#829).
-
-Four things this report cannot see, all of which belong in any verdict written
-off it:
-
-  * **First-time-pass rate.** Whether a session's own check passed first time
-    is not in the transcript in any form a script can trust. Read it off the
-    sessions themselves and state it beside these numbers.
-  * **Reasoning quality.** Thinking text is not stored -- every `thinking`
-    block keeps only its signature -- so `low` reasoning cannot be compared
-    with `medium` reasoning directly, only through the check outcome.
-  * **Task difficulty.** Arms are matched by filtering (`--skill`, `--model`),
-    never by pairing. A `low` arm of a handful of sessions against a `medium`
-    baseline of hundreds is matched on work class and on nothing else.
-  * **Parallelism.** Sessions here run alongside ~8 neighbours and the
-    per-session spread is wide, so a small arm's median carries a wide band.
-"""
-
 import argparse
 import datetime as dt
 import json
@@ -67,30 +27,6 @@ def arm_rank(arm):
 
 
 def sessions(tally, window=None, *, skill=None, model=None, min_turns=1):
-    """Per parent `cli` session, one record carrying its arm and its metrics.
-
-    `cli` only: the `sdk-py` hook population is over half the session count for
-    ~4% of spend, and mixing it in makes every per-session statistic an
-    artefact of hook traffic (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/allowance-burn-measurement.md).
-
-    A session's **arm** is the effort every one of its parent turns that
-    *carries* one ran at. Turns with no `effort` field are counted and
-    reported, never allowed to decide an arm: a handful of unlabelled records
-    is routine and would otherwise send a plainly-medium session to `mixed`.
-
-    Where two real efforts disagree the session is reported as `mixed` and
-    excluded from the arm tables: effort is fixed at launch, so a mixed session
-    means either a `/effort` mid-session (which rewrites the global setting and
-    so may have moved a neighbour too) or a resume across a settings change.
-    Neither is a clean observation of an arm.
-
-    Subagent spend is folded into its parent under `cost_all`, because a
-    session that delegates rather than working in-context has moved spend, not
-    saved it. Turns, tool calls and thinking are **parent turns only** -- a
-    subagent's own effort is not the parent's to claim.
-
-    `tally` is handed to `scan_burn.requests`, which counts its skips into it.
-    """
     reqs = list(sb.requests(tally, window))
     entry = {
         r["owner"]: r["entrypoint"] for r in reqs if not r["sub"] and r["entrypoint"]
@@ -307,9 +243,7 @@ def report(rows, tally, ratio_to="medium"):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    ap = argparse.ArgumentParser()
     ap.add_argument(
         "--window",
         nargs=2,
@@ -325,6 +259,7 @@ def main(argv=None):
     ap.add_argument(
         "--min-turns",
         type=int,
+        # guess, lucmoseley/mantahostels#1108
         default=5,
         help="drop sessions below this many parent turns (default 5) "
         "-- a session that died at launch is not an arm "

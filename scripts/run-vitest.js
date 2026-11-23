@@ -207,13 +207,6 @@ function stallMs() {
 	return Number.isFinite(n) && n >= 0 ? n : STALL_MS;
 }
 
-/* The tree under test — the host repository, or the linked worktree of it
- * the run was launched in (#2940): its node_modules (so `vitest` resolves to
- * the copy it installed), its `docs/test-read-edges.json`, its tracked tree
- * for the dirty-tree and worktree machinery below. The log, marker and
- * refusal stores go through `repoRoot()`, so they stay in the canonical
- * checkout. Never `__dirname` (#1): in a plugin install the core's files sit
- * in the plugin cache, not the tree whose suite this runs. */
 const TREE_ROOT = worktreeRoot();
 
 /** @param {string} root */
@@ -1110,7 +1103,8 @@ function refuseNarrowing(options, cause) {
  * @typedef {Parameters<typeof runOnce>[1] & Parameters<typeof runIsolated>[1] &
  *    { renderEdges?: () => Record<string, string[]>,
  *      commitLedger?: import("./lib/own-work.js").CommitLedger,
- *      claimFn?: import("./lib/manifest-freshen.js").ClaimFn }} RouteOptions
+ *      claimFn?: import("./lib/manifest-freshen.js").ClaimFn,
+ *      renderSnapshot?: import("./lib/manifest-freshen.js").RenderSnapshot }} RouteOptions
  */
 
 /**
@@ -1485,17 +1479,12 @@ function namedList(paths) {
  * @param {RouteOptions} options
  */
 function freshenOverlay(dir, home, options) {
-	let rendered;
-	try {
-		rendered = (options.renderEdges ?? (() => liveEdges(dir)))();
-	} catch {
-		return;
-	}
-	freshenManifest(rendered, {
+	freshenManifest(options.renderEdges ?? (() => liveEdges(dir)), {
 		root: dir,
 		home,
 		session: options.sessionId || idSeam.fromEnv(),
 		claimFn: options.claimFn,
+		snapshot: options.renderSnapshot,
 		out: options.out ?? process.stdout,
 		err: options.err ?? process.stderr,
 	});

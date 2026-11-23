@@ -271,12 +271,6 @@ const stubOracle = () => {
 					...(pid ? { pid: Number(pid) } : {}),
 					...(kit.repoRoot ? { cwd: kit.repoRoot } : {}),
 					...(kit.oracleNames[id] ? { name: kit.oracleNames[id] } : {}),
-					/*
-					 * `status: busy` deliberately: that is the real `shell` session's
-					 * pairing (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md), so a `status` limb re-added to either
-					 * reader would drop these and fail the admission and claim tests in
-					 * pick-next-claims.test.ts.
-					 */
 					...(kit.oracleFinished.includes(id)
 						? { kind: "background", state: "done", status: "busy" }
 						: {}),

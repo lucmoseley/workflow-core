@@ -4,14 +4,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck, errMessage } = require("./lib/check");
 const { hostPackage } = require("./lib/host-package.js");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
 const { isCoreHost } = require("./lib/plugin-state");
 const { isCodeApartFromTracker } = require("./lib/workflow-core-config.js");
 const { scriptPath } = require("./lib/script-path.js");
 
 // #5195
-const defaultDir = () => path.join(hostRoot(), ".github", "workflows");
+const defaultDir = () => path.join(worktreeRoot(), ".github", "workflows");
 
 const ALLOWED_WRITE = new Set(["issues"]);
 
@@ -159,8 +159,8 @@ function readWorkflowFiles(ctx, dir) {
 		if (
 			!ctx.args[0] &&
 			caught(e).code === "ENOENT" &&
-			fs.existsSync(hostRoot()) &&
-			!isCoreHost(hostRoot())
+			fs.existsSync(worktreeRoot()) &&
+			!isCoreHost(worktreeRoot())
 		)
 			ctx.skip("this repo has no .github/workflows — no workflows to check");
 		ctx.broken(`cannot read ${dir}: ${errMessage(e)}`);
