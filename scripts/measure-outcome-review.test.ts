@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readText } from "./lib/file-read";
 import { GH_NOT_FOUND, readGhAnswer } from "./lib/gh-fake";
 import { stubGhHandler } from "./lib/gh-stub";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 import { transcriptRecords, writeTranscript } from "./lib/transcript-testkit";
 
@@ -29,6 +30,7 @@ const FILED = 35;
 const FIXED = 40;
 const NOW = d(60);
 const SIG = { kind: "regex", pattern: "BOOM", scope: "both" };
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 
 let home = "";
 afterEach(() => {
@@ -58,8 +60,8 @@ function fixtureRepo(
 	upstream: Upstream,
 	codeRepo?: string,
 ) {
+	emptyRepo.instantiate(root);
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-	execFileSync("git", ["init", "-q", root]);
 	fs.writeFileSync(
 		path.join(root, ".claude", "workflow-core.json"),
 		JSON.stringify({ contract: 1, tracker, ...(codeRepo && { codeRepo }) }),

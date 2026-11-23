@@ -10,6 +10,7 @@ import {
 	readPendingConsent,
 	setPendingConsent,
 } from "./lib/adopter-consent.js";
+import { defineTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { noop } from "./lib/noop.js";
 import { writePsStub } from "./lib/ps-stub";
@@ -39,6 +40,21 @@ function writeJson(at: string, doc: unknown) {
 const PLUGIN = "workflow-core";
 const MARKET = "wc";
 
+const repos = defineTemplate({
+	clone: (dir) => {
+		execSync("git init -q -b main", { cwd: dir });
+		execSync(
+			"git -c user.email=t@t -c user.name=t commit -q --allow-empty -m x",
+			{ cwd: dir },
+		);
+	},
+	adopter: (dir) => {
+		execSync("git init -q -b main", { cwd: dir });
+		execSync("git config user.email t@t", { cwd: dir });
+		execSync("git config user.name t", { cwd: dir });
+	},
+});
+
 function fixture({
 	pinRef,
 	installedVersion,
@@ -61,6 +77,7 @@ function fixture({
 		name: PLUGIN,
 		version: installedVersion,
 	});
+	repos.instantiate(root, "adopter");
 	writeJson(path.join(root, ".claude", "settings.json"), {
 		enabledPlugins: { [`${PLUGIN}@${MARKET}`]: true },
 		extraKnownMarketplaces: {
@@ -89,20 +106,10 @@ function fixture({
 	writeJson(path.join(configDir, "plugins", "known_marketplaces.json"), {
 		[MARKET]: { source: { source: "url", url }, installLocation: clone },
 	});
-	fs.mkdirSync(clone, { recursive: true });
-	execSync("git init -q -b main", { cwd: clone });
-	execSync(
-		"git -c user.email=t@t -c user.name=t commit -q --allow-empty -m x",
-		{
-			cwd: clone,
-		},
-	);
+	repos.instantiate(clone, "clone");
 	if (supplyRef !== "main")
 		execSync(`git tag ${shellQuote(supplyRef)}`, { cwd: clone });
 
-	execSync("git init -q -b main", { cwd: root });
-	execSync("git config user.email t@t", { cwd: root });
-	execSync("git config user.name t", { cwd: root });
 	execSync("git add -A", { cwd: root });
 	execSync("git commit -q -m x", { cwd: root });
 

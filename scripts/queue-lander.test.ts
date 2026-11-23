@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import {
 	build,
 	hooksWiring,
@@ -54,6 +55,9 @@ const { TransientFault } = createRequire(__filename)("./lib/queue-lander.js");
 const { PushRefused } = createRequire(__filename)("./lib/network-fault.js");
 
 const START_LANDER = path.resolve(__dirname, "start-lander.js");
+const bareRepo = defineTemplate((dir) => {
+	execFileSync("git", ["init", "-q", "--bare", dir]);
+});
 const ANCHORS = ".claude/guard-registry-anchors.json";
 
 const isLive = (pid: string) => {
@@ -1023,8 +1027,7 @@ describe("the adapters", () => {
 			["tracker", "dropped/a"],
 			["other", "dropped/b"],
 		] as const) {
-			const bare = path.join(tmp, `${name}.git`);
-			git(tmp, "init", "-q", "--bare", bare);
+			const bare = bareRepo.instantiate(path.join(tmp, `${name}.git`));
 			const url = `https://github.com/acme/${name}.git`;
 			git(work, "config", `url.${bare}.insteadOf`, url);
 			git(work, "remote", "add", name === "tracker" ? "archive" : name, url);
