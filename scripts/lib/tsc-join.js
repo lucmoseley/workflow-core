@@ -192,6 +192,8 @@ async function follow(target, j, dropMarker) {
 	const joined = { pid: run.pid, session: target.record.session ?? null };
 	/** @type {number | null} */
 	let spawnedMono = null;
+	/** @type {number | null} */
+	let spawnedWall = null;
 	let following = true;
 	const host = armSeatSignals(j.signals);
 	/** @type {import("./suite-queue.js").SignalSeat} */
@@ -201,6 +203,9 @@ async function follow(target, j, dropMarker) {
 			if (!following) return;
 			following = false;
 			j.logExit("killed", (spawnedMono ?? clock()) - j.asked.mono, {
+				...(spawnedWall === null
+					? {}
+					: { at: new Date(spawnedWall).toISOString() }),
 				signal,
 				joined,
 			});
@@ -227,8 +232,10 @@ async function follow(target, j, dropMarker) {
 			end();
 			return { lost: true };
 		}
-		if (live.spawned === true) spawnedMono ??= clock();
-		else if (clock() - j.asked.mono >= (j.timeoutMs ?? QUEUE_TIMEOUT_MS)) {
+		if (live.spawned === true) {
+			spawnedMono ??= clock();
+			spawnedWall ??= Date.now();
+		} else if (clock() - j.asked.mono >= (j.timeoutMs ?? QUEUE_TIMEOUT_MS)) {
 			following = false;
 			refuseJoin(j, run, clock() - j.asked.mono, joined);
 			end();
