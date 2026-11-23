@@ -93,7 +93,8 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
  *   chargeMb?: number, peerS?: number,
  *   lane?: import("./part-suite-peak.js").PartKind,
  *   admission?: import("./part-suite-peak.js").PartAdmission,
- *   limb?: import("./queue-exit-log.js").HeldLimb }} Exit
+ *   limb?: import("./queue-exit-log.js").HeldLimb,
+ *   joined?: { pid: number, session: string | null } }} Exit
  * @typedef {{ st: number, en: number, session: string | null, kind: string,
  *   wholeSlot: boolean | null, resolvedFiles: number | null, verdict: string,
  *   modulesRun: number | null, modulesTotal: number | null }} Run
@@ -785,26 +786,45 @@ function erasOf(w) {
  * @param {Map<string, Map<string, number>>} limbSession
  */
 function sessionSums(waiters, w, limbSession) {
-	/** @type {Map<string, [number, number][]>} */
+	/** @type {Map<string, { iv: [number, number][], joined: number, joinedS: number }>} */
 	const spans = new Map();
 	for (const e of waiters) {
 		const span = spanIn(e, w);
 		if (!span) continue;
 		const s = e.session ?? "(no session)";
-		spans.set(s, [...(spans.get(s) ?? []), span]);
-	}
-	return [...spans].map(([session, iv]) => {
-		const sum = iv.reduce((s, [a, b]) => s + b - a, 0) / 1000;
-		iv.sort((x, y) => x[0] - y[0]);
-		let union = 0;
-		let reach = Number.NEGATIVE_INFINITY;
-		for (const [a, b] of iv) {
-			union += Math.max(0, b - Math.max(a, reach)) / 1000;
-			reach = Math.max(reach, b);
+		const got = spans.get(s) ?? { iv: [], joined: 0, joinedS: 0 };
+		got.iv.push(span);
+		if (e.joined) {
+			got.joined++;
+			got.joinedS += (span[1] - span[0]) / 1000;
 		}
+		spans.set(s, got);
+	}
+	return [...spans].map(([session, { iv, joined, joinedS }]) => {
+		const sum = iv.reduce((s, [a, b]) => s + b - a, 0) / 1000;
 		const limbs = limbSession.get(session) ?? new Map();
-		return { session, waits: iv.length, sum, union, limbs };
+		return {
+			session,
+			waits: iv.length,
+			sum,
+			union: unionOf(iv),
+			joined,
+			joinedS,
+			limbs,
+		};
 	});
+}
+
+/** @param {[number, number][]} iv */
+function unionOf(iv) {
+	iv.sort((x, y) => x[0] - y[0]);
+	let union = 0;
+	let reach = Number.NEGATIVE_INFINITY;
+	for (const [a, b] of iv) {
+		union += Math.max(0, b - Math.max(a, reach)) / 1000;
+		reach = Math.max(reach, b);
+	}
+	return union;
 }
 
 /**
@@ -841,11 +861,16 @@ function waitersOf(logs, w) {
 		const whole = isWhole(r);
 		return { ...r, whole, workers: workersOf(r, whole) };
 	});
+	const queued = touching.filter((e) => e.skipped !== true);
 	const waiters = toWaiters(
-		touching.filter((e) => e.skipped !== true),
+		queued.filter((e) => !e.joined),
 		runs,
 	);
-	return { touching, runs, waiters };
+	const joined = toWaiters(
+		queued.filter((e) => e.joined),
+		[],
+	);
+	return { touching, runs, waiters, joined };
 }
 
 /**
@@ -853,15 +878,20 @@ function waitersOf(logs, w) {
  * @param {Pick<Window, "since" | "until">} w
  * @returns {{ st: number, en: number }[]}
  */
-const waitSpans = (logs, w) =>
-	waitersOf(logs, w).waiters.map((e) => ({ st: e.st, en: e.en }));
+const waitSpans = (logs, w) => {
+	const { waiters, joined } = waitersOf(logs, w);
+	return [...waiters, ...joined].map((e) => ({ st: e.st, en: e.en }));
+};
 
 /**
  * @param {Logs} logs
  * @param {Window} w
  */
 function replay(logs, w) {
-	const { touching, runs, waiters } = waitersOf(logs, w);
+	const { touching, runs, waiters, joined } = waitersOf(logs, w);
+	const all = [...waiters, ...joined];
+	const inWindow = (/** @type {Waiter} */ e) =>
+		clip(e.st, e.en, w.since, w.until);
 	const admitting = waiters.filter((e) => e.gap > 0);
 	const eras = erasOf(w);
 	const eraOf = (/** @type {number} */ t) =>
@@ -889,7 +919,7 @@ function replay(logs, w) {
 		return {
 			label: era.label,
 			spanS: (to - from) / 1000,
-			waitS: waiters.reduce((s, e) => s + clip(e.st, e.en, from, to), 0),
+			waitS: all.reduce((s, e) => s + clip(e.st, e.en, from, to), 0),
 		};
 	});
 	const matchable = waiters.filter(isMatchable);
@@ -900,9 +930,13 @@ function replay(logs, w) {
 	return {
 		peers: recordedPeers(waiters),
 		exits: touching.length,
-		skipped: touching.length - waiters.length,
-		queued: waiters.length,
-		waitS: waiters.reduce((s, e) => s + clip(e.st, e.en, w.since, w.until), 0),
+		skipped: touching.length - all.length,
+		queued: all.length,
+		waitS: all.reduce((s, e) => s + inWindow(e), 0),
+		joined: {
+			waits: joined.length,
+			waitS: joined.reduce((s, e) => s + inWindow(e), 0),
+		},
 		matched: waiters.filter((e) => e.run).length,
 		matchable: matchable.length,
 		passes: {
@@ -919,8 +953,8 @@ function replay(logs, w) {
 		landerSlot: acc.landerSlot,
 		holder: acc.holder,
 		holderSession: acc.holderSession,
-		sessions: sessionSums(waiters, w, acc.limbSession),
-		peak: peakOf(waiters, w),
+		sessions: sessionSums(all, w, acc.limbSession),
+		peak: peakOf(all, w),
 		gaps: waiters
 			.filter((e) => e.run)
 			.map((e) => e.gap)
@@ -972,7 +1006,7 @@ function render(r, w) {
 	const lines = [
 		`# Suite queue wait replay, ${new Date(w.since).toISOString()} to ${new Date(w.until).toISOString()}`,
 		"",
-		`${r.queued} queued waits (${r.exits} exits less ${r.skipped} skipped), ${hours(r.waitS)} h inside the window. ${r.matched} of ${r.matchable} opened or timed-out suite waits matched to their run. At most ${r.peak.n} waited at once, at ${new Date(r.peak.at).toISOString()}.`,
+		`${r.queued} queued waits (${r.exits} exits less ${r.skipped} skipped), ${hours(r.waitS)} h inside the window. ${r.matched} of ${r.matchable} opened or timed-out suite waits matched to their run. At most ${r.peak.n} waited at once, at ${new Date(r.peak.at).toISOString()}. ${r.joined.waits} of the waits joined a queued same-key \`tsc\` run rather than queue their own, ${hours(r.joined.waitS)} h; no limb, run count or match counts them (#5639).`,
 		"",
 		"## Limb",
 		"",
@@ -1037,11 +1071,11 @@ function render(r, w) {
 		"",
 		`Summed ${hours(sum)} h, union ${hours(union)} h: ${hours(sum - union)} h is one session's waits running side by side.`,
 		"",
-		"| Session | Waits | Sum (h) | Union (h) | Limbs (h) |",
-		"| --- | --- | --- | --- | --- |",
+		"| Session | Waits | Sum (h) | Union (h) | Joined | Joined (h) | Limbs (h) |",
+		"| --- | --- | --- | --- | --- | --- | --- |",
 		...bySum.map(
 			(s) =>
-				`| \`${s.session}\` | ${s.waits} | ${hours(s.sum)} | ${hours(s.union)} | ${byValue(
+				`| \`${s.session}\` | ${s.waits} | ${hours(s.sum)} | ${hours(s.union)} | ${s.joined} | ${hours(s.joinedS)} | ${byValue(
 					s.limbs,
 				)
 					.map(([k, v]) => `${k} ${hours(v)}`)
