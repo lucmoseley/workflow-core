@@ -7,13 +7,14 @@ import {
 	acquireSeeing,
 	breaks,
 	buildLockRecord,
-	core,
 	DEAD,
 	durably,
 	freshSandbox,
 	live,
 	liveHolder,
 	noSessions,
+	readBreakAt,
+	readLockAt,
 	store,
 } from "./arbiter-testkit";
 
@@ -55,7 +56,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 		const me = live(sb, sessionId);
 		store.acquire(rel, me);
 		const blob = pin ? store.recordContent(rel, me) : null;
-		const lock = { ...core.readRecord(store.paths.lock(rel)), ...DEAD };
+		const lock = { ...readLockAt(store.paths.lock(rel)), ...DEAD };
 		fs.writeFileSync(store.paths.lock(rel), JSON.stringify(lock));
 		return { blob, lock };
 	};
@@ -115,7 +116,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 		fs.writeFileSync(
 			file,
 			JSON.stringify({
-				...core.readRecord(file),
+				...readBreakAt(file),
 				at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
 			}),
 		);
@@ -129,7 +130,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 		const { lock } = staleClaim("alice's work\n");
 		breakAs("bob");
 		const file = store.paths.break(rel, lock.claimId);
-		const record = core.readRecord(file);
+		const record = readBreakAt(file);
 		fs.writeFileSync(
 			file,
 			JSON.stringify({
@@ -195,7 +196,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 		fs.writeFileSync(store.paths.breaksDir(), "not a directory");
 
 		expect(breakAs("bob")).toBe("claimed");
-		expect(core.readRecord(store.paths.lock(rel))?.sessionId).toBe("bob");
+		expect(readLockAt(store.paths.lock(rel)).sessionId).toBe("bob");
 		expect(fs.readFileSync(sb.errorLog(), "utf8")).toContain(`break ${rel}`);
 	});
 

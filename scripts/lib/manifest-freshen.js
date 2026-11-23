@@ -38,12 +38,12 @@ const RENDER_SNAPSHOT = readLoadedRender();
 const realOrSelf = (p) => orFallback(() => fs.realpathSync(p), path.resolve(p));
 
 /**
- * @param {RenderSnapshot} snapshot
  * @param {string} root
  * @param {string} home
+ * @param {RenderSnapshot} [snapshot]
  * @returns {string|null}
  */
-function renderDrift({ root: coreAt, loaded }, root, home) {
+function renderDrift(root, home, { root: coreAt, loaded } = RENDER_SNAPSHOT) {
 	if (realOrSelf(coreAt) !== realOrSelf(home)) return null;
 	if (loaded.size === 0)
 		return "read-edges-render.js, from outside the core root";
@@ -53,6 +53,10 @@ function renderDrift({ root: coreAt, loaded }, root, home) {
 	}
 	return null;
 }
+
+/** @param {string} drift */
+const driftClause = (drift) =>
+	`the render code this run loaded (${drift}) differs from the tree it renders`;
 
 /**
  * @typedef {(file: string, session: string|null, cwd: string) => import("./script-claim.js").ClaimResult} ClaimFn
@@ -107,20 +111,12 @@ function writeShared(home, text, { given, session, claimFn, err }) {
  */
 function freshenManifest(
 	render,
-	{
-		root,
-		home,
-		session,
-		claimFn = claimWithArbiter,
-		snapshot = RENDER_SNAPSHOT,
-		out,
-		err,
-	},
+	{ root, home, session, claimFn = claimWithArbiter, snapshot, out, err },
 ) {
-	const drift = renderDrift(snapshot, root, home);
+	const drift = renderDrift(root, home, snapshot);
 	if (drift) {
 		err.write(
-			`${EDGES_FILE} left alone: the render code this run loaded (${drift}) differs from the tree it renders, so its render is not that tree's. Regenerate it before you commit: npm run gen:test-read-edges (#5579).\n`,
+			`${EDGES_FILE} left alone: ${driftClause(drift)}, so its render is not that tree's. Regenerate it before you commit: npm run gen:test-read-edges (#5579).\n`,
 		);
 		return;
 	}
@@ -163,4 +159,8 @@ function freshenManifest(
 	);
 }
 
-module.exports = { RENDER_SNAPSHOT, freshenManifest };
+module.exports = {
+	driftClause,
+	freshenManifest,
+	renderDrift,
+};
