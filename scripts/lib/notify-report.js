@@ -4,11 +4,7 @@ const { writeFileAtomic } = require("./atomic-write.js");
 const { ignoreFailure } = require("./caught.js");
 const { configDir } = require("./config-dir.js");
 const store = require("./arbiter-store.js");
-const {
-	readCurrentBootId,
-	holderAlive,
-	readProcStartOf,
-} = require("./arbiter-proc.js");
+const { holderAlive, readOwnIdentity } = require("./arbiter-proc.js");
 const { hostRoot } = require("./host-root.js");
 const { projectSlug } = require("./project-slug.js");
 const { pinnedOrFirstUsable } = require("./can-hold-state.js");
@@ -210,13 +206,10 @@ function isStale(report, maxAgeMs = DEFAULT_STALE_MS, now = Date.now()) {
  * @param {string} checker
  */
 function openRun(checker) {
-	const pid = process.pid;
 	atomicWriteJSON(runFile(checker), {
 		checker,
 		startedAt: new Date().toISOString(),
-		pid,
-		procStart: readProcStartOf(pid),
-		bootId: readCurrentBootId(),
+		...readOwnIdentity(),
 	});
 }
 
