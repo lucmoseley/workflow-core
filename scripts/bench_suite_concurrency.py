@@ -132,7 +132,8 @@ def sample(roots, seen):
         for pid in tree(r, kids):
             st = proc_stats(pid)
             if st:
-                volunteer(pid)
+                if pid not in seen:
+                    volunteer(pid)
                 seen[pid] = max(seen.get(pid, 0), st[0])
                 rss += st[1]
                 npids += 1

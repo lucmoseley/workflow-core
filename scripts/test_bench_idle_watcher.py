@@ -1,9 +1,13 @@
+import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 import bench_idle_watcher as bw
+
+REPO = Path(__file__).resolve().parent.parent
 
 IGNORES_TERM = (
     "import signal, time\n"
@@ -44,15 +48,15 @@ def test_resting_rss_summarises_the_trees_readings():
     assert rest == {"rss_mean_mb": 200.0, "rss_max_mb": 300.0, "pids": 3}
 
 
-def test_tree_sums_a_live_tree_and_volunteers_each_pid_once(child):
-    p = child("print('ready', flush=True)\nimport time\ntime.sleep(60)\n")
-    t = bw.Tree(p.pid)
-    rss, npids = t.rss_mb()
-    assert npids == 1 and rss > 0
-    with open(f"/proc/{p.pid}/oom_score_adj") as f:
-        assert f.read().strip() == "1000"
-    t.rss_mb()
-    assert t._volunteered == {p.pid}
+def test_the_heap_matches_package_jsons_watch_script():
+    scripts = json.loads((REPO / "package.json").read_text())["scripts"]
+    assert scripts["test:watch"] == f"NODE_OPTIONS={bw.NODE_HEAP} vitest"
+
+
+def test_the_first_run_cap_is_the_suite_ceiling():
+    source = (REPO / "scripts/lib/suite-ceiling.js").read_text()
+    ms = f"{bw.FIRST_RUN_MAX_S * 1000:_}"
+    assert f"const CEILING_MS = {ms};" in source
 
 
 # #5652

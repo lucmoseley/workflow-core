@@ -1,4 +1,6 @@
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -453,3 +455,15 @@ class TestCeilingKill:
 
 def test_default_floor_is_earlyooms_line_plus_the_margin(bench):
     assert bench.default_floor_mb(10_000) == 800 + bench.DEFAULT_FLOOR_MARGIN_MB
+
+
+def test_sample_sums_a_live_tree_and_volunteers_it(bench):
+    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        _, rss, npids = bench.sample([p.pid], {})
+        assert npids == 1 and rss > 0
+        with open(f"/proc/{p.pid}/oom_score_adj") as f:
+            assert f.read().strip() == "1000"
+    finally:
+        p.kill()
+        p.wait()

@@ -13,14 +13,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 from bench_suite_concurrency import (
     REPO,
     Watchdog,
-    children_map,
     default_floor_mb,
     meminfo,
     mem_available_mb,
-    proc_stats,
     swap_used_mb,
-    tree,
-    volunteer,
+    sample,
 )
 from fail_open import expected, fail_open
 
@@ -35,24 +32,6 @@ REST_SAMPLE_S = 1.0
 FIRST_RUN_MAX_S = 840
 # guess: vitest closes on SIGTERM within a second when idle, #5652
 CLOSE_GRACE_S = 10
-
-
-class Tree:
-    def __init__(self, root):
-        self.root = root
-        self._volunteered = set()
-
-    def rss_mb(self):
-        rss, npids = 0, 0
-        for pid in tree(self.root, children_map()):
-            st = proc_stats(pid)
-            if st:
-                if pid not in self._volunteered:
-                    self._volunteered.add(pid)
-                    volunteer(pid)
-                rss += st[1]
-                npids += 1
-        return rss / 1e6, npids
 
 
 class Watcher:
@@ -72,7 +51,7 @@ class Watcher:
             text=True,
             start_new_session=True,
         )
-        self.tree = Tree(self.proc.pid)
+        self._seen = {}
         self.waits = 0
         self.lines = 0
         self.lock = threading.Lock()
@@ -86,6 +65,9 @@ class Watcher:
                 self.lines += 1
                 if WAITING in line:
                     self.waits += 1
+
+    def rss_mb(self):
+        return sample([self.proc.pid], self._seen)[1:]
 
     def counts(self):
         with self.lock:
@@ -136,19 +118,15 @@ def run_beside(watcher, other_files, watchdog):
         start_new_session=True,
     )
     watchdog.arm([watcher.proc.pid, other.pid])
-    watchdog.start()
     peak_rss, peak_pids = 0.0, 0
     started = time.monotonic()
-    try:
-        while other.poll() is None:
-            rss, npids = watcher.tree.rss_mb()
-            peak_rss = max(peak_rss, rss)
-            peak_pids = max(peak_pids, npids)
-            time.sleep(SAMPLE_S)
-    finally:
-        watchdog.disarm()
-    if watchdog.tripped_at is not None:
-        raise SystemExit(f"watchdog tripped at {watchdog.tripped_at} MB: killed both")
+    while other.poll() is None:
+        rss, npids = watcher.rss_mb()
+        peak_rss = max(peak_rss, rss)
+        peak_pids = max(peak_pids, npids)
+        time.sleep(SAMPLE_S)
+    stop_if_tripped(watchdog, "beside the other run")
+    trough = watchdog.min_avail if watchdog.min_avail is not None else start_avail
     waits_after, lines_after = watcher.counts()
     return {
         "other_exit": other.returncode,
@@ -156,40 +134,37 @@ def run_beside(watcher, other_files, watchdog):
         "watcher_peak_rss_mb": round(peak_rss, 1),
         "watcher_peak_pids": peak_pids,
         "rest_avail_mb": round(start_avail),
-        "dip_mb": round(start_avail - watchdog.min_avail),
+        "dip_mb": round(start_avail - trough),
         "swap_delta_mb": round(swap_used_mb() - start_swap),
         "watcher_reran": waits_after > waits_before,
         "watcher_lines_during": lines_after - lines_before,
     }
 
 
+def stop_if_tripped(watchdog, phase):
+    if watchdog.tripped_at is not None:
+        raise SystemExit(f"watchdog tripped at {watchdog.tripped_at} MB {phase}")
+
+
 def first_run(watcher, watchdog):
-    watchdog.arm([watcher.proc.pid])
-    watchdog.start()
     opened = time.monotonic()
     peak = 0.0
-    try:
-        while watcher.counts()[0] == 0:
-            if watcher.proc.poll() is not None:
-                raise SystemExit(
-                    f"watcher exited {watcher.proc.returncode} before idling"
-                )
-            if time.monotonic() - opened > FIRST_RUN_MAX_S:
-                raise SystemExit("watcher never printed its idle line")
-            peak = max(peak, watcher.tree.rss_mb()[0])
-            time.sleep(SAMPLE_S)
-    finally:
-        watchdog.disarm()
-    if watchdog.tripped_at is not None:
-        raise SystemExit(
-            f"watchdog tripped at {watchdog.tripped_at} MB in the first run"
-        )
+    while watcher.counts()[0] == 0:
+        stop_if_tripped(watchdog, "in the first run")
+        if watcher.proc.poll() is not None:
+            raise SystemExit(f"watcher exited {watcher.proc.returncode} before idling")
+        if time.monotonic() - opened > FIRST_RUN_MAX_S:
+            raise SystemExit("watcher never printed its idle line")
+        peak = max(peak, watcher.rss_mb()[0])
+        time.sleep(SAMPLE_S)
     return round(time.monotonic() - opened, 1), round(peak, 1)
 
 
 def bench_row(args, n, watchdog):
     log = os.path.join(args.out, f"watcher-{n}.log")
     watcher = Watcher(args.watch, args.standalone, log)
+    watchdog.arm([watcher.proc.pid])
+    watchdog.start()
     try:
         first_s, first_peak = first_run(watcher, watchdog)
         result = {
@@ -199,12 +174,16 @@ def bench_row(args, n, watchdog):
             else (f"{len(args.watch)} files" if args.watch else "whole"),
             "first_run_s": first_s,
             "first_run_peak_rss_mb": first_peak,
-            "rest_before": resting_rss(watcher.tree.rss_mb, args.rest),
+            "rest_before": resting_rss(watcher.rss_mb, args.rest),
         }
+        stop_if_tripped(watchdog, "at rest")
         result.update(run_beside(watcher, args.other, watchdog))
-        result["rest_after"] = resting_rss(watcher.tree.rss_mb, args.rest)
+        watchdog.arm([watcher.proc.pid])
+        result["rest_after"] = resting_rss(watcher.rss_mb, args.rest)
+        stop_if_tripped(watchdog, "at rest")
         return result
     finally:
+        watchdog.disarm()
         watcher.close()
 
 
