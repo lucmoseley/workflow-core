@@ -5,6 +5,7 @@ const { requiredGroup } = require("./regex-group.js");
 const { rulePointer } = require("./rule-text.js");
 const { scriptPath } = require("./script-path.js");
 const { isUnder } = require("./is-under.js");
+const { runEnd } = require("./backtick-run.js");
 
 const HEX_RUN = "[0-9a-f]{7,40}";
 const SHA = `\`?(${HEX_RUN})(?![0-9a-z])\`?`;
@@ -87,16 +88,6 @@ function parseFence(line) {
 				rest: requiredGroup(m, 2, FENCE_LINE),
 			}
 		: null;
-}
-
-/**
- * @param {string} line
- * @param {number} at
- */
-function runEnd(line, at) {
-	let end = at;
-	while (line[end] === "`") end++;
-	return end;
 }
 
 /**
