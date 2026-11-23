@@ -94,7 +94,7 @@ const {
 const refillBatch = require("./lib/refill-batch.js");
 const { buildHoldLines, readCheckout } = require("./lib/repo-holds.js");
 const { scriptPath } = require("./lib/script-path.js");
-const { forgetSession } = require("./lib/session-id.js");
+const { outlivingEnv } = require("./lib/session-id.js");
 const { writeFd } = require("./lib/write-fd.js");
 const commands = require("./lib/refill-commands.js");
 const { files, log, say, servedRoots } = require("./lib/refill-io.js");
@@ -366,13 +366,11 @@ function launchHeld() {
 	});
 	if ("error" in launch) return { error: String(launch.error) };
 	const out = fs.openSync(files.log, "a");
-	const env = { ...process.env };
-	forgetSession(env);
 	const child = spawn(process.execPath, [launch.program, "run"], {
 		detached: true,
 		stdio: ["ignore", out, out],
 		cwd: homeDir(),
-		env,
+		env: outlivingEnv(process.env),
 	});
 	child.unref();
 	const error = awaitLoopHold({

@@ -85,6 +85,7 @@ function buildHostPorts(log) {
 		},
 		now: () => Math.floor(require("./clock.js").now() / 1000),
 		log,
+		env: process.env,
 	};
 }
 

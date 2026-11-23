@@ -1,3 +1,5 @@
+const { withoutTestClocks } = require("./clock.js");
+
 /**
  * @param {Record<string, string|undefined>} [env]
  * @returns {string|null}
@@ -45,11 +47,22 @@ function forgetSession(env) {
 	for (const key of FORGOTTEN_KEYS) delete env[key];
 }
 
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {NodeJS.ProcessEnv}
+ */
+function outlivingEnv(env) {
+	const out = withoutTestClocks(env);
+	forgetSession(out);
+	return out;
+}
+
 module.exports = {
 	fromEnv,
 	fromPayload,
 	reportOwner,
 	forgetSession,
+	outlivingEnv,
 	REPORT_OWNER,
 	isLanderRun,
 	LANDER_RUN,
