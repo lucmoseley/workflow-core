@@ -99,11 +99,6 @@
 			"issue": 2036,
 			"why": "the frontmatter description removed, so the skill leaves the start listing"
 		},
-		".agents/skills/diagnosing-bugs/scripts/hitl-loop.template.sh": {
-			"editedHash": "ae1b364b264be0742abc4bf62aed097eb87c4e4520f7db9ea61c551e7a7022e5",
-			"issue": 5526,
-			"why": "comments swept to the comment policy; usage moved into a usage() heredoc"
-		},
 		".agents/skills/domain-modeling/ADR-FORMAT.md": {
 			"editedHash": "82dafd57ad313f9291162c8057f68286a5963597b61a00f015209f8d60820aba",
 			"issue": 5474,
