@@ -462,6 +462,7 @@ function readMarkers(dir, fsImpl = fs) {
 
 /**
  * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, kind?: PartKind, holder?: SeatHolder, session?: string | null, env?: NodeJS.ProcessEnv }} [options]
+ * @returns {{ file: string, placeSession: string | null }}
  */
 function queueJoin({
 	queueDir = defaultQueueDir(),
@@ -477,7 +478,7 @@ function queueJoin({
 	env = process.env,
 } = {}) {
 	const part = weight ? weighCarried(weight).part : false;
-	const placed = placeSessionOf({ session, holder, env });
+	const placeSession = placeSessionOf({ session, holder, env });
 	const files = part ? weight?.resolvedFiles : undefined;
 	const file = path.join(queueDir, `${QUEUE_PREFIX}${pid}.json`);
 	try {
@@ -494,12 +495,12 @@ function queueJoin({
 				...(part && kind ? { kind } : {}),
 				...(typeof files === "number" ? { files } : {}),
 				...holder,
-				session: placed || undefined,
+				session: placeSession ?? undefined,
 			}),
 		);
-		return file;
+		return { file, placeSession };
 	} catch {
-		return "";
+		return { file: "", placeSession: null };
 	}
 }
 
@@ -689,11 +690,10 @@ function buildHoldListeners(listen) {
 
 /**
  * @param {string} file
- * @param {Parameters<typeof queueAdmit>[1] & Parameters<typeof readPeerClimbMb>[1] & { clock?: () => number }} [options]
- * @param {boolean} [placed]
+ * @param {Parameters<typeof queueAdmit>[1] & Parameters<typeof readPeerClimbMb>[1] & { clock?: () => number, placed?: boolean }} [options]
  * @returns {{ admit: () => Admission, climbMb: () => number, sessionCap: () => SessionCapHold | null, onClimbHeld: (climbMb: number) => void, onPeerHeld: (secs: number) => void, onSessionCapHeld: (secs: number) => void, onMemoryRung: (rungMb: number) => void, polledHold: () => WaitHold } & Required<HoldListeners>}
  */
-function queueStamps(file, options = {}, placed = false) {
+function queueStamps(file, options = {}) {
 	let climbHeldMb = 0;
 	let peerS = 0;
 	let sessionCapS = 0;
@@ -709,7 +709,7 @@ function queueStamps(file, options = {}, placed = false) {
 			sessionCapS = secs;
 		},
 		sessionCap: () => {
-			if (!file || !placed) return null;
+			if (!file || options.placed !== true) return null;
 			const hold = readSessionCap(options);
 			if (hold) capped = true;
 			else if (capped) {
@@ -1739,12 +1739,14 @@ function releaseOnSignal(host, signal, code) {
  * @param {{ queue?: QueueOptions, join?: false | { role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, kind?: PartKind, holder?: SeatHolder, session?: string | null, env?: NodeJS.ProcessEnv }, turn?: () => boolean, logExit?: (reason: import("./queue-exit-log.js").QueueExitReason, waitMs: number, extra?: object) => void, signals?: true | { emitter?: SignalEmitter, exit?: (code: number) => void, onSignal?: (signal: NodeJS.Signals, code: number) => boolean } }} [options]
  */
 function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
-	const ticket = join === false ? "" : queueJoin({ ...queue, ...join });
-	const stamps = queueStamps(
-		ticket,
-		queue,
-		join !== false && placeSessionOf({ ...queue, ...join }) !== null,
-	);
+	const { file: ticket, placeSession } =
+		join === false
+			? { file: "", placeSession: null }
+			: queueJoin({ ...queue, ...join });
+	const stamps = queueStamps(ticket, {
+		...queue,
+		placed: placeSession !== null,
+	});
 	const passing = turn ? null : passingTurn(queue);
 	/** @type {(reason: WaitExitReason, heldBy?: WaitHold) => object} */
 	const exitFields = passing
