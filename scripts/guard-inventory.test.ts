@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
 import { cutWorktree } from "./lib/git-fixture";
 import { INVENTORY } from "./lib/inventory-format";
@@ -128,7 +129,7 @@ describe("where the block is owed", () => {
 			env: { WFC_RULES_DIR: empty },
 		});
 		expect(reason).toContain(
-			"the rule could not be read from docs/agents/rules/founder-deliverable.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
+			`the rule could not be read from ${coreFile("docs/agents/rules/founder-deliverable.txt")}. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.`,
 		);
 		expect(reason).not.toContain(RULE);
 	});
@@ -334,7 +335,9 @@ describe("the posted round", () => {
 		expect(reason).toContain(
 			"round sits on #31, which this session holds no claim on",
 		);
-		expect(reason).toContain("`node scripts/claim-issue.js 31`");
+		expect(reason).toContain(
+			`\`node ${coreFile("scripts/claim-issue.js")} 31\``,
+		);
 	});
 
 	it("matches a tracker configured with capitals against a claimed issue (#1247)", () => {
@@ -343,7 +346,9 @@ describe("the posted round", () => {
 			JSON.stringify({ tracker: "O/Here" }),
 		);
 		serve({ r0: { n31: issue("OPEN", [POSTED]) } });
-		expect(run(NEEDS_INPUT)).toContain("`node scripts/claim-issue.js 31`");
+		expect(run(NEEDS_INPUT)).toContain(
+			`\`node ${coreFile("scripts/claim-issue.js")} 31\``,
+		);
 		claim(31);
 		expect(run(NEEDS_INPUT)).toBe("");
 	});
@@ -351,7 +356,9 @@ describe("the posted round", () => {
 	it("refuses a round on an issue only another session claims, offering the claim-issue.js command as the way out", () => {
 		serve({ r0: { n31: issue("OPEN", [POSTED]) } });
 		claim(31, `${sid}-other`);
-		expect(run(NEEDS_INPUT)).toContain("`node scripts/claim-issue.js 31`");
+		expect(run(NEEDS_INPUT)).toContain(
+			`\`node ${coreFile("scripts/claim-issue.js")} 31\``,
+		);
 	});
 
 	it("passes where any one of several issues holding the round is claimed", () => {

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
+import { coreFile } from "./lib/core-path-testkit";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -91,7 +92,7 @@ describe("the warning, end to end", () => {
 			`Warned once a session; ${root}/docs/agents/tool-output.md.`,
 		);
 		expect(emission(FIRES, { session: "other" })).toContain(
-			"Warned once a session; docs/agents/tool-output.md.",
+			`Warned once a session; ${coreFile("docs/agents/tool-output.md")}.`,
 		);
 	});
 

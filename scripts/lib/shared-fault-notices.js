@@ -1,5 +1,3 @@
-const path = require("node:path");
-const { scriptPath } = require("./script-path.js");
 const { fromCoreRoot, PROFILE_GATES: GATES } = require("./precommit-gates.js");
 
 /** @typedef {"against" | "index"} Gate */
@@ -45,7 +43,7 @@ const ROWS = {
 	...OWN_BLOCK_ROWS,
 };
 
-/** @type {Record<string, { script: string, gate: Gate, facts: string[], why: string, cost: string, full: string }>} */
+/** @type {Record<string, { script: string, gate: Gate, facts: string[], why: string, cost: string }>} */
 const NOTICES = Object.fromEntries(
 	Object.entries(ROWS).map(([profile, row]) => {
 		const { script, gate, scope, cite, cost } = row;
@@ -57,7 +55,6 @@ const NOTICES = Object.fromEntries(
 				facts: "facts" in row ? row.facts : [],
 				why: `${scope}, ${GATE_CLAUSE[gate]}${cite ? ` ${cite}` : ""}`,
 				cost,
-				full: `node ${scriptPath(path.basename(script))}`,
 			},
 		];
 	}),

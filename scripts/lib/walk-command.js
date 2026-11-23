@@ -1,8 +1,8 @@
-const { inCheckout } = require("./script-path.js");
+const { isCoreRepo } = require("./script-path.js");
 
 /** @param {NodeJS.ProcessEnv} [env] @returns {string} */
 function walkCommand(env = process.env) {
-	return inCheckout(env)
+	return isCoreRepo(env)
 		? "node scripts/upgrade.js"
 		: "node scripts/lib/resolve-core.js scripts/upgrade.js";
 }

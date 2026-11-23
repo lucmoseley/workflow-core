@@ -1,10 +1,12 @@
 // @vitest-environment node
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { seenFrom } from "./core-path-testkit";
+import { cutWorktree, defineTemplate, mkScratchDir } from "./git-fixture";
 import { readRuleText } from "./rule-text.js";
 import {
 	corePath,
@@ -109,6 +111,119 @@ describe("in a source checkout", () => {
 	});
 });
 
+describe("from a cwd outside or inside a source-checkout core's repo (#5584)", () => {
+	const checkoutCore = defineTemplate((dir) => {
+		fs.mkdirSync(path.join(dir, "scripts"));
+		fs.writeFileSync(path.join(dir, "scripts", "probe.js"), "");
+		fs.writeFileSync(path.join(dir, "package.json"), "{}");
+		execFileSync("git", ["init", "-q"], { cwd: dir });
+		execFileSync(
+			"git",
+			[
+				"-c",
+				"user.email=t@t",
+				"-c",
+				"user.name=t",
+				"commit",
+				"-qm",
+				"c",
+				"--allow-empty",
+			],
+			{ cwd: dir },
+		);
+	});
+	const emptyRepo = defineTemplate((dir) => {
+		execFileSync("git", ["init", "-q"], { cwd: dir });
+	});
+	const fresh = (template: typeof emptyRepo, prefix: string) => {
+		const dir = mkScratchDir(prefix);
+		temps.push(dir);
+		template.instantiate(dir);
+		return dir;
+	};
+	const Script = "scripts/probe.js";
+
+	const both = (
+		cwd: string,
+		root: string,
+		env: Record<string, string> = {},
+	) => {
+		vi.stubEnv("WFC_SCRIPT_ROOT", root);
+		for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+		const js = seenFrom(cwd, () => ({
+			script: scriptPath("probe.js"),
+			doc: docPath("agents/issue-tracker.md"),
+			text: resolveScriptPaths(`node ${Script}`),
+		}));
+		const twin = (command: string, input = "") =>
+			spawnSync("bash", ["-c", `source ${shellQuote(SH)}; ${command}`], {
+				cwd,
+				input,
+				encoding: "utf8",
+				env: { ...process.env, WFC_SCRIPT_ROOT: root, ...env },
+			}).stdout;
+		const sh = {
+			script: twin("script_path probe.js"),
+			doc: twin("doc_path agents/issue-tracker.md"),
+			text: twin("resolve_script_paths", `node ${Script}`),
+		};
+		expect(sh).toEqual(js);
+		return js;
+	};
+	const absolute = (root: string) => ({
+		script: `${root}/${Script}`,
+		doc: `${root}/docs/agents/issue-tracker.md`,
+		text: `node ${root}/${Script}`,
+	});
+	const relative = {
+		script: Script,
+		doc: "docs/agents/issue-tracker.md",
+		text: `node ${Script}`,
+	};
+
+	it("names a script and a doc absolute from an adopter, in both twins", () => {
+		const root = fresh(checkoutCore, "core-");
+		expect(both(fresh(emptyRepo, "host-"), root)).toEqual(absolute(root));
+	});
+
+	it("names them absolute in the adopter's commit hook, which exports GIT_DIR, in both twins", () => {
+		const root = fresh(checkoutCore, "core-");
+		const host = fresh(emptyRepo, "host-");
+		expect(both(host, root, { GIT_DIR: path.join(host, ".git") })).toEqual(
+			absolute(root),
+		);
+	});
+
+	it("names them repo-relative from a linked worktree of the core's repo, GIT_DIR exported or not, in both twins", () => {
+		const root = fresh(checkoutCore, "core-");
+		const tree = cutWorktree(root);
+		expect(both(tree, root)).toEqual(relative);
+		const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+			cwd: tree,
+			encoding: "utf8",
+		}).trim();
+		expect(both(tree, root, { GIT_DIR: gitDir })).toEqual(relative);
+	});
+
+	it("names them absolute from a worktree whose registration was pruned, in both twins", () => {
+		const root = fresh(checkoutCore, "core-");
+		const tree = cutWorktree(root);
+		fs.rmSync(path.join(root, ".git", "worktrees"), {
+			recursive: true,
+			force: true,
+		});
+		expect(both(tree, root)).toEqual(absolute(root));
+	});
+
+	it("stops at the nearest .git, naming them absolute where it names no repository, in both twins", () => {
+		const root = fresh(checkoutCore, "core-");
+		const sub = path.join(root, "sub");
+		fs.mkdirSync(sub);
+		fs.writeFileSync(path.join(sub, ".git"), "not a gitdir line\n");
+		expect(both(sub, root)).toEqual(absolute(root));
+	});
+});
+
 describe("the bash twins' own directory", () => {
 	const inLib = (script: string) =>
 		spawnSync("bash", ["-c", script], { cwd: __dirname, encoding: "utf8" });
@@ -123,9 +238,8 @@ describe("the bash twins' own directory", () => {
 			{ encoding: "utf8" },
 		);
 		expect(r.stderr).toBe("");
-		expect(r.stdout).toBe(
-			`${path.dirname(fs.realpathSync(SCRIPTS))}\nscripts/x.js`,
-		);
+		const core = path.dirname(fs.realpathSync(SCRIPTS));
+		expect(r.stdout).toBe(`${core}\n${core}/scripts/x.js`);
 	});
 
 	it("resolves when sourced by a bare name from its own directory", () => {

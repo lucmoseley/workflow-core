@@ -29,6 +29,7 @@ import {
 } from "./lib/arbiter-testkit";
 import { writeClaudeStub } from "./lib/claude-stub";
 import { commandPath } from "./lib/command-path-testkit";
+import { coreFile } from "./lib/core-path-testkit";
 import { throughFullPipe } from "./lib/full-pipe-testkit";
 import { printed as ghPrinted } from "./lib/gh-stub";
 import { writeFaultyGit } from "./lib/git-fault-fake";
@@ -465,7 +466,7 @@ describe("list", () => {
 		it("counts what it hid and names the flag that shows it (mantahostels#174)", () => {
 			bothKinds();
 			expect(out(["list"])).toContain(
-				"1 stale claim(s) hidden — node scripts/session-arbiter.js list --all",
+				`1 stale claim(s) hidden — node ${coreFile("scripts/session-arbiter.js")} list --all`,
 			);
 		});
 
@@ -2909,7 +2910,9 @@ describe("claim validates the region id it is handed (mantahostels#1313)", () =>
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("§A register tables are derived");
 		expect(r.stderr).toContain("docs/doc-map-classes.json#A:<path>");
-		expect(r.stderr).toContain("node scripts/generate-doc-map-section-a.js");
+		expect(r.stderr).toContain(
+			`node ${coreFile("scripts/generate-doc-map-section-a.js")}`,
+		);
 		expect(r.stderr).toContain("RETRYING WILL NEVER CLEAR IT");
 		expect(heldPaths()).toEqual([]);
 	});

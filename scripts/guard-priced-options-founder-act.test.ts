@@ -5,6 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
+import { escapeRe } from "./lib/regex-group.js";
 import {
 	readStopGuardBlockWithin,
 	readStopGuardReason,
@@ -226,7 +228,7 @@ describe("the refusal", () => {
 		expect(text).toContain("Q1 (A): back-reference");
 		expect(text).toContain("act and report rather than asking who does it");
 		expect(text).toContain(
-			"the rule could not be read from docs/agents/rules/founder-handover.txt",
+			`the rule could not be read from ${coreFile("docs/agents/rules/founder-handover.txt")}`,
 		);
 		expect(failOpenLog(path.join(dir, "config"))).toContain(
 			"guard-priced-options founder-hand-over rule-text founder-handover",
@@ -701,7 +703,9 @@ describe("the permission line it prints", () => {
 		const line = parsePermissionLine(
 			stop(round("Paste `! <cmd>` for the permission.")),
 		);
-		expect(line).toMatch(/^node scripts\/grant-permission\.js /);
+		expect(line).toMatch(
+			new RegExp(`^node ${escapeRe(coreFile("scripts/grant-permission.js"))} `),
+		);
 		const h = host();
 		execFileSync("bash", ["-c", line], {
 			cwd: ROOT,

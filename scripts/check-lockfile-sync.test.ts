@@ -3,18 +3,15 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { seenFrom } from "./lib/core-path-testkit";
 import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
 import { GATES } from "./lib/precommit-gates.js";
+import { readRuleText } from "./lib/rule-text.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const CHECKER = "scripts/check-lockfile-sync.js";
 const SCRIPT = path.join(__dirname, "check-lockfile-sync.js");
-const RULE = fs
-	.readFileSync(
-		path.join(__dirname, "..", "docs", "agents", "rules", "lockfile-sync.txt"),
-		"utf8",
-	)
-	.trimEnd();
+const rule = () => seenFrom(dir, () => readRuleText("lockfile-sync"));
 
 let dir: string;
 let hooks: string;
@@ -53,7 +50,7 @@ const expectRefused = (
 ) => {
 	expect(r.status).toBe(1);
 	expect(r.out).toContain(says);
-	expect(r.out).toContain(RULE);
+	expect(r.out).toContain(rule());
 };
 
 beforeEach(() => {
@@ -77,7 +74,7 @@ describe("check-lockfile-sync", () => {
 		write("package-lock.json", lockfile({ ms: "^2.1.3" }));
 		const r = commit("package.json", "package-lock.json");
 		expect(r.status).toBe(0);
-		expect(r.out).not.toContain(RULE);
+		expect(r.out).not.toContain(rule());
 	});
 
 	it("refuses a dependency staged without its lockfile, printing the whole rule", () => {
@@ -135,7 +132,7 @@ describe("check-lockfile-sync", () => {
 		write("notes.txt", "x");
 		const r = commit("notes.txt");
 		expect(r.status).toBe(0);
-		expect(r.out).not.toContain(RULE);
+		expect(r.out).not.toContain(rule());
 	});
 
 	it("skips a commit staging only a package.json below the root", () => {

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
+import { coreFile } from "./lib/core-path-testkit";
 import { defineTemplate, mkScratchDir, trioTemplate } from "./lib/git-fixture";
 import {
 	buildBashPayload,
@@ -62,6 +63,8 @@ const readDenyReason = (command: string, at: Spawn = {}) => {
 		throw new Error(`expected a deny for: ${command}`);
 	return out.permissionDecisionReason as string;
 };
+
+const REPAIR = `node ${coreFile("scripts/repair-main.js")}`;
 
 const { readRuleText } = require("./lib/rule-text") as {
 	readRuleText: (id: string) => string;
@@ -161,9 +164,7 @@ describe("each production read, crossed once", () => {
 			expect(readDenyReason(command)).not.toContain("repair-main");
 			for (const broken of ["", "\0".repeat(41)]) {
 				fs.writeFileSync(path.join(shared, ".git/refs/heads/main"), broken);
-				expect(readDenyReason(command)).toContain(
-					"node scripts/repair-main.js",
-				);
+				expect(readDenyReason(command)).toContain(REPAIR);
 			}
 		},
 	);
@@ -225,7 +226,7 @@ describe("each production read, crossed once", () => {
 		fs.writeFileSync(path.join(shared, ".git/refs/heads/main"), "");
 		expect(
 			readDenyReason("git update-ref refs/heads/main HEAD", { cwd: worktree }),
-		).toContain("node scripts/repair-main.js");
+		).toContain(REPAIR);
 	});
 
 	it("classes the tree a command lands in", () => {

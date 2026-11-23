@@ -24,7 +24,7 @@ beforeEach(() => {
 describe("an injected fragment as an install spells it", () => {
 	it("comes from a probe tree read as an install, not a checkout", () => {
 		expect(
-			asInstall(REPO, () => require("./script-path.js").inCheckout()),
+			asInstall(REPO, () => require("./script-path.js").coreIsCheckout()),
 		).toBe(false);
 	});
 

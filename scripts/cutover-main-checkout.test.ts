@@ -10,6 +10,7 @@ import {
 	type Row,
 } from "./lib/agents-stop-fake";
 import { writeClaudeStub } from "./lib/claude-stub";
+import { coreFile } from "./lib/core-path-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "cutover-main-checkout.js");
@@ -188,7 +189,9 @@ it("exits 2 on an argument it does not take", () => {
 	const r = run(main, "--now");
 
 	expect(r.status).toBe(2);
-	expect(r.stderr).toContain("usage: node scripts/cutover-main-checkout.js");
+	expect(r.stderr).toContain(
+		`usage: node ${coreFile("scripts/cutover-main-checkout.js")}`,
+	);
 	expect(upstream()).toBe("refs/heads/landing");
 });
 

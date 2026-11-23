@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { coreRoot, inCheckout } = require("./script-path.js");
+const { coreRoot, coreIsCheckout } = require("./script-path.js");
 const { isCoreRoot } = require("./core-hooks.js");
 const {
 	CORE_RULES,
@@ -52,7 +52,7 @@ function makeInstallProbe(core) {
  * @returns {T}
  */
 function asInstall(root, read) {
-	if (!inCheckout()) return read();
+	if (!coreIsCheckout()) return read();
 	const store = installStore(root);
 	const probe = makeInstallProbe(coreRoot());
 	const before = process.env.WFC_SCRIPT_ROOT;

@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ignoreFailure } from "./caught.js";
+import { coreFile } from "./core-path-testkit";
 import { PROGRAM } from "./doc-map-gate-program.js";
 import { emptyDataFile } from "./doc-map-testkit";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
@@ -976,7 +977,9 @@ describe("a hand-edited Section A row", () => {
 			expect(code).not.toBe(0);
 			expect(output).toContain("§A does not match what the generator renders");
 			expect(output).toContain("docs/notes.md — row differs");
-			expect(output).toContain("npm run gen:doc-map-section-a");
+			expect(output).toContain(
+				`node ${coreFile("scripts/generate-doc-map-section-a.js")}`,
+			);
 			expect(output).toContain("are NOT in HEAD — this commit adds them");
 		},
 		slowGateMs,

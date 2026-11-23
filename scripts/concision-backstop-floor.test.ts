@@ -20,8 +20,11 @@ import {
 	run,
 	write,
 } from "./lib/concision-backstop-testkit";
+import { seenFrom } from "./lib/core-path-testkit";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
+import { readRuleText } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process.js";
+import { docPath } from "./lib/script-path";
 import { shellQuote } from "./lib/sh-quote.js";
 
 backstopFixture();
@@ -254,18 +257,11 @@ describe("the Husky hooks are code — mantahostels#2779", () => {
 	});
 });
 
-const closingSteps = fs
-	.readFileSync(
-		path.resolve(__dirname, "../docs/agents/rules/implement-closing-steps.txt"),
-		"utf8",
-	)
-	.trim();
-const dispatchShape = fs
-	.readFileSync(
-		path.resolve(__dirname, "../docs/agents/rules/review-dispatch-shape.txt"),
-		"utf8",
-	)
-	.trim();
+const fromRepo = <T>(read: () => T) => seenFrom(repo, read);
+const closingSteps = () =>
+	fromRepo(() => readRuleText("implement-closing-steps"));
+const dispatchShape = () =>
+	fromRepo(() => readRuleText("review-dispatch-shape"));
 
 describe("the /implement closing steps — #2031", () => {
 	it("prints them whole on the prose nag of an /implement session", () => {
@@ -275,7 +271,7 @@ describe("the /implement closing steps — #2031", () => {
 
 		const reason = run("stop") ?? "";
 		expect(reason).toContain("has not run a concision pass");
-		expect(reason).toContain(closingSteps);
+		expect(reason).toContain(closingSteps());
 	});
 
 	it("prints them whole on the code nag of an /implement session", () => {
@@ -283,7 +279,7 @@ describe("the /implement closing steps — #2031", () => {
 		write("scripts/tiny.ts", "export const x = 1;\n");
 		record("scripts/tiny.ts", ME);
 
-		expect(run("stop") ?? "").toContain(closingSteps);
+		expect(run("stop") ?? "").toContain(closingSteps());
 	});
 
 	it("leaves them off the nag of a session that never ran /implement", () => {
@@ -292,7 +288,7 @@ describe("the /implement closing steps — #2031", () => {
 
 		const reason = run("stop") ?? "";
 		expect(reason).toContain("has not run a concision pass");
-		expect(reason).not.toContain(closingSteps);
+		expect(reason).not.toContain(closingSteps());
 	});
 
 	it("prints nothing when an /implement session owes no pass", () => {
@@ -317,9 +313,9 @@ describe("a rule store that cannot supply the fragments (#3439)", () => {
 		record("docs/mine.md", ME);
 
 		const reason = run("stop", ME, noRules()) ?? "";
-		expect(reason).not.toContain(closingSteps);
+		expect(reason).not.toContain(closingSteps());
 		expect(reason).toContain(
-			"its closing steps are in docs/agents/rules/implement-closing-steps.txt.",
+			`its closing steps are in ${fromRepo(() => docPath("agents/rules/implement-closing-steps.txt"))}.`,
 		);
 		expect(readGuardErrorsLog(cfg)).toContain(
 			"rule:implement-closing-steps unreadable",
@@ -331,9 +327,9 @@ describe("a rule store that cannot supply the fragments (#3439)", () => {
 		record("scripts/mine.ts", ME);
 
 		const reason = run("stop", ME, noRules()) ?? "";
-		expect(reason).not.toContain(dispatchShape);
+		expect(reason).not.toContain(dispatchShape());
 		expect(reason).toContain(
-			"Dispatch the review runs as docs/agents/rules/review-dispatch-shape.txt says.",
+			`Dispatch the review runs as ${fromRepo(() => docPath("agents/rules/review-dispatch-shape.txt"))} says.`,
 		);
 		expect(readGuardErrorsLog(cfg)).toContain(
 			"rule:review-dispatch-shape unreadable",

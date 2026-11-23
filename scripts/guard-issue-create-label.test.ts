@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
+import { coreFile, seenFrom } from "./lib/core-path-testkit";
 import {
 	FALLBACK_LEAD,
 	type JudgeFakePlan,
@@ -73,7 +74,7 @@ describe("each exit", () => {
 			'This creates an issue with no `takes:` label: gh issue create --title "…" --body "…"',
 		);
 		expect(out.permissionDecisionReason).toContain(
-			readRuleText("issue-takes-label"),
+			seenFrom(dir, () => readRuleText("issue-takes-label")),
 		);
 		expect(readFailOpenRecords(config, dir)).toEqual([]);
 	});
@@ -84,7 +85,7 @@ describe("each exit", () => {
 		);
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toContain(
-			readRuleText("founder-deliverable"),
+			seenFrom(dir, () => readRuleText("founder-deliverable")),
 		);
 	});
 
@@ -94,7 +95,7 @@ describe("each exit", () => {
 		});
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toContain(
-			"could not be read from docs/agents/rules/issue-takes-label.txt",
+			`could not be read from ${coreFile("docs/agents/rules/issue-takes-label.txt")}`,
 		);
 	});
 
@@ -105,7 +106,7 @@ describe("each exit", () => {
 		);
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toContain(
-			"could not be read from docs/agents/rules/founder-deliverable.txt",
+			`could not be read from ${coreFile("docs/agents/rules/founder-deliverable.txt")}`,
 		);
 	});
 

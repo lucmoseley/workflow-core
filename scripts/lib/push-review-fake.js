@@ -1,6 +1,13 @@
 /** @typedef {import("./push-review.js").ReviewOwed} ReviewOwed */
 
+const { coreRoot } = require("./script-path.js");
+const { shellQuote } = require("./sh-quote.js");
+
 const BASE = "0123456789abcdef0123456789abcdef01234567";
+// #5584
+const MARKER_SCRIPT = shellQuote(
+	`${coreRoot()}/scripts/write-review-marker.js`,
+);
 
 /** @type {Record<"none" | "standard" | "escalated" | "rejected" | "rejectedEscalated", ReviewOwed | null>} */
 const ANSWERS = {
@@ -12,7 +19,7 @@ const ANSWERS = {
 		tierLine: "The `standard` review tier is owed.",
 		markerMore: "",
 		passFault: "",
-		markerScript: "scripts/write-review-marker.js",
+		markerScript: MARKER_SCRIPT,
 	},
 	escalated: {
 		tier: "escalated",
@@ -23,7 +30,7 @@ const ANSWERS = {
 		markerMore:
 			" On this escalated change, record it with --tier escalated (or mission-critical) --areas 'RLS' as well, or it counts as no review.",
 		passFault: "",
-		markerScript: "scripts/write-review-marker.js",
+		markerScript: MARKER_SCRIPT,
 	},
 	rejected: {
 		tier: "standard",
@@ -32,7 +39,7 @@ const ANSWERS = {
 		tierLine: "The `standard` review tier is owed.",
 		markerMore: "",
 		passFault: "its base= is not a 40-hex sha, 'main'",
-		markerScript: "scripts/write-review-marker.js",
+		markerScript: MARKER_SCRIPT,
 	},
 	rejectedEscalated: {
 		tier: "escalated",
@@ -44,7 +51,7 @@ const ANSWERS = {
 			" On this escalated change, record it with --tier escalated (or mission-critical) --areas 'RLS' as well, or it counts as no review.",
 		passFault:
 			"its tier= is 'standard', and only escalated or mission-critical covers a declared sensitive path",
-		markerScript: "scripts/write-review-marker.js",
+		markerScript: MARKER_SCRIPT,
 	},
 };
 

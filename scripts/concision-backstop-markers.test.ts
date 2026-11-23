@@ -17,6 +17,7 @@ import {
 	spawnBackstop,
 	write,
 } from "./lib/concision-backstop-testkit";
+import { coreFile } from "./lib/core-path-testkit";
 
 backstopFixture();
 
@@ -368,7 +369,7 @@ describe("pass markers — the mantahostels#139 change", () => {
 
 		const reason = run("stop");
 		expect(reason).toContain(
-			`node scripts/write-review-marker.js --base ${readRecordedBase()} --findings `,
+			`node ${coreFile("scripts/write-review-marker.js")} --base ${readRecordedBase()} --findings `,
 		);
 	});
 });

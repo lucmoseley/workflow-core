@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { noop } from "./lib/noop.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process";
@@ -619,7 +620,7 @@ describe("a flagged turn", () => {
 		const { messageHash } = readLogLines()[0];
 
 		expect(saidBy(res)).toContain(
-			`node scripts/jev-verdict.js ${messageHash} right|wrong`,
+			`node ${coreFile("scripts/jev-verdict.js")} ${messageHash} right|wrong`,
 		);
 	});
 

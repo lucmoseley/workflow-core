@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -395,7 +396,7 @@ describe("the unseen-read warning and listing (#1881)", () => {
 	const body =
 		'const ROOT = process.cwd();\nfs.readFileSync(path.join(ROOT, "docs", name));\n';
 	const site = `${unseenTest}:2: a path segment held in \`name\``;
-	const usage = "usage: node scripts/generate-test-read-edges.js";
+	const usage = `usage: node ${coreFile("scripts/generate-test-read-edges.js")}`;
 
 	const check = () =>
 		runInProcess(SCRIPT, ["--root", dir, "--check"], { cwd: dir });

@@ -34,6 +34,38 @@ function readRegistrationCommonDir(registration) {
 		: null;
 }
 
+/**
+ * @param {string} gitDir
+ * @returns {string}
+ */
+function readGitDirCommonDir(gitDir) {
+	const common = readTextOrNull(path.join(gitDir, "commondir"));
+	return common === null ? gitDir : path.resolve(gitDir, common.trim());
+}
+
+/**
+ * @param {string} start
+ * @returns {{top: string, common: string | null} | null}
+ */
+function readRepoCommonDir(start) {
+	for (let dir = start; ; dir = path.dirname(dir)) {
+		const dotGit = path.join(dir, ".git");
+		let text;
+		try {
+			text = fs.readFileSync(dotGit, "utf8");
+		} catch (err) {
+			const { code } = caught(err);
+			if (code === "EISDIR")
+				return { top: dir, common: readGitDirCommonDir(dotGit) };
+			if (code !== "ENOENT" && code !== "ENOTDIR") throw err;
+			if (path.dirname(dir) === dir) return null;
+			continue;
+		}
+		const target = parseGitFileTarget(dir, text);
+		return { top: dir, common: target && readGitDirCommonDir(target) };
+	}
+}
+
 /** @param {string} root */
 function readGitFileCommonDir(root) {
 	const text = readTextOrNull(path.join(root, ".git"));
@@ -127,6 +159,8 @@ function registrationGate(dir, say) {
 
 module.exports = {
 	parseGitFileTarget,
+	readGitDirCommonDir,
+	readRepoCommonDir,
 	readGitFile,
 	readGitFileCommonDir,
 	readRegisteredTree,
