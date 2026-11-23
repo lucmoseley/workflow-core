@@ -299,6 +299,22 @@ export const emptyRepoTemplate: BuildFn = (dir) => {
 	git(dir, "init", "-q");
 };
 
+export const committedRepoTemplate: BuildFn = (dir) => {
+	emptyRepoTemplate(dir);
+	git(
+		dir,
+		"-c",
+		"user.name=t",
+		"-c",
+		"user.email=t@t",
+		"commit",
+		"-q",
+		"--allow-empty",
+		"-m",
+		"init",
+	);
+};
+
 export interface TrioOptions {
 	worktree?: "branch" | "detach";
 }

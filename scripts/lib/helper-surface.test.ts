@@ -5,7 +5,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
+import {
+	committedRepoTemplate,
+	defineTemplate,
+	emptyRepoTemplate,
+} from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
 import { isShipped } from "./plugin-tree.js";
 import { runInProcess, runInProcessAsync } from "./run-in-process.js";
@@ -30,24 +34,7 @@ const ofKind = (ext: string) =>
 	entries.filter(([file]) => path.extname(file) === ext);
 const KINDS = [".js", ".sh", ".py", ".ts"];
 const emptyRepo = defineTemplate(emptyRepoTemplate);
-const committedRepo = defineTemplate((dir) => {
-	emptyRepoTemplate(dir);
-	spawnSync(
-		"git",
-		[
-			"-c",
-			"user.name=t",
-			"-c",
-			"user.email=t@t",
-			"commit",
-			"-q",
-			"--allow-empty",
-			"-m",
-			"init",
-		],
-		{ cwd: dir },
-	);
-});
+const committedRepo = defineTemplate(committedRepoTemplate);
 
 describe("the helper-surface manifest", () => {
 	it("names at least one entry point, each exporting at least one name", () => {

@@ -46,7 +46,7 @@ import os from "node:os";
 import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import {
 	GATES,
 	PROFILE_GATES as PRECOMMIT_GATES,
@@ -71,7 +71,7 @@ const biomeProject = defineTemplate((dir) => {
 		path.join(dir, "package.json"),
 	);
 	fs.writeFileSync(path.join(dir, ".gitignore"), "");
-	execFileSync("git", ["init", "-q"], { cwd: dir });
+	emptyRepoTemplate(dir);
 });
 
 function biomeDiagnostics(
