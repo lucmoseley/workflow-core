@@ -846,7 +846,7 @@ describe("from a linked worktree, the poll window is the machine's, not a tree's
 	});
 });
 
-describe("the limits it keeps, deliberately", () => {
+describe("its deliberate limits", () => {
 	it("counts a third look as a loop however many other tools ran between the looks", () => {
 		run();
 		bash("npm run build");

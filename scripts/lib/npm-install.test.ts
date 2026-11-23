@@ -1336,7 +1336,7 @@ describe("an install from a session in its own worktree (#4242)", () => {
 	});
 });
 
-describe("the limits it keeps, deliberately", () => {
+describe("its deliberate limits", () => {
 	it.each([
 		"xargs npm install left-pad",
 		"env npm install left-pad",

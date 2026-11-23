@@ -789,7 +789,7 @@ describe("from a linked worktree, the artefact is the main checkout's (#4242)", 
 	});
 });
 
-describe("the limits it keeps, deliberately", () => {
+describe("its deliberate limits", () => {
 	it("lets the dispatch that trips a rule launch, the rule riding on its result to correct only the next", () => {
 		const v = envelopeOf(dispatch({ model: "sonnet" }));
 		expect(v.permissionDecision).toBe("allow");

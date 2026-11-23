@@ -552,6 +552,27 @@ describe("its deliberate limits", () => {
 		},
 	);
 
+	it.each([
+		"echo 'npm run test' | at now",
+		"systemd-run --user npm run test",
+		"tmux new-session -d 'npm run test'",
+	])("passes a detachment through `%s` unseen", (command) => {
+		expect(verdict(command)).toBe("allow");
+	});
+
+	it("reads a detachment past a tab-indented `<<-` terminator as heredoc body", () => {
+		expect(
+			verdict(["cat <<-EOF", "\tbody", "\tEOF", "npm run test &"].join("\n")),
+		).toBe("allow");
+	});
+
+	it("reads a second heredoc opened on one line as commands", () => {
+		const command = ["cat <<A <<B", "a", "A", "b &", "B", "npm run test"].join(
+			"\n",
+		);
+		expect(run(command)?.permissionDecision).toBe("deny");
+	});
+
 	it("refuses a subagent's detached suite as it refuses the session's", () => {
 		const out = runCore(
 			"guard-suite-background",

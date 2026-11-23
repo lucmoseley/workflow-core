@@ -242,6 +242,7 @@ describe("arming", () => {
 
 	it("leaves workflow-permissions unarmed where a commit deletes the last workflow", async () => {
 		const gate = GATES.find((g) => g.id === "workflow-permissions");
+		expect(gate).toBeDefined();
 		const rows = [row("workflow-permissions", { arm: gate?.arm as Arm })];
 		const wf = ".github/workflows/ci.yml";
 		const deleted = repo({ [wf]: "on: push\n" }, { [wf]: null });

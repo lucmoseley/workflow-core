@@ -12,6 +12,7 @@ import {
 	runDispatchCore,
 } from "./lib/pretool-guard-testkit";
 import { code, ME, PAST_FLOOR, reviewFixture } from "./lib/push-review-fixture";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const CORE = "guard-push-rules";
 const { readRuleText } = require("./lib/rule-text") as {
@@ -143,7 +144,9 @@ describe("the push rules, end to end", () => {
 		const broken = path.join(at.shared, "broken");
 		fs.mkdirSync(broken);
 		fs.writeFileSync(path.join(broken, ".git"), "gitdir: /nonexistent\n");
-		expect(emission(at, `git -C ${broken} push origin main`)).toBeNull();
+		expect(
+			emission(at, `git -C ${shellQuote(broken)} push origin main`),
+		).toBeNull();
 		expect(readFailOpenLog(at.config, at.shared)).toMatch(
 			/git could not answer for .*broken/,
 		);

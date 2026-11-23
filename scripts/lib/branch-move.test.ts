@@ -618,7 +618,7 @@ describe("what a flag makes of the word after it", () => {
 	});
 });
 
-describe("the limits it keeps, deliberately", () => {
+describe("its deliberate limits", () => {
 	it.each([
 		["xargs git checkout -b foo", "xargs"],
 		["env git checkout -b foo", "env"],

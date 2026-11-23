@@ -77,7 +77,7 @@ describe("untrackedSearch", () => {
 	});
 });
 
-describe("untrackedSearch's lexical limits, kept deliberately", () => {
+describe("untrackedSearch's deliberate limits", () => {
 	it("passes a search phrased without its verbs unjudged", () => {
 		expect(
 			untrackedSearch({ prompt: "Find every caller in the repo." }),
