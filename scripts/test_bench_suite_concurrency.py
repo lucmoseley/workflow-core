@@ -449,3 +449,7 @@ class TestCeilingKill:
     def test_the_marker_matches_run_vitests_own(self, bench):
         source = (REPO / "scripts/lib/suite-ceiling.js").read_text()
         assert f'const CEILING_LINE = "{bench.CEILING_LINE}";' in source
+
+
+def test_default_floor_is_earlyooms_line_plus_the_margin(bench):
+    assert bench.default_floor_mb(10_000) == 800 + bench.DEFAULT_FLOOR_MARGIN_MB

@@ -11,47 +11,48 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 from bench_suite_concurrency import (
-    EARLYOOM_PCT,
-    DEFAULT_FLOOR_MARGIN_MB,
     REPO,
+    Watchdog,
     children_map,
+    default_floor_mb,
     meminfo,
     mem_available_mb,
     proc_stats,
     swap_used_mb,
     tree,
+    volunteer,
 )
 from fail_open import expected, fail_open
 
+# #5652
+NODE_HEAP = "--max-old-space-size=2048"
 WAITING = "Waiting for file changes"
 # guess: 5 Hz catches a re-run's worker spawn, which lives for seconds, #5652
 SAMPLE_S = 0.2
+# guess: a resting watcher changes over tens of seconds, not within one, #5652
+REST_SAMPLE_S = 1.0
 # #2667
 FIRST_RUN_MAX_S = 840
+# guess: vitest closes on SIGTERM within a second when idle, #5652
+CLOSE_GRACE_S = 10
 
 
-def volunteer(pid):
-    try:
-        with open(f"/proc/{pid}/oom_score_adj", "w") as f:
-            f.write("1000")
-    except (FileNotFoundError, ProcessLookupError, PermissionError) as e:
-        expected(e, f"pid {pid} exited, or is not ours to rank")
+class Tree:
+    def __init__(self, root):
+        self.root = root
+        self._volunteered = set()
 
-
-def floor_mb():
-    return meminfo()["MemTotal"] / 1024 * EARLYOOM_PCT / 100 + DEFAULT_FLOOR_MARGIN_MB
-
-
-def tree_rss_mb(root):
-    kids = children_map()
-    rss, npids = 0, 0
-    for pid in tree(root, kids):
-        st = proc_stats(pid)
-        if st:
-            volunteer(pid)
-            rss += st[1]
-            npids += 1
-    return rss / 1e6, npids
+    def rss_mb(self):
+        rss, npids = 0, 0
+        for pid in tree(self.root, children_map()):
+            st = proc_stats(pid)
+            if st:
+                if pid not in self._volunteered:
+                    self._volunteered.add(pid)
+                    volunteer(pid)
+                rss += st[1]
+                npids += 1
+        return rss / 1e6, npids
 
 
 class Watcher:
@@ -60,18 +61,18 @@ class Watcher:
         if standalone:
             cmd.append("--standalone")
         cmd.extend(watch_files)
-        env = {**os.environ, "NODE_OPTIONS": "--max-old-space-size=2048"}
         self.log = open(log_path, "w")
         self.proc = subprocess.Popen(
             cmd,
             cwd=REPO,
-            env=env,
+            env={**os.environ, "NODE_OPTIONS": NODE_HEAP},
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             start_new_session=True,
         )
+        self.tree = Tree(self.proc.pid)
         self.waits = 0
         self.lines = 0
         self.lock = threading.Lock()
@@ -91,24 +92,29 @@ class Watcher:
             return self.waits, self.lines
 
     def close(self):
-        try:
-            os.killpg(self.proc.pid, signal.SIGTERM)
-            self.proc.wait(timeout=10)
-        except subprocess.TimeoutExpired as e:
-            fail_open(e, "SIGKILL the watcher's group")
-            os.killpg(self.proc.pid, signal.SIGKILL)
-            self.proc.wait()
-        except ProcessLookupError as e:
-            expected(e, "the watcher's group already exited")
+        close_group(self.proc, CLOSE_GRACE_S)
         self.log.close()
 
 
-def rest(watcher, seconds):
+def close_group(proc, grace_s):
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=grace_s)
+    except subprocess.TimeoutExpired as e:
+        fail_open(e, "SIGKILL the watcher's group")
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+    except ProcessLookupError as e:
+        expected(e, "the watcher's group already exited")
+        proc.wait()
+
+
+def resting_rss(read, seconds, clock=time.monotonic, sleep=time.sleep):
     readings = []
-    end = time.time() + seconds
-    while time.time() < end:
-        readings.append(tree_rss_mb(watcher.proc.pid))
-        time.sleep(1)
+    end = clock() + seconds
+    while clock() < end:
+        readings.append(read())
+        sleep(REST_SAMPLE_S)
     rss = [r for r, _ in readings]
     return {
         "rss_mean_mb": round(sum(rss) / len(rss), 1),
@@ -117,84 +123,86 @@ def rest(watcher, seconds):
     }
 
 
-def run_other(watcher, other_files, floor):
-    env = {
-        **os.environ,
-        "NODE_OPTIONS": "--max-old-space-size=2048",
-        "WFC_TEST_STALL_MS": "0",
-    }
+def run_beside(watcher, other_files, watchdog):
     start_avail = mem_available_mb()
     start_swap = swap_used_mb()
     waits_before, lines_before = watcher.counts()
     other = subprocess.Popen(
         ["node", "scripts/run-vitest.js", *other_files],
         cwd=REPO,
-        env=env,
+        env={**os.environ, "NODE_OPTIONS": NODE_HEAP, "WFC_TEST_STALL_MS": "0"},
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
-    peak_rss, peak_pids, trough = 0.0, 0, start_avail
-    started = time.time()
-    while other.poll() is None:
-        rss, npids = tree_rss_mb(watcher.proc.pid)
-        peak_rss = max(peak_rss, rss)
-        peak_pids = max(peak_pids, npids)
-        avail = mem_available_mb()
-        trough = min(trough, avail)
-        if avail < floor:
-            os.killpg(other.pid, signal.SIGKILL)
-            watcher.close()
-            raise SystemExit(
-                f"MemAvailable {avail:.0f} MB under the {floor:.0f} MB floor: killed both"
-            )
-        time.sleep(SAMPLE_S)
+    watchdog.arm([watcher.proc.pid, other.pid])
+    watchdog.start()
+    peak_rss, peak_pids = 0.0, 0
+    started = time.monotonic()
+    try:
+        while other.poll() is None:
+            rss, npids = watcher.tree.rss_mb()
+            peak_rss = max(peak_rss, rss)
+            peak_pids = max(peak_pids, npids)
+            time.sleep(SAMPLE_S)
+    finally:
+        watchdog.disarm()
+    if watchdog.tripped_at is not None:
+        raise SystemExit(f"watchdog tripped at {watchdog.tripped_at} MB: killed both")
     waits_after, lines_after = watcher.counts()
     return {
         "other_exit": other.returncode,
-        "other_s": round(time.time() - started, 1),
+        "other_s": round(time.monotonic() - started, 1),
         "watcher_peak_rss_mb": round(peak_rss, 1),
         "watcher_peak_pids": peak_pids,
         "rest_avail_mb": round(start_avail),
-        "dip_mb": round(start_avail - trough),
+        "dip_mb": round(start_avail - watchdog.min_avail),
         "swap_delta_mb": round(swap_used_mb() - start_swap),
         "watcher_reran": waits_after > waits_before,
         "watcher_lines_during": lines_after - lines_before,
     }
 
 
-def row(args, n, out_dir):
-    floor = floor_mb()
-    watcher = Watcher(
-        args.watch, args.standalone, os.path.join(out_dir, f"watcher-{n}.log")
-    )
+def first_run(watcher, watchdog):
+    watchdog.arm([watcher.proc.pid])
+    watchdog.start()
+    opened = time.monotonic()
+    peak = 0.0
     try:
-        opened = time.time()
-        first_peak = 0.0
         while watcher.counts()[0] == 0:
             if watcher.proc.poll() is not None:
                 raise SystemExit(
                     f"watcher exited {watcher.proc.returncode} before idling"
                 )
-            if time.time() - opened > FIRST_RUN_MAX_S:
+            if time.monotonic() - opened > FIRST_RUN_MAX_S:
                 raise SystemExit("watcher never printed its idle line")
-            first_peak = max(first_peak, tree_rss_mb(watcher.proc.pid)[0])
-            if mem_available_mb() < floor:
-                raise SystemExit(
-                    "MemAvailable under the floor during the watcher's first run"
-                )
+            peak = max(peak, watcher.tree.rss_mb()[0])
             time.sleep(SAMPLE_S)
+    finally:
+        watchdog.disarm()
+    if watchdog.tripped_at is not None:
+        raise SystemExit(
+            f"watchdog tripped at {watchdog.tripped_at} MB in the first run"
+        )
+    return round(time.monotonic() - opened, 1), round(peak, 1)
+
+
+def bench_row(args, n, watchdog):
+    log = os.path.join(args.out, f"watcher-{n}.log")
+    watcher = Watcher(args.watch, args.standalone, log)
+    try:
+        first_s, first_peak = first_run(watcher, watchdog)
         result = {
             "row": n,
             "watch": "standalone"
             if args.standalone
             else (f"{len(args.watch)} files" if args.watch else "whole"),
-            "first_run_s": round(time.time() - opened, 1),
-            "first_run_peak_rss_mb": round(first_peak, 1),
-            "rest_before": rest(watcher, args.rest),
+            "first_run_s": first_s,
+            "first_run_peak_rss_mb": first_peak,
+            "rest_before": resting_rss(watcher.tree.rss_mb, args.rest),
         }
-        result.update(run_other(watcher, args.other, floor))
-        result["rest_after"] = rest(watcher, args.rest)
+        result.update(run_beside(watcher, args.other, watchdog))
+        result["rest_after"] = resting_rss(watcher.tree.rss_mb, args.rest)
         return result
     finally:
         watcher.close()
@@ -204,6 +212,7 @@ def main(argv):
     p = argparse.ArgumentParser(
         description="Hold a vitest watcher open through another suite's run."
     )
+    # guess: two rows show whether a figure repeats, #5652
     p.add_argument("--rows", type=int, default=2)
     # guess: long enough for vitest to reap an idle worker pool, #5652
     p.add_argument("--rest", type=int, default=30)
@@ -227,9 +236,10 @@ def main(argv):
     )
     args = p.parse_args(argv)
     os.makedirs(args.out, exist_ok=True)
+    watchdog = Watchdog(default_floor_mb(meminfo()["MemTotal"] / 1024))
     rows = []
     for n in range(1, args.rows + 1):
-        r = row(args, n, args.out)
+        r = bench_row(args, n, watchdog)
         print(json.dumps(r), flush=True)
         rows.append(r)
     with open(os.path.join(args.out, f"rows-{int(time.time())}.json"), "w") as f:

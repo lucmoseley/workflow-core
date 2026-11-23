@@ -175,6 +175,10 @@ def measure_baseline_drift(settles, settle_fn):
     return drift_from_settle_means([settle_fn() for _ in range(settles)])
 
 
+def default_floor_mb(mem_total_mb):
+    return mem_total_mb * EARLYOOM_PCT / 100 + DEFAULT_FLOOR_MARGIN_MB
+
+
 def parse_flags(flags, floor_mb):
     require_quiet = None
     measure_drift = None
@@ -445,7 +449,7 @@ def main(argv):
 
     mem_total_mb = meminfo()["MemTotal"] / 1024
     earlyoom_mb = mem_total_mb * EARLYOOM_PCT / 100
-    floor_mb = earlyoom_mb + DEFAULT_FLOOR_MARGIN_MB
+    floor_mb = default_floor_mb(mem_total_mb)
     try:
         floor_mb, require_quiet, measure_drift, workers = parse_flags(flags, floor_mb)
     except ValueError as e:
