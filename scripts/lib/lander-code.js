@@ -1,11 +1,16 @@
 const { execGit } = require("./git.js");
+const { LANDER_GIT_TIMEOUT_MS } = require("./lander-git.js");
 const { relativeUnder } = require("./is-under.js");
 
 /** @typedef {{sha: string, loaded: () => string[]}} RunCode */
 
 /** @param {string} root @param {string[]} args */
 const readGit = (root, args) =>
-	execGit(args, { cwd: root, encoding: "utf8" }).trim();
+	execGit(args, {
+		cwd: root,
+		encoding: "utf8",
+		timeout: LANDER_GIT_TIMEOUT_MS,
+	}).trim();
 
 /**
  * @param {string} root

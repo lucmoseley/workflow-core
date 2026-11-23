@@ -161,17 +161,10 @@ function sourceOf(status, env) {
 
 /**
  * @param {{bin: string, env: NodeJS.ProcessEnv, cwd: string,
- *   settings?: string, bg?: boolean, spawn?: typeof spawnRaw}} launch
+ *   settings?: string, bg: boolean, spawn?: typeof spawnRaw}} launch
  * @returns {string|null}
  */
-function launchAuthRefusal({
-	bin,
-	env,
-	cwd,
-	settings,
-	bg = false,
-	spawn = spawnRaw,
-}) {
+function launchAuthRefusal({ bin, env, cwd, settings, bg, spawn = spawnRaw }) {
 	const refused = (
 		/** @type {string} */ why,
 		remedy = "Unset what set it, or launch from a shell without it.",
@@ -216,6 +209,7 @@ if (require.main === module) {
 		bin: claudeBin(),
 		env: process.env,
 		cwd: process.cwd(),
+		bg: false,
 	});
 	if (why) {
 		writeFd(2, `REFUSED: ${why}\n`);
@@ -223,4 +217,4 @@ if (require.main === module) {
 	}
 }
 
-module.exports = { launchAuthRefusal };
+module.exports = { launchAuthRefusal, STATUS_TIMEOUT_MS };

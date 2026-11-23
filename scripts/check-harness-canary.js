@@ -194,6 +194,7 @@ function probe(version) {
 			bin: claudeBin(),
 			env: process.env,
 			cwd,
+			bg: false,
 		});
 		if (refusal) return verdictOf("unprobed", [refusal]);
 		const r = spawnSync(

@@ -136,7 +136,7 @@ async function recordInterrupt() {
 	/** @type {ReturnType<typeof startStreamChild> | undefined} */
 	let run;
 	try {
-		const refusal = launchAuthRefusal({ bin, env, cwd });
+		const refusal = launchAuthRefusal({ bin, env, cwd, bg: false });
 		if (refusal) throw new Error(`REFUSED: ${refusal}`);
 		/** @type {Record<string, unknown>[]} */
 		const rows = [];

@@ -8,6 +8,7 @@ const { caught, parseErrorText } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { gitCommonDirOrThrow } = require("./git.js");
 const { readJsonl } = require("./jsonl.js");
+const { noop } = require("./noop.js");
 const { writeFd } = require("./write-fd.js");
 const { PushRefused } = require("./network-fault.js");
 const {
@@ -19,6 +20,7 @@ const {
 } = require("./run-budgeted.js");
 const {
 	GATED_COMMIT_TIMEOUT_MS,
+	LANDER_GIT_TIMEOUT_MS,
 	createRemoteRef,
 	deleteRemoteRef,
 	isAncestor,
@@ -156,6 +158,7 @@ function readOtherTrackerRemotes(root) {
  * @param {boolean} [options.ciRepeats]
  * @param {number} [options.gateGraceMs]
  * @param {boolean} [options.suiteRepeats]
+ * @param {() => void} [options.beat]
  * @returns {QueueGit}
  */
 function queueGit(
@@ -166,6 +169,7 @@ function queueGit(
 		ciRepeats = false,
 		suiteRepeats = false,
 		gateGraceMs = HOOK_GRACE_MS,
+		beat = noop,
 	} = {},
 ) {
 	const batchSet = batchGateSet(ciRepeats, suiteRepeats);
@@ -209,7 +213,9 @@ function queueGit(
 		} catch (err) {
 			const broken = BROKEN_OBJECT.exec(String(caught(err).stderr ?? ""));
 			if (!broken) throw err;
-			const common = gitCommonDirOrThrow(root);
+			const common = gitCommonDirOrThrow(root, {
+				timeout: LANDER_GIT_TIMEOUT_MS,
+			});
 			fs.rmSync(
 				path.resolve(root, common, "objects", broken[1] ?? "", broken[2] ?? ""),
 				{ force: true },
@@ -222,11 +228,15 @@ function queueGit(
 		}
 	};
 	/** @param {string[]} args */
-	const git = (args) => readGit(root, args);
+	const git = (args) => {
+		beat();
+		return readGit(root, args);
+	};
 	/** @type {DroppedRef[]|null} */
 	let trackerDropped = null;
 	// #5539
 	const readTrackerDropped = () => {
+		beat();
 		trackerDropped ??= readOtherTrackerRemotes(root).flatMap((r) =>
 			git(["ls-remote", r, `${DROPPED_HEADS}*`])
 				.split("\n")
@@ -352,11 +362,17 @@ function queueGit(
 	 * @returns {MergeResult}
 	 */
 	function mergeGated(onto, members, started) {
+		beat();
 		return withThrowawayTree(
 			root,
 			onto,
 			{ program: "queue-lander", use: "merge" },
-			(dir, inTree) => {
+			(dir, unbeaten) => {
+				/** @type {MergeTree["inTree"]} */
+				const inTree = (args, timeout) => {
+					beat();
+					return unbeaten(args, timeout);
+				};
 				const gates = hookGates(dir, inTree);
 				const gateCopy = gateCopies(dir);
 				for (const m of members) {
@@ -456,6 +472,7 @@ function queueGit(
 					"scripts/check-guard-registry.js",
 				);
 				if (!fs.existsSync(checker)) return null;
+				beat();
 				const r = spawnSync(
 					process.execPath,
 					[checker, "--root", dir, "--json"],
@@ -519,6 +536,7 @@ function queueGit(
 				);
 				return;
 			}
+			beat();
 			runHook(hook, set, {
 				dir,
 				limitMs: mergeTimeoutMs,
@@ -568,6 +586,7 @@ function queueGit(
 	function regenerate(dir, inTree, gateCopy) {
 		for (const [file, { generator }] of regenerated) {
 			if (!fs.existsSync(path.join(dir, file))) continue;
+			beat();
 			execFileSync(process.execPath, [gateCopy(generator)], {
 				cwd: dir,
 				encoding: "utf8",

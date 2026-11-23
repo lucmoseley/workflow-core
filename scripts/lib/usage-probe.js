@@ -34,7 +34,12 @@ async function probeUsage({
 	const cached = readAllowance({ configDir, now });
 	if (isTrustworthy(cached)) return { outcome: "cached", text: "" };
 	const env = buildSeatEnv(process.env, configDir);
-	const refusal = launchAuthRefusal({ bin: claudeBin, env, cwd: PROBE_CWD });
+	const refusal = launchAuthRefusal({
+		bin: claudeBin,
+		env,
+		cwd: PROBE_CWD,
+		bg: false,
+	});
 	if (refusal) return { outcome: "failed", text: "", error: refusal };
 	const startMs = Date.now();
 	const child = spawn(claudeBin, [...claudeArgs, ...PROBE_ARGV], {
