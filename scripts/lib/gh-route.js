@@ -1,5 +1,5 @@
 const { blankComments } = require("./strip-comments.js");
-const { requiredGroup } = require("./regex-group.js");
+const { escapeRe, requiredGroup } = require("./regex-group.js");
 const { cutAt } = require("./cut-at.js");
 const { exemptHint, exemptMarker } = require("./exempt-markers.js");
 const { isTestKind } = require("./test-kind.js");
@@ -19,7 +19,7 @@ const { isTestKind } = require("./test-kind.js");
  *   shellRun: RegExp,
  *   shellProbe: RegExp,
  *   joinBin: RegExp,
- *   unrouted: RegExp | null,
+ *   unroutedRunners: { name: RegExp, caller: string }[],
  * }} Route
  */
 
@@ -33,7 +33,7 @@ const { isTestKind } = require("./test-kind.js");
  *   calls: string,
  *   exemplar: string,
  *   shellExemplar: string,
- *   unrouted?: string,
+ *   unroutedRunners?: [string, string][],
  * }} spec
  * @returns {Route}
  */
@@ -46,8 +46,9 @@ function buildRoute({
 	calls,
 	exemplar,
 	shellExemplar,
-	unrouted,
+	unroutedRunners = [],
 }) {
+	const binRe = escapeRe(bin);
 	return {
 		bin,
 		envVar,
@@ -61,23 +62,28 @@ function buildRoute({
 		},
 		secondVar,
 		exempt: exemptMarker(/** @type {const} */ (`${bin}-route`)),
-		envRead: new RegExp(`\\bprocess\\.env\\.${envVar}\\b(?!\\s*=[^=])`),
+		envRead: new RegExp(
+			`\\bprocess\\.env\\.${escapeRe(envVar)}\\b(?!\\s*=[^=])`,
+		),
 		literalSpawn: new RegExp(
-			`\\b(?:execFileSync|execFile|spawnSync|spawn)\\s*\\(\\s*(["'\`])${bin}\\1`,
+			`\\b(?:execFileSync|execFile|spawnSync|spawn)\\s*\\(\\s*(["'\`])${binRe}\\1`,
 		),
 		shellRun: new RegExp(
-			`(?:^|\\$\\(|(?<!\\\\)\`|[;&|!]|\\b(?:then|do|else|elif|if|while|until|exec|time|command|timeout\\s+\\S+))\\s*${bin}\\s`,
+			`(?:^|\\$\\(|(?<!\\\\)\`|[;&|!]|\\b(?:then|do|else|elif|if|while|until|exec|time|command|timeout\\s+\\S+))\\s*${binRe}\\s`,
 		),
 		shellProbe: new RegExp(
-			`\\b(?:command\\s+-v|type\\s+-P|which)\\s+${bin}\\b`,
+			`\\b(?:command\\s+-v|type\\s+-P|which)\\s+${binRe}\\b`,
 		),
 		joinBin: new RegExp(
-			`path\\.join\\(\\s*([^()]*?)\\s*,\\s*(["'\`])${bin}\\2\\s*\\)`,
+			`path\\.join\\(\\s*([^()]*?)\\s*,\\s*(["'\`])${binRe}\\2\\s*\\)`,
 			"g",
 		),
-		unrouted: unrouted
-			? new RegExp(`(?<![\\w"'\`])${unrouted}(?![\\w"'\`])`)
-			: null,
+		unroutedRunners: unroutedRunners.map(([name, caller]) => ({
+			name: new RegExp(
+				`(?<!\\w|(?<!\\[)["'\`])${escapeRe(name)}(?!\\w|["'\`](?!\\]))`,
+			),
+			caller,
+		})),
 	};
 }
 
@@ -91,7 +97,10 @@ const ROUTES = [
 		calls: "`gh`, `ghJson` or their kin",
 		exemplar: "scripts/check-issue-orphans.js",
 		shellExemplar: "scripts/park-blocked.sh",
-		unrouted: "ghUnrouted",
+		unroutedRunners: [
+			["ghUnrouted", "scripts/lib/gh.js"],
+			["readGhLogin", "scripts/lib/workflow-core-config.js"],
+		],
 	}),
 	buildRoute({
 		bin: "claude",
@@ -168,7 +177,9 @@ function parseHelperDirs(bin, code) {
 		});
 		const first = params[0]?.id ?? "";
 		if (!/^[$\w]+$/.test(first)) return [];
-		const called = new RegExp(`\\b${name}\\s*\\(\\s*(["'\`])${bin}\\1`);
+		const called = new RegExp(
+			`\\b${escapeRe(name)}\\s*\\(\\s*(["'\`])${escapeRe(bin)}\\1`,
+		);
 		if (!called.test(code)) return [];
 		const start = (h.index ?? 0) + h[0].length;
 		const body = code.slice(start, findBodyEnd(code, start));
@@ -217,10 +228,11 @@ function shapeOf({ r, rel, kind, binDirs }, line) {
 	if (
 		kind === "node" &&
 		(r.literalSpawn.test(line) ||
-			(rel !== r.reader && r.envRead.test(line)) ||
 			(rel !== r.reader &&
-				rel !== r.primitive &&
-				r.unrouted?.test(line) === true))
+				(r.envRead.test(line) ||
+					r.unroutedRunners.some(
+						(u) => rel !== u.caller && u.name.test(line),
+					))))
 	)
 		return "NODE-COPY";
 	for (const m of line.matchAll(PATH_PREPEND))

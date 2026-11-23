@@ -11,7 +11,7 @@ import pytest_pass_plugin as plugin
 
 @pytest.fixture(autouse=True)
 def nothing_told_yet(monkeypatch):
-    monkeypatch.setattr(plugin, "_told", plugin.Counter())
+    monkeypatch.setattr(plugin, "_told", set())
 
 
 class FakeReport:
