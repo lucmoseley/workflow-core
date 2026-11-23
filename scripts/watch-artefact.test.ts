@@ -21,6 +21,7 @@ const POLL_GUARD = join(__dirname, "guard-dispatch.js");
 
 const EXIT = { USAGE: 2, STALLED: 3, MISSING: 4, CEILING: 5, DONE: 6 };
 
+// guess: so a check and a write do not race, #539
 const INTERVAL_S = 0.5;
 const CHUNK = "0123456789";
 

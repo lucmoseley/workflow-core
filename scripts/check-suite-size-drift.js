@@ -10,6 +10,7 @@ const { execGit } = require("./lib/git.js");
 // lucmoseley/mantahostels#954 guess
 const DEFAULT_THRESHOLD_PCT = 25;
 
+// guess: ~160x the 25 KB tracked-path list, lucmoseley/mantahostels#954
 const LS_FILES_MAX_BUFFER = 4 * 1024 * 1024;
 
 /**

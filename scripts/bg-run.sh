@@ -13,6 +13,7 @@ source "$SCRIPT_DIR/lib/atomic-write.sh"
 
 HEARTBEAT_DEFAULT_S=5
 HEARTBEAT_S="${WFC_BG_HEARTBEAT_S:-$HEARTBEAT_DEFAULT_S}"
+# guess: three missed beats, lucmoseley/mantahostels#1900
 STALE_S="${WFC_BG_STALE_S:-20}"
 # guess: room for a short stack trace, lucmoseley/mantahostels#2572
 INLINE_CAP="${WFC_BG_INLINE_CAP:-4000}"
@@ -25,6 +26,7 @@ MISSING_POLL_S="${WFC_BG_MISSING_POLL_S:-0.1}"
 MEMINFO="${WFC_BG_MEMINFO:-/proc/meminfo}"
 # guess, lucmoseley/mantahostels#2683
 MAX_DESCENDANTS="${WFC_BG_MAX_DESCENDANTS:-500}"
+# guess, #2704
 CEILING_GRACE_S=60
 if [[ "${WFC_BG_CEILING_GRACE_S:-}" =~ ^[0-9]+$ ]] && [[ "$WFC_BG_CEILING_GRACE_S" -lt "$CEILING_GRACE_S" ]]; then
   CEILING_GRACE_S="$WFC_BG_CEILING_GRACE_S"

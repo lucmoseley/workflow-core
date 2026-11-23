@@ -18,9 +18,10 @@ const { parseJsonl } = require("./lib/jsonl.js");
  *   source?: unknown, capped?: unknown, at?: unknown}} Crumb
  */
 
+// guess: ~200 runs per guard a day clear MIN_SAMPLE, lucmoseley/mantahostels#1254
 const DEFAULT_DAYS = 2;
 
-// lucmoseley/mantahostels#1254
+// guess, lucmoseley/mantahostels#1254
 const MIN_SAMPLE = 50;
 
 // lucmoseley/mantahostels#1291 measured 3.6% healthy, 91.4% blind

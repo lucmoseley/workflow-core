@@ -4,7 +4,7 @@ import type { LivenessRecord, LivenessRow } from "../types";
 export const register: Register = (on) => {
 	// measured, #851
 	const versionFloor = [2, 1, 289];
-	// #863
+	// guess, #863
 	const tickMs = 5000;
 	const stallMs = 5 * 60_000;
 	// guess, #864

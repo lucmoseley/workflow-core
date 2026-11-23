@@ -12,6 +12,7 @@ const { scriptPath } = require("./lib/script-path.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 
+// guess: a lander's first beat comes well under a second in, #2406
 const START_GRACE_MS = 15 * 1000;
 
 runCheck({

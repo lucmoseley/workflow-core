@@ -20,6 +20,7 @@ const CHECKER = "pick-next-model";
 
 const COMMAND = "pick-next";
 
+// guess, lucmoseley/mantahostels#1334
 const DEFAULT_DAYS = 7;
 
 const WEIGHTS = { fi: 15.0, out: 75.0, cw: 18.75, cw1h: 30.0, cr: 1.5 };

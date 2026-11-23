@@ -122,6 +122,7 @@ function filesFor(jobs) {
 	return verdict !== null && !GOOD.has(verdict);
 }
 
+// guess: 7.5 days at four sweeps a day, lucmoseley/mantahostels#3490
 const RUN_WINDOW = 30;
 
 function readWindows() {

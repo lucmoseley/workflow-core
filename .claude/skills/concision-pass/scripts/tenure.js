@@ -18,17 +18,17 @@ const MAX_ISSUES = 5;
 const MAX_GREP_HITS = 10;
 const MAX_LINE_CHARS = 200;
 const MAX_ECHO_CHARS = 160;
-// measured on the bodies sampled, lucmoseley/mantahostels#603
+// guess, lucmoseley/mantahostels#603
 const MAX_BODY_CHARS = 600;
 // guess, lucmoseley/mantahostels#1147
 const MIN_NEEDLE_CHARS = 12;
-// measured against a 5440-commit history, lucmoseley/mantahostels#3155
+// guess, lucmoseley/mantahostels#3155
 const MAX_IDENTIFIER_COMMIT_MATCHES = 20;
+// guess: orders above the repo-wide git log it reads, lucmoseley/mantahostels#3155
 const MAX_BUFFER = 64e6;
 
 const GREP_TARGETS = ["scripts", "docs/doc-map.md"];
 
-// measured: the slowest lookup here, #2677
 const LOOKUP_TIMEOUT_MS = capMs("WFC_TENURE_LOOKUP_TIMEOUT_MS", GH_TIMEOUT_MS);
 // guess: two slow lookups, #5311
 const CEILING_MS = capMs("WFC_TENURE_CEILING_MS", 600e3);

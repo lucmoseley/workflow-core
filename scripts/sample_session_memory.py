@@ -503,7 +503,7 @@ def analyse_rows(session_rows, proc_rows, spike_mb):
 
 
 TERMINAL_STATES = {"done", "failed", "stopped"}
-# #2221
+# guess: the aggregate's p95, #2221
 DRAW_Z = 1.645
 
 

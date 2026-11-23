@@ -39,6 +39,7 @@ const numEnv = (name, fallback) => {
 };
 
 const GH_TIMEOUT_MS = numEnv("WFC_ISSUE_GH_TIMEOUT_MS", 20_000);
+// guess: one write plus three repairs, lucmoseley/mantahostels#128
 const DEFAULT_ATTEMPTS = 4;
 const LOCK_WAIT_MS = numEnv("WFC_ISSUE_LOCK_WAIT_MS", 15_000);
 const LOCK_STALE_MS = 60_000;

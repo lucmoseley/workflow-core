@@ -22,6 +22,7 @@ const markDir = () => {
 	return dir;
 };
 
+// guess: far past a node start, #4297
 const WAIT_CEILING_MS = 20_000;
 const markThenWait = (dir: string, mine: string, count: number) => `
 const fs = require("node:fs");

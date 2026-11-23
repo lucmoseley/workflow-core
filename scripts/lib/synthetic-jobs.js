@@ -17,6 +17,7 @@ const { read: readTranscript } = require("./session-transcript.js");
 const { mainChainRecords } = require("./transcript.js");
 
 const SYNTHETIC_AFTER_MINUTES = (SYNTHETIC_QUIET_MS + FALLBACK_MS) / 60_000;
+// guess: a synthetic record and the rows after it fit well inside, #5324
 const TAIL_BYTES = 64 * 1024;
 const TAIL_NEEDLES = [JSON.stringify(SYNTHETIC_MODEL), NO_RESPONSE_TEXT];
 

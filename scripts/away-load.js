@@ -29,8 +29,11 @@ const { writeFd } = require("./lib/write-fd.js");
 
 const UNIT = "away-load.service";
 const USAGE = `usage: node ${scriptPath("away-load.js")} run | recover | sweep | hand-start [--minutes N] | status | install`;
+// guess: reads a settled band off three or four minute lines, #5472
 const HAND_MINUTES = 20;
+// guess: the reading it waits on changes once a minute, #5472
 const POLL_MS = Number(process.env.WFC_AWAY_LOAD_POLL_MS) || 5000;
+// guess: past this an fsck's output repeats the same fault, #5472
 const FSCK_OUT_CHARS = 4000;
 // guess: twice the longest 4 Nov fsck, #5472
 const FSCK_TIMEOUT_MS = 30 * 60 * 1000;

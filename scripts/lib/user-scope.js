@@ -16,7 +16,7 @@ const USER_SCOPE = ["--user", "--scope", "--quiet"];
 
 // #3407 guess
 const TASKS_MAX = 1024;
-// #2667
+// guess, #2667
 const RUNTIME_MAX_SEC = 900;
 const TASKS_MAX_ENV = "WFC_RUN_TASKS_MAX";
 const UNIT_PREFIX = "wfc-test-";
@@ -46,6 +46,7 @@ const managerAnswersOnce = () => {
 	return managerAnswers;
 };
 
+// guess: repo-checks.js's 30-minute RUN_MS plus a 15-minute tail for its report, #4706
 const OUTLIVE_CEILING_S = 2700;
 
 /** @param {number|null} ceilingS @returns {string[]} */

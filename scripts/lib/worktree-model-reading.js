@@ -25,6 +25,7 @@ const WEEK_MS = 7 * 24 * 60 * 60_000;
 const PREDICTED_MERGES = { low: 491, high: 587 };
 // #4166 measured on the shared checkout, the same week
 const SHARED_MERGES = 436;
+// guess, #4253
 const LISTED_PATHS = 20;
 
 /**

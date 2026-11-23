@@ -63,6 +63,7 @@ function buildLevelLine(entries, rate) {
 	return `§B holds ${entries} entries, ${rateText}.`;
 }
 
+// guess: past it the count is the signal, lucmoseley/mantahostels#1384
 const BIRTH_NAMES = 10;
 
 /** @param {{ born: {id: string, words: number, sha: string}[], days: number } | null} births */

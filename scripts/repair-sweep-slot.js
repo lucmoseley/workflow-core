@@ -19,7 +19,6 @@ const { writeFd } = require("./lib/write-fd.js");
 
 const MARKER = ".sweep-slot-repair";
 
-// lucmoseley/mantahostels#2134
 const GH_TIMEOUT_MS = 8000;
 
 /** @param {number} t */

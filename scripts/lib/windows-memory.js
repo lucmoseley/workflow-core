@@ -11,6 +11,7 @@ const WINDOWS_PAGING_LINE = 100_000;
 // #4557 guess
 const WINDOWS_FRESH_S = 180;
 
+// guess: a minute line runs ~1 KB, #4557
 const TAIL_BYTES = 16 * 1024;
 
 /** @returns {string} */

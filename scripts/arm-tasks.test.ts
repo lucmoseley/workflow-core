@@ -462,6 +462,7 @@ describe("accept: work done against work not done", () => {
 });
 
 const HOLD_SECONDS = "60";
+// guess: a 5 s ceiling on init reaping a killed holder, #2044
 const REAP_POLLS = 100;
 
 describe("build: the fake neighbour", () => {

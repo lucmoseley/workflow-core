@@ -10,6 +10,7 @@ const MARKER_SUBDIR = path.join(
 	"selection-sessions",
 );
 
+// guess: a week outlives any session still dispatching, lucmoseley/mantahostels#422
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;

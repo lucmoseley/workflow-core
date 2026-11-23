@@ -10,6 +10,7 @@ const { render } = require("./lib/status-render.js");
 
 const CORE_SCRIPTS = __dirname;
 
+// guess, origin untraced, #5621
 const POOL_WIDTH = 4;
 
 /** @type {ReadonlyArray<readonly [string, string, ...string[]]>} */

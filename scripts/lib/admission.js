@@ -474,6 +474,7 @@ function sessionPairPids(pairs, pid) {
 // 101-102 MB measured, #2283
 const IDLE_PAIR_MB = 106;
 
+// guess: one launch's spare replaces the pair it claims, lucmoseley/mantahostels#2588
 const LAUNCH_SPARES = 1;
 
 /**
@@ -1596,6 +1597,7 @@ module.exports = {
 	machineAdmission,
 	selectionAdmission,
 	LAUNCH_SPARES,
+	IDLE_PAIR_MB,
 	buildSessionDrawLine,
 	buildWindowsLine,
 	SWAP_HOLD_AVAILABLE_MB,

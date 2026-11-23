@@ -4,6 +4,7 @@ const mod = require("node:module");
 const { ignoreFailure } = require("../lib/caught.js");
 
 const FORK_WORKER_DEPTH = 2;
+// guess, #2783
 const ARGS_KEPT = 5;
 const ARG_CHARS_KEPT = 120;
 

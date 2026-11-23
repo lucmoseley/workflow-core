@@ -13,6 +13,7 @@ const SCRIPT = path.join(__dirname, "check-interop-latency.js");
 
 const SAMPLE = { cpuPct: 62.5, availableMb: 1700, vmmemBytes: 6.5 * 2 ** 30 };
 
+// guess: two queries of a 3 s reg.exe sleep plus evidence reads, #3564
 const DEGRADED_CASE_MS = 20_000;
 
 let dir: string;

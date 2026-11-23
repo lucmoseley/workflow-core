@@ -4,7 +4,6 @@ const { scriptPath } = require("./script-path.js");
 // guess, #4448
 const LAG_WARN_DAYS = 7;
 
-// #892
 const SHORT_SHA = 12;
 
 const MAIN = "origin/main";

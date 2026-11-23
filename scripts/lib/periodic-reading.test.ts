@@ -51,11 +51,13 @@ describe("periodicReading's lock", () => {
 	});
 
 	it("reads once a round with two takers at one instant over a stale lock", async () => {
+		// guess, #4016
 		const Rounds = 150;
 		// guess, #4016
 		const HoldMs = 15;
 		const GapMs = 40;
 		const LoadMs = 500;
+		// guess: spin only the wait's tail, #4016
 		const SpinMs = 2;
 		const taker = path.join(dir, SCRIPT);
 		fs.writeFileSync(

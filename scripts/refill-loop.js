@@ -102,6 +102,7 @@ const { files, log, say, servedRoots } = require("./lib/refill-io.js");
 // #4821
 const loadTick = () => require("./lib/refill-tick.js");
 
+// guess, #2012
 const LOG_MAX_BYTES = 1024 * 1024;
 
 const SCRIPTS = __dirname;

@@ -11,12 +11,12 @@ const {
 // #2221 guess
 const DRAW_MARGIN_MB = 300;
 
-// #2221
+// guess: earlyoom's 8% kill line on the 10 GB cap, #2221
 const EARLYOOM_FLOOR_MB = 794;
 
-// #2862
+// measured: 3 suites, the most the ladder bench ran at once, #2862
 const SUITE_MAX = 3;
-// #2680
+// guess, #2680
 const WHOLE_SUITE_MAX = 1;
 const LADDER_SUITE_WORKERS = 3;
 // lucmoseley/mantahostels#462 measured lower bounds at 0-3 suites of LADDER_SUITE_WORKERS workers

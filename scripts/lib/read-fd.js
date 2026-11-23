@@ -16,7 +16,7 @@ const fs = require("node:fs");
 const { caught } = require("./caught.js");
 const { pauseOrThrow } = require("./write-fd.js");
 
-// https://man7.org/linux/man-pages/man7/pipe.7.html
+// guess: one default Linux pipe buffer per read, #3663
 const CHUNK = 64 * 1024;
 
 /**

@@ -47,11 +47,14 @@ const repoRoot = () => hostRoot();
 
 const projectSlug = () => slugFor(repoRoot());
 
+// guess, lucmoseley/mantahostels#1898
 const MIN_FAILURES = 5;
 const ZERO_SUCCESS_SESSION_RATE = 0.005;
 
+// guess, lucmoseley/mantahostels#1898
 const CACHE_RETENTION_DAYS = 7;
 
+// guess, lucmoseley/mantahostels#1898
 const DEFAULT_BUDGET_MS = 8000;
 
 const BUDGET_AFTER_ENV = "WFC_CENSUS_BUDGET_AFTER";
@@ -68,6 +71,7 @@ function budgetSpender(budgetMs) {
 	return (filesRead) => filesRead >= after || Date.now() >= deadline;
 }
 
+// guess: a hook repaired yesterday stops being reported today, lucmoseley/mantahostels#1898
 const DEFAULT_DAYS = 2;
 
 const FAILURE_TYPES = new Set(["hook_cancelled", "hook_non_blocking_error"]);

@@ -4,6 +4,7 @@ const { ALARMS } = require("./queue-alarms.js");
 const BOT = "github-actions[bot]";
 // guess, #5529
 const RUN_PAGE = 100;
+// GitHub REST per_page is max 100: https://docs.github.com/en/rest/issues/comments#list-issue-comments
 const COMMENT_PAGE = 100;
 // guess, #5529
 const COMMENT_PAGES = 10;
