@@ -4,12 +4,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { assert, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	core,
 	finished,
 	freshSandbox,
 	listedLocks,
 	live,
 	noSessions,
+	readLockAt,
 	store,
 } from "./arbiter-testkit";
 import { writeFaultyGit } from "./git-fault-fake";
@@ -127,10 +127,8 @@ describe("the tier scan — a baseline for a write no hook ever sees (mantahoste
 		).toBeNull();
 		expect(store.recordContent(auditScript, me)).toBeTruthy();
 		expect(
-			store.contentState(
-				auditScript,
-				core.readRecord(store.paths.lock(auditScript)),
-			).state,
+			store.contentState(auditScript, readLockAt(store.paths.lock(auditScript)))
+				.state,
 		).toBe("same");
 	});
 

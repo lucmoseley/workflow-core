@@ -29,10 +29,14 @@ const USAGE = [
 ].join("\n");
 
 const CASES = path.join(__dirname, "fixtures", "gate-judge-cases.json");
+// guess: under the create guard's 60 s hook limit, #4968
 const MEASURING_BOUND_MS = 55_000;
+// guess, #4968
 const DEFAULT_JOBS = 2;
 const DEFAULT_RUNS = 3;
+// guess: far over the tracker's ~5,000 issues, #4968
 const CORPUS_LIMIT = 20_000;
+// guess, #4968
 const PROGRESS_MS = 60_000;
 
 /**

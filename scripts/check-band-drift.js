@@ -18,7 +18,9 @@ const { splitQuestions } = require("./lib/round-marker");
 const { caught } = require("./lib/caught.js");
 const { takesLabel } = require("./lib/takes-label");
 
+// guess, #472
 const FLOOR_RATIO = 0.5;
+// guess, #2228
 const CEILING_RATIO = 1.5;
 const FIRST_PASSING_TOP = LOW_TOP + 5;
 

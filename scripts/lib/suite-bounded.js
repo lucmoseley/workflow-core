@@ -1,6 +1,7 @@
 const { JS_TEST_FILE } = require("./test-kind.js");
 
 const WHOLE_SUITE_WORKERS = 5;
+// guess: a quarter of the 485-file suite the ladder was measured on, #2931
 const WHOLE_SLOT_FILES = 121;
 const WHOLE_RUN = { workers: WHOLE_SUITE_WORKERS, part: false };
 

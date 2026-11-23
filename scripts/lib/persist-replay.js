@@ -15,6 +15,8 @@ const {
  */
 
 const CHECKER_OUTCOMES = ["OK", "SKIP", "WARN", "FAIL", "BROKEN"];
+// guess, lucmoseley/mantahostels#1949
+const STAMP_SLACK_MS = 1000;
 
 /** @type {Record<string, Omit<Producer, "key" | "script">>} */
 const PRODUCER_META = {
@@ -85,8 +87,10 @@ function faultsIn(producer, report, window) {
 	const at = Date.parse(report.at);
 	if (Number.isNaN(at)) {
 		bad.push(`unparseable timestamp "${report.at}"`);
-	} else if (at < window.from - 1000 || at > window.to + 1000) {
-		// guess, lucmoseley/mantahostels#1949
+	} else if (
+		at < window.from - STAMP_SLACK_MS ||
+		at > window.to + STAMP_SLACK_MS
+	) {
 		bad.push(
 			`report is from ${report.at}, outside this run — the producer wrote nothing`,
 		);

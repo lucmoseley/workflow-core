@@ -16,7 +16,7 @@ import {
 	type SubIssuesAnswer,
 	subIssuesAnswer,
 } from "./gh-fake";
-import { buildServerClient } from "./gh-stub-server.js";
+import { buildServerClient } from "./gh-server-stub.js";
 import { shellQuote } from "./sh-quote.js";
 
 const LOGGED_OUT = path.join(__dirname, "fixtures/gh/logged-out.json");
@@ -215,12 +215,12 @@ export interface GhStubServer {
 }
 
 export async function serveGhStub(handler: string): Promise<GhStubServer> {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gh-stub-server-"));
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gh-server-stub-"));
 	const file = path.join(dir, "handler.js");
 	fs.writeFileSync(file, handler);
 	const child = spawn(
 		process.execPath,
-		[path.join(__dirname, "gh-stub-server.js"), file],
+		[path.join(__dirname, "gh-server-stub.js"), file],
 		{ stdio: ["pipe", "pipe", "inherit"] },
 	);
 	const exited = new Promise<void>((resolve) =>
@@ -235,12 +235,12 @@ export async function serveGhStub(handler: string): Promise<GhStubServer> {
 	const port = await new Promise<number>((resolve, reject) => {
 		child.once("error", reject);
 		child.once("exit", (code) =>
-			reject(new Error(`gh-stub-server exited ${code} before listening`)),
+			reject(new Error(`gh-server-stub exited ${code} before listening`)),
 		);
 		child.stdout.once("data", (b: Buffer) => {
 			const n = Number(String(b));
 			if (Number.isInteger(n) && n > 0) resolve(n);
-			else reject(new Error(`gh-stub-server printed no port: ${String(b)}`));
+			else reject(new Error(`gh-server-stub printed no port: ${String(b)}`));
 		});
 	}).catch(async (e) => {
 		await close();

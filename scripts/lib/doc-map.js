@@ -1,13 +1,3 @@
-/*
- * doc-map.js — the parsers the doc-map checkers read docs/doc-map.md with.
- *
- * `check-doc-map.js` (the hard CI gate on coverage), `check-retired-vocabulary.js`,
- * `check-superseded-values.js` and `check-doc-map-markers.js` read the same
- * document through them: Section
- * A's register table, Section B's `### B<n>` entries, and the tracked-file set
- * the scan runs over. Held as per-checker copies until mantahostels#239.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const {
@@ -3161,7 +3151,6 @@ module.exports = {
 	registerPaths,
 	registerRowPath,
 	registerRowPaths,
-	CORE_CLASSES,
 	coverageMatchers,
 	compileAllowlist,
 	validateAllowlist,

@@ -21,6 +21,7 @@ import { writeWindowsTasks } from "./lib/windows-tasks-fake";
 const SCRIPT = path.join(__dirname, "away-load.js");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "away-load-"));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+// guess: many polls of the 100 ms loop on a loaded machine, #5472
 const WAIT_MS = 20_000;
 
 const repoTemplate = defineTemplate((dir) => {

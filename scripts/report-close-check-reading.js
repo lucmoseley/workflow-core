@@ -42,7 +42,7 @@ const USAGE = `usage: node ${scriptPath("report-close-check-reading.js")} [--dry
 const TITLE =
 	"Close-check reading: has refusing close questions once stopped the separation prompts?";
 
-// #1068
+// guess: #1068 Q4's failure line, #1068
 const UNTOOLED_LINE = 0.3;
 const PROMPT_LINE = 0.16;
 const CAP_SPENT_LINE = 0.1;
@@ -57,7 +57,7 @@ const STOCK_PROMPT =
 
 const BASELINE = "docs/data/close-rounds-2026-10-09/answered-close-rounds.json";
 
-// #1905 #1894 #2328
+// guess: #1905's two weeks, against #1894's rate, #1905
 const LADDER_DAYS = 14;
 const LADDER_LINE = 0.1;
 const LADDER_BASELINE =

@@ -1,6 +1,11 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { readLiveOrLog, readSessionEntries } = require("./arbiter-core.js");
+const {
+	entryPid,
+	entryProcStart,
+	readLiveOrLog,
+	readSessionEntries,
+} = require("./arbiter-core.js");
 const { holderAlive, readProcStartOf } = require("./arbiter-proc.js");
 const { caught } = require("./caught.js");
 const {
@@ -61,13 +66,18 @@ const UNREAD_EDITS = "\0unread";
 
 /** @param {string} admin @param {string} sessionId */
 function writeHolder(admin, sessionId) {
-	const own = (readSessionEntries("own") ?? []).find(
-		({ entry }) =>
-			entry.sessionId === sessionId &&
-			entry.pid &&
-			entry.procStart &&
-			readProcStartOf(entry.pid) === String(entry.procStart),
-	)?.entry;
+	const own = (readSessionEntries("own") ?? [])
+		.filter(({ entry }) => entry.sessionId === sessionId)
+		.map(({ entry }) => ({
+			pid: entryPid(entry),
+			procStart: entryProcStart(entry),
+		}))
+		.find(
+			({ pid, procStart }) =>
+				pid !== null &&
+				procStart !== null &&
+				readProcStartOf(pid) === String(procStart),
+		);
 	fs.writeFileSync(
 		path.join(admin, HOLDER_RECORD),
 		`${JSON.stringify({ sessionId, pid: own?.pid ?? null, procStart: own?.procStart ?? null })}\n`,

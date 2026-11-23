@@ -286,7 +286,6 @@ module.exports = {
 	cacheDir,
 	readEntry,
 	writeEntry,
-	lookup,
 	lookupAll,
 	prune,
 	countDerivedSince,

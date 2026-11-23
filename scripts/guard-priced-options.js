@@ -85,6 +85,7 @@ const { readRoundRecord, roundCheckTurn } = require("./lib/round-check");
 const { passedNumbers } = require("./lib/refusal-limb");
 
 const OPTION_TITLE_BOLD = /^\s{0,3}\([A-Z]\)\s+\*\*/;
+// guess, origin untraced, #5621
 const OPENER_CHARS = 40;
 
 const UNPRICEABLE_WORDS = [
@@ -148,6 +149,7 @@ const APPROVAL_SEEKING = [
 	{ gist: "if you'd like", re: /\bif you(?:'d| would)? like\b/i },
 ];
 
+// guess: hand-priced figures round, #38
 const SUM_SLACK = 5;
 
 const TABLE_ROW = /^\s{0,3}\|.*\|/;

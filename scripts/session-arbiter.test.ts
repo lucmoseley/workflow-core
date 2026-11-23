@@ -22,6 +22,8 @@ import {
 	listedLocks,
 	live,
 	proc,
+	readBreakAt,
+	readLockAt,
 	registerSession,
 	removeSandbox,
 	SCRIPT,
@@ -44,14 +46,14 @@ const { gh } = createRequire(__filename)("./lib/gh.js");
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
 const markerRoot = createRequire(__filename)("./lib/marker-root.js");
 const oracleCache = createRequire(__filename)("./lib/oracle-cache.js");
-const {
-	claudeBin: claudePrimitive,
-	listedSessionIds,
-	oracleCacheKey,
-} = createRequire(__filename)("./lib/agent-liveness.js");
+const { claudeBin: claudePrimitive, listedSessionIds } = createRequire(
+	__filename,
+)("./lib/agent-liveness.js");
 const { attributeDirty } = createRequire(__filename)("./lib/own-selection.js");
 
 const sb = freshSandbox();
+const buildOracleKey = (bin: string) =>
+	JSON.stringify([bin, fs.realpathSync(sb.home)]);
 
 const CLOSED = { "*": ghPrinted('{"state":"CLOSED"}\n') };
 
@@ -1762,7 +1764,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 
 	describe("the third reporting site — a claim broken while its holder lived (mantahostels#349)", () => {
 		const aliceDisappears = () => {
-			const lock = core.readRecord(store.paths.lock(auditScript));
+			const lock = readLockAt(store.paths.lock(auditScript));
 			fs.writeFileSync(
 				store.paths.lock(auditScript),
 				JSON.stringify({ ...lock, pid: 999_999, procStart: "1" }),
@@ -1797,7 +1799,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 
 		it("carries the news ahead of the held-file warning, where the loser is most often standing", () => {
 			aliceWrites("docs/doc-map.md", "alice's work\n");
-			const lock = core.readRecord(store.paths.lock("docs/doc-map.md"));
+			const lock = readLockAt(store.paths.lock("docs/doc-map.md"));
 			fs.writeFileSync(
 				store.paths.lock("docs/doc-map.md"),
 				JSON.stringify({ ...lock, pid: 999_999, procStart: "1" }),
@@ -1830,7 +1832,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			fs.writeFileSync(
 				file,
 				JSON.stringify({
-					...core.readRecord(file),
+					...readBreakAt(file),
 					at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
 				}),
 			);
@@ -4092,7 +4094,7 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 			};
 			const first = waitAs("bob", ["540", "2"], env);
 			const published = () =>
-				oracleCache.readFresh(oracleCacheKey(env.WFC_CLAUDE_BIN)) !== null;
+				oracleCache.readFresh(buildOracleKey(env.WFC_CLAUDE_BIN)) !== null;
 			for (let i = 0; i < 200 && !published(); i++)
 				await new Promise((r) => setTimeout(r, 25));
 			expect(published()).toBe(true);
@@ -4114,7 +4116,7 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 				WFC_ORACLE_CACHE: "1",
 			};
 			oracleCache.write(
-				oracleCacheKey(env.WFC_CLAUDE_BIN),
+				buildOracleKey(env.WFC_CLAUDE_BIN),
 				JSON.stringify([
 					{ sessionId: "alice", kind: "background", state: "done" },
 					{ sessionId: "bob" },

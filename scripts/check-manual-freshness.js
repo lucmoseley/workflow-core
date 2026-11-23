@@ -57,6 +57,7 @@ function commitUnixDate(sha) {
 const LABEL = "**Corrections since last sync:**";
 const ENTRY =
 	/^- (?<date>\d{4}-\d{2}-\d{2}) · repo (?<anchor>[0-9a-f]{7,40}) · source (?<source>\S[^—]*?) — (?<what>\S.*)$/;
+// guess, origin untraced, #5621
 const LOG_WINDOW = 6;
 
 const ALLOWLIST_FILE = "scripts/manual-path-allowlist.json";

@@ -6,6 +6,7 @@ const { findNewestTranscript } = require("./transcript");
 const { readTail } = require("./file-read.js");
 const { parseJsonlRow } = require("./jsonl.js");
 
+// guess: room for a Stop's whole-file read, lucmoseley/mantahostels#2299
 const WHOLE_FILE_LIMIT = 16 * 1024 * 1024;
 const TAIL_BYTES = WHOLE_FILE_LIMIT / 2;
 

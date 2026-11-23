@@ -628,34 +628,52 @@ describe("what the toucher must not change about the command (mantahostels#2662)
 });
 
 describe("the memory sample's descendant walk (mantahostels#2683)", () => {
-	it("counts a grandchild the wrapped command forks, not just its own launcher", async () => {
-		const name = "forked-worker";
-		const workerPath = join(root, "worker.sh");
-		writeFileSync(
-			workerPath,
-			`#!/bin/sh\nx=$(head -c 20000000 /dev/zero | tr '\\0' 'a')\nsleep ${KILLED_LIFETIME_S}\n`,
-			{ mode: 0o755 },
+	it.each([
+		["forked-worker", "worker.sh"],
+		["paren-worker", "w) x y"],
+	])(
+		"counts a grandchild the wrapped command forks, not just its own launcher (%s, named `%s`)",
+		async (name, file) => {
+			const workerPath = join(root, file);
+			writeFileSync(
+				workerPath,
+				`#!/bin/sh\nx=$(head -c 20000000 /dev/zero | tr '\\0' 'a')\nsleep ${KILLED_LIFETIME_S}\n`,
+				{ mode: 0o755 },
+			);
+			const proc = spawn(
+				SCRIPT,
+				["run", name, "sh", "-c", `${shellQuote(workerPath)} & wait`],
+				{ env: env(QUICK_BEAT) },
+			);
+
+			let rssKb = 0;
+			let memContent = "";
+			await poll(() => {
+				memContent = runFile(name, "mem");
+				rssKb = Number(memContent.match(/rss_kb=(\d+)/)?.[1] ?? 0);
+				return rssKb > 15_000;
+			});
+
+			proc.kill("SIGKILL");
+
+			expect(rssKb).toBeGreaterThan(15_000);
+			expect(memContent).toMatch(/rss_truncated=false/);
+		},
+	);
+
+	it("keeps a pid that exits mid-scan off the caller's stderr", () => {
+		const r = run(
+			[
+				"run",
+				"churn",
+				"sh",
+				"-c",
+				"i=0; while [ $i -lt 1000 ]; do /bin/true & /bin/true & wait; i=$((i+1)); done",
+			],
+			QUICK_BEAT,
 		);
-		const proc = spawn(
-			SCRIPT,
-			["run", name, "sh", "-c", `${shellQuote(workerPath)} & wait`],
-			{
-				env: env(QUICK_BEAT),
-			},
-		);
-
-		let rssKb = 0;
-		let memContent = "";
-		await poll(() => {
-			memContent = runFile(name, "mem");
-			rssKb = Number(memContent.match(/rss_kb=(\d+)/)?.[1] ?? 0);
-			return rssKb > 15_000;
-		});
-
-		proc.kill("SIGKILL");
-
-		expect(rssKb).toBeGreaterThan(15_000);
-		expect(memContent).toMatch(/rss_truncated=false/);
+		expect(r.status).toBe(0);
+		expect(r.stderr).not.toMatch(/\/proc\/\d+\/stat/);
 	});
 
 	it("marks the sample truncated when the descendant cap is hit, so a capped sum is never read as a complete one (mantahostels#2683)", async () => {

@@ -7,6 +7,7 @@ const { escapeRe } = require("./regex-group.js");
 
 // #4951 guess
 const TARGET_MULTIPLE = 3;
+// guess, #4989
 const TARGET_PERCENTILE = 90;
 const OVER_SHARE = 1 - TARGET_PERCENTILE / 100;
 // #4989 guess: the conventional 5% significance level

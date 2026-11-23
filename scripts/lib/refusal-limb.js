@@ -117,14 +117,14 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 	 * @template T
 	 * @param {string | undefined} transcript
 	 * @param {string} allowed
-	 * @param {(since: typeof import("./tool-calls-since"), file: string) => T | null} count
+	 * @param {(file: string) => T | null} count
 	 * @returns {T | null}
 	 */
 	function fromTranscript(transcript, allowed, count) {
 		if (!transcript) return null;
 		try {
 			// lucmoseley/mantahostels#1253
-			const n = count(require("./tool-calls-since"), transcript);
+			const n = count(transcript);
 			if (n === null)
 				logFailOpen(
 					`transcript parsed to no records at ${transcript} — ${allowed}`,
@@ -147,8 +147,8 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 	function liveRecord(transcript, record) {
 		if (!record || record.questions.length === 0) return record;
 		const { at } = record;
-		const spoke = fromTranscript(transcript, "record kept", (since, file) =>
-			since.founderMessagesSince(file, at),
+		const spoke = fromTranscript(transcript, "record kept", (file) =>
+			require("./tool-calls-since").founderMessagesSince(file, at),
 		);
 		return spoke ? null : record;
 	}
@@ -167,8 +167,8 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 			if (!running.has(at))
 				running.set(
 					at,
-					fromTranscript(transcript, "pass retired", (since, file) =>
-						since.isTurnRefusedSince(file, at),
+					fromTranscript(transcript, "pass retired", (file) =>
+						require("./tool-calls-since").isTurnRefusedSince(file, at),
 					) === true,
 				);
 			return running.get(at);

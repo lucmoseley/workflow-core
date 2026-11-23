@@ -4026,6 +4026,27 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(r.out).not.toContain("LEDGER-TRIGGER-VERDICT");
 	});
 
+	it("charges a merge nothing for pool bytes the other parent already paid for", () => {
+		base(ledger(bullet(8)));
+		git("checkout", "-qb", "paid-side");
+		growPool(50);
+		writeMap(baselineRows, ledger(bullet(9, verdict), bullet(8)));
+		git("add", "--", MAP);
+		commit("the other side's tranche, verdict paid");
+		git("checkout", "-q", "-");
+		track("docs/other.md");
+		commit("this side, no tranche");
+		git("merge", "--no-commit", "--no-ff", "paid-side");
+		expect(git("rev-parse", "MERGE_HEAD").trim()).not.toBe(
+			git("rev-parse", "HEAD").trim(),
+		);
+		writeMap(baselineRows, ledger(bullet(9), bullet(8)));
+		git("add", "--", MAP);
+		const r = check();
+		expect(r.status).toBe(0);
+		expect(r.out).not.toContain("LEDGER-TRIGGER-VERDICT");
+	});
+
 	it("is BROKEN where a MERGE_HEAD line names no commit", () => {
 		base(ledger(bullet(8)));
 		const head = git("rev-parse", "HEAD").trim();

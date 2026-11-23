@@ -10,6 +10,7 @@ const {
 	ownQueueName,
 	queueBranch,
 	queueHead,
+	REMOTE,
 } = require("./landing-refs.js");
 const { pipelineRecord, readDropFile } = require("./lander-records.js");
 const { batchesOf, retakesMoved } = require("./queue-lander.js");
@@ -23,6 +24,7 @@ const { batchesOf, retakesMoved } = require("./queue-lander.js");
  * @typedef {import("./queue-lander.js").Pipeline} Pipeline
  * @typedef {import("./queue-lander.js").Drop} Drop
  * @typedef {import("./queue-lander.js").DroppedRef} DroppedRef
+ * @typedef {import("./queue-lander.js").TrackerDroppedRef} TrackerDroppedRef
  * @typedef {import("./queue-log.js").LoggedRow} LoggedRow
  * @typedef {{fault: string}} Unwalked
  * @typedef {object} RefReading
@@ -33,6 +35,7 @@ const { batchesOf, retakesMoved } = require("./queue-lander.js");
  * @property {RecordRead<Pipeline>} pipeline
  * @property {RecordRead<readonly Drop[]>} drops
  * @property {readonly DroppedRef[]} dropped
+ * @property {readonly TrackerDroppedRef[]} trackerDropped
  * @property {string|null} main
  * @property {(sha: string) => boolean|Unwalked} mainHolds
  * @property {(sha: string) => string|null|Unwalked} mainReached
@@ -44,9 +47,9 @@ const { batchesOf, retakesMoved } = require("./queue-lander.js");
  *   | {state: "landed", name: string, sha: string,
  *     main: string|null|Unwalked}
  *   | {state: "dropped", name: string, sha: string, ref: string|null,
- *     record: "torn"|"no-entry"}
+ *     remote: string|null, record: "torn"|"no-entry"}
  *   | {state: "dropped", name: string, sha: string, ref: string|null,
- *     record: "read", drop: Drop, held: boolean}} RefState
+ *     remote: string|null, record: "read", drop: Drop, held: boolean}} RefState
  */
 
 /**
@@ -103,21 +106,30 @@ const ownDrops = (r) =>
  */
 function droppedState(r, sha) {
 	const names = droppedRefsOf(r.name, sha);
-	const onRemote = r.dropped.find(
-		(d) => d.sha === sha && names.includes(d.ref),
-	)?.ref;
+	/** @param {DroppedRef} d */
+	const holds = (d) => d.sha === sha && names.includes(d.ref);
+	const onOrigin = r.dropped.find(holds);
+	const held = onOrigin
+		? { ref: onOrigin.ref, remote: REMOTE }
+		: (r.trackerDropped.find(holds) ?? null);
 	const dropped = {
 		state: /** @type {const} */ ("dropped"),
 		name: r.name,
 		sha,
 	};
-	const unread = { ...dropped, ref: onRemote ?? null };
+	const unread = {
+		...dropped,
+		ref: held?.ref ?? null,
+		remote: held?.remote ?? null,
+	};
 	if (r.drops.kind === "torn") return { ...unread, record: "torn" };
 	const entry = ownDrops(r).find((d) => d.sha === sha);
 	if (!entry) return { ...unread, record: "no-entry" };
+	const kept = entry.reapedAt === undefined;
 	return {
 		...dropped,
-		ref: entry.reapedAt === undefined ? entry.ref : null,
+		ref: kept ? entry.ref : null,
+		remote: kept && held?.ref === entry.ref ? held.remote : null,
 		record: "read",
 		drop: entry,
 		held: r.waiting !== null,
@@ -196,7 +208,9 @@ function standingOf(d, held) {
 
 /** @param {Extract<RefState, {state: "dropped"}>} s */
 function dropText(s) {
-	const kept = s.ref ? `kept as ${s.ref}` : "no dropped ref holds it";
+	const kept = s.ref
+		? `kept as ${s.ref}${s.remote === null ? "" : ` on ${s.remote}`}`
+		: "no dropped ref holds it";
 	if (s.record !== "read")
 		return `${kept}; the drop record ${s.record === "torn" ? "is torn" : "holds no entry for it"}, so its cause and fix ticket are unknown`;
 	const { drop } = s;
@@ -295,6 +309,7 @@ function readQueueStays(root, { name, since }, refs, rows) {
 		pipeline: pipelineRecord(files.batch).read(),
 		drops: readDropFile(files.drops),
 		dropped: refs.dropped,
+		trackerDropped: refs.trackerDropped,
 		main,
 		mainHolds: (sha) =>
 			main === null ? false : walked(() => isAncestor(root, sha, main)),

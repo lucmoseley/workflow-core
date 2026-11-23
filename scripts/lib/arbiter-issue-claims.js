@@ -7,48 +7,22 @@ const {
 	holderAlive,
 	readProcStartOf,
 } = require("./arbiter-proc.js");
+const { isIssueClaimRecord, isMutexRecord } = require("./arbiter-records.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { caught, ignoreFailure } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").IssueClaimRecord} IssueClaimRecord */
 /** @typedef {import("./arbiter-records.js").Identity} Identity */
 /** @typedef {import("./arbiter-records.js").LivenessOracle} LivenessOracle */
+/** @typedef {import("./arbiter-records.js").MutexRecord} MutexRecord */
 
+// guess, origin untraced, #5621
 const ISSUE_CLAIM_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** @param {number|string|null} issue */
 function issueNumber(issue) {
 	const n = Number(issue);
 	return Number.isInteger(n) && n > 0 ? n : null;
-}
-
-/**
- * @param {unknown} record
- * @returns {record is IssueClaimRecord}
- */
-function isIssueClaimRecord(record) {
-	return (
-		typeof record === "object" &&
-		record !== null &&
-		"issue" in record &&
-		typeof record.issue === "number" &&
-		Number.isInteger(record.issue) &&
-		record.issue > 0 &&
-		"sessionId" in record &&
-		(record.sessionId === null || typeof record.sessionId === "string") &&
-		"claimedAt" in record &&
-		typeof record.claimedAt === "string"
-	);
-}
-
-/**
- * @param {string} file
- * @param {string} where
- * @returns {IssueClaimRecord|null}
- */
-function readIssueClaimOrLog(file, where) {
-	const record = core.readRecordOrLog(file, where);
-	return isIssueClaimRecord(record) ? record : null;
 }
 
 /**
@@ -79,7 +53,14 @@ function scanIssueClaims(n) {
 		.filter((f) => f.startsWith(`${n}-`) && f.endsWith(".json"))
 		.map((f) => {
 			const file = path.join(core.paths.issueClaimsDir(), f);
-			return { file, record: readIssueClaimOrLog(file, `issue-claims ${n}`) };
+			return {
+				file,
+				record: core.readRecordOrLogAs(
+					file,
+					`issue-claims ${n}`,
+					isIssueClaimRecord,
+				),
+			};
 		});
 }
 
@@ -107,11 +88,11 @@ function claimIssue(issue, me) {
 	try {
 		fs.mkdirSync(core.paths.issueClaimsDir(), { recursive: true });
 		const file = core.paths.issueClaim(n, me.sessionId);
-		const existing = core.readRecord(file);
+		const existing = core.readRecordAs(file, isIssueClaimRecord);
 		const record = newIssueClaim({
 			issue: n,
 			sessionId: me.sessionId,
-			claimedAt: isIssueClaimRecord(existing) ? existing.claimedAt : undefined,
+			claimedAt: existing?.claimedAt,
 		});
 		core.writeRecord(file, record);
 		return { status: "claimed", record };
@@ -145,13 +126,13 @@ const MUTEX_POLL_MS = 10;
 
 /**
  * @param {string} file
- * @param {{pid?: number, procStart?: string|number}|null} held
+ * @param {MutexRecord|null} held
  */
 function breakStaleMutex(file, held) {
 	const aside = `${file}.stale-${process.pid}`;
 	ignoreFailure(() => {
 		fs.renameSync(file, aside);
-		const moved = core.readRecord(aside);
+		const moved = core.readRecordAs(aside, isMutexRecord);
 		if (moved?.pid !== held?.pid || moved?.procStart !== held?.procStart)
 			fs.linkSync(aside, file);
 	});
@@ -173,13 +154,13 @@ function withIssueMutex(n, fn) {
 		bootId: readCurrentBootId() || undefined,
 	};
 	const stillMine = () => {
-		const now = core.readRecord(file);
+		const now = core.readRecordAs(file, isMutexRecord);
 		return now?.pid === body.pid && now?.procStart === body.procStart;
 	};
 	const deadline = Date.now() + mutexWaitMs();
 	while (!core.createOnce(file, body)) {
 		if (Date.now() > deadline) return { status: "busy" };
-		const held = core.readRecord(file);
+		const held = core.readRecordAs(file, isMutexRecord);
 		if (held && holderAlive(held)) {
 			sleepSync(MUTEX_POLL_MS);
 			continue;
@@ -274,7 +255,11 @@ function listIssueClaims(root) {
 		return null;
 	}
 	const records = files.map((f) =>
-		readIssueClaimOrLog(path.join(dir, f), "issue-claims list"),
+		core.readRecordOrLogAs(
+			path.join(dir, f),
+			"issue-claims list",
+			isIssueClaimRecord,
+		),
 	);
 	const claims = records.flatMap((r) => (r ? [r] : []));
 	const dropped = records.length - claims.length;

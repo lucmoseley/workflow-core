@@ -9,6 +9,7 @@ const { listedAgents } = require("./lib/agent-liveness");
 const { earliestStart, writtenAtMs } = require("./lib/scratch-sweep");
 const { hostRoot } = require("./lib/host-root.js");
 
+// guess, lucmoseley/mantahostels#2349
 const NAMED_MAX = 5;
 
 const RESEARCH_PREFIX = "docs/research/";

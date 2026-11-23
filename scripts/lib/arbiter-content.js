@@ -3,6 +3,7 @@ const path = require("node:path");
 const regions = require("./doc-map-regions.js");
 const core = require("./arbiter-core.js");
 const lockFiles = require("./arbiter-lock-files.js");
+const { isLockRecord } = require("./arbiter-records.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
 /** @typedef {import("./arbiter-records.js").ContentState} ContentState */
@@ -99,9 +100,10 @@ function recordContent(rel, me) {
  * @param {Identity} me
  */
 function recordSubjectContent(rel, me) {
-	const existing = core.readRecordOrLog(
+	const existing = core.readRecordOrLogAs(
 		core.paths.lock(rel),
 		`record content ${rel}`,
+		isLockRecord,
 	);
 	if (!existing || !me.sessionId || existing.sessionId !== me.sessionId)
 		return null;
@@ -184,7 +186,6 @@ module.exports = {
 	contentState,
 	dropContentRef,
 	pinContent,
-	PRIOR_BLOBS_MAX,
 	recordContent,
 	readRegionHash,
 };

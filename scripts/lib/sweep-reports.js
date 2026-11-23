@@ -12,6 +12,7 @@ const {
 	readReports,
 } = require("./suite-timings.js");
 
+// guess: a week of sweeps at four a day, #5137
 const RUNS_LISTED = 30;
 
 const ROOT = hostRoot();

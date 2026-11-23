@@ -5,6 +5,7 @@ const { configDir } = require("./config-dir.js");
 const { gitAnswer } = require("./git.js");
 const regions = require("./doc-map-regions.js");
 const { holderAlive, readProcStartOf } = require("./arbiter-proc.js");
+const { isRecordObject } = require("./arbiter-records.js");
 const { projectSlug, UNRESOLVED_ROOT_SLUG } = require("./project-slug.js");
 const { realKey } = require("./deref.js");
 const { SCRATCH_DIR } = require("./scratch-dir.js");
@@ -191,7 +192,10 @@ const paths = {
 	keptClaimsLog: () => path.join(stateDir(), "kept-claims.jsonl"),
 };
 
-/** @param {string} file */
+/**
+ * @param {string} file
+ * @returns {unknown}
+ */
 function readRecord(file) {
 	let text;
 	try {
@@ -230,6 +234,7 @@ function probeRecord(file) {
 /**
  * @param {string} file
  * @param {string} where
+ * @returns {unknown}
  */
 function readRecordOrLog(file, where) {
 	try {
@@ -238,6 +243,29 @@ function readRecordOrLog(file, where) {
 		logError(where, e);
 		return null;
 	}
+}
+
+/**
+ * @template T
+ * @param {string} file
+ * @param {(record: unknown) => record is T} guard
+ * @returns {T|null}
+ */
+function readRecordAs(file, guard) {
+	const record = readRecord(file);
+	return guard(record) ? record : null;
+}
+
+/**
+ * @template T
+ * @param {string} file
+ * @param {string} where
+ * @param {(record: unknown) => record is T} guard
+ * @returns {T|null}
+ */
+function readRecordOrLogAs(file, where, guard) {
+	const record = readRecordOrLog(file, where);
+	return guard(record) ? record : null;
 }
 
 /**
@@ -610,7 +638,7 @@ function subjectDirty(subject) {
 
 function readSessionEntries(mode = "all") {
 	const dirs = mode === "own" ? [paths.sessionsDir()] : paths.sessionDirs();
-	/** @type {RegistryEntry[]} */
+	/** @type {SessionEntry[]} */
 	const out = [];
 	for (const [i, dir] of dirs.entries()) {
 		let names;
@@ -626,12 +654,10 @@ function readSessionEntries(mode = "all") {
 	return out;
 }
 
-/** @typedef {{ file: string, entry: NonNullable<ReturnType<typeof readRecord>> }} RegistryEntry */
-
 /**
  * @param {string} dir
  * @param {string[]} names
- * @param {RegistryEntry[]} out
+ * @param {SessionEntry[]} out
  */
 function pushDirEntries(dir, names, out) {
 	for (const file of names) {
@@ -642,8 +668,25 @@ function pushDirEntries(dir, names, out) {
 		} catch {
 			continue;
 		}
-		if (entry) out.push({ file: path.join(dir, file), entry });
+		if (isRecordObject(entry)) out.push({ file: path.join(dir, file), entry });
 	}
+}
+
+/** @param {Record<string, unknown>} entry */
+function entryPid(entry) {
+	const { pid } = entry;
+	if (typeof pid !== "number" && typeof pid !== "string") return null;
+	const n = Number(pid);
+	return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** @param {Record<string, unknown>} entry */
+function entryProcStart(entry) {
+	const { procStart } = entry;
+	return (typeof procStart === "string" || typeof procStart === "number") &&
+		procStart
+		? procStart
+		: null;
 }
 
 // lucmoseley/mantahostels#321
@@ -652,10 +695,13 @@ function readLiveSessionIds() {
 	if (entries === null) return null;
 	const live = new Set();
 	for (const { entry } of entries) {
-		if (!entry.sessionId || !entry.pid) continue;
+		const pid = entryPid(entry);
+		if (!entry.sessionId || pid === null) continue;
+		const start = entryProcStart(entry);
+		const unrecorded = !entry.procStart;
 		if (
-			!entry.procStart ||
-			readProcStartOf(entry.pid) === String(entry.procStart)
+			unrecorded ||
+			(start !== null && readProcStartOf(pid) === String(start))
 		)
 			live.add(entry.sessionId);
 	}
@@ -689,12 +735,10 @@ function readLiveEntryFor(sessionId, me) {
 function liveEntryIn(entries, sessionId) {
 	if (!sessionId) return null;
 	for (const { entry } of entries) {
-		if (entry.sessionId !== sessionId || !entry.pid || !entry.procStart)
-			continue;
-		const pid = Number(entry.pid);
-		const { procStart } = entry;
-		if (typeof procStart !== "string" && typeof procStart !== "number")
-			continue;
+		if (entry.sessionId !== sessionId) continue;
+		const pid = entryPid(entry);
+		const procStart = entryProcStart(entry);
+		if (pid === null || procStart === null) continue;
 		if (readProcStartOf(pid) === String(procStart)) return { pid, procStart };
 	}
 	return null;
@@ -719,7 +763,7 @@ function resumedHolderTest(where, dark) {
 }
 
 /**
- * @param {{sessionId?: string|null, pid?: number, procStart?: string|number}} lock
+ * @param {{sessionId?: string|null, pid?: number|null, procStart?: string|number|null}} lock
  * @param {(sessionId: string|null) => boolean} wasResumed
  */
 function liveOrResumed(lock, wasResumed) {
@@ -732,23 +776,24 @@ function scanOwnEntries(sessionId) {
 	let procStart = null;
 	let unproveable = null;
 	for (const { file, entry } of readSessionEntries("own") ?? []) {
-		if (entry.sessionId !== sessionId || !entry.pid) continue;
-		const start = entry.procStart;
-		if (!start) {
+		const ownPid = entryPid(entry);
+		if (entry.sessionId !== sessionId || ownPid === null) continue;
+		const start = entryProcStart(entry);
+		if (start === null) {
 			unproveable = file;
 			continue;
 		}
-		if (readProcStartOf(entry.pid) === String(start)) {
+		if (readProcStartOf(ownPid) === String(start)) {
 			const live = {
 				sessionId,
-				pid: entry.pid,
+				pid: ownPid,
 				procStart: start,
 				durable: true,
 			};
 			return { live, pid, procStart, unproveable };
 		}
 		if (pid === null) {
-			pid = entry.pid;
+			pid = ownPid;
 			procStart = start;
 		}
 	}
@@ -869,13 +914,14 @@ function registryLookup() {
 module.exports = {
 	agedUnspared,
 	DETECT_ONLY,
+	entryPid,
+	entryProcStart,
 	errorLog,
 	firstSay,
 	flat,
 	git,
 	gitDirty,
 	gitIn,
-	gitRaw,
 	identify,
 	isWarned,
 	isWatched,
@@ -890,8 +936,10 @@ module.exports = {
 	paths,
 	probeRecord,
 	readRecord,
+	readRecordAs,
 	readRecordOrFlag,
 	readRecordOrLog,
+	readRecordOrLogAs,
 	WARNED,
 	registryLookup,
 	registryNames,

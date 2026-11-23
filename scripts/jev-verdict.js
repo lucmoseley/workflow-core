@@ -10,6 +10,7 @@ const USAGE =
 	`usage: node ${scriptPath("jev-verdict.js")} <hash> right|wrong ["why"]\n` +
 	`       node ${scriptPath("jev-verdict.js")} --list`;
 
+// guess, origin untraced, #5621
 const MIN_HASH_PREFIX_CHARS = 6;
 
 /**

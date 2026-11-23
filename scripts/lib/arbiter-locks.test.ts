@@ -5,6 +5,8 @@ import path from "node:path";
 import { assert, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	AS_ROOT,
+	acquireSeeing,
+	buildLockRecord,
 	core,
 	DEAD,
 	durably,
@@ -13,8 +15,9 @@ import {
 	live,
 	liveHolder,
 	lockFiles,
-	locks as locksMod,
 	proc,
+	readBreakAt,
+	readLockAt,
 	registerSession,
 	store,
 } from "./arbiter-testkit";
@@ -30,12 +33,26 @@ const sandboxRepo = defineTemplate((dir) => {
 
 const TORN_SETTLE_MS = 50;
 
+const readErrors = () =>
+	fs.existsSync(store.errorLog())
+		? fs.readFileSync(store.errorLog(), "utf8")
+		: "";
+
+const withRegistryDark = <T>(fn: () => T): T => {
+	fs.chmodSync(path.join(sb.home, "sessions"), 0o000);
+	try {
+		return fn();
+	} finally {
+		fs.chmodSync(path.join(sb.home, "sessions"), 0o755);
+	}
+};
+
 const put = (rel: string, fields: object) => {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 	const p = store.paths.lock(rel);
 	fs.writeFileSync(
 		p,
-		JSON.stringify(locksMod.newLock({ path: rel, ...fields })),
+		JSON.stringify(buildLockRecord({ path: rel, ...fields })),
 	);
 	return p;
 };
@@ -57,7 +74,7 @@ describe("acquire — check and take in one operation", () => {
 		store.acquire("docs/doc-map.md", live(sb, "alice"));
 		const r = store.acquire("docs/doc-map.md", live(sb, "bob"));
 		expect(r.verdict).toBe("held");
-		expect(r.lock.sessionId).toBe("alice");
+		expect(r.lock?.sessionId).toBe("alice");
 	});
 
 	it("breaks a dead holder's lock rather than wedging the file forever", () => {
@@ -145,7 +162,7 @@ describe("acquire — check and take in one operation", () => {
 		put("docs/doc-map.md", { sessionId: "resumed", ...DEAD });
 		const r = store.acquire("docs/doc-map.md", casper);
 		expect(r.verdict).toBe("held");
-		expect(r.lock.sessionId).toBe("resumed");
+		expect(r.lock?.sessionId).toBe("resumed");
 	});
 
 	it("does not write the resumed holder's live pid back, having no claim to write", () => {
@@ -160,7 +177,7 @@ describe("acquire — check and take in one operation", () => {
 		put("docs/doc-map.md", { sessionId: "resumed", ...DEAD });
 		const r = store.acquire("docs/doc-map.md#B1", live(sb, "bob"));
 		expect(r.verdict).toBe("held");
-		expect(r.lock.sessionId).toBe("resumed");
+		expect(r.lock?.sessionId).toBe("resumed");
 	});
 
 	it("refuses a REGION under a live whole-file claim that names no session (#1469 Q3)", () => {
@@ -223,7 +240,7 @@ describe("a lock recording a pid that is no longer the session's", () => {
 
 		const r = store.acquire("docs/doc-map.md", me);
 		expect(r.verdict).toBe("claimed");
-		expect(r.lock.pid).toBe(process.pid);
+		expect(r.lock?.pid).toBe(process.pid);
 
 		expect(store.acquire("docs/doc-map.md", durably("other")).verdict).toBe(
 			"held",
@@ -242,7 +259,7 @@ describe("a stale lock whose session id still has a live entry (mantahostels#348
 
 		const r = store.acquire("docs/doc-map.md", durably("bob"));
 		expect(r.verdict).toBe("held");
-		expect(r.lock.sessionId).toBe("resumed");
+		expect(r.lock?.sessionId).toBe("resumed");
 	});
 
 	it("re-keys it to the live pid, so the next reader repeats no walk", () => {
@@ -318,7 +335,8 @@ describe("a stale lock whose session id still has a live entry (mantahostels#348
 	});
 
 	it("hands back the lock actually on disk when the rewrite loses a race", () => {
-		const existing = locksMod.newLock({
+		registerSession(sb, "resumed", process.pid);
+		const existing = buildLockRecord({
 			path: "docs/doc-map.md",
 			sessionId: "resumed",
 			...DEAD,
@@ -329,14 +347,14 @@ describe("a stale lock whose session id still has a live entry (mantahostels#348
 		});
 		const onDisk = JSON.parse(fs.readFileSync(p, "utf8"));
 
-		const reported = locksMod.repointLock(
+		const reported = acquireSeeing(
 			"docs/doc-map.md",
 			existing,
-			liveHolder(),
-		);
+			durably("bob"),
+		).lock;
 
-		expect(reported.claimId).toBe(onDisk.claimId);
-		expect(reported.sessionId).toBe("someone-else");
+		expect(reported?.claimId).toBe(onDisk.claimId);
+		expect(reported?.sessionId).toBe("someone-else");
 		expect(JSON.parse(fs.readFileSync(p, "utf8"))).toEqual(onDisk);
 	});
 });
@@ -377,7 +395,7 @@ describe("a lock broken on the final retry", () => {
 		const r = store.acquire("docs/doc-map.md", me, 1);
 		expect(r.verdict).toBe("claimed");
 		expect(r.lock).not.toBeNull();
-		expect(r.lock.sessionId).toBe("a");
+		expect(r.lock?.sessionId).toBe("a");
 		expect(
 			JSON.parse(fs.readFileSync(store.paths.lock("docs/doc-map.md"), "utf8"))
 				.sessionId,
@@ -391,7 +409,7 @@ describe("a lock broken on the final retry", () => {
 		const r = store.acquire("docs/doc-map.md", store.identify("a"), 1);
 		expect(r.verdict).toBe("claimed");
 		expect(r.lock).not.toBeNull();
-		expect(r.lock.sessionId).toBe("a");
+		expect(r.lock?.sessionId).toBe("a");
 	});
 
 	it("still returns held for a live holder, having spent its whole budget", () => {
@@ -401,7 +419,7 @@ describe("a lock broken on the final retry", () => {
 		});
 		const r = store.acquire("docs/doc-map.md", me, 3);
 		expect(r.verdict).toBe("held");
-		expect(r.lock.sessionId).toBe("alice");
+		expect(r.lock?.sessionId).toBe("alice");
 	});
 });
 
@@ -436,7 +454,7 @@ describe("readLocks — a record that will not parse", () => {
 			planted(
 				"deadbeefcafe0003.json",
 				JSON.stringify(
-					locksMod.newLock({ path: "docs/PRD.md", sessionId: "bob" }),
+					buildLockRecord({ path: "docs/PRD.md", sessionId: "bob" }),
 				),
 			),
 		);
@@ -528,6 +546,12 @@ describe("readLocks — a record that will not parse", () => {
 });
 
 describe("debris — what a process killed mid-break leaves behind", () => {
+	const sweep = () =>
+		store.acquire("docs/swept.md", {
+			sessionId: "sweeper",
+			...liveHolder(),
+			durable: false,
+		});
 	const plant = (name: string, ageMs: number) => {
 		fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 		const p = path.join(store.paths.locksDir(), name);
@@ -540,14 +564,14 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 	it("removes .tmp- and .stale- files old enough to be certainly abandoned", () => {
 		const tmp = plant(".tmp-999-deadbeef", 2 * 60 * 60 * 1000);
 		const stale = plant("abc123.json.stale-deadbeef", 2 * 60 * 60 * 1000);
-		locksMod.sweepDebris();
+		sweep();
 		expect(fs.existsSync(tmp)).toBe(false);
 		expect(fs.existsSync(stale)).toBe(false);
 	});
 
 	it("leaves recent debris alone — it may be a claim in flight", () => {
 		const inflight = plant(".tmp-1000-cafe01", 30 * 60 * 1000);
-		locksMod.sweepDebris();
+		sweep();
 		expect(fs.existsSync(inflight)).toBe(true);
 	});
 
@@ -557,7 +581,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		fs.utimesSync(lockPath, t, t);
 
 		const r = lockFiles.dropIfUnchanged("docs/doc-map.md", () => {
-			locksMod.sweepDebris();
+			sweep();
 			return false;
 		});
 
@@ -574,7 +598,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 
 	it("clears an old once-per-session marker, so a still-broken guard is re-said", () => {
 		const said = plant(".said-abcdef0123456789", 2 * 60 * 60 * 1000);
-		locksMod.sweepDebris();
+		sweep();
 		expect(fs.existsSync(said)).toBe(false);
 	});
 
@@ -584,7 +608,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		fs.writeFileSync(
 			`${lockPath}.stale-cafe02`,
 			JSON.stringify(
-				locksMod.newLock({
+				buildLockRecord({
 					path: "docs/doc-map.md",
 					sessionId: "victim",
 					...liveHolder(),
@@ -596,7 +620,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		registerSession(sb, "other", process.pid);
 		const r = store.acquire("docs/doc-map.md", store.identify("other"));
 		expect(r.verdict).toBe("held");
-		expect(r.lock.claimId).toBe("stranded");
+		expect(r.lock?.claimId).toBe("stranded");
 		expect(fs.readFileSync(store.errorLog(), "utf8")).toContain(
 			"stranded aside",
 		);
@@ -609,7 +633,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		fs.writeFileSync(
 			aside,
 			JSON.stringify(
-				locksMod.newLock({
+				buildLockRecord({
 					path: "docs/doc-map.md",
 					sessionId: "resumed",
 					...DEAD,
@@ -621,7 +645,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		fs.utimesSync(aside, old, old);
 		registerSession(sb, "resumed", process.pid);
 
-		locksMod.sweepDebris();
+		sweep();
 
 		expect(fs.existsSync(aside)).toBe(false);
 		expect(JSON.parse(fs.readFileSync(lockPath, "utf8")).claimId).toBe(
@@ -637,7 +661,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 			fs.writeFileSync(
 				aside,
 				JSON.stringify(
-					locksMod.newLock({
+					buildLockRecord({
 						path: "docs/doc-map.md",
 						sessionId: "resumed",
 						...DEAD,
@@ -648,12 +672,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 			fs.utimesSync(aside, old, old);
 			registerSession(sb, "resumed", process.pid);
 
-			fs.chmodSync(path.join(sb.home, "sessions"), 0o000);
-			try {
-				locksMod.sweepDebris();
-			} finally {
-				fs.chmodSync(path.join(sb.home, "sessions"), 0o755);
-			}
+			withRegistryDark(sweep);
 
 			expect(fs.existsSync(aside)).toBe(false);
 			expect(fs.readFileSync(store.errorLog(), "utf8")).toContain(
@@ -669,7 +688,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		fs.writeFileSync(
 			aside,
 			JSON.stringify(
-				locksMod.newLock({
+				buildLockRecord({
 					path: "docs/doc-map.md",
 					sessionId: "ghost",
 					...DEAD,
@@ -689,7 +708,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		fs.writeFileSync(
 			aside,
 			JSON.stringify(
-				locksMod.newLock({
+				buildLockRecord({
 					path: "docs/doc-map.md",
 					sessionId: "first",
 					...liveHolder(),
@@ -697,7 +716,7 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 			),
 		);
 
-		locksMod.sweepDebris();
+		sweep();
 
 		expect(JSON.parse(fs.readFileSync(lockPath, "utf8")).sessionId).toBe(
 			"third",
@@ -711,19 +730,19 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 		const lock = store.paths.lock("docs/doc-map.md");
 		const t = new Date(Date.now() - 30 * 86_400_000);
 		fs.utimesSync(lock, t, t);
-		locksMod.sweepDebris();
+		sweep();
 		expect(fs.existsSync(lock)).toBe(true);
 	});
 });
 
-describe("the break path — reached directly, because acquire() cannot be", () => {
+describe("the break path — a lock that changed between the read and the rename", () => {
 	const readAsides = () =>
 		fs
 			.readdirSync(store.paths.locksDir())
 			.filter((f: string) => f.includes(".json.stale-"));
 
 	it("frees the path, and leaves no aside behind, when the lock really was stale", () => {
-		const existing = locksMod.newLock({
+		const existing = buildLockRecord({
 			path: "docs/doc-map.md",
 			...DEAD,
 			claimId: "c1",
@@ -731,37 +750,43 @@ describe("the break path — reached directly, because acquire() cannot be", () 
 		const p = put("docs/doc-map.md", { ...DEAD, claimId: "c1" });
 		existing.claimId = JSON.parse(fs.readFileSync(p, "utf8")).claimId;
 
-		expect(locksMod.breakStale("docs/doc-map.md", existing)).toBe("freed");
-		expect(fs.existsSync(p)).toBe(false);
+		expect(
+			acquireSeeing("docs/doc-map.md", existing, durably("bob")).verdict,
+		).toBe("claimed");
+		expect(readLockAt(p).sessionId).toBe("bob");
 		expect(readAsides()).toEqual([]);
 	});
 
 	it("puts back a lock that turned live between the read and the rename", () => {
-		const existing = locksMod.newLock({ path: "docs/doc-map.md", ...DEAD });
+		const existing = buildLockRecord({ path: "docs/doc-map.md", ...DEAD });
 		const p = put("docs/doc-map.md", { ...liveHolder(), claimId: "fresh" });
 
-		expect(locksMod.breakStale("docs/doc-map.md", existing)).toBe("retry");
-		expect(fs.existsSync(p)).toBe(true);
+		const r = acquireSeeing("docs/doc-map.md", existing, durably("bob"));
+		expect(r.verdict).toBe("held");
+		expect(r.lock?.claimId).toBe("fresh");
 		expect(JSON.parse(fs.readFileSync(p, "utf8")).claimId).toBe("fresh");
 		expect(readAsides()).toEqual([]);
 	});
 
 	it("puts back a lock it cannot read rather than treating it as free", () => {
-		const existing = locksMod.newLock({ path: "docs/doc-map.md", ...DEAD });
+		const existing = buildLockRecord({ path: "docs/doc-map.md", ...DEAD });
 		const p = put("docs/doc-map.md", {});
 		fs.writeFileSync(p, "{not json");
 
-		expect(locksMod.breakStale("docs/doc-map.md", existing)).toBe("retry");
-		expect(fs.existsSync(p)).toBe(true);
+		expect(
+			acquireSeeing("docs/doc-map.md", existing, durably("bob")).lock,
+		).toBeNull();
 		expect(fs.readFileSync(p, "utf8")).toBe("{not json");
 	});
 
 	it("frees a lock whose holder is dead even when the claimId has changed", () => {
-		const existing = locksMod.newLock({ path: "docs/doc-map.md", ...DEAD });
+		const existing = buildLockRecord({ path: "docs/doc-map.md", ...DEAD });
 		const p = put("docs/doc-map.md", { ...DEAD, claimId: "different" });
 
-		expect(locksMod.breakStale("docs/doc-map.md", existing)).toBe("freed");
-		expect(fs.existsSync(p)).toBe(false);
+		expect(
+			acquireSeeing("docs/doc-map.md", existing, durably("bob")).verdict,
+		).toBe("claimed");
+		expect(readLockAt(p).sessionId).toBe("bob");
 	});
 });
 
@@ -777,10 +802,6 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		fs.existsSync(store.paths.breaksDir())
 			? fs.readdirSync(store.paths.breaksDir())
 			: [];
-	const readErrors = () =>
-		fs.existsSync(store.errorLog())
-			? fs.readFileSync(store.errorLog(), "utf8")
-			: "";
 	const onBreakRename = (before: () => void) => {
 		const lockPath = store.paths.lock(rel);
 		const real = fs.renameSync;
@@ -793,6 +814,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 			real(from, to);
 		});
 	};
+	// guess: inside the settle pause, past acquire's first probe, origin untraced, #5621
 	const childDelayMs = 20;
 	const sleepSyncPath = path.join(__dirname, "sleep-sync.js");
 
@@ -832,7 +854,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 
 		expect(taken.verdict).toBe("claimed");
 		expect(taken.lock).not.toBeNull();
-		expect(core.readRecord(p)?.sessionId).toBe("a");
+		expect(readLockAt(p).sessionId).toBe("a");
 		expect(readErrors()).not.toContain("no lock written");
 	});
 
@@ -843,12 +865,12 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		store.acquire(rel, store.identify("a"));
 
 		expect(readBreaks()).toHaveLength(1);
-		const record = core.readRecord(
+		const record = readBreakAt(
 			path.join(store.paths.breaksDir(), readBreaks()[0]),
 		);
-		expect(record?.path).toBe(rel);
-		expect(record?.brokenBy).toBe("a");
-		expect(record?.lostBy).toBeNull();
+		expect(record.path).toBe(rel);
+		expect(record.brokenBy).toBe("a");
+		expect(record.lostBy).toBeNull();
 		expect(readErrors()).toContain("unparseable lock record");
 	});
 
@@ -867,7 +889,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		registerSession(sb, "a", process.pid);
 		const p = corrupt("");
 		const good = JSON.stringify(
-			locksMod.newLock({ path: rel, sessionId: "mid-write", ...liveHolder() }),
+			buildLockRecord({ path: rel, sessionId: "mid-write", ...liveHolder() }),
 		);
 		const ready = path.join(sb.dir, "child-ready");
 		const go = path.join(sb.dir, "go");
@@ -896,7 +918,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 			expect(taken.verdict).toBe("held");
 			expect(taken.lock?.sessionId).toBe("mid-write");
 			expect(readBreaks()).toEqual([]);
-			expect(core.readRecord(p)?.sessionId).toBe("mid-write");
+			expect(readLockAt(p).sessionId).toBe("mid-write");
 			expect(elapsed).toBeGreaterThanOrEqual(TORN_SETTLE_MS);
 		} finally {
 			child.kill();
@@ -906,7 +928,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 	it("puts back a record that turned readable between the judgement and the rename", () => {
 		const p = corrupt("{not json");
 		const good = JSON.stringify(
-			locksMod.newLock({ path: rel, ...liveHolder(), claimId: "fresh" }),
+			buildLockRecord({ path: rel, ...liveHolder(), claimId: "fresh" }),
 		);
 		const rename = onBreakRename(() => fs.writeFileSync(p, good));
 		try {
@@ -914,7 +936,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		} finally {
 			rename.mockRestore();
 		}
-		expect(core.readRecord(p)?.claimId).toBe("fresh");
+		expect(readLockAt(p).claimId).toBe("fresh");
 		expect(readBreaks()).toEqual([]);
 	});
 
@@ -1087,92 +1109,77 @@ describe("readHeldBy — the paths one session holds", () => {
 	});
 });
 
-describe("whoHolds — the one holder-and-cover query (#1492)", () => {
+describe("a claim meets an overlapping lock on the regioned map (#1492)", () => {
 	const map = "docs/doc-map.md";
-	const registry = () => core.resumedHolderTest("test", "registry dark");
-	const dark = Object.assign(() => false, { registryUnreadable: () => true });
-	const ask = (subject: string, resumed = registry()) =>
-		store.whoHolds(subject, "bob", resumed);
+	const claim = (subject: string) => store.acquire(subject, durably("bob"));
 
-	it("names another session's live lock as the holder", () => {
-		put("docs/a.md", { sessionId: "alice", ...liveHolder() });
-		expect(ask("docs/a.md")).toMatchObject({
-			holder: { sessionId: "alice" },
-			own: null,
-			dead: [],
-			unknown: false,
+	it("is held by another session's live whole-file lock", () => {
+		put(map, { sessionId: "alice", ...liveHolder() });
+		expect(claim(`${map}#B1`)).toMatchObject({
+			verdict: "held",
+			lock: { sessionId: "alice", path: map },
 		});
 	});
 
-	it("names the asker's own overlapping lock as cover, never as the holder", () => {
-		put(map, { sessionId: "bob", ...DEAD });
-		expect(ask(`${map}#B1`)).toMatchObject({
-			holder: null,
-			own: { sessionId: "bob", path: map },
-			dead: [],
-		});
+	it("takes the asker's own overlapping lock as cover, never as the holder", () => {
+		put(map, { sessionId: "bob", ...liveHolder() });
+		expect(claim(`${map}#B1`).verdict).toBe("claimed");
 	});
 
-	it("lists a dead overlapping lock, and is not unknown where the registry opened", () => {
+	it("goes ahead over a dead overlapping lock where the registry opened", () => {
 		registerSession(sb, "ended", DEAD.pid, { procStart: DEAD.procStart });
-		put("docs/a.md", { sessionId: "ended", ...DEAD });
-		expect(ask("docs/a.md")).toMatchObject({
-			holder: null,
-			dead: [{ sessionId: "ended" }],
-			unknown: false,
-		});
+		put(map, { sessionId: "ended", ...DEAD });
+		expect(claim(`${map}#B1`).verdict).toBe("claimed");
+		expect(readErrors()).not.toContain("this region claim goes ahead");
 	});
 
-	it("is unknown where a dead overlapping lock met a registry that would not open (#271)", () => {
-		put("docs/a.md", { sessionId: "alice", ...DEAD });
-		expect(ask("docs/a.md", dark)).toMatchObject({
-			holder: null,
-			unknown: true,
-		});
-	});
+	it.skipIf(AS_ROOT)(
+		"goes ahead over a dead overlapping lock where the registry would not open, and says so (#271)",
+		() => {
+			put(map, { sessionId: "alice", ...DEAD });
+			expect(withRegistryDark(() => claim(`${map}#B1`)).verdict).toBe(
+				"claimed",
+			);
+			expect(readErrors()).toContain("this region claim goes ahead");
+		},
+	);
 
-	it("is not unknown over a dead lock on some other path", () => {
-		put("docs/other.md", { sessionId: "alice", ...DEAD });
-		expect(ask("docs/a.md", dark)).toMatchObject({ dead: [], unknown: false });
+	it("is not held by a live lock on some other path", () => {
+		put("docs/other.md", { sessionId: "alice", ...liveHolder() });
+		expect(claim(`${map}#B1`).verdict).toBe("claimed");
 	});
 
 	it("never meets across two different regions", () => {
 		put(`${map}#B1`, { sessionId: "alice", ...liveHolder() });
-		expect(ask(`${map}#B2`)).toMatchObject({ holder: null, dead: [] });
+		expect(claim(`${map}#B2`).verdict).toBe("claimed");
 	});
 
-	it("meets a whole-file claim from a region, and a region claim from the whole file", () => {
-		put(map, { sessionId: "alice", ...liveHolder() });
-		expect(ask(`${map}#B1`)?.holder?.path).toBe(map);
-		fs.rmSync(store.paths.lock(map));
+	it("meets a region claim from the whole file", () => {
 		put(`${map}#B1`, { sessionId: "alice", ...liveHolder() });
-		expect(ask(map)?.holder?.path).toBe(`${map}#B1`);
+		expect(claim(map)).toMatchObject({
+			verdict: "held",
+			lock: { path: `${map}#B1` },
+		});
 	});
 
 	it("counts a live lock naming no session as a holder (#1469 Q3)", () => {
-		put("docs/a.md", { sessionId: null, ...liveHolder() });
-		expect(ask("docs/a.md")?.holder).toMatchObject({ sessionId: null });
-	});
-
-	it("never asks the registry about a dead lock naming no session", () => {
-		put("docs/a.md", { sessionId: null, ...DEAD });
-		const asked = Object.assign(
-			vi.fn(() => false),
-			{ registryUnreadable: () => true },
-		);
-		expect(ask("docs/a.md", asked)).toMatchObject({
-			holder: null,
-			dead: [{ sessionId: null }],
-			unknown: false,
+		put(map, { sessionId: null, ...liveHolder() });
+		expect(claim(`${map}#B1`)).toMatchObject({
+			verdict: "held",
+			lock: { sessionId: null },
 		});
-		expect(asked).not.toHaveBeenCalled();
 	});
 
-	it("returns null where the store cannot be read", () => {
-		fs.mkdirSync(store.stateDir(), { recursive: true });
-		fs.writeFileSync(store.paths.locksDir(), "not a directory");
-		expect(ask("docs/a.md")).toBeNull();
-	});
+	it.skipIf(AS_ROOT)(
+		"never asks the registry about a dead lock naming no session",
+		() => {
+			put(map, { sessionId: null, ...DEAD });
+			expect(withRegistryDark(() => claim(`${map}#B1`)).verdict).toBe(
+				"claimed",
+			);
+			expect(readErrors()).not.toContain("this region claim goes ahead");
+		},
+	);
 });
 
 describe("a region claim's cleanliness is its own region's, not the file's (mantahostels#1434)", () => {
@@ -1234,8 +1241,8 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 	it("reads a region as clean while another region of the file is dirty", () => {
 		write(doc("B196 as committed.", "B197, edited by a neighbour."));
 		expect(store.gitDirty(rel)).toBe(true);
-		expect(store.subjectDirty(`${rel}#B196`)).toBe(false);
-		expect(store.subjectDirty(`${rel}#B197`)).toBe(true);
+		expect(core.subjectDirty(`${rel}#B196`)).toBe(false);
+		expect(core.subjectDirty(`${rel}#B197`)).toBe(true);
 	});
 
 	it("releases a clean region while another region of the file is dirty", () => {
@@ -1261,12 +1268,12 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 				"The preamble.\n\nA whole paragraph a neighbour added.",
 			),
 		);
-		expect(store.subjectDirty(`${rel}#B197`)).toBe(false);
+		expect(core.subjectDirty(`${rel}#B197`)).toBe(false);
 		expect(store.release(`${rel}#B197`, me).verdict).toBe("released");
 	});
 
 	it("reads the last region as clean, trailing newline and all", () => {
-		expect(store.subjectDirty(`${rel}#B197`)).toBe(false);
+		expect(core.subjectDirty(`${rel}#B197`)).toBe(false);
 	});
 
 	it("reads a §A row region independently of the rest of §A", () => {
@@ -1277,41 +1284,41 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 				"docs/agents/x.md",
 			).replace("| Path | Role |", "| Path | Role | Owner |"),
 		);
-		expect(store.subjectDirty(`${rel}#A:docs/agents/x.md`)).toBe(false);
-		expect(store.subjectDirty(`${rel}#section-a`)).toBe(true);
+		expect(core.subjectDirty(`${rel}#A:docs/agents/x.md`)).toBe(false);
+		expect(core.subjectDirty(`${rel}#section-a`)).toBe(true);
 	});
 
 	it("calls a region dirty when it exists on only one side", () => {
 		write(
 			`${doc("B196 as committed.", "B197 as committed.")}\n### B198 · New\n`,
 		);
-		expect(store.subjectDirty(`${rel}#B198`)).toBe(true);
+		expect(core.subjectDirty(`${rel}#B198`)).toBe(true);
 	});
 
 	it("catches a change staged and then reverted in the working tree", () => {
 		write(doc("B196, staged but not committed.", "B197 as committed."));
 		stage();
 		write(doc("B196 as committed.", "B197 as committed."));
-		expect(store.subjectDirty(`${rel}#B196`)).toBe(true);
-		expect(store.subjectDirty(`${rel}#B197`)).toBe(false);
+		expect(core.subjectDirty(`${rel}#B196`)).toBe(true);
+		expect(core.subjectDirty(`${rel}#B197`)).toBe(false);
 	});
 
 	it("reads a region in NEITHER revision as clean, so its claim can be dropped", () => {
 		const me = live(sb, "alice");
 		store.acquire(`${rel}#B999`, me);
-		expect(store.subjectDirty(`${rel}#B999`)).toBe(false);
+		expect(core.subjectDirty(`${rel}#B999`)).toBe(false);
 		expect(store.release(`${rel}#B999`, me).verdict).toBe("released");
 	});
 
 	it("falls back to the whole file where there is no HEAD to compare against", () => {
 		fs.rmSync(path.join(sb.repo, ".git"), { recursive: true, force: true });
 		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
-		expect(store.subjectDirty(`${rel}#B196`)).toBe(true);
+		expect(core.subjectDirty(`${rel}#B196`)).toBe(true);
 	});
 
 	it("leaves a whole-file subject on the file-level test", () => {
 		write(doc("B196 as committed.", "B197, edited by a neighbour."));
-		expect(store.subjectDirty(rel)).toBe(true);
+		expect(core.subjectDirty(rel)).toBe(true);
 	});
 
 	describe("the §A generator's release waives that refusal (mantahostels#2428)", () => {
@@ -1329,7 +1336,7 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 			const me = live(sb, "alice");
 			store.acquire(`${rel}#section-a`, me);
 			dirtyA();
-			expect(store.subjectDirty(`${rel}#section-a`)).toBe(true);
+			expect(core.subjectDirty(`${rel}#section-a`)).toBe(true);
 			expect(
 				store.release(`${rel}#section-a`, me, { generator: true }).verdict,
 			).toBe("released");
@@ -1420,7 +1427,7 @@ describe("a claim read in its holder's tree, not the reader's (#4457)", () => {
 	it("refuses a release run from the main checkout of a claim dirty in the worktree", () => {
 		const me = holdDirtyInWorktree();
 		inDir(sb.repo, () => {
-			expect(store.subjectDirty(rel)).toBe(false);
+			expect(core.subjectDirty(rel)).toBe(false);
 			expect(store.release(rel, me).verdict).toBe("dirty");
 		});
 	});

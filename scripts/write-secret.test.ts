@@ -1411,6 +1411,8 @@ describe("write-secret", () => {
 	);
 
 	const StaleCopy = "OLD_KEY=stale-copy-value\n";
+	// Above Linux's 2^22 PID_MAX_LIMIT:
+	// https://man7.org/linux/man-pages/man5/proc_sys_kernel.5.html
 	const DeadPid = 4_194_305;
 
 	const aside = (pid: number, tag = "0a1b2c3d") =>

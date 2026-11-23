@@ -4,6 +4,7 @@ const path = require("node:path");
 const contentMod = require("./arbiter-content.js");
 const core = require("./arbiter-core.js");
 const lockFiles = require("./arbiter-lock-files.js");
+const { isObservationRecord } = require("./arbiter-records.js");
 const { caught, ignoreFailure } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").ObservationRecord} ObservationRecord */
@@ -128,7 +129,11 @@ function readObservationEntries(
 		.map((f) => path.join(core.paths.observationsDir(), f))
 		.map((file) => ({
 			file,
-			record: core.readRecordOrLog(file, "observation read"),
+			record: core.readRecordOrLogAs(
+				file,
+				"observation read",
+				isObservationRecord,
+			),
 		}));
 }
 
@@ -151,9 +156,11 @@ function readObservedEntriesBy(sessionId) {
 	const suffix = core.pairSuffix(sessionId);
 	const entries = readObservationEntries((f) => f.endsWith(suffix));
 	if (entries === null) return null;
-	return entries
-		.filter((e) => e.record?.sessionId === sessionId)
-		.map((e) => ({ path: e.record.path, tree: core.recordTree(e.record) }));
+	return entries.flatMap(({ record }) =>
+		record?.sessionId === sessionId
+			? [{ path: record.path, tree: core.recordTree(record) }]
+			: [],
+	);
 }
 
 function readObservedIds() {

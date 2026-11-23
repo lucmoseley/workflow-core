@@ -7,11 +7,11 @@ const { readEnvironVar } = require("./proc-environ.js");
 const { procRoot, REAL_PROC } = require("./proc-root.js");
 const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
 
-// #2667
+// guess: bg-run's backstop at +60 s lands inside the 15-minute ruling, #2667
 const CEILING_MS = 840_000;
-// #2729
+// guess, #2729
 const TARGET_MS = 180_000;
-// #4283
+// guess: Bazel's 60 s short-test timeout, #4283
 const FILE_LIMIT_MS = 60_000;
 // #3290 measured 1,497 s of file and setup time summed over a 343 s run at 5 workers
 const BENCH_WORKERS = 5;

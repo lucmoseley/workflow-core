@@ -8,8 +8,10 @@ import { buildBashPayload, spawnGuard } from "./lib/pretool-guard-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const HOOK = path.resolve(__dirname, "start-lander-on-push.js");
+// guess: far above the hook's sub-second run, #2405
 const HOOK_TIMEOUT_MS = 20_000;
 const LAUNCH_WAIT_MS = 10_000;
+// guess, #2675
 const STUB_POLL_S = 0.05;
 const STUB_POLLS = 60 / STUB_POLL_S;
 

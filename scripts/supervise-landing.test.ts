@@ -13,6 +13,7 @@ import { runInProcess } from "./lib/run-in-process.js";
 
 const SUPERVISE = path.resolve(__dirname, "supervise-landing.js");
 const MIN = 60 * 1000;
+// guess: a lander run here takes well under a second, #2692
 const WAIT_MS = 30_000;
 
 let tmp: string;

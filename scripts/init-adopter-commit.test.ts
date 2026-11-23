@@ -32,6 +32,7 @@ const HAS_GITLEAKS = (() => {
 	}
 })();
 
+// guess: an init and a commit through every gate, #4296
 const COMMIT_BUDGET_MS = 180_000;
 
 describe("the skeleton's first commit", () => {

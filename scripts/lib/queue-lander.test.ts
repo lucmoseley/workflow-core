@@ -18,6 +18,7 @@ import {
 	type QueueAction,
 	type QueueLanderDeps,
 	runQueueLander,
+	type TrackerDroppedRef,
 	type Verdict,
 } from "./queue-lander.js";
 
@@ -118,7 +119,7 @@ interface Options {
 	acquired?: boolean;
 	now?: number;
 	mainMoved?: (sha: string) => boolean;
-	trackerDropped?: readonly DroppedRef[];
+	trackerDropped?: readonly TrackerDroppedRef[];
 }
 
 function fakeMerge(
@@ -169,6 +170,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 	const finish = (sha: string) => {
 		for (const r of runs) if (r.sha === sha) r.done = true;
 	};
+	const tracker = [...(o.trackerDropped ?? [])];
 	const deps: QueueLanderDeps = {
 		git: {
 			refs: () => {
@@ -181,7 +183,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 						pushedAt: r.pushedAt,
 					})),
 					dropped: [...remote.dropped].map(([ref, sha]) => ({ ref, sha })),
-					trackerDropped: o.trackerDropped ?? [],
+					trackerDropped: [...tracker],
 				};
 			},
 			mergeMembers: (onto, members, fresh, started) => {
@@ -205,9 +207,17 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				remote.main = sha;
 				return { kind: "pushed" };
 			},
-			deleteRef: (branch, sha) => {
+			deleteRef: (branch, sha, on) => {
 				call("deleteRef");
 				o.beforeDelete?.(branch, remote);
+				if (on !== undefined && on !== "origin") {
+					const at = tracker.findIndex(
+						(r) => r.ref === branch && r.sha === sha && r.remote === on,
+					);
+					if (at === -1) return false;
+					tracker.splice(at, 1);
+					return true;
+				}
 				const [kind, name = ""] = branch.split(/\/(.*)/);
 				if (kind === "dropped") {
 					if (remote.dropped.get(branch) !== sha) return false;
@@ -407,6 +417,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		pushed,
 		events,
 		depths,
+		tracker,
 	};
 }
 
@@ -1959,6 +1970,39 @@ describe("the reap", () => {
 		...TICKETED,
 	});
 
+	it("reaps a dropped ref only the tracker's remote holds there, once its fix ticket closes or its member lands, and one origin holds on origin (#5629)", async () => {
+		const remote = remoteOf("m0", {}, { "dropped/c": "c1" });
+		const disk = freshDisk();
+		disk.tickets.set(1, "closed");
+		disk.tickets.set(2, "open");
+		disk.tickets.set(3, "closed");
+		disk.drops = [dropOf("a", 1), dropOf("b", 2), dropOf("c", 3)];
+
+		const { end, actions, tracker } = await land(remote, disk, {
+			onMain: ["b1"],
+			trackerDropped: [
+				{ ref: "dropped/a", sha: "a1", remote: "archive" },
+				{ ref: "dropped/b", sha: "b1", remote: "archive" },
+			],
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(actions.map(buildQueueActionLine)).toEqual(
+			expect.arrayContaining([
+				"settle-drop dropped/b@b1 on archive on main@m0, closing #2",
+				"delete-dropped-ref dropped/a@a1 on archive",
+				"delete-dropped-ref dropped/c@c1 on origin",
+			]),
+		);
+		expect(tracker).toEqual([]);
+		expect(remote.dropped.size).toBe(0);
+		expect(disk.drops.map((d) => [d.ref, d.reapedAt])).toEqual([
+			["dropped/a", NOW],
+			["dropped/b", NOW],
+			["dropped/c", NOW],
+		]);
+	});
+
 	it("takes a standing drop whose dropped ref the tracker's remote holds as made, pushing it to origin never, and remakes one it lacks (#5539)", async () => {
 		const remote = remoteOf("m0");
 		const disk = freshDisk();
@@ -1967,7 +2011,7 @@ describe("the reap", () => {
 		disk.drops = [dropOf("a", 1), dropOf("b", 2)];
 
 		const { end, actions } = await land(remote, disk, {
-			trackerDropped: [{ ref: "dropped/a", sha: "a1" }],
+			trackerDropped: [{ ref: "dropped/a", sha: "a1", remote: "archive" }],
 		});
 
 		expect(end).toEqual(NO_QUEUE);
@@ -1995,6 +2039,7 @@ describe("the reap", () => {
 			kind: "delete-dropped-ref",
 			ref: "dropped/a",
 			sha: "a1",
+			remote: "origin",
 		});
 		expect(said).toEqual([
 			"#3's state not read, dropped/c kept for a later run: no issue #3",

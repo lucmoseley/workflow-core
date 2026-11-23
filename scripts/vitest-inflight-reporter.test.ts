@@ -12,6 +12,7 @@ const timings = require("./lib/test-file-timings.js");
 const { takeRunReport } = require("./lib/suite-handoff.js");
 
 const REPO = path.resolve(__dirname, "..");
+// guess: outlasts the run's start-up silence, #1149
 const STALL = 4000;
 const PARK = 8000;
 

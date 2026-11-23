@@ -42,6 +42,7 @@ const MARKER_MATCH_S = 3;
 const WHOLE_SHARE = 0.9;
 // #2726 guess an hour, past the 840 s suite ceiling
 const PAD_MS = 3_600_000;
+// guess, #3060
 const TOP = 8;
 const LIMBS = [
 	"session-cap",

@@ -1,46 +1,4 @@
 #!/usr/bin/env node
-/*
- * `npm run test`, wrapped so the suite's full stdout/stderr survive a pipe
- * (mantahostels#1943). scripts/vitest-pass-reporter.ts already records WHICH tests
- * failed (mantahostels#1942); this keeps WHY — the assertion diffs and stack frames that
- * exist only on the terminal, gone the moment a session's pipe is `head`,
- * `tail` or the wrong grep.
- *
- * TEE, NOT REDIRECT. The child's output is forwarded to this process's own
- * stdout/stderr chunk for chunk, unchanged, and copied to a durable,
- * gitignored, per-run log at the same time. A log that cannot be opened or
- * written costs the log, never the suite's exit code.
- *
- * FORCE_COLOR ON A TTY SESSION. Capturing every byte means the child's
- * stdout is a pipe rather than `inherit`, and a pipe reads as a non-TTY to
- * vitest, which would otherwise drop the colour a bare `vitest run` shows a
- * terminal.
- *
- * AND IT KILLS A STALLED RUN, naming the file it parked in (mantahostels#1910).
- * A synchronous call that never returns inside a worker cannot be timed out
- * from within vitest — `testTimeout` is enforced on the event loop, which such
- * a call never yields to — so the worker parks forever and the parent waits on
- * it, silently and without limit.
- *
- * TWO KILLS, WHICHEVER FIRES FIRST. The silence watchdog kills a run that
- * shows no sign of life for five minutes — no output, and no test or hook
- * event the in-flight reporter stamps on its file (#1149). The suite ceiling
- * (lib/suite-ceiling.js) kills every run 14 minutes after vitest spawns,
- * whatever its output or the machine's load: no run may hold the machine
- * longer (#2667). Either kill takes vitest's whole process group, exits 1 and
- * names the files in flight.
- *
- * A SCOPE OF ITS OWN (#3401). vitest starts in a pids-capped user scope
- * (lib/user-scope.js), killed whole when the run ends; a run that hit the cap
- * exits 1, naming it. Where no user manager makes one, a vitest that exits on
- * a signal, or a wrapper killed by a catchable signal, takes with it every
- * process its environment's in-flight file marks, a worker reparented to init
- * included (#3494). The sweep runs on the scoped path too.
- *
- * AND IT PRINTS THE RUN-COST REPORT after the suite's own summary (#1883):
- * each new or changed test file over budget. It never touches the exit code
- * (mantahostels#2255).
- */
 // cli-args-exempt: #5540
 
 const { execFileSync } = require("node:child_process");
@@ -71,7 +29,11 @@ const {
 	weighFiles,
 } = require("./lib/suite-bounded.js");
 const { readVitestCollected } = require("./lib/vitest-collected.js");
-const { freshenManifest } = require("./lib/manifest-freshen.js");
+const {
+	driftClause,
+	freshenManifest,
+	renderDrift,
+} = require("./lib/manifest-freshen.js");
 const {
 	dirPath,
 	logPath,
@@ -1156,7 +1118,7 @@ function runTouched(route, options) {
 	/** @type {typeof expandChanged} */
 	const expand = (_argv, o = {}) =>
 		planTouched(route.rest, o.root ?? options.root ?? TREE_ROOT, opts);
-	const opts = { ...withSession(route, options), expand };
+	const opts = withRenderCheck({ ...withSession(route, options), expand });
 	return onTree(route, {
 		overlay: () => runChangedOverlaid(route, opts),
 		worktree: () => runIsolated(route.rest, opts),
@@ -1768,7 +1730,9 @@ function queueLogFile(options) {
  */
 function runByRoute(route, opts) {
 	if (route.kind === "touched") return runTouched(route, opts);
-	const noted = withCommittedNote(route, withChangedBase(route, opts));
+	const noted = withRenderCheck(
+		withCommittedNote(route, withChangedBase(route, opts)),
+	);
 	return onTree(route, {
 		overlay: () => runChangedOverlaid(route, withSession(route, noted)),
 		worktree: () => runIsolated(route.rest, noted),
@@ -1791,6 +1755,31 @@ function withChangedBase(route, opts) {
 	return withLaunch(opts, {
 		base: readCommittedBase(root, execFn),
 	});
+}
+
+/**
+ * @template {{ root?: string, expand?: typeof expandChanged,
+ *   renderSnapshot?: import("./lib/manifest-freshen.js").RenderSnapshot }} T
+ * @param {T} opts
+ * @returns {T}
+ */
+function withRenderCheck(opts) {
+	const expand = opts.expand ?? expandChanged;
+	const home = opts.root ?? TREE_ROOT;
+	return {
+		...opts,
+		expand: (argv, o) => {
+			const plan = expand(argv, o);
+			const drift =
+				plan && renderDrift(o?.root ?? home, home, opts.renderSnapshot);
+			if (!plan || !drift) return plan;
+			return {
+				...plan,
+				admissible: false,
+				banner: `${plan.banner}Readers selected while ${driftClause(drift)}, so this run is not admissible: its certificate attests no selection. Rerun it once the tree holds the render code a run loads — after the commit a queue wait spanned, or with uncommitted render edits committed (#5635).\n`,
+			};
+		},
+	};
 }
 
 /**

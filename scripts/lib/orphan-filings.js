@@ -8,7 +8,7 @@ const { shellQuote } = require("./sh-quote.js");
 
 const FILED_DIR = "orphaned-edits-filed";
 
-// #4439
+// guess, #4439
 const FILE_KEY_HEX = 32;
 const WORKTREE_KEY_HEX = 16;
 const TITLE_TAG_HEX = 10;

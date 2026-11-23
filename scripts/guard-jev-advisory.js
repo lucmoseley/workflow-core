@@ -20,14 +20,18 @@ const OFF_VALUES = new Set(["0", "false", "off"]);
 
 const WARN_PREFIX = ".jev-advisory-nagged-";
 
+// guess: above the longest flag on record, #285
 const TEXT_CAP = 4000;
 
 const WARN_BUDGET = hookBlock.MAX_BLOCKS;
 
+// guess, #200
 const OUTAGE_BUDGET = 1;
 
+// guess, #226
 const MALFORMED_BUDGET = 1;
 
+// guess, #4144
 const REFUSED_BUDGET = 1;
 
 const REFUSED_STATUSES = new Set([401, 403]);
@@ -82,6 +86,7 @@ const GATEWAY_MODULE = "@ai-sdk/gateway";
 /** @returns {string} */
 const gitleaksBinary = () => process.env.WFC_GITLEAKS || "gitleaks";
 
+// guess: generous against a ~200 ms one-message scan, #204
 const SWEEP_MS = 5000;
 
 /**
@@ -127,6 +132,7 @@ const QUESTIONS = {
 	},
 };
 
+// guess, #175
 const LOG_CAP_BYTES = 2_097_152;
 
 /**

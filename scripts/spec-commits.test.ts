@@ -317,6 +317,50 @@ describe("spec-commits CLI", () => {
 				expect(out.commits.at(-1).twin).toBeNull();
 			});
 
+			it("keeps a twin patch-identical where a neighbour edited the lines beside its hunk", () => {
+				const lines = (edits: Record<number, string>) =>
+					Array.from({ length: 9 }, (_, i) => edits[i] ?? `line ${i}`).join(
+						"\n",
+					);
+				const save = (
+					edits: Record<number, string>,
+					msg: string,
+					date: string,
+				) => {
+					fs.writeFileSync(path.join(repo, "m.js"), lines(edits));
+					git(["add", "m.js"]);
+					git(["commit", "-q", "--no-verify", "-m", msg], date);
+				};
+				save({}, "Seed the module", "2026-09-05T00:00:00Z");
+				git(["checkout", "-q", "-b", "pre"]);
+				save({ 5: "tuned" }, "Tune the parser (#11)", "2026-09-06T00:00:00Z");
+				const reviewed = git(["rev-parse", "HEAD"]).trim();
+				git(["checkout", "-q", "-"]);
+				save(
+					{ 4: "theirs" },
+					"A neighbour's edit (#99)",
+					"2026-09-07T00:00:00Z",
+				);
+				save(
+					{ 4: "theirs", 5: "tuned" },
+					"Tune the parser (#11)",
+					"2026-09-08T00:00:00Z",
+				);
+				git(
+					["merge", "-q", "-s", "ours", "--no-edit", "--no-verify", "pre"],
+					"2026-09-09T00:00:00Z",
+				);
+				const out = JSON.parse(
+					run([ticket(11)], ["--since", reviewed, "--json"]).stdout,
+				);
+				expect(
+					out.commits.map(
+						(c: { twin: { patchDiffers: boolean } | null }) =>
+							c.twin?.patchDiffers,
+					),
+				).toEqual([false]);
+			});
+
 			it("says so, marking nothing, where git gives no patch-ids", () => {
 				const reviewed = landTwins();
 				const fake = path.join(dir, "git-no-patch-id");

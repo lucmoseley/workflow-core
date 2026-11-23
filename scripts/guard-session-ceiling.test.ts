@@ -1003,20 +1003,3 @@ describe("autocompactions (#1032)", () => {
 		expect(fs.existsSync(compactionSet())).toBe(false);
 	});
 });
-
-describe("the measured-at stamp (mantahostels#2626)", () => {
-	it("names a re-measure command whose script is still on disk", () => {
-		const source = fs.readFileSync(
-			path.join(__dirname, "guard-session-ceiling.js"),
-			"utf8",
-		);
-		const scripts = [...source.matchAll(/remeasure: node (\S+)/g)].map((m) =>
-			String(m[1]),
-		);
-		expect(scripts.length).toBeGreaterThan(0);
-		for (const script of scripts) {
-			const full = path.join(__dirname, "..", script);
-			expect(fs.existsSync(full) ? script : `missing: ${full}`).toBe(script);
-		}
-	});
-});

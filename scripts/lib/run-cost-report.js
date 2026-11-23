@@ -1,36 +1,9 @@
 #!/usr/bin/env node
 /*
- * run-cost-report.js — the run-cost report a test runner prints after its
- * suite's own summary: each new or changed test file over the per-file budget,
- * and one summary line beside the machine's load (#1880, under #1869's spec).
- *
- * THE ONLY PLACE ITS WORDING AND ITS BUDGET LIVE. The core's pytest runner
- * calls `reportForRun` in-process and its vitest runner `reportForFile`; an
- * adopter's own runner calls the program entry below through the resolver's
- * script form (#1797 Q1 (B)):
+ * Usage:
  *   node scripts/lib/resolve-core.js scripts/lib/run-cost-report.js <timings.json>
  * where `<timings.json>` maps each test file the run timed, repo-relative or
- * absolute, to its seconds.
- *
- * AN EXISTING FILE IS JUDGED ON ITS GROWTH (#4289): against its row in the CI
- * record, the newest green suite run's per-file timings
- * (scripts/lib/latest-timings.js, #4579). A change is judged before it lands,
- * so that run never holds it. Past `GROWTH_BAND` times that row it is named
- * as grown; within it, it is excepted, and the line names the open ticket for
- * its speed-up or says none is open.
- *
- * UNDER `CI` IT JUDGES EVERY TIMED FILE THE RECORD HOLDS, not the diff's
- * files alone, and prints only the grown ones and its summary: there the run
- * and the record are the same kind of machine, and growth from any change
- * since the record shows. Its record there is the one the shard planned by.
- * It looks up no ticket there.
- *
- * IT NEVER REFUSES (mantahostels#2255). Timings move with load, so a line here is
- * evidence for base §X8 (5), never a verdict: any failure inside prints one
- * fail-open line and the suite's own verdict stands, and the program exits 0 on
- * every path, malformed input included (§N5). Not a `report-*` program, which
- * files an issue: it joins no family (§N3). A file's CI time is refused in the
- * scheduled sweep instead, by `scripts/check-file-ci-time.js` (#4293).
+ * absolute, to its seconds. It exits 0 on every path, malformed input included.
  */
 
 const fs = require("node:fs");

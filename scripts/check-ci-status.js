@@ -66,6 +66,7 @@ const GOOD = new Set(["success", "skipped", "neutral"]);
 /** @param {Run} r */
 const carriesNoVerdict = (r) => r.conclusion === "cancelled";
 
+// guess: ~12 days of four daily sweeps, back to the last green, lucmoseley/mantahostels#3490
 const RUN_WINDOW = 50;
 
 const BISECT_WORKFLOW = "bisect.yml";
@@ -89,6 +90,7 @@ const AUTOFIRE_COOLDOWN_MS = 2 * 60 * 1000;
 // guess: 8s under the hook's 40s timeout, #2471
 const NOTIFY_BUDGET_MS = Number(process.env.WFC_NOTIFY_BUDGET_MS) || 32_000;
 
+// guess: less is a near-certain ETIMEDOUT, lucmoseley/mantahostels#2134
 const NOTIFY_BUDGET_FLOOR_MS = 1000;
 
 const WHO_CAN_RUN_IT =

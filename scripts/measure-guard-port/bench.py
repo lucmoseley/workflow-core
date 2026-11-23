@@ -23,12 +23,16 @@ from host_root import host_root
 from machine import machine_state
 
 SESSION = "bench-2783-0000"
+# guess, #3232
 MARGIN = 1.03
 FIRST, STEP, CAP = 30, 30, 90
+# guess, #4664
 REREAD = 720
+# guess: Duet's replicate count, past the 1,000 floor, #3210
 RESAMPLES = 10_000
 PR_SET_CHILD_SUBREAPER = 36
 PF_EXITING = 0x4
+# guess, #3657
 EXIT_WAIT_S = 1.0
 # guess, #5207
 HOOK_CPU_CALLS = 15

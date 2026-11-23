@@ -1335,3 +1335,45 @@ describe("an install from a session in its own worktree (#4242)", () => {
 		expect(verdict()).toBe("deny");
 	});
 });
+
+describe("its deliberate limits", () => {
+	it.each([
+		"xargs npm install left-pad",
+		"env npm install left-pad",
+		"sudo npm install left-pad",
+	])(
+		"passes `%s` unseen — only a command's own first word is read",
+		(command) => {
+			expect(allows(command)).toBe(true);
+		},
+	);
+
+	it.each(["npm exec left-pad", "npm x cowsay hi"])(
+		"passes `%s` unread — check 3 covers the npx spelling alone",
+		(command) => {
+			expect(allows(command)).toBe(true);
+		},
+	);
+
+	it("reads only a direct dependency's bin, so a transitive one's is carried by none", () => {
+		const manifests = {
+			...INSTALLED,
+			"ts-node": JSON.stringify({ name: "ts-node", bin: { "ts-node": "x" } }),
+		};
+		expect(denial("npx ts-node x", {}, { manifests })).toContain(
+			"No dependency of this repo carries a `ts-node` bin",
+		);
+	});
+
+	it("puts no quoted span back in an npm word, so a quoted option's value reads as an unvettable spec", () => {
+		expect(
+			denial('npm i --ignore-scripts --reg"istry" https://r.example left-pad'),
+		).toMatch(/registry cannot be asked about/);
+	});
+
+	it("reads a config npm 11.16.0 does not list as a Boolean npm does not know, the word after it a package", () => {
+		expect(
+			callsOf("npm i --ignore-scripts --some-later-config left-pad"),
+		).toEqual(["npm view left-pad time.created --json", "downloads left-pad"]);
+	});
+});

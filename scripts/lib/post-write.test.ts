@@ -4,9 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	core,
 	freshSandbox,
 	live,
+	readLockAt,
 	registerSession,
 	store,
 } from "./arbiter-testkit";
@@ -58,7 +58,7 @@ describe("post-write — format, then record, in that order", () => {
 		registerSession(sb, "alice", process.pid);
 	});
 
-	const readLock = () => core.readRecord(store.paths.lock(REL));
+	const readLock = () => readLockAt(store.paths.lock(REL));
 
 	it("records what the FORMATTER left, not what the tool wrote", () => {
 		const me = live(sb, "alice");
@@ -94,7 +94,7 @@ describe("post-write — format, then record, in that order", () => {
 			"if true; then\n  echo x\nfi\n",
 		);
 		expect(
-			store.contentState(rel, core.readRecord(store.paths.lock(rel))).state,
+			store.contentState(rel, readLockAt(store.paths.lock(rel))).state,
 		).toBe("same");
 	});
 

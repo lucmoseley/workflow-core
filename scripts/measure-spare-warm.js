@@ -13,9 +13,13 @@ const { requiredGroup } = require("./lib/regex-group");
 const { readParentOf } = require("./lib/proc-stat.js");
 const { procRoot } = require("./lib/proc-root.js");
 
+// guess: fast enough to resolve a one-second plateau, lucmoseley/mantahostels#2588
 const SAMPLE_MS = 250;
+// guess: 1.5 s still, so a pause between bursts is not the end, lucmoseley/mantahostels#2588
 const STABLE_SAMPLES = 6;
+// guess: ~0.4% of the ~500 MB pair, above GC noise, lucmoseley/mantahostels#2588
 const STABLE_MB = 2;
+// guess, lucmoseley/mantahostels#2588
 const DEFAULT_TIMEOUT_S = 900;
 
 const SPAWN_LINE = /^\[([^\]]+)\].*bg spare spawned host pid=(\d+)/;

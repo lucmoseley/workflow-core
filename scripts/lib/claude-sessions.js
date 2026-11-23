@@ -118,5 +118,4 @@ module.exports = {
 	sparePairs,
 	isDaemon,
 	readProcCwd,
-	SPARE_SOCKET,
 };

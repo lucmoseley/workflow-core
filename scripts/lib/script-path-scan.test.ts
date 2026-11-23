@@ -16,7 +16,6 @@ const { isShipped } = require("./plugin-tree") as {
 describe("messages a shipped script prints", () => {
 	const exempt = [
 		/^\t\t"Every issue-body edit goes through node scripts\/issue-body\.js",$/,
-		/remeasure: "node scripts\/measure-turn-band\.js"/,
 		/: "node scripts\/check-ci-status\.js";$/,
 		/^\t"`node scripts\/session-arbiter\.js list`\.";$/,
 		/^\tconst overflow = `\\n {2}… and \$\{dropped\} more — node scripts\/session-arbiter\.js list`;$/,

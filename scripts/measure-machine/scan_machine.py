@@ -23,8 +23,10 @@ SGT = dt.timezone(dt.timedelta(hours=8))
 
 DEFAULT_SYSLOGS = "/var/log/syslog*"
 
+# guess: over 1-3 MiB collateral, under the 488 MB smallest session, lucmoseley/mantahostels#1127
 SESSION_FLOOR_MIB = 400
 
+# measured 9924 MB MemTotal on 18 Aug 2026, lucmoseley/mantahostels#1127
 MEM_TOTAL_MB = 9924
 
 GATES = {

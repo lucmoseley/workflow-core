@@ -11,6 +11,7 @@ import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const START = path.resolve(__dirname, "../scripts/start-lander.js");
+// guess: a lander run here takes well under a second, #2405
 const WAIT_MS = 30_000;
 
 let tmp: string;

@@ -7,6 +7,7 @@ const { guardDisabled } = require("./workflow-core-config");
 const { ignoreFailure } = require("./caught.js");
 const { noop } = require("./noop.js");
 
+// guess: under the Stop guard's 15 s registered timeout, #4535
 const READ_BUDGET_MS = 10_000;
 
 /**

@@ -27,6 +27,7 @@ const LABEL = takesLabel("wayfinder");
 const LIMIT_H = 2;
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
+// guess, #1157
 const SERIES_DAYS = 14;
 const TOP_SESSIONS = 5;
 const KINDS = ["bare", "changed", "full", "named", "other", "seat"];

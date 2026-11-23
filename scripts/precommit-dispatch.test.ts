@@ -155,6 +155,7 @@ function hook(staged: Record<string, string>, opts: HookOpts = {}) {
 	};
 }
 
+// guess: a loaded machine's worst for the rows before it, #5188
 const READY_MS = 20_000;
 
 async function hookSignalled(id: string, signal: NodeJS.Signals) {

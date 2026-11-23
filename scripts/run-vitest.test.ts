@@ -55,6 +55,7 @@ const FULL_FLAG = "--full";
 const EMPTY_SELECTION_FILTER = "wfc-empty-selection";
 
 const REPO_ROOT = path.resolve(__dirname, "..");
+// guess: well past a real child's few seconds, #2284
 const REAL_CHILD_TIMEOUT_MS = 20_000;
 
 const dirs: string[] = [];
@@ -5757,6 +5758,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 						}
 						return null;
 					});
+					let env: Record<string, string> = {};
 					const got = await runSeeing(dir, ["--queue", "--changed"], {
 						pid: 5579,
 						sessionId: "mine",
@@ -5768,27 +5770,44 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 						claimFn: () => ({ claimed: true }),
 						queueDir: qdir(),
 						gateRead,
+						spawnFn: (
+							_bin: string,
+							_a: string[],
+							opts: { env: Record<string, string> },
+						) => {
+							env = opts.env;
+							return fakeChild({ code: 0 });
+						},
 					});
 					expect(gateRead).toHaveBeenCalled();
 					return {
 						...got,
+						admissible: readLaunch(env).admissible,
 						manifest: fs.readFileSync(path.join(dir, EDGES_FILE), "utf8"),
 					};
 				}
 
-				it("leaves the manifest alone where a queued run loaded the walk a commit during its wait replaced (#5579)", async () => {
+				it("leaves the manifest alone, and marks the run not admissible saying why, where a queued run loaded the walk a commit during its wait replaced (#5579, #5635)", async () => {
 					const got = await queuedAcrossCommit("old walk\n");
 					expect(got.manifest).toBe("stale\n");
 					expect(got.out).not.toContain("brought up to date");
 					expect(got.err).toContain(
 						`left alone: the render code this run loaded (${extractorFile})`,
 					);
+					expect(got.admissible).toBe(false);
+					expect(got.out).toContain(
+						`Readers selected while the render code this run loaded (${extractorFile}) differs from the tree it renders, so this run is not admissible`,
+					);
 				});
 
-				it("brings it up to date where a queued run loaded the walk its tree holds (#5579)", async () => {
+				it("brings it up to date, and keeps the run admissible, where a queued run loaded the walk its tree holds (#5579, #5635)", async () => {
 					const got = await queuedAcrossCommit("new walk\n");
 					expect(got.manifest).toContain('"manifest.test.ts"');
 					expect(got.out).toContain("brought up to date");
+					expect(got.out).not.toContain(
+						"Readers selected with the render code",
+					);
+					expect(got.admissible).toBe(true);
 				});
 
 				it("hands vitest the own readers, and no neighbour's", async () => {
@@ -6591,13 +6610,28 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 	}
 
 	it("snapshots the read-edge extractor among the render code this process loaded (#5579)", () => {
-		const { RENDER_SNAPSHOT } = require("./lib/manifest-freshen.js");
-		expect([...RENDER_SNAPSHOT.loaded.keys()]).toEqual(
-			expect.arrayContaining([
-				"scripts/lib/read-edges-render.js",
-				"scripts/lib/test-read-edges.js",
-			]),
+		const { renderDrift } = require("./lib/manifest-freshen.js");
+		const home = path.resolve(__dirname, "..");
+		const tree = fs.mkdtempSync(path.join(os.tmpdir(), "render-drift-"));
+		fs.cpSync(
+			path.join(home, "scripts", "lib"),
+			path.join(tree, "scripts", "lib"),
+			{
+				recursive: true,
+			},
 		);
+		expect(renderDrift(tree, home)).toBeNull();
+		for (const rel of [
+			"scripts/lib/read-edges-render.js",
+			"scripts/lib/test-read-edges.js",
+		]) {
+			const file = path.join(tree, rel);
+			const text = fs.readFileSync(file, "utf8");
+			fs.writeFileSync(file, `${text}\n// changed\n`);
+			expect(renderDrift(tree, home)).toBe(rel);
+			fs.writeFileSync(file, text);
+		}
+		fs.rmSync(tree, { recursive: true, force: true });
 	});
 
 	it("writes both copies under the session's claim where the shared copy holds what the overlay was given", () => {

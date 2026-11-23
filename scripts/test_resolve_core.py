@@ -296,6 +296,7 @@ def test_fails_in_both_naming_the_pin_on_values_the_cli_never_writes(
         ("v1.1.8", "1.1.11", True),
         ("v1.1.8", "1.1.8", False),
         ("main", "1.1.8", False),
+        ("v\u0661.1.8", "1.1.8", False),
         ("b88b6baafe3998bb3f84a5aa495d4ab01c2945f4", "1.1.8", False),
     ],
 )

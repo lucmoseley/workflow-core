@@ -7,8 +7,8 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { tmpdir, userInfo } from "node:os";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate, identityRepoTemplate } from "./git-fixture";
 import { createRescuePorts } from "./rescue-ports-fake";
@@ -17,6 +17,7 @@ import {
 	SESSION_LIMIT_LINE,
 	WEEKLY_LIMIT_LINE,
 } from "./rescue-testkit";
+import { runInProcessAsync } from "./run-in-process.js";
 import { buildBashCall } from "./transcript-testkit";
 
 type Core = (
@@ -236,6 +237,19 @@ describe("the jobs list reads", () => {
 		const res = await list({ _: ["list"], from: cfg }, ports());
 		expect(res.stdout).toContain("1 job(s) in");
 		expect(res.stdout).not.toContain("would not parse");
+	});
+
+	it("expands ~ with $HOME unset, as an env -i invocation leaves it", async () => {
+		const absent = `rescue-no-such-${process.pid}`;
+		const r = await runInProcessAsync(
+			resolve(__dirname, "../rescue-sessions.js"),
+			["list", "--from", `~/${absent}`],
+			{ env: { PATH: process.env.PATH } },
+		);
+		expect(r.stderr).toContain(
+			`${join(userInfo().homedir, absent)} has no jobs/ directory`,
+		);
+		expect(r.status).toBe(2);
 	});
 
 	it("sorts newest first", async () => {

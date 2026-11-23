@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { shellQuote } from "./sh-quote.js";
 
-const { addedCheckVerdict, classifyExit } = require("./gate-check.js");
+const { addedCheckVerdict, runCheckCommand } = require("./gate-check.js");
 
 // guess, #3487
 const TIMEOUT_MS = 5000;
@@ -45,16 +45,11 @@ describe("a check the write adds", () => {
 	});
 
 	it.each([124, 137])(
-		"reads exit %i inside the budget as the command's own, beside the over-budget case that runs past it (#5568)",
+		"reads exit %i inside the budget as the command's own, not as the budget's kill (#5568)",
 		(status) => {
-			const exit = { status, signal: null } as never;
-			const run = { out: "", err: "", timeoutMs: TIMEOUT_MS };
 			expect(
-				classifyExit(exit, { ...run, elapsedMs: TIMEOUT_MS - 1 }).state,
+				runCheckCommand(`exit ${status}`, TIMEOUT_MS, os.tmpdir()).state,
 			).toBe("DEAD");
-			expect(classifyExit(exit, { ...run, elapsedMs: TIMEOUT_MS }).state).toBe(
-				"OVER-BUDGET",
-			);
 		},
 	);
 

@@ -12,8 +12,10 @@ const require_ = createRequire(__filename);
 const { logPath, previousLogPath } = require_("./lib/jev-log.js");
 const jevTrial = require_("./lib/jev-trial.js");
 
-const TRIAL_START_MS = Date.parse(jevTrial.TRIAL_START);
-const OUTAGE_START_MS = Date.parse(jevTrial.OUTAGE_START);
+const EMPTY_STAND = jevTrial.stand({ lines: [], verdicts: new Map() });
+const TRIAL_START: string = EMPTY_STAND.start;
+const TRIAL_START_MS = Date.parse(TRIAL_START);
+const OUTAGE_START_MS = Date.parse(EMPTY_STAND.outageStart);
 
 const SCRIPT = path.join(__dirname, "check-jev-flags.js");
 
@@ -335,7 +337,7 @@ describe("where the trial stands", () => {
 
 		const { out } = run("--notify");
 
-		expect(out).toContain(`TRIAL — started ${jevTrial.TRIAL_START}`);
+		expect(out).toContain(`TRIAL — started ${TRIAL_START}`);
 		expect(out).toContain("limb 1 (wrong flags): pending");
 		expect(out).toContain("limb 2 (outages):     holding");
 	});

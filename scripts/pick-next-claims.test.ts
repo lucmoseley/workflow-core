@@ -4,13 +4,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { IDLE_PAIR_MB } from "./lib/admission.js";
 import {
 	writeAdopterCheckout,
 	writeIssueClaim,
 } from "./lib/claim-store-testkit";
 import {
 	FIXTURE_DRAW,
-	IDLE_PAIR_MB,
 	type Issue,
 	installPickNextHarness,
 	kit,

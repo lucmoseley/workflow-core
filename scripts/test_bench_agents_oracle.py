@@ -4,6 +4,8 @@ from collections import Counter
 
 import pytest
 
+# Above Linux's 2^22 PID_MAX_LIMIT:
+# https://man7.org/linux/man-pages/man5/proc_sys_kernel.5.html
 GONE = 99_999_999
 
 

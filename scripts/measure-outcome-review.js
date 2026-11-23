@@ -43,25 +43,38 @@ const { SIGNATURE_LABEL } = require("./lib/signature-label");
 const { canonicalJson } = require("./lib/canonical-json");
 
 const DAY_MS = 86_400_000;
+// guess, #4796
 const TRIGGER_DAYS = 7;
+// guess, #5045
 const BASELINE_WEEKS = 1;
+// guess, #4796
 const INTERVAL_DAYS = 7;
+// guess, #4796
 const EXPECTED_FLOOR = 3;
+// guess: the conventional 5% level, #4796
 const KEEP_P = 0.05;
+// guess, #4796
 const UNWIND_CAP = 5;
+// guess, #4796
 const MISS_DAYS = 7;
+// guess, #5031
 const CONFIRM_CAP = 6;
 const FAULT_SHAPE =
 	/\b(?:fix(?:es|ed|ing)?|stop(?:s|ped|ping)?|prevent(?:s|ed|ing)?|fail(?:s|ed|ing|ure|ures)?|broke|broken|crash(?:es|ed|ing)?|stall(?:s|ed|ing)?|drop(?:s|ped|ping)?|leak(?:s|ed|ing)?|wrong(?:ly)?|regress(?:es|ed|ion|ions)?|bug(?:s|gy)?|hang(?:s|ing)?|stuck|misses|missed|race)\b/i;
+// guess, #4796
 const FLIP_RUNS = 4;
+// guess, #4796
 const FLIP_BACKLOG = 10;
+// guess, #4796
 const TOKEN_BUDGET = 30_000;
+// guess, #4796
 const FLIP_OVER_BUDGET_RUNS = 2;
 const DROP_BARS = [
 	"fewer than half of the closed unwind tickets landed a revert that held 14 days",
 	"any unwound change was landed again",
 	"fewer than 5 verdicts were reached",
 ];
+// guess, #4796
 const START_PROBE_BYTES = 65_536;
 
 const USAGE = `usage: node ${scriptPath("measure-outcome-review.js")} [--now <iso>] [--json] [--root <dir>] [--config-dir <dir>]...

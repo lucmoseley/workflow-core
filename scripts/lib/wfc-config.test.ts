@@ -214,10 +214,12 @@ describe("unknown module names (#43)", () => {
 	});
 
 	it("knows the same deploys as the JS reader", () => {
-		const { DEPLOYS } = require("./workflow-core-config.js");
-		expect(sh('printf %s "$WFC_KNOWN_DEPLOYS"').stdout.split(" ")).toEqual([
-			...DEPLOYS,
-		]);
+		const { readConfig } = require("./workflow-core-config.js");
+		writeConfig(JSON.stringify({ deploy: -1 }));
+		const { faults } = readConfig({ root: dir, quiet: true });
+		expect(
+			sh('printf %s "$WFC_KNOWN_DEPLOYS"').stdout.split(" ").join(", "),
+		).toBe(/"deploy" is not one of (.*)$/.exec(faults[0].text)?.[1]);
 	});
 
 	it("knows the same modules as the JS reader", () => {

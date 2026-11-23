@@ -8,11 +8,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildAgentsBranch, buildListedRow } from "./lib/agents-stop-fake";
 import {
 	AS_ROOT,
+	buildLockRecord,
 	commitAll,
 	DEAD,
 	freshSandbox,
 	gitRepo,
-	locks,
 	proc,
 	putLock,
 	registerSession,
@@ -178,7 +178,7 @@ describe("check-orphaned-edits", () => {
 		it("by a live claim", async () => {
 			dirty("docs/b.md", 30);
 			fs.mkdirSync(store.paths.locksDir(), { recursive: true });
-			const rec = locks.newLock({
+			const rec = buildLockRecord({
 				path: "docs/b.md",
 				sessionId: "holder",
 				pid: process.pid,
@@ -215,7 +215,13 @@ describe("check-orphaned-edits", () => {
 			fs.mkdirSync(path.dirname(file), { recursive: true });
 			fs.writeFileSync(
 				file,
-				JSON.stringify({ path: "a.txt", sessionId: "watcher", obsId: "o1" }),
+				JSON.stringify({
+					path: "a.txt",
+					sessionId: "watcher",
+					obsId: "o1",
+					blob: null,
+					at: new Date().toISOString(),
+				}),
 			);
 
 			expect((await run()).out).not.toContain("ORPHANED-EDIT");
