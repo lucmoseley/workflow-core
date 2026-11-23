@@ -1,11 +1,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { readCurrentBootId, readProcStartOf } = require("./arbiter-proc.js");
+const { ownIdentity } = require("./arbiter-proc.js");
 const { now } = require("./check.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { markersDir } = require("./marker-root.js");
 const { pidLock } = require("./pid-lock.js");
-const { REAL_PROC } = require("./proc-root.js");
 const { readText } = require("./file-read.js");
 
 // guess, #2402
@@ -83,11 +82,7 @@ function fileLedger(file) {
 function heartbeatWriter(file) {
 	/** @type {string|null} */
 	let last = null;
-	const self = {
-		pid: process.pid,
-		procStart: readProcStartOf(process.pid, REAL_PROC),
-		bootId: readCurrentBootId(),
-	};
+	const self = ownIdentity();
 	return (batch = last) => {
 		last = batch;
 		writeFileAtomic(

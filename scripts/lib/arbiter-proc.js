@@ -42,6 +42,15 @@ function holderAlive(lock) {
 	return readProcStartOf(lock.pid) === String(lock.procStart);
 }
 
+/** @returns {{ pid: number, procStart: string | null, bootId: string | null }} */
+function ownIdentity() {
+	return {
+		pid: process.pid,
+		procStart: readProcStartOf(process.pid, REAL_PROC),
+		bootId: readCurrentBootId(),
+	};
+}
+
 /**
  * @param {number} pid
  * @returns {boolean}
@@ -55,4 +64,10 @@ function pidAlive(pid) {
 	}
 }
 
-module.exports = { readCurrentBootId, holderAlive, pidAlive, readProcStartOf };
+module.exports = {
+	readCurrentBootId,
+	holderAlive,
+	ownIdentity,
+	pidAlive,
+	readProcStartOf,
+};

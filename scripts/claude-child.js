@@ -9,7 +9,7 @@ const { caught } = require("./lib/caught.js");
 const { now } = require("./lib/clock.js");
 
 const stamp = () => new Date(now()).toISOString();
-const { readProcStartOf } = require("./lib/arbiter-proc.js");
+const { ownIdentity, readProcStartOf } = require("./lib/arbiter-proc.js");
 const { CHROME_TIMEOUT_MS_A_PAGE } = require("./lib/child-spawn.js");
 const {
 	CLOSE_PROMPT,
@@ -161,7 +161,7 @@ function firstRecord(sessionId, seat) {
 		sessionId,
 		seat,
 		launcherPid: process.pid,
-		launcherStart: readProcStartOf(process.pid),
+		launcherStart: ownIdentity().procStart,
 		childPid: null,
 		childStart: null,
 		startedAt: stamp(),

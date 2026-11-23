@@ -2,7 +2,8 @@
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import { describe, expect, it } from "vitest";
+import os from "node:os";
+import { describe, expect, it, vi } from "vitest";
 import type { LockRecord } from "./arbiter-records.js";
 import { proc } from "./arbiter-testkit";
 import { ignoreFailure } from "./caught.js";
@@ -114,5 +115,25 @@ describe("a lock minted before a reboot", () => {
 			proc.holderAlive({ ...pair(), bootId: proc.readCurrentBootId() }),
 		).toBe(true);
 		expect(proc.holderAlive(pair())).toBe(true);
+	});
+});
+
+describe("this process's own identity record", () => {
+	it("reads as a live holder on this boot", () => {
+		const me = proc.ownIdentity();
+		expect(me.pid).toBe(process.pid);
+		expect(me.bootId).toBe(proc.readCurrentBootId());
+		expect(proc.holderAlive(me)).toBe(true);
+	});
+
+	it("reads the real /proc even when WFC_PROC names a fake one", () => {
+		const fake = fs.mkdtempSync(`${os.tmpdir()}/fake-proc-`);
+		vi.stubEnv("WFC_PROC", fake);
+		try {
+			expect(proc.readProcStartOf(process.pid)).toBeNull();
+			expect(proc.ownIdentity().procStart).toMatch(/^\d+$/);
+		} finally {
+			fs.rmSync(fake, { recursive: true, force: true });
+		}
 	});
 });
