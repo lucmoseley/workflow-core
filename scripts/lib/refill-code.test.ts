@@ -10,7 +10,8 @@ import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
 import { SHA_SHOWN } from "./pinned-code.js";
 import { makeProcRoot, writeCwd } from "./proc-fake";
-import { FIELD, readStatFields } from "./proc-stat.js";
+import { REAL_PROC } from "./proc-root.js";
+import { FIELD, parentInFields, readStatFields } from "./proc-stat.js";
 import {
 	bootProgram,
 	codeUpdater,
@@ -24,6 +25,7 @@ const LOOP = path.resolve(__dirname, "..", "refill-loop.js");
 const PID_LOCK_LIB = path.resolve(__dirname, "pid-lock.js");
 
 const CHILD = `const fs = require("node:fs");
+// guess, #5668
 setInterval(() => fs.existsSync(process.argv[1]) || process.exit(0), 20);`;
 
 const DRIVER = `const { spawn } = require("node:child_process");
@@ -775,13 +777,11 @@ describe("adoption", () => {
 	});
 
 	const readZombiesOf = (pid: number) =>
-		fs.readdirSync("/proc").filter((entry) => {
+		fs.readdirSync(REAL_PROC).filter((entry) => {
 			const fields = /^\d+$/.test(entry)
-				? readStatFields(entry, "/proc")
+				? readStatFields(entry, REAL_PROC)
 				: null;
-			return (
-				Number(fields?.[FIELD.ppid]) === pid && fields?.[FIELD.state] === "Z"
-			);
+			return parentInFields(fields) === pid && fields?.[FIELD.state] === "Z";
 		});
 
 	const readSpawned = () =>
