@@ -24,7 +24,7 @@ const start = (
 		holder: () => holder,
 		waiting: () => waiting,
 		owed: () => owed,
-		deferred: (ref) => working.includes(ref),
+		isDeferred: (ref) => working.includes(ref),
 		spawnRun: () => {
 			spawns++;
 			return 4242;
@@ -62,7 +62,7 @@ describe("startLander", () => {
 		});
 	});
 
-	it("starts none where no queue ref waits and the only owed drop's owner works (#5611)", () => {
+	it("starts none where no queue ref waits and the only owed drop's owning session works (#5611)", () => {
 		expect(start(null, [], ["dropped/a"], ["dropped/a"])).toEqual({
 			result: {
 				skipped:
@@ -72,14 +72,14 @@ describe("startLander", () => {
 		});
 	});
 
-	it("starts one where no queue ref waits and one of two owed drops' owners has stopped (#5611)", () => {
+	it("starts one where no queue ref waits and one of two owed drops' owning sessions has stopped (#5611)", () => {
 		expect(start(null, [], ["dropped/a", "dropped/b"], ["dropped/a"])).toEqual({
 			result: { started: 4242, waiting: [], owed: ["dropped/a", "dropped/b"] },
 			spawns: 1,
 		});
 	});
 
-	it("starts one where a queue ref waits and the only owed drop's owner works (#5611)", () => {
+	it("starts one where a queue ref waits and the only owed drop's owning session works (#5611)", () => {
 		expect(start(null, ["queue/a"], ["dropped/a"], ["dropped/a"])).toEqual({
 			result: { started: 4242, waiting: ["queue/a"], owed: ["dropped/a"] },
 			spawns: 1,

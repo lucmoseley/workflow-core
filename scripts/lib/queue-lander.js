@@ -1272,7 +1272,7 @@ function filingOf(s, d) {
  * @param {OwningSessionState} state
  * @returns {boolean}
  */
-const ownerDefersDrop = (state) => state === "working";
+const isDeferredToOwningSession = (state) => state === "working";
 
 /**
  * @param {QueueState} s
@@ -1291,7 +1291,8 @@ function dropDecision(s, main, skip) {
 		const ticketed = d.ticket !== null;
 		if (!ticketed && s.queue.some((q) => q.name === d.name)) continue;
 		if (s.hasLandedAfter(d.name, d.at)) return settleAction(s, d, main);
-		if (ticketed || ownerDefersDrop(s.owningSessionStateOf(d.name))) continue;
+		if (ticketed || isDeferredToOwningSession(s.owningSessionStateOf(d.name)))
+			continue;
 		const filing = filingOf(s, d);
 		if (!skip.includes(filing.drop.ref)) return filing;
 	}
@@ -2803,6 +2804,6 @@ module.exports = {
 	retakesMoved,
 	buildQueueActionLine,
 	fileSetKey,
-	ownerDefersDrop,
+	isDeferredToOwningSession,
 	runQueueLander,
 };

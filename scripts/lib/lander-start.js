@@ -15,7 +15,7 @@ const { probeUserScope, spawnOutliving } = require("./user-scope.js");
  * @property {() => number|null} holder
  * @property {() => string[]} waiting
  * @property {() => string[]} owed
- * @property {(ref: string) => boolean} deferred
+ * @property {(ref: string) => boolean} isDeferred
  * @property {() => number} spawnRun
  */
 
@@ -24,7 +24,7 @@ const { probeUserScope, spawnOutliving } = require("./user-scope.js");
  * @returns {{started: number, waiting: string[], owed: string[]}
  *   | {skipped: string}}
  */
-function startLander({ holder, waiting, owed, deferred, spawnRun }) {
+function startLander({ holder, waiting, owed, isDeferred, spawnRun }) {
 	const pid = holder();
 	if (pid !== null)
 		return { skipped: `a lander is already running (pid ${pid})` };
@@ -32,7 +32,7 @@ function startLander({ holder, waiting, owed, deferred, spawnRun }) {
 	const drops = owed();
 	if (refs.length === 0 && drops.length === 0)
 		return { skipped: "no queue ref waits and no drop is owed a decision" };
-	if (refs.length === 0 && drops.every(deferred))
+	if (refs.length === 0 && drops.every(isDeferred))
 		return {
 			skipped: `no queue ref waits and each owed drop's owning session works: ${drops.join(", ")}`,
 		};
