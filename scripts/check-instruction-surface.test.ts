@@ -14,7 +14,7 @@ import {
 	it,
 } from "vitest";
 import { writeFaultyGit } from "./lib/git-fault-fake";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-instruction-surface.js");
@@ -1350,9 +1350,7 @@ describe("reading git rather than the working tree", () => {
 	const committedTree = defineTemplate((at) => {
 		const gitAt = gitIn(at);
 		buildTreeIn(at);
-		gitAt("init", "-q");
-		gitAt("config", "user.email", "t@t");
-		gitAt("config", "user.name", "t");
+		identityRepoTemplate(at);
 		gitAt("add", "-A");
 		gitAt("commit", "-q", "-m", "fixture");
 	});
