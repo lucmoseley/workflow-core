@@ -1,6 +1,3 @@
-const GATE_SINCE = "2026-11-11T17:27";
-const GATE_MINUTES = 1308;
-const RESET_AFTER = "2026-11-11T17:26:26";
 const PRECONDITION_BUSY_PCT = 550;
 const PRECONDITION_WIN_MB = 900;
 
@@ -28,7 +25,43 @@ const LOAD1_LINE = 20;
 /**
  * @typedef {{ at: number, availMb: number, commitPct: number, idleS: number|null }} Reading
  * @typedef {{ ts: string, busyPct: number|null, load1: number|null }} Minute
+ * @typedef {{ ticket: number, since: string, minutes: number, resetAfter: string }} Gate
  */
+
+/**
+ * @param {string} text
+ * @returns {Gate|null}
+ */
+function parseGate(text) {
+	let g;
+	try {
+		g = JSON.parse(text);
+	} catch {
+		return null;
+	}
+	const isWhole = (/** @type {unknown} */ v) =>
+		typeof v === "number" && Number.isInteger(v) && v > 0;
+	return g !== null &&
+		isWhole(g.ticket) &&
+		isWhole(g.minutes) &&
+		typeof g.since === "string" &&
+		/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(g.since) &&
+		typeof g.resetAfter === "string"
+		? {
+				ticket: g.ticket,
+				since: g.since,
+				minutes: g.minutes,
+				resetAfter: g.resetAfter,
+			}
+		: null;
+}
+
+/** @param {Date} at @returns {string} */
+function nextLocalMinute(at) {
+	const d = new Date(at.getTime() + 60_000);
+	const two = (/** @type {number} */ n) => String(n).padStart(2, "0");
+	return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:${two(d.getMinutes())}`;
+}
 
 /**
  * @param {string} text
@@ -52,13 +85,13 @@ function minuteOf(row) {
 	return { ts: row.ts, busyPct: num(row.cpu_busy_pct), load1: num(row.load1) };
 }
 
-/** @param {Record<string, unknown>} row */
-function isPreconditionMinute(row) {
+/** @param {Record<string, unknown>} row @param {Gate} gate */
+function isPreconditionMinute(row, gate) {
 	const busy = Number(row.cpu_busy_pct) || 0;
 	const win = Number(row.win_avail_mb) || 9e9;
 	return (
 		typeof row.ts === "string" &&
-		row.ts.slice(0, 16) >= GATE_SINCE &&
+		row.ts.slice(0, 16) >= gate.since &&
 		busy >= PRECONDITION_BUSY_PCT &&
 		win < PRECONDITION_WIN_MB
 	);
@@ -73,8 +106,19 @@ function newestResetOf(text) {
 	return m?.[1] ?? null;
 }
 
-/** @param {string|null} reset */
-const isGateReset = (reset) => reset !== null && reset > RESET_AFTER;
+/** @param {string|null} reset @param {Gate} gate */
+const isGateReset = (reset, gate) => reset !== null && reset > gate.resetAfter;
+
+/**
+ * @param {Gate} gate
+ * @param {number} count
+ * @param {string|null} reset
+ */
+function gateReading(gate, count, reset) {
+	let state = count >= gate.minutes ? "met (clean)" : "unmet";
+	if (isGateReset(reset, gate)) state = "met (reset)";
+	return `${state}: ${count} of ${gate.minutes} precondition minutes since ${gate.since.replace("T", " ")} (#${gate.ticket}); newest Kernel-Power 41 at ${reset ?? "none"} (local time)`;
+}
 
 /**
  * @typedef {{ kind: "none" }
@@ -85,16 +129,21 @@ const isGateReset = (reset) => reset !== null && reset > RESET_AFTER;
 
 /**
  * @param {{ now: number, running: boolean, reading: Reading|null,
- *   handUntil: number|null, gateCount: number, done: string|null }} s
+ *   handUntil: number|null, gate: Gate|null, gateCount: number,
+ *   done: string|null }} s
  * @returns {Verdict}
  */
 function decide(s) {
 	if (s.done !== null)
 		return s.running ? { kind: "stop", why: s.done } : { kind: "none" };
-	if (s.gateCount >= GATE_MINUTES)
+	if (s.gate === null)
+		return s.running
+			? { kind: "stop", why: "no gate armed" }
+			: { kind: "none" };
+	if (s.gateCount >= s.gate.minutes)
 		return {
 			kind: "finish",
-			why: `the page-combining gate met (clean): ${s.gateCount} of ${GATE_MINUTES} precondition minutes (#5346)`,
+			why: `the gate met (clean): ${s.gateCount} of ${s.gate.minutes} precondition minutes (#${s.gate.ticket})`,
 		};
 	if (s.handUntil !== null && s.now < s.handUntil)
 		return s.running ? { kind: "none" } : { kind: "start", why: "hand start" };
@@ -184,14 +233,16 @@ function workersFor(minute, workers) {
 
 module.exports = {
 	CHUNK_MB,
-	GATE_MINUTES,
 	decide,
+	gateReading,
 	heldMb,
 	holdStep,
 	isGateReset,
 	isPreconditionMinute,
 	minuteOf,
 	newestResetOf,
+	nextLocalMinute,
+	parseGate,
 	parseReading,
 	workersFor,
 };

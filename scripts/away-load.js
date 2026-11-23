@@ -6,14 +6,16 @@ const os = require("node:os");
 const path = require("node:path");
 const {
 	CHUNK_MB,
-	GATE_MINUTES,
 	decide,
+	gateReading,
 	heldMb,
 	holdStep,
 	isGateReset,
 	isPreconditionMinute,
 	minuteOf,
 	newestResetOf,
+	nextLocalMinute,
+	parseGate,
 	parseReading,
 	workersFor,
 } = require("./lib/away-load.js");
@@ -28,7 +30,7 @@ const { readText } = require("./lib/file-read.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const UNIT = "away-load.service";
-const USAGE = `usage: node ${scriptPath("away-load.js")} run | recover | sweep | hand-start [--minutes N] | status | install`;
+const USAGE = `usage: node ${scriptPath("away-load.js")} run | recover | sweep | hand-start [--minutes N] | arm --ticket N --minutes M | gate | status | install`;
 // guess: reads a settled band off three or four minute lines, #5472
 const HAND_MINUTES = 20;
 // guess: the reading it waits on changes once a minute, #5472
@@ -52,6 +54,7 @@ function paths(env = process.env) {
 		status: path.join(state, "status.json"),
 		hand: path.join(state, "hand-until"),
 		done: path.join(state, "done"),
+		gate: path.join(state, "gate.json"),
 		seen: path.join(state, "seen-reset"),
 		log: env.WFC_AWAY_LOAD_LOG || path.join(os.homedir(), "away-load.jsonl"),
 		reading:
@@ -77,6 +80,41 @@ function textOf(file) {
 
 /** @param {ReturnType<typeof paths>} p */
 const doneOf = (p) => textOf(p.done)?.trim() || null;
+
+/** @param {string|null} text */
+function gateIn(text) {
+	if (text === null) return null;
+	const gate = parseGate(text);
+	if (gate === null)
+		writeFd(2, `the armed gate will not parse: ${text.trim()}\n`);
+	return gate;
+}
+
+/** @param {ReturnType<typeof paths>} p */
+function newestReset(p) {
+	const read = runCommand(p.wevtutil, [
+		"qe",
+		"System",
+		"/q:*[System[(EventID=41)]]",
+		"/c:1",
+		"/rd:true",
+		"/f:text",
+	]);
+	return {
+		error: read.error,
+		reset: newestResetOf(read.out.replace(/\r/g, "")),
+	};
+}
+
+/**
+ * @param {string} file
+ * @param {import("./lib/away-load.js").Gate|null} gate
+ */
+const tailFor = (file, gate) =>
+	new MinuteTail(
+		file,
+		(row) => gate !== null && isPreconditionMinute(row, gate),
+	);
 
 /**
  * @param {string} file
@@ -154,7 +192,11 @@ class Runner {
 	/** @param {ReturnType<typeof paths>} p */
 	constructor(p) {
 		this.p = p;
-		this.tail = new MinuteTail(p.minutes, isPreconditionMinute);
+		/** @type {string|null} */
+		this.gateText = null;
+		/** @type {import("./lib/away-load.js").Gate|null} */
+		this.gate = null;
+		this.tail = tailFor(p.minutes, null);
 		this.running = false;
 		/** @type {string|null} */
 		this.startedAt = null;
@@ -179,8 +221,9 @@ class Runner {
 				heldMb: heldMb(this.holders),
 				holderMb: this.holders.map((h) => h.mb),
 				workers: this.workers.length,
+				gateTicket: this.gate?.ticket ?? null,
 				gateCount: this.tail.count,
-				gateMinutes: GATE_MINUTES,
+				gateMinutes: this.gate?.minutes ?? null,
 				done,
 			})}\n`,
 		);
@@ -210,15 +253,25 @@ class Runner {
 		logEvent(this.p, "holder-exited", { mb: h.mb, code });
 	}
 
+	syncGate() {
+		const text = textOf(this.p.gate);
+		if (text === this.gateText) return;
+		this.gateText = text;
+		this.gate = gateIn(text);
+		this.tail = tailFor(this.p.minutes, this.gate);
+	}
+
 	tick() {
 		const p = this.p;
 		const reading = parseReading(textOf(p.reading) ?? "");
+		this.syncGate();
 		const newMinute = this.tail.advance();
 		const verdict = decide({
 			now: Math.floor(Date.now() / 1000),
 			running: this.running,
 			reading,
 			handUntil: Number(textOf(p.hand)) || null,
+			gate: this.gate,
 			gateCount: this.tail.count,
 			done: doneOf(p),
 		});
@@ -324,6 +377,7 @@ async function run() {
 	const orphan = sweep(p);
 	if (orphan) logEvent(p, "sweep-failed", { error: orphan });
 	const runner = new Runner(p);
+	runner.syncGate();
 	runner.tail.advance();
 	const quit = () => {
 		runner.quit();
@@ -388,26 +442,19 @@ function fsck(p, repo) {
 
 function recover() {
 	const p = paths();
-	const read = runCommand(p.wevtutil, [
-		"qe",
-		"System",
-		"/q:*[System[(EventID=41)]]",
-		"/c:1",
-		"/rd:true",
-		"/f:text",
-	]);
-	const reset = newestResetOf(read.out.replace(/\r/g, ""));
-	if (read.error !== null) {
-		logEvent(p, "recover-unread", { error: read.error });
+	const { error, reset } = newestReset(p);
+	if (error !== null) {
+		logEvent(p, "recover-unread", { error });
 		return 1;
 	}
 	if (reset === null) return 0;
 	const lastSeen = textOf(p.seen)?.trim() || null;
 	const isNew = lastSeen === null || reset > lastSeen;
-	if (isNew && isGateReset(reset))
+	const gate = gateIn(textOf(p.gate));
+	if (isNew && gate !== null && isGateReset(reset, gate))
 		writeAtomic(
 			p.done,
-			`Kernel-Power 41 at ${reset}: the page-combining gate met (reset) (#5346)\n`,
+			`Kernel-Power 41 at ${reset}: the gate met (reset) (#${gate.ticket})\n`,
 		);
 	if (lastSeen !== null && isNew) {
 		logEvent(p, "reset", { at: reset });
@@ -429,12 +476,54 @@ function handStart(minutes) {
 	return 0;
 }
 
+/** @param {number} ticket @param {number} minutes */
+function arm(ticket, minutes) {
+	const p = paths();
+	const { error, reset } = newestReset(p);
+	if (error !== null) {
+		writeFd(2, `the event log will not read, so nothing is armed: ${error}\n`);
+		return 1;
+	}
+	/** @type {import("./lib/away-load.js").Gate} */
+	const gate = {
+		ticket,
+		since: nextLocalMinute(new Date()),
+		minutes,
+		resetAfter: reset ?? "",
+	};
+	writeAtomic(p.gate, `${JSON.stringify(gate)}\n`);
+	if (reset !== null) writeAtomic(p.seen, `${reset}\n`);
+	fs.rmSync(p.done, { force: true });
+	fs.rmSync(p.hand, { force: true });
+	logEvent(p, "arm", gate);
+	return 0;
+}
+
+function readGate() {
+	const p = paths();
+	const armed = gateIn(textOf(p.gate));
+	if (armed === null) {
+		writeFd(1, `unarmed: no gate in ${p.gate}\n`);
+		return 1;
+	}
+	const { error, reset } = newestReset(p);
+	if (error !== null) {
+		writeFd(1, `unread: the event log will not read: ${error}\n`);
+		return 1;
+	}
+	const tail = tailFor(p.minutes, armed);
+	tail.advance();
+	writeFd(1, `${gateReading(armed, tail.count, reset)}\n`);
+	return 0;
+}
+
 function status() {
 	const p = paths();
 	const active = runCommand(systemctl(), ["--user", "is-active", UNIT]);
 	const lines = [
 		`unit: ${active.out || active.error}`,
 		`status: ${textOf(p.status)?.trim() ?? "none written"}`,
+		`gate: ${textOf(p.gate)?.trim() ?? "none armed"}`,
 		`done: ${textOf(p.done)?.trim() ?? "no"}`,
 		`newest Kernel-Power 41 seen: ${textOf(p.seen)?.trim() ?? "none read"}`,
 		`log: ${p.log}`,
@@ -488,6 +577,11 @@ async function main(argv = process.argv.slice(2)) {
 			recover: { usage: USAGE },
 			sweep: { usage: USAGE },
 			"hand-start": { usage: USAGE, flags: { "--minutes": "value" } },
+			arm: {
+				usage: USAGE,
+				flags: { "--ticket": "value", "--minutes": "value" },
+			},
+			gate: { usage: USAGE },
 			status: { usage: USAGE },
 			install: { usage: USAGE },
 		},
@@ -513,6 +607,20 @@ async function main(argv = process.argv.slice(2)) {
 			}
 			return handStart(minutes);
 		}
+		case "arm": {
+			const ticket = Number(parsed.flags["--ticket"]);
+			const minutes = Number(parsed.flags["--minutes"]);
+			if (![ticket, minutes].every((n) => Number.isInteger(n) && n > 0)) {
+				writeFd(
+					2,
+					`arm takes --ticket and --minutes, each a whole number over 0\n${USAGE}\n`,
+				);
+				return 2;
+			}
+			return arm(ticket, minutes);
+		}
+		case "gate":
+			return readGate();
 		case "status":
 			return status();
 		case "install":

@@ -2,11 +2,13 @@
 import { describe, expect, it } from "vitest";
 import {
 	decide,
-	GATE_MINUTES,
+	gateReading,
 	holdStep,
 	isGateReset,
 	isPreconditionMinute,
 	newestResetOf,
+	nextLocalMinute,
+	parseGate,
 	parseReading,
 	workersFor,
 } from "./away-load.js";
@@ -24,10 +26,17 @@ const reading = (
 	commitPct,
 	idleS,
 });
+const GATE = {
+	ticket: 5473,
+	since: "2026-11-24T09:01",
+	minutes: 988,
+	resetAfter: "2026-11-11T17:26:25",
+};
 const base = {
 	now: NOW,
 	running: false,
 	handUntil: null,
+	gate: GATE,
 	gateCount: 0,
 	done: null,
 };
@@ -81,10 +90,13 @@ describe("decide", () => {
 		const met = decide({
 			...base,
 			running: true,
-			gateCount: GATE_MINUTES,
+			gateCount: GATE.minutes,
 			reading: reading(5000),
 		});
-		expect(met.kind).toBe("finish");
+		expect(met).toEqual({
+			kind: "finish",
+			why: "the gate met (clean): 988 of 988 precondition minutes (#5473)",
+		});
 		expect(decide({ ...base, done: "met", reading: reading(5000) }).kind).toBe(
 			"none",
 		);
@@ -92,6 +104,14 @@ describe("decide", () => {
 			decide({ ...base, running: true, done: "met", reading: reading(5000) })
 				.kind,
 		).toBe("stop");
+	});
+
+	it("never starts with no gate armed, and stops a run whose gate is gone", () => {
+		const unarmed = { ...base, gate: null };
+		expect(decide({ ...unarmed, reading: reading(5000) }).kind).toBe("none");
+		expect(
+			decide({ ...unarmed, running: true, reading: reading(5000) }),
+		).toEqual({ kind: "stop", why: "no gate armed" });
 	});
 });
 
@@ -160,20 +180,20 @@ describe("readings", () => {
 		expect(parseReading("")).toBeNull();
 	});
 
-	it("counts a minute by #5346's own check, a 0 read as missing", () => {
+	it("counts a precondition minute from the gate's start, a 0 read as missing", () => {
 		const row = {
-			ts: "2026-11-21T19:00:00+0800",
+			ts: "2026-11-24T09:01:00+0800",
 			cpu_busy_pct: 550,
 			win_avail_mb: 899,
 		};
-		expect(isPreconditionMinute(row)).toBe(true);
-		expect(isPreconditionMinute({ ...row, win_avail_mb: 900 })).toBe(false);
-		expect(isPreconditionMinute({ ...row, win_avail_mb: 0 })).toBe(false);
-		expect(isPreconditionMinute({ ...row, cpu_busy_pct: null })).toBe(false);
-		expect(isPreconditionMinute({ ...row, win_avail_mb: null })).toBe(false);
-		expect(
-			isPreconditionMinute({ ...row, ts: "2026-11-11T17:26:59+0800" }),
-		).toBe(false);
+		const counts = (r: Record<string, unknown>) =>
+			isPreconditionMinute(r, GATE);
+		expect(counts(row)).toBe(true);
+		expect(counts({ ...row, win_avail_mb: 900 })).toBe(false);
+		expect(counts({ ...row, win_avail_mb: 0 })).toBe(false);
+		expect(counts({ ...row, cpu_busy_pct: null })).toBe(false);
+		expect(counts({ ...row, win_avail_mb: null })).toBe(false);
+		expect(counts({ ...row, ts: "2026-11-24T09:00:59+0800" })).toBe(false);
 	});
 
 	it("reads the newest Kernel-Power 41, and only a later one meets the gate", () => {
@@ -181,7 +201,39 @@ describe("readings", () => {
 			"Event[0]:\n  Log Name: System\n  Date: 2026-11-11T17:26:26.4670000Z\n";
 		expect(newestResetOf(text)).toBe("2026-11-11T17:26:26");
 		expect(newestResetOf("No events")).toBeNull();
-		expect(isGateReset("2026-11-11T17:26:26")).toBe(false);
-		expect(isGateReset("2026-11-22T03:00:00")).toBe(true);
+		expect(isGateReset("2026-11-11T17:26:25", GATE)).toBe(false);
+		expect(isGateReset("2026-11-24T03:00:00", GATE)).toBe(true);
+		expect(isGateReset(null, GATE)).toBe(false);
+	});
+
+	it("reads an armed gate, and refuses one missing a field", () => {
+		expect(parseGate(JSON.stringify(GATE))).toEqual(GATE);
+		expect(parseGate(JSON.stringify({ ...GATE, minutes: 0 }))).toBeNull();
+		expect(
+			parseGate(JSON.stringify({ ...GATE, since: "2026-11-24" })),
+		).toBeNull();
+		expect(parseGate("{")).toBeNull();
+		expect(parseGate("null")).toBeNull();
+	});
+
+	it("starts the count at the local minute after arming", () => {
+		expect(nextLocalMinute(new Date(2026, 10, 24, 8, 59, 30))).toBe(
+			"2026-11-24T09:00",
+		);
+		expect(nextLocalMinute(new Date(2026, 11, 31, 23, 59, 0))).toBe(
+			"2027-01-01T00:00",
+		);
+	});
+
+	it("reads the gate met on a later reset first, then on the count", () => {
+		expect(gateReading(GATE, 10, "2026-11-24T03:00:00")).toMatch(
+			/^met \(reset\): 10 of 988 precondition minutes since 2026-11-24 09:01 \(#5473\)/,
+		);
+		expect(gateReading(GATE, 988, "2026-11-11T17:26:25")).toMatch(
+			/^met \(clean\)/,
+		);
+		expect(gateReading(GATE, 987, null)).toBe(
+			"unmet: 987 of 988 precondition minutes since 2026-11-24 09:01 (#5473); newest Kernel-Power 41 at none (local time)",
+		);
 	});
 });
