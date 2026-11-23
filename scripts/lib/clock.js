@@ -16,8 +16,7 @@
  * RESIDUAL: the variable is process-wide, so an unrelated session exporting
  * WFC_NOW skews or silences any DURABLE stamp a caller writes off this clock,
  * not just its in-test reading (mantahostels#2161). A caller that persists a timestamp
- * inherits that and should say so at its own call site. A process that
- * outlives its starter does not: its spawn passes `forgetTestClocks` (#5615).
+ * inherits that and should say so at its own call site.
  *
  * A guard core passes its injected `ctx.env`, never the process's (#3566).
  *
@@ -45,11 +44,12 @@ const durationClock = (env = process.env) => {
 	return () => step * reads++;
 };
 
-// #5615
 /** @param {Record<string, string | undefined>} env */
-function forgetTestClocks(env) {
-	delete env.WFC_NOW;
-	delete env.WFC_STEP_MS;
+function withoutTestClocks(env) {
+	const out = { ...env };
+	delete out.WFC_NOW;
+	delete out.WFC_STEP_MS;
+	return out;
 }
 
-module.exports = { durationClock, forgetTestClocks, monotonicMs, now };
+module.exports = { durationClock, monotonicMs, now, withoutTestClocks };

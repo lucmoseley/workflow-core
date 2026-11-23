@@ -9,8 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { writeSystemdRun } from "./systemd-run-fake";
 
 const require = createRequire(import.meta.url);
-const { forgetSession } = require("./session-id.js");
-const { forgetTestClocks } = require("./clock.js");
+const { outlivingEnv } = require("./session-id.js");
 const {
 	OUTLIVE_CEILING_S,
 	probeUserScope,
@@ -208,12 +207,12 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 			"WFC_STEP_MS",
 		])
 			env[key] = "x";
-		const before = Object.keys(env);
-		forgetSession(env);
-		forgetTestClocks(env);
-		expect(before.filter((k) => !(k in env)).sort()).toEqual(
-			[...stripped].sort(),
-		);
+		const kept = outlivingEnv(env);
+		expect(
+			Object.keys(env)
+				.filter((k) => !(k in kept))
+				.sort(),
+		).toEqual([...stripped].sort());
 		expect(stripped).toContain("WFC_REPORT_OWNER");
 		expect(stripped).toContain("WFC_NOW");
 		expect(shellCeiling).toBe(String(OUTLIVE_CEILING_S));

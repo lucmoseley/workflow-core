@@ -248,10 +248,6 @@ describe("readCheckoutTracking (#3487)", () => {
 });
 
 describe("startDetachedIn (#5615)", () => {
-	afterEach(() => {
-		vi.unstubAllEnvs();
-	});
-
 	it("starts its job on the wall clocks, whatever test clocks its starter carries", async () => {
 		vi.stubEnv("WFC_NOW", "2020-01-01T00:00:00Z");
 		vi.stubEnv("WFC_STEP_MS", "5");
@@ -263,9 +259,7 @@ describe("startDetachedIn (#5615)", () => {
 		);
 		const failed: unknown[] = [];
 		startDetachedIn(home, [job], (e: unknown) => failed.push(e));
-		await vi.waitFor(() => expect(fs.existsSync(out)).toBe(true), {
-			timeout: 5000,
-		});
+		await vi.waitFor(() => expect(fs.existsSync(out)).toBe(true));
 		await vi.waitFor(() =>
 			expect(JSON.parse(fs.readFileSync(out, "utf8"))).toEqual([
 				null,

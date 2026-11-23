@@ -2,8 +2,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught, ignoreFailure } = require("./caught.js");
-const { forgetTestClocks } = require("./clock.js");
-const { forgetSession, REPORT_OWNER, reportOwner } = require("./session-id.js");
+const { outlivingEnv, REPORT_OWNER, reportOwner } = require("./session-id.js");
 const { REAL_PROC } = require("./proc-root.js");
 const { OUTLIVES_KEY, outlivesMark } = require("./session-scope.js");
 const {
@@ -69,10 +68,8 @@ function spawnOutliving(
 	{ owner, ceilingS = OUTLIVE_CEILING_S, wrap, ...options },
 ) {
 	const starterEnv = options.env ?? process.env;
-	const env = { ...starterEnv };
+	const env = outlivingEnv(starterEnv);
 	const named = owner === undefined ? reportOwner(starterEnv) : owner;
-	forgetSession(env);
-	forgetTestClocks(env);
 	if (named) env[REPORT_OWNER] = named;
 	const [cmd, ...pre] = wrap ?? buildOutlivingScope(ceilingS);
 	if (cmd !== undefined && starterEnv.CLAUDE_PID)
