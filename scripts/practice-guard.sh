@@ -107,7 +107,6 @@ second_clause() { echo "adds a second clause to the exempt kind \"$1\""; }
 
 has_joins_word() { [[ " ${1//[$TAIL_GLUE]/ } " =~ \ ($JOINS)\  ]]; }
 
-# #2806, #3077, #3491, #3594
 tail_fault() {
   local words off
   [[ -z $1 ]] && return
