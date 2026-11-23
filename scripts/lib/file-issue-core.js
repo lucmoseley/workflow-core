@@ -22,6 +22,7 @@ const {
 	listOpenMaps,
 	MAP_LABEL,
 	secondMapVerdict,
+	selfReviewRefusal,
 } = require("./issue-gate.js");
 const { addedCheckVerdict } = require("./gate-check.js");
 const {
@@ -520,6 +521,9 @@ function checkBody(io, ports, labels, body) {
 		readRuleText("roadmap-gating"),
 	);
 	if (handover) io.raw(handover);
+	const selfReview = selfReviewRefusal(body);
+	if (selfReview)
+		return io.fail(`Nothing filed: the body carries ${selfReview}`, 2);
 	const { refusal, advice } = ports.judge(body);
 	if (refusal) return io.fail(`Nothing filed: the body carries ${refusal}`, 2);
 	if (advice) io.raw(`${advice}\n\n`);

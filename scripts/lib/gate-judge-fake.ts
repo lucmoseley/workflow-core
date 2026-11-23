@@ -3,6 +3,7 @@ import path from "node:path";
 import { buildAuthStatusNodeBranch } from "./auth-status-fake";
 import { recorded as headless } from "./headless-run-fake";
 import { hostRoot } from "./host-root.js";
+import { overrideFingerprint } from "./issue-gate.js";
 import { readJsonl } from "./jsonl.js";
 import { markersDir } from "./marker-root.js";
 
@@ -10,6 +11,7 @@ export const MODEL_LEAD = "faults the model reading of this body raises";
 export const OVERRIDE_LEAD = "Gate judge override honoured";
 export const OVERRIDE_REASON = "the records build up on demand";
 export const OVERRIDE_LINE = `**Gate judge override:** ${OVERRIDE_REASON}`;
+export const REVIEWED_LINE = `**Gate judge override reviewed:** ${overrideFingerprint(OVERRIDE_REASON)} — 2026-11-23 — #251`;
 export const FALLBACK_LEAD = "The model reading of this body did not run";
 
 // guess, #5156

@@ -9,7 +9,11 @@ const { readJobDir } = require("./lib/job-paths.js");
 
 const { parse, exitWith, CliExit } = require("./lib/cli-args");
 const { gh: ghRun, ghDefaultRepo } = require("./lib/gh");
-const { gateRuleHandover, isNewlyGated } = require("./lib/issue-gate");
+const {
+	gateRuleHandover,
+	isNewlyGated,
+	selfReviewRefusal,
+} = require("./lib/issue-gate");
 const { readGateWrite } = require("./lib/gate-judge.js");
 const { recordOwnAct } = require("./lib/own-acts.js");
 const { readRuleText } = require("./lib/rule-text");
@@ -762,6 +766,9 @@ function refuseGateFaults(before, after, repo, issue) {
 		writeFd(2, handover);
 	}
 	refuseNonIssueNumber(issue);
+	const selfReview = selfReviewRefusal(after, before);
+	if (selfReview)
+		throw new CallerError(`Nothing written: this edit adds ${selfReview}`);
 	const { refusal, advice } = readGateWriteOnce(before, after, Number(issue));
 	if (refusal)
 		throw new CallerError(`Nothing written: this edit adds ${refusal}`);

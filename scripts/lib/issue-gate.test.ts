@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import MEASURED from "./fixtures/gate-cited-bases.json" with { type: "json" };
+import { OVERRIDE_LINE, REVIEWED_LINE } from "./gate-judge-fake";
 import { readRuleText } from "./rule-text";
 
 const {
@@ -16,6 +17,7 @@ const {
 	isNewlyGated,
 	UNFILLED_DESTINATION,
 	secondMapVerdict,
+	selfReviewRefusal,
 } = require("./issue-gate.js");
 
 const WITA_25_UTC_24 = Date.parse("2026-08-24T17:00:00Z");
@@ -1124,5 +1126,39 @@ describe("basisFaults — a cited issue followed one hop (#5007)", () => {
 		).toContain(
 			'"7 days is the window #4951 set." (it cites #4951, whose basis naming its window carries no count or cycle warrant of its own), which carries no warrant',
 		);
+	});
+});
+
+describe("selfReviewRefusal (#5674)", () => {
+	const reviewed = `${OVERRIDE_LINE}\n${REVIEWED_LINE}\n`;
+
+	it("refuses a new override written with its own reviewed line", () => {
+		expect(selfReviewRefusal(reviewed)).toContain(
+			"this same write adds or edits",
+		);
+		expect(selfReviewRefusal(reviewed, "Build it.\n")).not.toBeNull();
+	});
+
+	it("refuses an edited override whose reviewed line is rekeyed with it", () => {
+		const before = `**Gate judge override:** an older reason\n${REVIEWED_LINE}\n`;
+		expect(selfReviewRefusal(reviewed, before)).not.toBeNull();
+	});
+
+	it("passes a reviewed line added beneath an override already there", () => {
+		expect(selfReviewRefusal(reviewed, `${OVERRIDE_LINE}\n`)).toBeNull();
+		expect(
+			selfReviewRefusal(
+				reviewed,
+				`${OVERRIDE_LINE.replace("build up", "build  up")}\n`,
+			),
+		).toBeNull();
+	});
+
+	it("passes an override alone, or one whose reviewed line does not match it", () => {
+		expect(selfReviewRefusal(`${OVERRIDE_LINE}\n`)).toBeNull();
+		expect(
+			selfReviewRefusal(`${OVERRIDE_LINE}, and more\n${REVIEWED_LINE}\n`),
+		).toBeNull();
+		expect(selfReviewRefusal(`${REVIEWED_LINE}\n`)).toBeNull();
 	});
 });

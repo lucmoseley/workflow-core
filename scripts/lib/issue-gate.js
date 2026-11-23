@@ -200,6 +200,22 @@ function overrideReviewOf(body) {
 	return m ? requiredGroup(m, 1, OVERRIDE_REVIEWED_RE).toLowerCase() : null;
 }
 
+/**
+ * #5674
+ * @param {string} body
+ * @param {string} [before]
+ * @returns {string|null}
+ */
+function selfReviewRefusal(body, before = "") {
+	const reason = judgeOverrideOf(body)?.reason;
+	if (!reason) return null;
+	const key = overrideFingerprint(reason);
+	if (overrideReviewOf(body) !== key) return null;
+	const was = judgeOverrideOf(before)?.reason;
+	if (was && overrideFingerprint(was) === key) return null;
+	return "a `**Gate judge override reviewed:**` line keyed to the `**Gate judge override:**` line this same write adds or edits, so the override would never be listed for review. Write the override alone; the review that finds it right adds the reviewed line in a later edit.";
+}
+
 const COUNT_WORDS = [
 	"one",
 	"two",
@@ -1119,6 +1135,7 @@ module.exports = {
 	judgeOverrideOf,
 	overrideFingerprint,
 	overrideReviewOf,
+	selfReviewRefusal,
 	otherIssueRefs,
 	gateRuleHandover,
 	citedKey,

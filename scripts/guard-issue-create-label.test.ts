@@ -13,6 +13,7 @@ import {
 	OVERRIDE_LEAD,
 	OVERRIDE_LINE,
 	OVERRIDE_REASON,
+	REVIEWED_LINE,
 } from "./lib/gate-judge-fake";
 import { buildGhAnswerScript, readGhAnswer } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
@@ -214,6 +215,17 @@ describe("the model reading (#4969)", () => {
 				route: "create-guard",
 				override: OVERRIDE_REASON,
 			}),
+		);
+	});
+
+	it("denies a create whose override carries its own reviewed line (#5674)", () => {
+		const out = create(
+			`Build it.\n\n${Wait}\n${OVERRIDE_LINE}\n${REVIEWED_LINE}`,
+			found,
+		);
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain(
+			"whose body reviews its own gate-judge override",
 		);
 	});
 

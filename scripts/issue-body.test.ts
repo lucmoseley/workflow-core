@@ -14,6 +14,7 @@ import {
 	OVERRIDE_LEAD,
 	OVERRIDE_LINE,
 	OVERRIDE_REASON,
+	REVIEWED_LINE,
 	readJudgeCalls,
 } from "./lib/gate-judge-fake";
 import { asRecorded } from "./lib/gh-fake";
@@ -737,6 +738,29 @@ describe("the model reading of an edit (#4969)", () => {
 				override: OVERRIDE_REASON,
 			}),
 		);
+	});
+
+	it("refuses an edit adding an override with its own reviewed line (#5674)", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		const r = edit(
+			found,
+			"append",
+			"96",
+			"--text",
+			`${Wait}\n${OVERRIDE_LINE}\n${REVIEWED_LINE}`,
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			"Nothing written: this edit adds a `**Gate judge override reviewed:**` line",
+		);
+		expect(readEdits()).toBe(0);
+	});
+
+	it("writes a reviewed line added beneath an override already there (#5674)", () => {
+		fs.writeFileSync(store, `## Log\n\n${Wait}\n${OVERRIDE_LINE}\n`);
+		const r = edit(found, "append", "96", "--text", REVIEWED_LINE);
+		expect(r.status).toBe(0);
+		expect(readBody()).toContain(REVIEWED_LINE);
 	});
 
 	it("refuses an edit whose override gives no reason", () => {
