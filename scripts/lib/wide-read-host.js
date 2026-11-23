@@ -3,6 +3,7 @@ const path = require("node:path");
 const { escapeRe } = require("./regex-group.js");
 const { isGlobPattern } = require("./shell-words.js");
 
+// guess, #2787
 const CHUNK = 64 * 1024;
 
 /**

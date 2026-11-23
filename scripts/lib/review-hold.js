@@ -1,6 +1,5 @@
 const { markerFault, refusal, stampValue } = require("./review-hold-marker.js");
 
-// #5153
 const DETAIL_MAX = 300;
 
 /**

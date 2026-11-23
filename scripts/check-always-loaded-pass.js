@@ -20,6 +20,7 @@ const BUDGET_SCRIPT_FILE =
 	process.env.WFC_BUDGET_SCRIPT_FILE ||
 	path.join(__dirname, "check-context-budget.js");
 
+// guess, lucmoseley/mantahostels#2500
 const PERIOD_MONTHS = 1;
 const OVERDUE_MONTHS = 2;
 

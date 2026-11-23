@@ -39,6 +39,7 @@ const { takesLabel } = require("./lib/takes-label.js");
 
 const ORPHAN_LABEL = takesLabel("triage");
 
+// guess, #794
 const ORPHAN_AFTER_HOURS = 24;
 
 // measured 11-16 s a filing at load 12-25, #4542
@@ -60,6 +61,7 @@ const WALK_DIR = "orphaned-edits-walked";
 // guess, #4367
 const WALK_EVERY_MS = 3_600_000;
 
+// guess: enough to tell a reader's issues apart, #4439
 const BLOB_TAG_HEX = 10;
 
 /**

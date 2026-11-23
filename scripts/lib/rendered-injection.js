@@ -9,7 +9,6 @@ const INJECTOR_ENTRY =
 	process.env.WFC_INJECTOR_ENTRY ||
 	path.join(__dirname, "..", "inject-tracker-docs.js");
 
-// #1956
 const RUN_TIMEOUT_MS = 10_000;
 
 /**

@@ -20,16 +20,16 @@ const SERIES_LABEL = "docs/data/cost-per-unit.jsonl";
 // #4438
 const SERIES = path.join(worktreeRoot(), ...SERIES_LABEL.split("/"));
 
-// lucmoseley/mantahostels#1734 lucmoseley/mantahostels#1738
+// guess: the founder's no-headroom ceiling, lucmoseley/mantahostels#1734
 const MONTHLY_BILL = 600;
 
-// lucmoseley/mantahostels#2750
+// guess: the seats the bill buys, lucmoseley/mantahostels#2750
 const LIVE_SEATS = 3;
 
-// lucmoseley/mantahostels#1737
+// guess, lucmoseley/mantahostels#1737
 const WINDOW_DAYS = 30;
 
-// lucmoseley/mantahostels#1740
+// guess, lucmoseley/mantahostels#1740
 const CADENCE_DAYS = 7;
 
 const DAY_MS = 864e5;

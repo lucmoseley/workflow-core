@@ -18,6 +18,7 @@ const {
  * @typedef {{number: number, title: string, url: string, assignees: string[]}} Claim
  */
 
+// guess, origin untraced, #5621
 const STALE_CLAIM_DAYS = 14;
 
 const WORK_EVENTS = new Set([

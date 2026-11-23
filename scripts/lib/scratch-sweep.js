@@ -2,7 +2,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { caught, ignoreFailure } = require("./caught.js");
 
+// guess, lucmoseley/mantahostels#2090
 const SCRATCH_AGE_MS = 24 * 60 * 60 * 1000;
+// guess: a research artefact may await landing, lucmoseley/mantahostels#2090
 const RESEARCH_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const RESEARCH_WORD = "research";
 const AGENTS_DIR = "agents";

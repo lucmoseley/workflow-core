@@ -15,6 +15,7 @@ const { readInstalled } = require("./wsl-version.js") as {
 // #4082 guess
 const AMPLE_BUDGET_MS = 10_000;
 
+// guess: far under the fake's hang, #4082
 const WEDGED_BUDGET_MS = 200;
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wsl-version-"));

@@ -135,6 +135,8 @@ class TestTornProcReadsAreSurvivable:
             in capsys.readouterr().err
         )
 
+    # Above Linux's 2^22 PID_MAX_LIMIT:
+    # https://man7.org/linux/man-pages/man5/proc_sys_kernel.5.html
     GONE = 99_999_999
 
     def test_a_pid_gone_before_its_stat_opens_is_left_out_of_the_tree(

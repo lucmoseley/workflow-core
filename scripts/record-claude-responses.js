@@ -292,6 +292,7 @@ function lostShapes(rows) {
 	}
 }
 
+// guess: past the probe's 58-117 s rewrite band, #2189
 const USAGE_REFRESH_AGE_MS = 120_000;
 const USAGE_KINDS = ["session", "weekly_all", "weekly_scoped"];
 const SYNTHETIC_USAGE = {

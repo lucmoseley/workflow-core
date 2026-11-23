@@ -34,9 +34,9 @@ const {
  *   last_assistant_message?: string}} Payload
  */
 
-// lucmoseley/mantahostels#1094
+// guess, lucmoseley/mantahostels#1094
 const WIND_UP = 200_000;
-// lucmoseley/mantahostels#2627 measured crossing response median 99 over 990 sessions; remeasure: node scripts/measure-turn-band.js
+// lucmoseley/mantahostels#2627 measured crossing response median 99 over 990 sessions
 const TURN_BAND = 100;
 // lucmoseley/mantahostels#2619 measured compliance flat past block 3
 const TURN_BAND_MAX_BLOCKS = 3;

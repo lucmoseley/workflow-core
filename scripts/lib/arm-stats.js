@@ -6,6 +6,7 @@ const SINGULAR_PIVOT = 1e-12;
 const MAX_GAMMA_TERMS = 500;
 const GAMMA_TOLERANCE = 1e-14;
 const TINY = 1e-300;
+// guess: two-sided alpha 0.05, D4's design, #2045
 const Z_ALPHA = 1.959_964;
 const Z_POWER = 0.841_621;
 

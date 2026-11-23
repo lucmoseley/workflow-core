@@ -30,6 +30,7 @@ function readSeen(raw) {
 const INERT_CHECKER = "guard-errors-inert";
 const INERT_SIGNATURE = "inert";
 
+// guess, lucmoseley/mantahostels#2438
 const MAX_REPORTED = 20;
 
 /**

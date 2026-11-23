@@ -1,5 +1,5 @@
 const HEADER = "**Hand-off:**";
-// #2391
+// GitHub refuses a comment body past 65,536 characters: https://github.com/dead-claudia/github-limits
 const COMMENT_LIMIT = 65_536;
 const FIELDS = /** @type {const} */ ([
 	"Base",

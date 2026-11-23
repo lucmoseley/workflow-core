@@ -14,6 +14,7 @@ const { caught, ignoreFailure } = require("./caught.js");
 /** @typedef {import("./arbiter-records.js").Identity} Identity */
 /** @typedef {import("./arbiter-records.js").LivenessOracle} LivenessOracle */
 
+// guess, origin untraced, #5621
 const ISSUE_CLAIM_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** @param {number|string|null} issue */

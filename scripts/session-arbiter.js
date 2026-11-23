@@ -360,6 +360,7 @@ function dirtyUnclaimedNotes({ rel, verdict, lock }) {
 	return [];
 }
 
+// guess: the doc map held 113 regions on 24 Aug 2026, lucmoseley/mantahostels#1313
 const REGIONS_SHOWN = 12;
 
 /** @param {string} rel @param {string} region */
@@ -1155,6 +1156,7 @@ function cmdClaimIssue(issue, sessionId) {
 	return 0;
 }
 
+// guess, #4535
 const UNIT_READ_MS = 10_000;
 
 /** @param {number} n @param {string|null} sid @returns {string|null} */

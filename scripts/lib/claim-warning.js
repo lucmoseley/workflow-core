@@ -6,10 +6,10 @@ const WARN_MAX_BYTES = 4000;
 // 60 B measured, #5529
 const OVERFLOW_RESERVE = 80;
 
-// lucmoseley/mantahostels#2363
+// guess, lucmoseley/mantahostels#2363
 const SESSION_BUDGET_BYTES = 2000;
 
-// lucmoseley/mantahostels#2364
+// guess, lucmoseley/mantahostels#2364
 const POINTER_DECAY_MS = 60 * 60 * 1000;
 
 const POINTER =

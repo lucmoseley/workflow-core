@@ -18,6 +18,7 @@ const { readConfig } = require("./lib/workflow-core-config.js");
 const { noop } = require("./lib/noop.js");
 const { writeFd } = require("./lib/write-fd.js");
 
+// guess: time to read the reason before the view covers it, #4066
 const PRINTED_HOLD_MS = 5000;
 
 const USAGE = `usage: node ${scriptPath("refill-panel-open.js")} [--if-enabled] <agents-view-pid>
@@ -31,6 +32,7 @@ tmux split, or printing the command to run.
 `;
 
 const PANEL_PROGRAM = path.join(__dirname, "refill-panel.js");
+// guess, #3886
 const ROUTE_TIMEOUT_MS = 10_000;
 
 /** @typedef {{ name: string, file: string, args: string[] }} Route */

@@ -7,6 +7,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
 const { gitCommonDirOrThrow } = require("./lib/git.js");
 
+// guess: no git operation here runs an hour; an editor-held lock can, #1193
 const STALE_GIT_LOCK_MS = 60 * 60 * 1000;
 
 const SKIPPED = new Set(["refs/arbiter"]);

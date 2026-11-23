@@ -45,6 +45,7 @@ describe("removeRunRoot", () => {
 	});
 });
 
+// Above Linux's PID_MAX_LIMIT of 2^22: https://man7.org/linux/man-pages/man5/proc_sys_kernel.5.html
 const DEAD_PID = 999_999_999;
 
 function staleRoot(dir: string, ageMs = STALE_MS + 1000) {

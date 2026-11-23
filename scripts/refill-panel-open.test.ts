@@ -267,6 +267,7 @@ describe("refill-panel-open.js", () => {
 			`#!/bin/sh\nwhile [ ! -e ${shellQuote(release)} ]; do sleep 0.05; done\n: > ${shellQuote(seen)}\nexit 7\n`,
 			{ mode: 0o755 },
 		);
+		// guess, #4080
 		const logTimeoutMs = 15_000;
 		const code = main(
 			["--if-enabled", String(process.pid)],

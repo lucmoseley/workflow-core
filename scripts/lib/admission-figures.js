@@ -59,7 +59,7 @@ const SUITE_SHARE_MB = 147;
 const typecheckReserveFor = (typecheckChargeMb, sessions) =>
 	Math.max(0, typecheckChargeMb - sessions * SUITE_SHARE_MB);
 
-// #2221
+// guess: the aggregate's p95, ruled at #2221
 const DRAW_Z = 1.645;
 
 /**

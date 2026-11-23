@@ -8,6 +8,7 @@ const { shellQuote } = require("../../../../scripts/lib/sh-quote.js");
 // guess, lucmoseley/mantahostels#1147
 const FLOOR = 150;
 
+// guess: sized for a whole-file roadmap diff, lucmoseley/mantahostels#1147
 const MAX_BUFFER = 64e6;
 
 // measured 13.7 B per changed word, #573

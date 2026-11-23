@@ -3157,6 +3157,7 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 		);
 	});
 
+	// guess: each poll spawns a ps at ~100 ms, #5036
 	const minutePolls = 60_000;
 
 	it("runs a wait one spell of the hold has held for its 10-minute maximum, saying so and logging it (#4850)", async () => {

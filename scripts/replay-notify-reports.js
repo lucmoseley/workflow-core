@@ -58,14 +58,14 @@ const isHeldAtStart = (pass, key) =>
 	pass.ctx.notify &&
 	(isHeldForStatus(key) || isFounderNoticeHeld(key, pass.source));
 
-// lucmoseley/mantahostels#1949
+// guess: one missed start is no alarm, lucmoseley/mantahostels#1949
 const SILENT_STARTS = 3;
 
-// lucmoseley/mantahostels#2327
+// guess: smallest round multiple clearing 72 s against 65.3 s, lucmoseley/mantahostels#2342
 const SILENT_AGE_MARGIN = 2;
 const SILENT_AGE_FLOOR_MS = SILENT_AGE_MARGIN * 65_300;
 
-// lucmoseley/mantahostels#2327
+// guess: far under any producer measured to date, lucmoseley/mantahostels#2342
 const MIN_PLAUSIBLE_DURATION_MS = 1000;
 
 /** @param {number|null} durationMs */

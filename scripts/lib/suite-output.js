@@ -19,7 +19,9 @@ const VITEST_ARROW = /^>(\s+)/;
 const VITEST_END = /^[✓×❯⎯↓]/;
 const DIFF_LINE = /^[-+]\s/;
 const DIFF_HEADER = /^(?:- Expected|\+ Received)\b/;
+// guess: room for an assertion's first lines, #4860
 const MESSAGE_CHARS = 300;
+// guess, #4860
 const SIGNATURE_HEX = 16;
 
 /** @param {string} out @returns {string[]} */
