@@ -1,6 +1,7 @@
 import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+import { WHOLE_SUITE_WORKERS } from "./scripts/lib/suite-bounded";
 import { TEST_TIMEOUT_MS, WORKER_HEAP_MB } from "./scripts/lib/test-ceiling";
 import ShardSequencer from "./scripts/vitest-shard-sequencer";
 
@@ -38,8 +39,7 @@ export default defineConfig({
 		],
 		sequence: { sequencer: ShardSequencer },
 		pool: "forks",
-		// measured 230 s median suite at W=5, #2772
-		maxWorkers: 5,
+		maxWorkers: WHOLE_SUITE_WORKERS,
 		execArgv: [`--max-old-space-size=${WORKER_HEAP_MB}`],
 		include: [
 			"**/*.{test,spec}.?(c|m)[jt]s?(x)",

@@ -239,6 +239,7 @@ const HOOK_GIT_TIMEOUT_MS = 3000;
 const GIT_TIMEOUT_MS = 30_000;
 // guess, #2607
 const SHORT_SHA = 9;
+const WIDE_SHA = 12;
 
 /**
  * @typedef {{ ok: true, out: string } | { ok: false, why: string, isUnrun?: true }} GitRead
@@ -294,6 +295,7 @@ async function execGitAsync(args, opts = {}) {
 
 module.exports = {
 	SHORT_SHA,
+	WIDE_SHA,
 	gitBinary,
 	gitSpawnOptions,
 	execGit,

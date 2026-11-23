@@ -4,6 +4,7 @@ const path = require("node:path");
 const { caught, ignoreFailure } = require("./caught.js");
 const { outlivingEnv, REPORT_OWNER, reportOwner } = require("./session-id.js");
 const { REAL_PROC } = require("./proc-root.js");
+const { RUN_MS } = require("./repo-checks-run.js");
 const { OUTLIVES_KEY, outlivesMark } = require("./session-scope.js");
 const {
 	MANAGER_TIMEOUT_MS,
@@ -46,8 +47,9 @@ const managerAnswersOnce = () => {
 	return managerAnswers;
 };
 
-// guess: repo-checks.js's 30-minute RUN_MS plus a 15-minute tail for its report, #4706
-const OUTLIVE_CEILING_S = 2700;
+// guess: a 15-minute tail past repo-checks.js's RUN_MS for its report, #4706
+const REPORT_TAIL_MS = 15 * 60_000;
+const OUTLIVE_CEILING_S = (RUN_MS + REPORT_TAIL_MS) / 1000;
 
 /** @param {number|null} ceilingS @returns {string[]} */
 function buildOutlivingScope(ceilingS) {
@@ -301,6 +303,7 @@ function hasOwnScopeHitCap() {
 }
 
 module.exports = {
+	OUTLIVE_CEILING_S,
 	probeUserScope,
 	spawnOutliving,
 	spawnInRunScope,

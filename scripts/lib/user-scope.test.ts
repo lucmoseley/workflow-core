@@ -11,6 +11,7 @@ import { writeSystemdRun } from "./systemd-run-fake";
 const require = createRequire(import.meta.url);
 const { outlivingEnv } = require("./session-id.js");
 const {
+	OUTLIVE_CEILING_S,
 	probeUserScope,
 	spawnInRunScope,
 	endRunScope,
@@ -214,7 +215,7 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 		).toEqual([...stripped].sort());
 		expect(stripped).toContain("WFC_REPORT_OWNER");
 		expect(stripped).toContain("WFC_NOW");
-		expect(shellCeiling).toBe("2700");
+		expect(shellCeiling).toBe(String(OUTLIVE_CEILING_S));
 	});
 
 	it("names the starter's report owner and stops at the shared ceiling where it is given neither", () => {

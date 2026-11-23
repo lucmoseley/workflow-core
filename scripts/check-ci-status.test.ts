@@ -546,7 +546,12 @@ describe("a check that cannot see CI never claims all-clear (mantahostels#143)",
 		const src = fs.readFileSync(SCRIPT, "utf8");
 		const fn = /function ghTimeout\(deadline\) \{([\s\S]*?)\n\}/.exec(src);
 		expect(fn, "no ghTimeout() in check-ci-status.js").not.toBeNull();
-		expect((fn as RegExpExecArray)[1]).toContain("Math.min(8000, remaining)");
+		expect((fn as RegExpExecArray)[1]).toMatch(
+			/Math\.min\(\s*SWEEP_GH_TIMEOUT_MS,\s*remaining\s*\)/,
+		);
+		expect(
+			createRequire(__filename)("./lib/sweep-ledger.js").SWEEP_GH_TIMEOUT_MS,
+		).toBe(8000);
 	});
 });
 

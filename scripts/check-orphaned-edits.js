@@ -940,5 +940,5 @@ const main = () =>
 		run,
 	});
 
-module.exports = { main };
+module.exports = { HOOK_TIMEOUT_MS, main };
 if (require.main === module) main();

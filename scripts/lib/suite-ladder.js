@@ -11,8 +11,13 @@ const {
 // #2221 guess
 const DRAW_MARGIN_MB = 300;
 
-// guess: earlyoom's 8% kill line on the 10 GB cap, #2221
-const EARLYOOM_FLOOR_MB = 794;
+// measured: MemTotal at the 10 GB cap, lucmoseley/mantahostels#2766
+const MEM_TOTAL_MIB = 9924;
+// guess: earlyoom's -m 8 kill line, #2221
+const EARLYOOM_KILL_PERCENT = 8;
+const EARLYOOM_FLOOR_MB = Math.ceil(
+	(MEM_TOTAL_MIB * EARLYOOM_KILL_PERCENT) / 100,
+);
 
 // measured: 3 suites, the most the ladder bench ran at once, #2862
 const SUITE_MAX = 3;

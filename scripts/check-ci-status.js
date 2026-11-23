@@ -72,6 +72,7 @@ const RUN_WINDOW = 50;
 const BISECT_WORKFLOW = "bisect.yml";
 
 const {
+	SWEEP_GH_TIMEOUT_MS,
 	SWEEP_WORKFLOW,
 	readLedgerRuns,
 	slotsFrom,
@@ -116,9 +117,11 @@ const notifyDeadline = (notify) =>
  * @returns {number|null}
  */
 function ghTimeout(deadline) {
-	if (deadline === null) return 8000;
+	if (deadline === null) return SWEEP_GH_TIMEOUT_MS;
 	const remaining = deadline - Date.now();
-	return remaining < NOTIFY_BUDGET_FLOOR_MS ? null : Math.min(8000, remaining);
+	return remaining < NOTIFY_BUDGET_FLOOR_MS
+		? null
+		: Math.min(SWEEP_GH_TIMEOUT_MS, remaining);
 }
 
 /**

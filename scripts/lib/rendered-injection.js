@@ -75,4 +75,9 @@ function render(root, env, command) {
 	}
 }
 
-module.exports = { INJECTOR_ENTRY, PROBE_SESSION_ID, renderedPayloads };
+module.exports = {
+	RUN_TIMEOUT_MS,
+	INJECTOR_ENTRY,
+	PROBE_SESSION_ID,
+	renderedPayloads,
+};
