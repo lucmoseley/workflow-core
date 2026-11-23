@@ -14,7 +14,7 @@ import {
 } from "./lib/core-hooks.js";
 import { CANARY_MAIN_SCRIPTS, MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
 import { initGitRepo } from "./lib/git-fixture";
-import { copyRequireClosure } from "./lib/require-closure";
+import { copyRequireClosure } from "./lib/require-closure-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const ROOT = path.resolve(__dirname, "..");

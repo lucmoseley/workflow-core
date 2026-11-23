@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const {
+	TSC_BUSY_EXIT,
 	checkoutPeakMb,
 	isCutTscRunner,
 	launchPeakMb,
@@ -12,6 +13,7 @@ const {
 	tscDenial,
 	tscLaunchBin,
 } = require("./tsc-slot.js") as {
+	TSC_BUSY_EXIT: number;
 	checkoutPeakMb: (dir: string) => number;
 	isCutTscRunner: (args: string) => boolean;
 	launchPeakMb: (dir: string, launch?: { bin?: string }) => number;
@@ -357,5 +359,18 @@ describe("lib/tsc-slot.js", () => {
 		["npm run typecheck", null],
 	])("names `%s`'s binary %s (#4892)", (command, bin) => {
 		expect(tscLaunchBin(command.split(" "))).toBe(bin);
+	});
+});
+
+describe("TSC_BUSY_EXIT", () => {
+	it("is the exit .husky/pre-commit reads as a held type-check slot", () => {
+		const hook = fs.readFileSync(
+			path.join(__dirname, "..", "..", ".husky", "pre-commit"),
+			"utf8",
+		);
+		const held = [...hook.matchAll(/"\$tc_status" -eq (\d+)/g)].map((m) =>
+			Number(m[1]),
+		);
+		expect(held).toEqual([TSC_BUSY_EXIT]);
 	});
 });

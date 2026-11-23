@@ -8,6 +8,7 @@ const {
 	gitBinary,
 	gitSpawnOptions,
 	gitCommonDir,
+	WIDE_SHA,
 } = require("./git.js");
 const { delta: cpuDelta } = require("./cpu-sample.js");
 const idSeam = require("./session-id.js");
@@ -1177,7 +1178,7 @@ function buildTreeMatchNote(sha, m, match, suite = DEFAULT_SUITE) {
 }
 
 /** @param {string} sha */
-const shortSha = (sha) => String(sha).slice(0, 12);
+const shortSha = (sha) => String(sha).slice(0, WIDE_SHA);
 
 /**
  * @param {string} sha

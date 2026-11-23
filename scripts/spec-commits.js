@@ -17,7 +17,7 @@ const { citedIssues } = require("./lib/cited-issues.js");
 const { commitSha } = require("./lib/commit-sha.js");
 const { HEX_WORD_RE, hasSha } = require("./lib/outstanding-line.js");
 const { readNamedCommits } = require("./lib/unlanded-commits.js");
-const { execGit, gitReader } = require("./lib/git.js");
+const { WIDE_SHA, execGit, gitReader } = require("./lib/git.js");
 const { readPatchIds } = require("./lib/patch-ids.js");
 const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
 const { caught } = require("./lib/caught.js");
@@ -27,13 +27,12 @@ const USAGE = `usage: node ${scriptPath("spec-commits.js")} <spec> [--since <sha
 const GENERATED = new Set(["generated-only", "derived"]);
 // spawnSync's maxBuffer defaults to 1 MB: https://nodejs.org/api/child_process.html#child_processspawnsynccommand-args-options
 const LOG_MAX_BUFFER = 64e6;
-const SHORT_SHA = 12;
 const HEX_WORDS_RE = new RegExp(HEX_WORD_RE.source, "g");
 const LOG_FORMAT = "--format=%x1e%H%x1f%aI%x1f%B%x1f";
 const DOOR_LINE = /^[ \t]*\*\*Door:\*\*/m;
 
 /** @param {string} sha */
-const short = (sha) => sha.slice(0, SHORT_SHA);
+const short = (sha) => sha.slice(0, WIDE_SHA);
 
 /** @param {number[]} ns */
 const cite = (ns) => ns.map((x) => `#${x}`).join(" ");

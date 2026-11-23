@@ -48,6 +48,7 @@ const { gitCommonDirOrThrow } = require("./lib/git.js");
 const { caught, orFallback } = require("./lib/caught.js");
 const { originLabel } = require("./lib/issue-origin");
 const { takesLabel } = require("./lib/takes-label");
+const { RUN_MS } = require("./lib/repo-checks-run");
 
 const STAMP = ".repo-checks-read";
 const LOCK = ".repo-checks-read.lock";
@@ -59,7 +60,6 @@ const ISSUE_LABELS = [takesLabel("triage"), originLabel("repo-checks-script")];
 const DAY_MS = 24 * 3_600_000;
 // guess, #1510
 const CHECK_MS = 300_000;
-const RUN_MS = 30 * 60_000;
 const UNEXAMINED = "unexamined, not clean.";
 // guess: one error line, short of flooding a summary, #1723
 const STDERR_LINE_MAX_CHARS = 300;
