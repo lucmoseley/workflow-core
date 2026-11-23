@@ -225,8 +225,10 @@ function conflictingLock(subject, me) {
 	if (!regions.isRegioned(rel)) return null;
 	const all = lockFiles.readLocks();
 	if (all === null) return null;
-	const others = all.filter(
-		(l) => l.unreadable || core.splitSubject(l.path).region !== region,
+	const others = /** @type {LockRecord[]} */ (
+		all.filter(
+			(l) => !l.unreadable && core.splitSubject(l.path).region !== region,
+		)
 	);
 	const resumed = core.resumedHolderTest(
 		"claim",
@@ -565,11 +567,11 @@ function subjectDirtyWhereHeld(lock) {
  * @param {string} subject
  * @param {string|null} sessionId
  * @param {ReturnType<typeof core.resumedHolderTest>} resumed
- * @param {NonNullable<ReturnType<typeof lockFiles.readLocks>>} locks
+ * @param {LockRecord[]} locks
  */
 function whoHolds(subject, sessionId, resumed, locks) {
 	for (const lock of locks) {
-		if (lock.unreadable || !core.subjectsOverlap(lock.path, subject)) continue;
+		if (!core.subjectsOverlap(lock.path, subject)) continue;
 		if (sessionId && lock.sessionId === sessionId) continue;
 		if (isLockAlive(lock, resumed)) return lock;
 	}
@@ -577,7 +579,7 @@ function whoHolds(subject, sessionId, resumed, locks) {
 }
 
 /**
- * @param {NonNullable<ReturnType<typeof lockFiles.readLocks>>[number]} lock
+ * @param {LockRecord} lock
  * @param {ReturnType<typeof core.resumedHolderTest>} resumed
  * @returns {boolean}
  */
