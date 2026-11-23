@@ -324,6 +324,7 @@ module.exports = {
 	parseRefusal,
 	REFUSAL_TAIL_LINES,
 	parseGateRefusal,
+	PUSH_TIMEOUT_MS,
 	pushRemote,
 	readConflictedFiles,
 	readGit,

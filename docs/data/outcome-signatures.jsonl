@@ -75,3 +75,4 @@
 {"issue":"lucmoseley/workflow-core-tracker#5612","filedAt":"2026-11-22T20:35:55.491Z","signature":null,"why":"a latent limit a comment recorded until #5531 cut it; it leaves no transcript trace a regex or needle could count"}
 {"issue":"lucmoseley/workflow-core-tracker#5613","filedAt":"2026-11-22T20:36:10.574Z","signature":null,"why":"a latent limit a comment recorded until #5531 cut it; it leaves no transcript trace a regex or needle could count"}
 {"issue":"lucmoseley/workflow-core-tracker#5614","filedAt":"2026-11-22T20:51:25.928Z","signature":null,"why":"a latent limit a comment recorded until #5531 cut it; it leaves no transcript trace a regex or needle could count"}
+{"issue":"lucmoseley/workflow-core-tracker#5644","filedAt":"2026-11-23T01:35:28.055Z","signature":null,"why":"a latent limit found by audit; an unbounded call that hangs leaves no transcript trace a regex or needle could count"}

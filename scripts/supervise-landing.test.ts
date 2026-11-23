@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc.js";
 import { stubGhScript } from "./lib/gh-stub.js";
 import { heartbeatWriter } from "./lib/lander-files.js";
 import { OWN_CORE, seedAdopterTree } from "./lib/lander-testkit";
@@ -52,12 +53,14 @@ const landedAgo = (ago: number) => {
 	);
 };
 
-const beat = (pid: number, extra: Record<string, unknown> = {}) => {
+const beat = (extra: Record<string, unknown> = {}) => {
 	fs.mkdirSync(markers(), { recursive: true });
 	fs.writeFileSync(
 		path.join(markers(), ".queue-lander-heartbeat.json"),
 		JSON.stringify({
-			pid,
+			pid: process.pid,
+			procStart: readProcStartOf(process.pid),
+			bootId: readCurrentBootId(),
 			at: new Date().toISOString(),
 			batch: null,
 			...extra,
@@ -182,7 +185,7 @@ it("starts none, and prints nothing, while a lander runs or no queue ref waits",
 	commit("seed", 0, "main");
 	expect(supervise(["--tester", "true"]).stdout).toBe("");
 	commit("work", 0, "refs/heads/queue/work");
-	beat(process.pid);
+	beat();
 
 	const r = supervise(["--tester", "true"]);
 
@@ -194,7 +197,7 @@ it("starts none, and prints nothing, while a lander runs or no queue ref waits",
 it("files one urgent bug stall ticket for a running lander whose main has stood 2 h with a queue ref waiting, and finds it current on the next pass", () => {
 	commit("seed", 8 * 60 * MIN, "main");
 	const tip = commit("work", 121 * MIN, "refs/heads/queue/work");
-	beat(process.pid, { batch: tip });
+	beat({ batch: tip });
 
 	const first = supervise();
 	const second = supervise();
@@ -242,7 +245,7 @@ it("leaves the stall ticket's body unchanged across passes while the lander's ve
 it("closes the stall ticket with the stall's length once main moves, and files a new one for a later stall (#4443)", () => {
 	commit("seed", 150 * MIN, "main");
 	commit("work", 125 * MIN, "refs/heads/queue/work");
-	beat(process.pid);
+	beat();
 	expect(supervise().stdout).toContain("Filed #100");
 
 	git(work, ["push", "-q", "origin", "HEAD:main", ":refs/heads/queue/work"]);
@@ -271,7 +274,7 @@ it("closes the stall ticket with the stall's length once main moves, and files a
 it("closes the stall ticket on a move the queue log did not record, onto a commit older than the stall", () => {
 	commit("seed", 150 * MIN, "main");
 	commit("work", 200 * MIN, "refs/heads/queue/work");
-	beat(process.pid);
+	beat();
 	expect(supervise().stdout).toContain("Filed #100");
 
 	git(work, ["push", "-q", "origin", "HEAD:main", ":refs/heads/queue/work"]);
@@ -315,7 +318,7 @@ it("starts the queue lander and files the stall ticket too where main has stood 
 it("files nothing on a push onto a main idle for hours (#3303)", () => {
 	commit("seed", 8 * 60 * MIN, "main");
 	commit("work", MIN, "refs/heads/queue/work");
-	beat(process.pid);
+	beat();
 
 	const r = supervise();
 
@@ -327,7 +330,7 @@ it("files nothing on a push onto a main idle for hours (#3303)", () => {
 it("files no stall ticket where the queue log has main landed within 2 h, though its tip is older", () => {
 	commit("seed", 5 * 60 * MIN, "main");
 	commit("work", 3 * 60 * MIN, "refs/heads/queue/work");
-	beat(process.pid);
+	beat();
 	landedAgo(30 * MIN);
 
 	const r = supervise();
@@ -340,7 +343,7 @@ it("files no stall ticket where the queue log has main landed within 2 h, though
 it("files the queue alert once for a queue ref waiting past 60 min, says nothing while it stands, and closes it once the ref leaves (#4485)", () => {
 	commit("seed", 0, "main");
 	commit("waiting", 61 * MIN, "refs/heads/queue/old");
-	beat(process.pid);
+	beat();
 
 	const first = supervise();
 	const second = supervise();
@@ -366,7 +369,7 @@ it("files the queue alert once for a queue ref waiting past 60 min, says nothing
 it("fails the pass on a queue log it cannot read, naming it and filing nothing", () => {
 	commit("seed", 8 * 60 * MIN, "main");
 	commit("work", 121 * MIN, "refs/heads/queue/work");
-	beat(process.pid);
+	beat();
 	fs.mkdirSync(path.join(markers(), ".queue-log.jsonl"), { recursive: true });
 
 	const r = supervise();
