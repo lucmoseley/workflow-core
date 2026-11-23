@@ -79,4 +79,164 @@
 
 /** @typedef {"landed"|"pending"|"unproven"} OwnHunks */
 
-module.exports = {};
+/**
+ * @typedef {object} WantRecord
+ * @property {string} sessionId
+ * @property {string} wants
+ * @property {number|null} pid
+ * @property {string|number|null} procStart
+ * @property {string} [bootId]
+ * @property {string} since
+ */
+
+/**
+ * @typedef {object} MutexRecord
+ * @property {number} pid
+ * @property {string|number|null} procStart
+ * @property {string} [bootId]
+ */
+
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isRecordObject(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** @param {unknown} value */
+const isStringOrNull = (value) => value === null || typeof value === "string";
+
+/** @param {unknown} value */
+const isPidOrNull = (value) => value === null || typeof value === "number";
+
+/** @param {unknown} value */
+const isProcStartOrNull = (value) =>
+	value === null || typeof value === "string" || typeof value === "number";
+
+/** @param {unknown} value */
+const isOptionalString = (value) =>
+	value === undefined || typeof value === "string";
+
+/**
+ * @param {unknown} value
+ * @returns {value is {sha: string, at: string|null}}
+ */
+function isPriorBlob(value) {
+	return (
+		isRecordObject(value) &&
+		typeof value.sha === "string" &&
+		isStringOrNull(value.at)
+	);
+}
+
+/**
+ * @param {unknown} record
+ * @returns {record is LockRecord}
+ */
+function isLockRecord(record) {
+	return (
+		isRecordObject(record) &&
+		typeof record.path === "string" &&
+		isStringOrNull(record.sessionId) &&
+		isPidOrNull(record.pid) &&
+		isProcStartOrNull(record.procStart) &&
+		typeof record.claimedAt === "string" &&
+		typeof record.claimId === "string" &&
+		isStringOrNull(record.bootId) &&
+		isStringOrNull(record.blob) &&
+		Array.isArray(record.priorBlobs) &&
+		record.priorBlobs.every(isPriorBlob) &&
+		isStringOrNull(record.preBlob) &&
+		isOptionalString(record.tree)
+	);
+}
+
+/**
+ * @param {unknown} record
+ * @returns {record is BreakRecord}
+ */
+function isBreakRecord(record) {
+	return (
+		isRecordObject(record) &&
+		typeof record.path === "string" &&
+		isStringOrNull(record.lostBy) &&
+		isStringOrNull(record.lostClaimId) &&
+		isStringOrNull(record.blob) &&
+		isStringOrNull(record.brokenBy) &&
+		typeof record.at === "string" &&
+		isStringOrNull(record.reportedAt)
+	);
+}
+
+/**
+ * @param {unknown} record
+ * @returns {record is ObservationRecord}
+ */
+function isObservationRecord(record) {
+	return (
+		isRecordObject(record) &&
+		typeof record.path === "string" &&
+		isStringOrNull(record.sessionId) &&
+		typeof record.obsId === "string" &&
+		isStringOrNull(record.blob) &&
+		typeof record.at === "string" &&
+		isOptionalString(record.tree)
+	);
+}
+
+/**
+ * @param {unknown} record
+ * @returns {record is IssueClaimRecord}
+ */
+function isIssueClaimRecord(record) {
+	return (
+		isRecordObject(record) &&
+		typeof record.issue === "number" &&
+		Number.isInteger(record.issue) &&
+		record.issue > 0 &&
+		isStringOrNull(record.sessionId) &&
+		typeof record.claimedAt === "string"
+	);
+}
+
+/**
+ * @param {unknown} record
+ * @returns {record is WantRecord}
+ */
+function isWantRecord(record) {
+	return (
+		isRecordObject(record) &&
+		typeof record.sessionId === "string" &&
+		record.sessionId !== "" &&
+		typeof record.wants === "string" &&
+		record.wants !== "" &&
+		isPidOrNull(record.pid) &&
+		isProcStartOrNull(record.procStart) &&
+		isOptionalString(record.bootId) &&
+		typeof record.since === "string"
+	);
+}
+
+/**
+ * @param {unknown} record
+ * @returns {record is MutexRecord}
+ */
+function isMutexRecord(record) {
+	return (
+		isRecordObject(record) &&
+		typeof record.pid === "number" &&
+		isProcStartOrNull(record.procStart) &&
+		isOptionalString(record.bootId)
+	);
+}
+
+module.exports = {
+	isBreakRecord,
+	isIssueClaimRecord,
+	isLockRecord,
+	isMutexRecord,
+	isObservationRecord,
+	isRecordObject,
+	isWantRecord,
+};

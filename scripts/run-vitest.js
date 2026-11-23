@@ -29,7 +29,11 @@ const {
 	weighFiles,
 } = require("./lib/suite-bounded.js");
 const { readVitestCollected } = require("./lib/vitest-collected.js");
-const { freshenManifest } = require("./lib/manifest-freshen.js");
+const {
+	driftClause,
+	freshenManifest,
+	renderDrift,
+} = require("./lib/manifest-freshen.js");
 const {
 	dirPath,
 	logPath,
@@ -1114,7 +1118,7 @@ function runTouched(route, options) {
 	/** @type {typeof expandChanged} */
 	const expand = (_argv, o = {}) =>
 		planTouched(route.rest, o.root ?? options.root ?? TREE_ROOT, opts);
-	const opts = { ...withSession(route, options), expand };
+	const opts = withRenderCheck({ ...withSession(route, options), expand });
 	return onTree(route, {
 		overlay: () => runChangedOverlaid(route, opts),
 		worktree: () => runIsolated(route.rest, opts),
@@ -1726,7 +1730,9 @@ function queueLogFile(options) {
  */
 function runByRoute(route, opts) {
 	if (route.kind === "touched") return runTouched(route, opts);
-	const noted = withCommittedNote(route, withChangedBase(route, opts));
+	const noted = withRenderCheck(
+		withCommittedNote(route, withChangedBase(route, opts)),
+	);
 	return onTree(route, {
 		overlay: () => runChangedOverlaid(route, withSession(route, noted)),
 		worktree: () => runIsolated(route.rest, noted),
@@ -1749,6 +1755,31 @@ function withChangedBase(route, opts) {
 	return withLaunch(opts, {
 		base: readCommittedBase(root, execFn),
 	});
+}
+
+/**
+ * @template {{ root?: string, expand?: typeof expandChanged,
+ *   renderSnapshot?: import("./lib/manifest-freshen.js").RenderSnapshot }} T
+ * @param {T} opts
+ * @returns {T}
+ */
+function withRenderCheck(opts) {
+	const expand = opts.expand ?? expandChanged;
+	const home = opts.root ?? TREE_ROOT;
+	return {
+		...opts,
+		expand: (argv, o) => {
+			const plan = expand(argv, o);
+			const drift =
+				plan && renderDrift(o?.root ?? home, home, opts.renderSnapshot);
+			if (!plan || !drift) return plan;
+			return {
+				...plan,
+				admissible: false,
+				banner: `${plan.banner}Readers selected while ${driftClause(drift)}, so this run is not admissible: its certificate attests no selection. Rerun it once the tree holds the render code a run loads — after the commit a queue wait spanned, or with uncommitted render edits committed (#5635).\n`,
+			};
+		},
+	};
 }
 
 /**

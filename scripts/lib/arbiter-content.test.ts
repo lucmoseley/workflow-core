@@ -7,7 +7,6 @@ import {
 	buildLockRecord,
 	commitAll,
 	content,
-	core,
 	durably,
 	freshSandbox,
 	gitRepo,
@@ -15,6 +14,7 @@ import {
 	live,
 	lockFiles,
 	noSessions,
+	readLockAt,
 	registerSession,
 	store,
 } from "./arbiter-testkit";
@@ -40,7 +40,7 @@ describe("content identity — what the file held when its claimant last touched
 		return { me, blob: store.recordContent(rel, me) };
 	};
 
-	const readLock = () => core.readRecord(store.paths.lock(rel));
+	const readLock = () => readLockAt(store.paths.lock(rel));
 
 	it("records the blob on the claim, and an unrecorded claim reads as unknown", () => {
 		const unrecorded = buildLockRecord({ path: rel });
@@ -163,14 +163,12 @@ describe("content identity — what the file held when its claimant last touched
 
 		it("drops the pins of claims that no longer exist, and keeps the live ones", () => {
 			claimAndRecord("alice", "held\n");
-			const liveRef = `refs/arbiter/${readLock().claimId}`;
-			execFileSync(
-				"git",
-				["update-ref", "refs/arbiter/a-dead-claim", readLock().blob],
-				{
-					cwd: sb.repo,
-				},
-			);
+			const { claimId, blob } = readLock();
+			assert(blob);
+			const liveRef = `refs/arbiter/${claimId}`;
+			execFileSync("git", ["update-ref", "refs/arbiter/a-dead-claim", blob], {
+				cwd: sb.repo,
+			});
 			expect(readRefs()).toHaveLength(2);
 
 			store.pruneAll(noSessions);
@@ -189,12 +187,15 @@ describe("content identity — what the file held when its claimant last touched
 		});
 
 		describe("a ref lock left by a killed git (#1193)", () => {
-			const pin = (name: string) =>
-				execFileSync(
+			const pin = (name: string) => {
+				const { blob } = readLock();
+				assert(blob);
+				return execFileSync(
 					"git",
-					["update-ref", `refs/arbiter/${name}`, readLock().blob],
+					["update-ref", `refs/arbiter/${name}`, blob],
 					{ cwd: sb.repo },
 				);
+			};
 			const lockFile = (name: string) =>
 				path.join(sb.repo, ".git", "refs", "arbiter", `${name}.lock`);
 			const lock = (name: string, ageMs: number) => {
@@ -362,7 +363,7 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 		fs.mkdirSync(path.dirname(abs()), { recursive: true });
 		fs.writeFileSync(abs(), text);
 	};
-	const readLock = () => core.readRecord(store.paths.lock(rel));
+	const readLock = () => readLockAt(store.paths.lock(rel));
 
 	beforeEach(() => {
 		gitRepo(sb);
@@ -384,6 +385,7 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 	it("keeps the sha a refresh replaced, so the clobbered version is namable", () => {
 		const me = claiming("alice");
 		const first = readLock().blob;
+		assert(first);
 
 		revise(me, "restored from a backup\n");
 

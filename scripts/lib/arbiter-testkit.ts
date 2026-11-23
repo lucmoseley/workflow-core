@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, assert, beforeEach, vi } from "vitest";
 import { buildAgentsBranch, buildListedRow } from "./agents-stop-fake";
-import type { LockRecord } from "./arbiter-records.js";
+import type { BreakRecord, LockRecord } from "./arbiter-records.js";
 import { caught } from "./caught.js";
 import { writeClaudeStub } from "./claude-stub";
 import { type RouteAnswer, stubGhRoutes, stubGhScript } from "./gh-stub";
@@ -38,6 +38,9 @@ export const lockFiles: typeof import("./arbiter-lock-files.js") = requireLocal(
 );
 export const locks: typeof import("./arbiter-locks.js") =
 	requireLocal("./arbiter-locks.js");
+export const records: typeof import("./arbiter-records.js") = requireLocal(
+	"./arbiter-records.js",
+);
 export const markers: typeof import("./arbiter-markers.js") = requireLocal(
 	"./arbiter-markers.js",
 );
@@ -295,6 +298,18 @@ export const buildLockRecord = (
 	preBlob: null,
 	...fields,
 });
+
+export function readLockAt(file: string): LockRecord {
+	const record = core.readRecord(file);
+	assert(records.isLockRecord(record), `no lock record at ${file}`);
+	return record;
+}
+
+export function readBreakAt(file: string): BreakRecord {
+	const record = core.readRecord(file);
+	assert(records.isBreakRecord(record), `no break record at ${file}`);
+	return record;
+}
 
 export function putLock(rel: string, fields: object) {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });

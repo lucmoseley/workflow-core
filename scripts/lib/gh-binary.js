@@ -27,9 +27,13 @@ function ghUnrouted(args, opts = {}) {
 	);
 }
 
+const readGhLogin = () =>
+	ghUnrouted(["api", "user", "--jq", ".login"], { timeout: 15_000 }).trim();
+
 module.exports = {
 	ghBinary,
 	ghUnrouted,
+	readGhLogin,
 	MAX_BUFFER,
 	GH_TIMEOUT_MS,
 };

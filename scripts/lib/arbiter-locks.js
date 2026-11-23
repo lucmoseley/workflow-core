@@ -10,6 +10,7 @@ const core = require("./arbiter-core.js");
 const ledger = require("./arbiter-ledger.js");
 const lockFiles = require("./arbiter-lock-files.js");
 const observations = require("./arbiter-observations.js");
+const { isLockRecord } = require("./arbiter-records.js");
 const { caught, ignoreFailure } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
@@ -94,7 +95,7 @@ function sweepDebrisEntry(dir, f, now, wasResumed) {
 function keepLiveAside(full, wasResumed) {
 	let moved;
 	try {
-		moved = core.readRecord(full);
+		moved = core.readRecordAs(full, isLockRecord);
 	} catch (e) {
 		core.logError("sweep", e);
 		return true;
@@ -247,8 +248,9 @@ function takeLock(rel, me, attempts) {
 		return taken;
 	const clash = conflictingLock(rel, me);
 	if (!clash) return taken;
-	if (taken.verdict === "claimed" && taken.lock)
-		lockFiles.dropIfUnchanged(rel, (m) => m.claimId === taken.lock.claimId);
+	const takenLock = taken.lock;
+	if (taken.verdict === "claimed" && takenLock)
+		lockFiles.dropIfUnchanged(rel, (m) => m.claimId === takenLock.claimId);
 	return { verdict: "held", lock: clash };
 }
 
@@ -257,7 +259,7 @@ function takeLock(rel, me, attempts) {
  * @param {Identity} me
  */
 function judgeUndurable(lockPath, me) {
-	const existing = core.readRecord(lockPath);
+	const existing = core.readRecordAs(lockPath, isLockRecord);
 	if (!existing) return { verdict: "claimed", lock: null };
 	const mine = Boolean(me.sessionId && existing.sessionId === me.sessionId);
 	if (
@@ -403,7 +405,7 @@ function takeSubjectLock(rel, me, attempts) {
 	const took = claimIfFree();
 	if (took) return took;
 
-	const final = core.readRecord(lockPath);
+	const final = core.readRecordAs(lockPath, isLockRecord);
 	if (final && holderAlive(final)) return { verdict: "held", lock: final };
 	core.logError(
 		"claim",
@@ -421,7 +423,7 @@ function takeSubjectLock(rel, me, attempts) {
 function release(rel, me, { generator = false, notMine = false } = {}) {
 	let existing;
 	try {
-		existing = core.readRecord(core.paths.lock(rel));
+		existing = core.readRecordAs(core.paths.lock(rel), isLockRecord);
 	} catch (e) {
 		core.logError(`release ${rel}`, e);
 		return { verdict: "unreadable", lock: null };
