@@ -215,7 +215,13 @@ describe("check-orphaned-edits", () => {
 			fs.mkdirSync(path.dirname(file), { recursive: true });
 			fs.writeFileSync(
 				file,
-				JSON.stringify({ path: "a.txt", sessionId: "watcher", obsId: "o1" }),
+				JSON.stringify({
+					path: "a.txt",
+					sessionId: "watcher",
+					obsId: "o1",
+					blob: null,
+					at: new Date().toISOString(),
+				}),
 			);
 
 			expect((await run()).out).not.toContain("ORPHANED-EDIT");

@@ -127,10 +127,14 @@ function readObservationEntries(
 		.filter((f) => f.endsWith(".json"))
 		.filter(nameFilter)
 		.map((f) => path.join(core.paths.observationsDir(), f))
-		.map((file) => {
-			const record = core.readRecordOrLog(file, "observation read");
-			return { file, record: isObservationRecord(record) ? record : null };
-		});
+		.map((file) => ({
+			file,
+			record: core.readRecordOrLogAs(
+				file,
+				"observation read",
+				isObservationRecord,
+			),
+		}));
 }
 
 /**

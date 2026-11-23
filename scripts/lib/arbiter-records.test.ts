@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import {
 	breaks,
+	core,
 	freshSandbox,
 	live,
 	liveHolder,
@@ -113,7 +114,7 @@ describe("each record guard — what it takes and what it refuses (#5642)", () =
 	];
 
 	for (const [name, guard, good, faults] of cases) {
-		it(`${name} takes a record as its writer builds it`, () => {
+		it(`${name} takes a well-shaped record through a JSON round trip`, () => {
 			expect(guard(JSON.parse(JSON.stringify(good)))).toBe(true);
 		});
 
@@ -132,47 +133,94 @@ describe("each record guard — what it takes and what it refuses (#5642)", () =
 	});
 });
 
-describe("a record that parses but is the wrong shape reads as unreadable (#5642)", () => {
+describe("a record that parses but is the wrong shape reads as one that will not parse (#5642)", () => {
 	const rel = "docs/a.md";
-	const bodies = (good: object, fault: object) =>
+	const bodies = <T>(good: object, fault: object, read: T, unreadable: T) =>
 		[
-			["does not parse", "{not json"],
-			["parses but is the wrong shape", JSON.stringify({ ...good, ...fault })],
+			["is well shaped", JSON.stringify(good), read],
+			["does not parse", "{not json", unreadable],
+			[
+				"parses but is the wrong shape",
+				JSON.stringify({ ...good, ...fault }),
+				unreadable,
+			],
 		] as const;
+	const putLockBody = (body: string) => {
+		fs.mkdirSync(store.paths.locksDir(), { recursive: true });
+		fs.writeFileSync(store.paths.lock(rel), body);
+	};
 
-	for (const [kind, body] of bodies(lock, { claimId: 7 })) {
-		it(`releases nothing where the lock ${kind}`, () => {
-			fs.mkdirSync(store.paths.locksDir(), { recursive: true });
-			fs.writeFileSync(store.paths.lock(rel), body);
-			expect(store.release(rel, live(sb, "alice")).verdict).toBe("not-held");
+	const bobs = { ...lock, sessionId: "bob" };
+	for (const [kind, body, verdict] of bodies(
+		bobs,
+		{ claimId: 7 },
+		"held-by-other",
+		"not-held",
+	))
+		it(`releases a lock that ${kind} as ${verdict}`, () => {
+			putLockBody(body);
+			expect(store.release(rel, live(sb, "alice")).verdict).toBe(verdict);
 		});
 
-		it(`puts the lock back untouched where it ${kind}`, () => {
-			fs.mkdirSync(store.paths.locksDir(), { recursive: true });
-			fs.writeFileSync(store.paths.lock(rel), body);
-			expect(lockFiles.dropIfUnchanged(rel, () => true).outcome).toBe("kept");
-			expect(fs.readFileSync(store.paths.lock(rel), "utf8")).toBe(body);
+	for (const [kind, body, outcome] of bodies(
+		lock,
+		{ claimId: 7 },
+		"dropped",
+		"kept",
+	))
+		it(`drops a lock that ${kind} as ${outcome}`, () => {
+			putLockBody(body);
+			expect(lockFiles.dropIfUnchanged(rel, () => true).outcome).toBe(outcome);
+			if (outcome === "kept")
+				expect(fs.readFileSync(store.paths.lock(rel), "utf8")).toBe(body);
 		});
-	}
 
-	for (const [kind, body] of bodies(breakRecord, { at: 7 }))
-		it(`reads the broken claim ids as unknown where a break ${kind}`, () => {
+	for (const [kind, body, ids] of bodies(breakRecord, { at: 7 }, ["c1"], null))
+		it(`reads the broken claim ids as ${JSON.stringify(ids)} where a break ${kind}`, () => {
 			fs.mkdirSync(store.paths.breaksDir(), { recursive: true });
 			fs.writeFileSync(store.paths.break(rel, "c1"), body);
-			expect(breaks.readBrokenClaimIds()).toBeNull();
+			const read = breaks.readBrokenClaimIds();
+			expect(read && [...read]).toEqual(ids);
 		});
 
-	for (const [kind, body] of bodies(observation, { obsId: null }))
-		it(`reads the observed ids as unknown where an observation ${kind}`, () => {
+	for (const [kind, body, ids] of bodies(
+		observation,
+		{ obsId: null },
+		["o1"],
+		null,
+	))
+		it(`reads the observed ids as ${JSON.stringify(ids)} where an observation ${kind}`, () => {
 			fs.mkdirSync(store.paths.observationsDir(), { recursive: true });
 			fs.writeFileSync(store.paths.observation(rel, "alice"), body);
-			expect(observations.readObservedIds()).toBeNull();
+			const read = observations.readObservedIds();
+			expect(read && [...read]).toEqual(ids);
 		});
 
-	for (const [kind, body] of bodies({ ...want, ...liveHolder() }, { since: 7 }))
-		it(`skips a want that ${kind}`, () => {
+	for (const [kind, body, count] of bodies(
+		{ ...want, ...liveHolder() },
+		{ since: 7 },
+		1,
+		0,
+	))
+		it(`lists ${count} want where the record ${kind}`, () => {
 			fs.mkdirSync(store.paths.wantsDir(), { recursive: true });
 			fs.writeFileSync(store.paths.want("alice"), body);
-			expect(store.readWants()).toEqual([]);
+			expect(store.readWants()).toHaveLength(count);
 		});
+});
+
+describe("a harness-written registry entry's pid and process start (#5642)", () => {
+	it("takes a pid written as a number or as a numeric string, as every registry reader does", () => {
+		expect(core.entryPid({ pid: 42 })).toBe(42);
+		expect(core.entryPid({ pid: "42" })).toBe(42);
+		for (const pid of [undefined, null, 0, -1, 1.5, "x", true])
+			expect(core.entryPid({ pid })).toBeNull();
+	});
+
+	it("takes a process start written as a string or a number, and nothing else", () => {
+		expect(core.entryProcStart({ procStart: "9" })).toBe("9");
+		expect(core.entryProcStart({ procStart: 9 })).toBe(9);
+		for (const procStart of [undefined, null, "", 0, {}])
+			expect(core.entryProcStart({ procStart })).toBeNull();
+	});
 });

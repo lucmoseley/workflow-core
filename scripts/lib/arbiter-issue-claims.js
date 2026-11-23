@@ -26,16 +26,6 @@ function issueNumber(issue) {
 }
 
 /**
- * @param {string} file
- * @param {string} where
- * @returns {IssueClaimRecord|null}
- */
-function readIssueClaimOrLog(file, where) {
-	const record = core.readRecordOrLog(file, where);
-	return isIssueClaimRecord(record) ? record : null;
-}
-
-/**
  * @param {{issue: number} & Partial<IssueClaimRecord>} spec
  * @returns {IssueClaimRecord}
  */
@@ -63,7 +53,14 @@ function scanIssueClaims(n) {
 		.filter((f) => f.startsWith(`${n}-`) && f.endsWith(".json"))
 		.map((f) => {
 			const file = path.join(core.paths.issueClaimsDir(), f);
-			return { file, record: readIssueClaimOrLog(file, `issue-claims ${n}`) };
+			return {
+				file,
+				record: core.readRecordOrLogAs(
+					file,
+					`issue-claims ${n}`,
+					isIssueClaimRecord,
+				),
+			};
 		});
 }
 
@@ -91,11 +88,11 @@ function claimIssue(issue, me) {
 	try {
 		fs.mkdirSync(core.paths.issueClaimsDir(), { recursive: true });
 		const file = core.paths.issueClaim(n, me.sessionId);
-		const existing = core.readRecord(file);
+		const existing = core.readRecordAs(file, isIssueClaimRecord);
 		const record = newIssueClaim({
 			issue: n,
 			sessionId: me.sessionId,
-			claimedAt: isIssueClaimRecord(existing) ? existing.claimedAt : undefined,
+			claimedAt: existing?.claimedAt,
 		});
 		core.writeRecord(file, record);
 		return { status: "claimed", record };
@@ -135,8 +132,7 @@ function breakStaleMutex(file, held) {
 	const aside = `${file}.stale-${process.pid}`;
 	ignoreFailure(() => {
 		fs.renameSync(file, aside);
-		const read = core.readRecord(aside);
-		const moved = isMutexRecord(read) ? read : null;
+		const moved = core.readRecordAs(aside, isMutexRecord);
 		if (moved?.pid !== held?.pid || moved?.procStart !== held?.procStart)
 			fs.linkSync(aside, file);
 	});
@@ -158,18 +154,13 @@ function withIssueMutex(n, fn) {
 		bootId: readCurrentBootId() || undefined,
 	};
 	const stillMine = () => {
-		const now = core.readRecord(file);
-		return (
-			isMutexRecord(now) &&
-			now.pid === body.pid &&
-			now.procStart === body.procStart
-		);
+		const now = core.readRecordAs(file, isMutexRecord);
+		return now?.pid === body.pid && now?.procStart === body.procStart;
 	};
 	const deadline = Date.now() + mutexWaitMs();
 	while (!core.createOnce(file, body)) {
 		if (Date.now() > deadline) return { status: "busy" };
-		const read = core.readRecord(file);
-		const held = isMutexRecord(read) ? read : null;
+		const held = core.readRecordAs(file, isMutexRecord);
 		if (held && holderAlive(held)) {
 			sleepSync(MUTEX_POLL_MS);
 			continue;
@@ -264,7 +255,11 @@ function listIssueClaims(root) {
 		return null;
 	}
 	const records = files.map((f) =>
-		readIssueClaimOrLog(path.join(dir, f), "issue-claims list"),
+		core.readRecordOrLogAs(
+			path.join(dir, f),
+			"issue-claims list",
+			isIssueClaimRecord,
+		),
 	);
 	const claims = records.flatMap((r) => (r ? [r] : []));
 	const dropped = records.length - claims.length;

@@ -95,13 +95,12 @@ function sweepDebrisEntry(dir, f, now, wasResumed) {
 function keepLiveAside(full, wasResumed) {
 	let moved;
 	try {
-		moved = core.readRecord(full);
+		moved = core.readRecordAs(full, isLockRecord);
 	} catch (e) {
 		core.logError("sweep", e);
 		return true;
 	}
-	if (!(isLockRecord(moved) && core.liveOrResumed(moved, wasResumed)))
-		return false;
+	if (!(moved && core.liveOrResumed(moved, wasResumed))) return false;
 	const lockPath = full.slice(0, full.lastIndexOf(".stale-"));
 	if (lockFiles.restoreAside(full, lockPath)) {
 		core.logError(
@@ -260,8 +259,7 @@ function takeLock(rel, me, attempts) {
  * @param {Identity} me
  */
 function judgeUndurable(lockPath, me) {
-	const read = core.readRecord(lockPath);
-	const existing = isLockRecord(read) ? read : null;
+	const existing = core.readRecordAs(lockPath, isLockRecord);
 	if (!existing) return { verdict: "claimed", lock: null };
 	const mine = Boolean(me.sessionId && existing.sessionId === me.sessionId);
 	if (
@@ -407,9 +405,8 @@ function takeSubjectLock(rel, me, attempts) {
 	const took = claimIfFree();
 	if (took) return took;
 
-	const final = core.readRecord(lockPath);
-	if (isLockRecord(final) && holderAlive(final))
-		return { verdict: "held", lock: final };
+	const final = core.readRecordAs(lockPath, isLockRecord);
+	if (final && holderAlive(final)) return { verdict: "held", lock: final };
 	core.logError(
 		"claim",
 		`gave up claiming ${rel} after ${attempts} attempts — no lock written`,
@@ -426,8 +423,7 @@ function takeSubjectLock(rel, me, attempts) {
 function release(rel, me, { generator = false, notMine = false } = {}) {
 	let existing;
 	try {
-		const read = core.readRecord(core.paths.lock(rel));
-		existing = isLockRecord(read) ? read : null;
+		existing = core.readRecordAs(core.paths.lock(rel), isLockRecord);
 	} catch (e) {
 		core.logError(`release ${rel}`, e);
 		return { verdict: "unreadable", lock: null };

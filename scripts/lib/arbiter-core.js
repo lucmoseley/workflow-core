@@ -246,6 +246,29 @@ function readRecordOrLog(file, where) {
 }
 
 /**
+ * @template T
+ * @param {string} file
+ * @param {(record: unknown) => record is T} guard
+ * @returns {T|null}
+ */
+function readRecordAs(file, guard) {
+	const record = readRecord(file);
+	return guard(record) ? record : null;
+}
+
+/**
+ * @template T
+ * @param {string} file
+ * @param {string} where
+ * @param {(record: unknown) => record is T} guard
+ * @returns {T|null}
+ */
+function readRecordOrLogAs(file, where, guard) {
+	const record = readRecordOrLog(file, where);
+	return guard(record) ? record : null;
+}
+
+/**
  * @param {string} file
  * @param {string} where
  * @param {() => void} pause
@@ -649,16 +672,37 @@ function pushDirEntries(dir, names, out) {
 	}
 }
 
+/** @param {Record<string, unknown>} entry */
+function entryPid(entry) {
+	const { pid } = entry;
+	if (typeof pid !== "number" && typeof pid !== "string") return null;
+	const n = Number(pid);
+	return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** @param {Record<string, unknown>} entry */
+function entryProcStart(entry) {
+	const { procStart } = entry;
+	return (typeof procStart === "string" || typeof procStart === "number") &&
+		procStart
+		? procStart
+		: null;
+}
+
 // lucmoseley/mantahostels#321
 function readLiveSessionIds() {
 	const entries = readSessionEntries();
 	if (entries === null) return null;
 	const live = new Set();
 	for (const { entry } of entries) {
-		const { sessionId, pid, procStart } = entry;
-		if (!sessionId || typeof pid !== "number" || !pid) continue;
-		if (!procStart || readProcStartOf(pid) === String(procStart))
-			live.add(sessionId);
+		const pid = entryPid(entry);
+		if (!entry.sessionId || pid === null) continue;
+		const start = entryProcStart(entry);
+		if (
+			!entry.procStart ||
+			(start !== null && readProcStartOf(pid) === String(start))
+		)
+			live.add(entry.sessionId);
 	}
 	return live;
 }
@@ -690,12 +734,10 @@ function readLiveEntryFor(sessionId, me) {
 function liveEntryIn(entries, sessionId) {
 	if (!sessionId) return null;
 	for (const { entry } of entries) {
-		if (entry.sessionId !== sessionId || !entry.pid || !entry.procStart)
-			continue;
-		const pid = Number(entry.pid);
-		const { procStart } = entry;
-		if (typeof procStart !== "string" && typeof procStart !== "number")
-			continue;
+		if (entry.sessionId !== sessionId) continue;
+		const pid = entryPid(entry);
+		const procStart = entryProcStart(entry);
+		if (pid === null || procStart === null) continue;
 		if (readProcStartOf(pid) === String(procStart)) return { pid, procStart };
 	}
 	return null;
@@ -733,30 +775,24 @@ function scanOwnEntries(sessionId) {
 	let procStart = null;
 	let unproveable = null;
 	for (const { file, entry } of readSessionEntries("own") ?? []) {
-		const entryPid = entry.pid;
-		if (
-			entry.sessionId !== sessionId ||
-			typeof entryPid !== "number" ||
-			!entryPid
-		)
-			continue;
-		const start = entry.procStart;
-		if (!start) {
+		const ownPid = entryPid(entry);
+		if (entry.sessionId !== sessionId || ownPid === null) continue;
+		const start = entryProcStart(entry);
+		if (start === null) {
 			unproveable = file;
 			continue;
 		}
-		if (typeof start !== "string" && typeof start !== "number") continue;
-		if (readProcStartOf(entryPid) === String(start)) {
+		if (readProcStartOf(ownPid) === String(start)) {
 			const live = {
 				sessionId,
-				pid: entryPid,
+				pid: ownPid,
 				procStart: start,
 				durable: true,
 			};
 			return { live, pid, procStart, unproveable };
 		}
 		if (pid === null) {
-			pid = entryPid;
+			pid = ownPid;
 			procStart = start;
 		}
 	}
@@ -877,6 +913,8 @@ function registryLookup() {
 module.exports = {
 	agedUnspared,
 	DETECT_ONLY,
+	entryPid,
+	entryProcStart,
 	errorLog,
 	firstSay,
 	flat,
@@ -897,8 +935,10 @@ module.exports = {
 	paths,
 	probeRecord,
 	readRecord,
+	readRecordAs,
 	readRecordOrFlag,
 	readRecordOrLog,
+	readRecordOrLogAs,
 	WARNED,
 	registryLookup,
 	registryNames,

@@ -59,12 +59,11 @@ function readWants() {
 		const file = path.join(core.paths.wantsDir(), f);
 		let record = null;
 		try {
-			record = core.readRecord(file);
+			record = core.readRecordAs(file, isWantRecord);
 		} catch {
 			continue;
 		}
-		if (!isWantRecord(record)) continue;
-		if (!holderAlive(record)) continue;
+		if (!record || !holderAlive(record)) continue;
 		out.push(record);
 	}
 	return out;

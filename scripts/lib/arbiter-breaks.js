@@ -69,10 +69,10 @@ function readBreakEntries() {
 	return files
 		.filter((f) => f.endsWith(".json"))
 		.map((f) => path.join(core.paths.breaksDir(), f))
-		.map((file) => {
-			const record = core.readRecordOrLog(file, "break read");
-			return { file, record: isBreakRecord(record) ? record : null };
-		});
+		.map((file) => ({
+			file,
+			record: core.readRecordOrLogAs(file, "break read", isBreakRecord),
+		}));
 }
 
 /** @param {string} rel */

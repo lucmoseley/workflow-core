@@ -49,8 +49,7 @@ function dropIfUnchanged(rel, isDroppable) {
 	const aside = renameAside(core.paths.lock(rel));
 	if (aside === null) return { outcome: "contended", moved: null };
 
-	const read = core.readRecordOrLog(aside, `drop ${rel}`);
-	const moved = isLockRecord(read) ? read : null;
+	const moved = core.readRecordOrLogAs(aside, `drop ${rel}`, isLockRecord);
 	if (moved !== null && isDroppable(moved)) {
 		ignoreFailure(() => fs.unlinkSync(aside));
 		return { outcome: "dropped", moved };
@@ -72,8 +71,7 @@ function updateIfUnchanged(rel, isOurs, mutate) {
 	const aside = renameAside(lockPath);
 	if (aside === null) return { outcome: "contended", lock: null };
 
-	const read = core.readRecordOrLog(aside, `update ${rel}`);
-	const moved = isLockRecord(read) ? read : null;
+	const moved = core.readRecordOrLogAs(aside, `update ${rel}`, isLockRecord);
 	if (moved !== null && isOurs(moved)) {
 		const updated = mutate({ ...moved });
 		if (core.createOnce(lockPath, updated)) {
@@ -166,8 +164,11 @@ function readLocksHeldBy(sessionId) {
  */
 function readOwnLockOnFile(rel, sessionId) {
 	const file = core.subjectPath(rel);
-	const read = core.readRecordOrLog(core.paths.lock(file), `observe ${file}`);
-	const direct = isLockRecord(read) ? read : null;
+	const direct = core.readRecordOrLogAs(
+		core.paths.lock(file),
+		`observe ${file}`,
+		isLockRecord,
+	);
 	if (direct?.sessionId === sessionId) return direct;
 	if (regions.isRegioned(file)) {
 		const all = readLocks() || [];

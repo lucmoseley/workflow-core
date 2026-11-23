@@ -100,15 +100,12 @@ function recordContent(rel, me) {
  * @param {Identity} me
  */
 function recordSubjectContent(rel, me) {
-	const existing = core.readRecordOrLog(
+	const existing = core.readRecordOrLogAs(
 		core.paths.lock(rel),
 		`record content ${rel}`,
+		isLockRecord,
 	);
-	if (
-		!isLockRecord(existing) ||
-		!me.sessionId ||
-		existing.sessionId !== me.sessionId
-	)
+	if (!existing || !me.sessionId || existing.sessionId !== me.sessionId)
 		return null;
 
 	const sha = pinContent(rel, existing.claimId);

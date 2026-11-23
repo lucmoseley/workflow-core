@@ -968,7 +968,7 @@ describe("release — the second exit from a claim", () => {
 		const r = store.release("docs/doc-map.md", live(sb, "bob"));
 		expect(r.verdict).toBe("held-by-other");
 		assert(r.lock);
-		expect(r.lock?.sessionId).toBe("alice");
+		expect(r.lock.sessionId).toBe("alice");
 		expect(held("docs/doc-map.md")).toBe(true);
 	});
 
