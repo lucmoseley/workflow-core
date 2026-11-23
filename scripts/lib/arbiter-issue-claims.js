@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { isListedLive } = require("./agent-liveness.js");
 const core = require("./arbiter-core.js");
-const { holderAlive, ownIdentity } = require("./arbiter-proc.js");
+const { holderAlive, readOwnIdentity } = require("./arbiter-proc.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { caught, ignoreFailure } = require("./caught.js");
 
@@ -164,7 +164,7 @@ function withIssueMutex(n, fn) {
 	const dir = core.paths.issueClaimsDir();
 	fs.mkdirSync(dir, { recursive: true });
 	const file = path.join(dir, `.mutex-${n}`);
-	const body = ownIdentity();
+	const body = readOwnIdentity();
 	const stillMine = () => {
 		const now = core.readRecord(file);
 		return now?.pid === body.pid && now?.procStart === body.procStart;

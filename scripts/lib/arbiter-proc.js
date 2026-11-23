@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
-const { REAL_PROC } = require("./proc-root.js");
+const { procRoot, REAL_PROC } = require("./proc-root.js");
 const { FIELD, readStatFields } = require("./proc-stat.js");
 
 /** @param {string[] | null} after */
@@ -42,11 +42,14 @@ function holderAlive(lock) {
 	return readProcStartOf(lock.pid) === String(lock.procStart);
 }
 
-/** @returns {{ pid: number, procStart: string | null, bootId: string | null }} */
-function ownIdentity() {
+/**
+ * @param {string} [readerRoot]
+ * @returns {{ pid: number, procStart: string | null, bootId: string | null }}
+ */
+function readOwnIdentity(readerRoot = procRoot()) {
 	return {
 		pid: process.pid,
-		procStart: readProcStartOf(process.pid, REAL_PROC),
+		procStart: readProcStartOf(process.pid, readerRoot),
 		bootId: readCurrentBootId(),
 	};
 }
@@ -67,7 +70,7 @@ function pidAlive(pid) {
 module.exports = {
 	readCurrentBootId,
 	holderAlive,
-	ownIdentity,
+	readOwnIdentity,
 	pidAlive,
 	readProcStartOf,
 };

@@ -120,18 +120,28 @@ describe("a lock minted before a reboot", () => {
 
 describe("this process's own identity record", () => {
 	it("reads as a live holder on this boot", () => {
-		const me = proc.ownIdentity();
+		const me = proc.readOwnIdentity();
 		expect(me.pid).toBe(process.pid);
 		expect(me.bootId).toBe(proc.readCurrentBootId());
 		expect(proc.holderAlive(me)).toBe(true);
 	});
 
-	it("reads the real /proc even when WFC_PROC names a fake one", () => {
+	it("reads the root holderAlive reads, so a WFC_PROC fixture judges it as it wrote it", () => {
 		const fake = fs.mkdtempSync(`${os.tmpdir()}/fake-proc-`);
+		const real = fs.readFileSync(`/proc/${process.pid}/stat`, "utf8");
+		const fields = real.slice(real.lastIndexOf(")") + 2).split(" ");
+		fields[19] = "424242";
+		fs.mkdirSync(`${fake}/${process.pid}`);
+		fs.writeFileSync(
+			`${fake}/${process.pid}/stat`,
+			`${process.pid} (node) ${fields.join(" ")}`,
+		);
 		vi.stubEnv("WFC_PROC", fake);
 		try {
-			expect(proc.readProcStartOf(process.pid)).toBeNull();
-			expect(proc.ownIdentity().procStart).toMatch(/^\d+$/);
+			const me = proc.readOwnIdentity();
+			expect(me.procStart).toBe("424242");
+			expect(proc.holderAlive(me)).toBe(true);
+			expect(proc.readOwnIdentity("/proc").procStart).not.toBe("424242");
 		} finally {
 			fs.rmSync(fake, { recursive: true, force: true });
 		}

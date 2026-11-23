@@ -2,7 +2,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
-	ownIdentity,
+	readOwnIdentity,
 	pidAlive,
 	readCurrentBootId,
 	readProcStartOf,
@@ -50,7 +50,7 @@ function readTargetStat(file) {
  * @typedef {{pid: number, procStart?: string|null, bootId?: string|null}} HolderRecord
  */
 
-const buildOwnRecord = () => JSON.stringify(ownIdentity());
+const buildOwnRecord = () => JSON.stringify(readOwnIdentity(REAL_PROC));
 
 /**
  * @param {string|null} text

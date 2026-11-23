@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { ownIdentity } = require("./arbiter-proc.js");
+const { readOwnIdentity } = require("./arbiter-proc.js");
 const { now } = require("./check.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { markersDir } = require("./marker-root.js");
@@ -82,7 +82,7 @@ function fileLedger(file) {
 function heartbeatWriter(file) {
 	/** @type {string|null} */
 	let last = null;
-	const self = ownIdentity();
+	const self = readOwnIdentity();
 	return (batch = last) => {
 		last = batch;
 		writeFileAtomic(

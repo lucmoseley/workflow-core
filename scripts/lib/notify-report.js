@@ -4,7 +4,7 @@ const { writeFileAtomic } = require("./atomic-write.js");
 const { ignoreFailure } = require("./caught.js");
 const { configDir } = require("./config-dir.js");
 const store = require("./arbiter-store.js");
-const { holderAlive, ownIdentity } = require("./arbiter-proc.js");
+const { holderAlive, readOwnIdentity } = require("./arbiter-proc.js");
 const { hostRoot } = require("./host-root.js");
 const { projectSlug } = require("./project-slug.js");
 const { pinnedOrFirstUsable } = require("./can-hold-state.js");
@@ -209,7 +209,7 @@ function openRun(checker) {
 	atomicWriteJSON(runFile(checker), {
 		checker,
 		startedAt: new Date().toISOString(),
-		...ownIdentity(),
+		...readOwnIdentity(),
 	});
 }
 
