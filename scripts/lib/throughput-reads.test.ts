@@ -76,25 +76,29 @@ afterEach(() => {
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
+const originHistory = defineTemplate((repo) => {
+	const env = {
+		...process.env,
+		GIT_COMMITTER_DATE: `@${Math.floor(Date.now() / 1000) - 30} +0000`,
+	};
+	const dated = (...args: string[]) =>
+		execFileSync("git", args, { cwd: repo, env });
+	dated("init", "-q", "-b", "main");
+	dated("config", "user.email", "test@example.com");
+	dated("config", "user.name", "test");
+	dated("commit", "-q", "--allow-empty", "-m", "one");
+	dated("checkout", "-q", "-b", "side");
+	dated("commit", "-q", "--allow-empty", "-m", "side");
+	dated("checkout", "-q", "main");
+	dated("commit", "-q", "--allow-empty", "-m", "two");
+	dated("merge", "-q", "--no-ff", "-m", "merge", "side");
+	dated("update-ref", "refs/remotes/origin/main", "HEAD");
+	dated("commit", "-q", "--allow-empty", "-m", "unpushed");
+});
+
 describe("a checkout's origin/main commits", () => {
 	it("reads origin/main's non-merge commits since a time, with their commit times, and none origin/main lacks", () => {
-		const repo = path.join(tmp, "repo");
-		fs.mkdirSync(repo);
-		vi.stubEnv(
-			"GIT_COMMITTER_DATE",
-			`@${Math.floor(Date.now() / 1000) - 30} +0000`,
-		);
-		git(repo, "init", "-q", "-b", "main");
-		git(repo, "config", "user.email", "test@example.com");
-		git(repo, "config", "user.name", "test");
-		git(repo, "commit", "-q", "--allow-empty", "-m", "one");
-		git(repo, "checkout", "-q", "-b", "side");
-		git(repo, "commit", "-q", "--allow-empty", "-m", "side");
-		git(repo, "checkout", "-q", "main");
-		git(repo, "commit", "-q", "--allow-empty", "-m", "two");
-		git(repo, "merge", "-q", "--no-ff", "-m", "merge", "side");
-		git(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
-		git(repo, "commit", "-q", "--allow-empty", "-m", "unpushed");
+		const repo = originHistory.instantiate(path.join(tmp, "repo"));
 		const two = git(repo, "rev-parse", "HEAD~1^1");
 		const commits = tickRead(repo).byRoot[repo]?.commits;
 		const shas = commits?.map((c) => c.sha);
@@ -168,13 +172,12 @@ const lander = defineTemplate((dir) => {
 	git(repo, "push", "-q", "origin", "main");
 });
 
+const unbornMain = defineTemplate((dir) => {
+	git(dir, "init", "-q", "-b", "main");
+});
+
 describe("a breaker trial's landing reads (#5300)", () => {
-	const repoAt = (name: string) => {
-		const repo = path.join(tmp, name);
-		fs.mkdirSync(repo);
-		git(repo, "init", "-q", "-b", "main");
-		return repo;
-	};
+	const repoAt = (name: string) => unbornMain.instantiate(path.join(tmp, name));
 
 	it("reads a session's commits, none where it made none, and null where its ledger will not read", () => {
 		const repo = repoAt("repo");

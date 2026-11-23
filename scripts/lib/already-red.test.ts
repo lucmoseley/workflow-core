@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { NO_READS, watched } from "./pass-store-testkit";
 
 const require = createRequire(import.meta.url);
@@ -28,9 +29,7 @@ const git = (dir: string, ...args: string[]) =>
 
 const TEST = "scripts/a.test.ts";
 
-function repo() {
-	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ared-")));
-	dirs.push(dir);
+const baseRepo = defineTemplate((dir) => {
 	git(dir, "init", "-q", "-b", "main");
 	git(dir, "config", "user.email", "t@example.com");
 	git(dir, "config", "user.name", "T");
@@ -42,6 +41,12 @@ function repo() {
 	fs.writeFileSync(path.join(dir, EDGES_FILE), JSON.stringify({ edges: {} }));
 	git(dir, "add", "-A");
 	git(dir, "commit", "-q", "-m", "base");
+});
+
+function repo() {
+	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ared-")));
+	dirs.push(dir);
+	baseRepo.instantiate(dir);
 	return { dir, base: git(dir, "rev-parse", "HEAD") };
 }
 

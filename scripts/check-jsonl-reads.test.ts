@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-jsonl-reads.js");
@@ -102,13 +103,20 @@ describe("--index (#3687)", () => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: root, stdio: "pipe" });
 
+	const seededRepo = defineTemplate((at) => {
+		const gitAt = (...args: string[]) =>
+			execFileSync("git", args, { cwd: at, stdio: "pipe" });
+		gitAt("init", "-q", "-b", "main", ".");
+		gitAt("config", "user.email", "test@example.com");
+		gitAt("config", "user.name", "test");
+		fs.mkdirSync(path.join(at, "scripts"), { recursive: true });
+		fs.writeFileSync(path.join(at, "scripts", "on.js"), ON_READER);
+		gitAt("add", ".");
+		gitAt("commit", "-qm", "seed");
+	});
+
 	beforeEach(() => {
-		git("init", "-q", "-b", "main", ".");
-		git("config", "user.email", "test@example.com");
-		git("config", "user.name", "test");
-		program("on.js", ON_READER);
-		git("add", ".");
-		git("commit", "-qm", "seed");
+		seededRepo.instantiate(root);
 	});
 
 	it("passes a hand-parse in an untracked program and in an unstaged edit", () => {

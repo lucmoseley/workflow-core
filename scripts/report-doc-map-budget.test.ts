@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { printed, refused, stubGhRoutes } from "./lib/gh-stub";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -17,6 +18,7 @@ const commas = (n: number) => n.toLocaleString("en-GB");
 const TITLE = "doc-map §B — drain the entries over the 300-word prose cap";
 
 const temps: string[] = [];
+const configuredRepo = defineTemplate(identityRepoTemplate);
 afterEach(() => {
 	for (const t of temps.splice(0))
 		fs.rmSync(t, { recursive: true, force: true });
@@ -254,6 +256,7 @@ function fixture(opts: {
 }) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "b-budget-"));
 	temps.push(root);
+	if (opts.historyCommits) configuredRepo.instantiate(root);
 
 	fs.mkdirSync(path.join(root, "docs"), { recursive: true });
 	fs.writeFileSync(
@@ -268,9 +271,6 @@ function fixture(opts: {
 				encoding: "utf8",
 				env: { ...process.env, ...env },
 			});
-		git(["init", "-q", "-b", "main", "."]);
-		git(["config", "user.email", "test@example.com"]);
-		git(["config", "user.name", "test"]);
 		for (const c of opts.historyCommits) {
 			fs.writeFileSync(path.join(root, "docs", "doc-map.md"), c.mapText);
 			const date = new Date(

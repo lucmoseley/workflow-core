@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 import { readRuleText } from "./rule-text";
@@ -73,10 +74,10 @@ const readDenyReason = (command: string, cwd = shared) => {
 	return d.deny;
 };
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 const clone = (url: string) => {
-	const at = path.join(dir, "clone");
-	fs.mkdirSync(at);
-	spawnSync("git", ["init", "-q", at]);
+	const at = emptyRepo.instantiate(path.join(dir, "clone"));
 	spawnSync("git", ["-C", at, "remote", "add", "upstream", url]);
 	return at;
 };

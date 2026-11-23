@@ -179,6 +179,26 @@ describe("the leak check", () => {
 		expect(JSON.parse(written).root).toBe(dest);
 	});
 
+	const cloneTemplate = defineTemplate((dir) => {
+		initRepo(path.join(dir, "origin"));
+		git(dir, "clone", "-q", path.join(dir, "origin"), "clone");
+		git(path.join(dir, "clone"), "fetch", "-q", "origin");
+	});
+
+	it("relinks a clone's reflogs and FETCH_HEAD, which name the build's origin", () => {
+		const dest = path.join(root, "copy");
+		expect(() => cloneTemplate.instantiate(dest)).not.toThrow();
+		const clone = path.join(dest, "clone", ".git");
+		for (const file of [
+			path.join("logs", "HEAD"),
+			path.join("logs", "refs", "remotes", "origin", "HEAD"),
+			"FETCH_HEAD",
+		])
+			expect(fs.readFileSync(path.join(clone, file), "utf8")).toContain(
+				path.join(dest, "origin"),
+			);
+	});
+
 	it("does not scan .git/objects or .git/index, so an ordinary copy never false-positives", () => {
 		const dest = path.join(root, "copy");
 		expect(() => ordinaryTemplate.instantiate(dest)).not.toThrow();
@@ -370,6 +390,27 @@ describe("copyTemplate", () => {
 		expect(
 			git(path.join(dest, "repo"), "rev-parse", "--is-inside-work-tree").trim(),
 		).toBe("true");
+	});
+
+	it("keeps what the destination held before the call when it retries", () => {
+		const dest = path.join(root, "copy");
+		fs.mkdirSync(dest, { recursive: true });
+		fs.writeFileSync(path.join(dest, "seeded.md"), "mine\n");
+		fs.mkdirSync(path.join(dest, "repo"));
+		fs.writeFileSync(path.join(dest, "repo", "seeded.md"), "mine too\n");
+		let calls = 0;
+		copyTemplate(templateDir, dest, (source, destination, opts) => {
+			calls++;
+			if (calls === 1) throw new Error("ENOENT, simulated");
+			fs.cpSync(source, destination, opts);
+		});
+		expect(calls).toBe(2);
+		expect(fs.readFileSync(path.join(dest, "seeded.md"), "utf8")).toBe(
+			"mine\n",
+		);
+		expect(fs.readFileSync(path.join(dest, "repo", "seeded.md"), "utf8")).toBe(
+			"mine too\n",
+		);
 	});
 
 	it("rebuilds a vanished template before retrying, and copies from the new one", () => {

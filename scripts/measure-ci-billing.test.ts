@@ -7,6 +7,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withHostConfig } from "./lib/config-testkit";
 import { stubGhScript } from "./lib/gh-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -405,12 +406,16 @@ describe("the window that can be measured today", () => {
 
 describe("pushes against this checkout's history", () => {
 	const day = "2026-08-14";
-	const git = (gitArgs: string[], date = "2020-01-01T00:00:00Z") =>
+	const gitAt = (
+		cwd: string,
+		gitArgs: string[],
+		date = "2020-01-01T00:00:00Z",
+	) =>
 		execFileSync(
 			"git",
 			["-c", "user.name=t", "-c", "user.email=t@example.com", ...gitArgs],
 			{
-				cwd: dir,
+				cwd,
 				encoding: "utf8",
 				env: {
 					...Object.fromEntries(
@@ -421,6 +426,11 @@ describe("pushes against this checkout's history", () => {
 				},
 			},
 		).trim();
+	const git = (gitArgs: string[], date?: string) => gitAt(dir, gitArgs, date);
+	const seeded = defineTemplate((at) => {
+		gitAt(at, ["init", "-q"]);
+		gitAt(at, ["commit", "-q", "--allow-empty", "-m", "seed"]);
+	});
 	const commit = (file: string, date: string) => {
 		fs.writeFileSync(path.join(dir, file), date);
 		git(["add", file], date);
@@ -428,8 +438,8 @@ describe("pushes against this checkout's history", () => {
 		return git(["rev-parse", "HEAD"], date);
 	};
 	beforeEach(() => {
-		git(["init", "-q"]);
-		git(["commit", "-q", "--allow-empty", "-m", "seed"]);
+		seeded.instantiate(dir);
+		gh = stubGhScript(dir, stubScript(dir)).gh;
 	});
 
 	it("takes each push run's head commit, once, and no other event's", async () => {

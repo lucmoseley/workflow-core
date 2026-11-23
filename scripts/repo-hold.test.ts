@@ -28,10 +28,12 @@ const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, stdio: "ignore" });
 
 const initCheckout = (root: string) => {
-	fs.mkdirSync(root);
+	fs.mkdirSync(root, { recursive: true });
 	git(root, "init", "-q");
 	git(root, ...COMMIT);
 };
+
+const checkoutTemplate = defineTemplate(initCheckout);
 
 const template = defineTemplate((root) => {
 	const main = path.join(root, "checkout");
@@ -337,8 +339,8 @@ describe("repo-hold.js (#3857)", () => {
 		const trees = path.dirname(checkout);
 		const dashed = path.join(trees, "a-b");
 		const underscored = path.join(trees, "a_b");
-		initCheckout(dashed);
-		initCheckout(underscored);
+		checkoutTemplate.instantiate(dashed);
+		checkoutTemplate.instantiate(underscored);
 
 		raise(dashed, "repair main");
 

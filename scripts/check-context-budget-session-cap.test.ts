@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { textModuleSource, writeTextModule } from "./lib/tracker-text-fixture";
@@ -789,10 +790,13 @@ describe("--against HEAD over a guard's own bytes", () => {
 		return { ...r, json: () => JSON.parse(r.stdout) };
 	}
 
+	const mainRepo = defineTemplate(identityRepoTemplate);
+
+	beforeEach(() => {
+		mainRepo.instantiate(dir);
+	});
+
 	function baseline() {
-		git("init", "-q", "-b", "main");
-		git("config", "user.email", "t@example.invalid");
-		git("config", "user.name", "t");
 		git("add", "-A");
 		git("commit", "-q", "--no-verify", "-m", "baseline");
 	}

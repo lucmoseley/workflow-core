@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "grant-permission.js");
@@ -22,12 +23,24 @@ const isolatedEnv = (extra: Record<string, string> = {}) => ({
 	...extra,
 });
 
+const emptyRepo = defineTemplate((dir) => {
+	execFileSync("git", ["init", "-q"], {
+		cwd: dir,
+		env: {
+			PATH: process.env.PATH ?? "",
+			HOME: dir,
+			XDG_CONFIG_HOME: dir,
+			GIT_CONFIG_NOSYSTEM: "1",
+		},
+	});
+});
+
 beforeEach(() => {
 	host = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "grant-permission-")),
 	);
 	home = fs.mkdtempSync(path.join(os.tmpdir(), "grant-permission-home-"));
-	execFileSync("git", ["init", "-q"], { cwd: host, env: isolatedEnv() });
+	emptyRepo.instantiate(host);
 	fs.writeFileSync(
 		path.join(host, ".gitignore"),
 		".claude/settings.local.json\n",

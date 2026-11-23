@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { inferCommands } from "./lib/infer-commands.js";
 import { coreCall, writeCheckerDelegates } from "./lib/precommit-gate-testkit";
 
@@ -20,9 +21,7 @@ afterEach(() => {
 		fs.rmSync(t, { recursive: true, force: true });
 });
 
-function fixture(files: Record<string, string>): string {
-	const root = fs.mkdtempSync(path.join(os.tmpdir(), "staged-gate-"));
-	temps.push(root);
+const configured = defineTemplate((root) => {
 	execFileSync("git", ["init", "-q", "."], { cwd: root });
 	execFileSync("git", ["config", "user.email", "t@t"], { cwd: root });
 	execFileSync("git", ["config", "user.name", "t"], { cwd: root });
@@ -31,6 +30,13 @@ function fixture(files: Record<string, string>): string {
 	fs.copyFileSync(path.join(ROOT, "biome.json"), path.join(root, "biome.json"));
 	execFileSync("git", ["add", "--", ".gitignore", "biome.json"], { cwd: root });
 	execFileSync("git", ["commit", "-qm", "config"], { cwd: root });
+});
+
+function fixture(files: Record<string, string>): string {
+	const root = configured.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "staged-gate-")),
+	);
+	temps.push(root);
 	stage(root, files);
 	return root;
 }

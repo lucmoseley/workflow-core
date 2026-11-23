@@ -17,8 +17,13 @@ import {
 	readLockAt,
 	store,
 } from "./arbiter-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 
 const sb = freshSandbox();
+const sandboxRepo = defineTemplate((dir) => {
+	emptyRepoTemplate(dir);
+	fs.mkdirSync(path.join(dir, "docs"));
+});
 
 const put = (rel: string, fields: object) => {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });
@@ -35,7 +40,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 	const abs = () => path.join(sb.repo, rel);
 
 	beforeEach(() => {
-		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
+		sandboxRepo.instantiate(sb.repo);
 	});
 
 	const readRefs = () =>

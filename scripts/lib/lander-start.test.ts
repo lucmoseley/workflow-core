@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { committedRepoTemplate, defineTemplate } from "./git-fixture";
 import {
 	buildStartedLine,
 	launcherName,
@@ -279,25 +280,14 @@ describe("spawnDetachedRun", () => {
 });
 
 describe("readCodeRef (#5174)", () => {
+	const committed = defineTemplate(committedRepoTemplate);
+
 	it("names a git checkout's HEAD, a plugin install's release tag, and neither as unread", () => {
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "code-ref-"));
 		try {
-			const checkout = path.join(tmp, "checkout");
-			fs.mkdirSync(checkout);
+			const checkout = committed.instantiate(path.join(tmp, "checkout"));
 			const git = (...args: string[]) =>
 				spawnSync("git", args, { cwd: checkout, encoding: "utf8" });
-			git("init", "-q");
-			git(
-				"-c",
-				"user.name=t",
-				"-c",
-				"user.email=t@t",
-				"commit",
-				"-q",
-				"--allow-empty",
-				"-m",
-				"x",
-			);
 			expect(readCodeRef(checkout)).toBe(
 				git("rev-parse", "HEAD").stdout.trim(),
 			);

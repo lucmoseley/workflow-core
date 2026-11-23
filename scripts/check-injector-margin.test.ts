@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { inProcess, spawned } from "./lib/check-in-process-testkit";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-injector-margin.js");
@@ -228,13 +229,26 @@ describe("--index: the commit's bytes", () => {
 		process.env.WFC_RULES_FALLBACK_DIR,
 	];
 
+	const seededRepo = defineTemplate((at) => {
+		const gitAt = (...args: string[]) =>
+			execFileSync("git", args, { cwd: at, stdio: "pipe" });
+		gitAt("init", "-q");
+		gitAt("config", "user.email", "test@example.com");
+		gitAt("config", "user.name", "test");
+		const seeded: [string, string][] = [
+			[HOOK_LIMITS, fs.readFileSync(path.join(ROOT, HOOK_LIMITS), "utf8")],
+			[TEXT, fakeModule(["alpha"], 5000)],
+		];
+		for (const [rel, body] of seeded) {
+			fs.mkdirSync(path.dirname(path.join(at, rel)), { recursive: true });
+			fs.writeFileSync(path.join(at, rel), body);
+		}
+		gitAt("add", ".");
+		gitAt("commit", "-qm", "seed");
+	});
+
 	beforeEach(() => {
-		git("init", "-q");
-		git("config", "user.email", "test@example.com");
-		git("config", "user.name", "test");
-		seed(fakeModule(["alpha"], 5000));
-		git("add", ".");
-		git("commit", "-qm", "seed");
+		seededRepo.instantiate(root);
 	});
 
 	it("measures the staged blob, not the working tree", () => {

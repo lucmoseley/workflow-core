@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { watched } from "./pass-store-testkit";
 
 const require = createRequire(import.meta.url);
@@ -24,9 +25,7 @@ afterEach(() => {
 const git = (dir: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
 
-function repo() {
-	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rst-")));
-	dirs.push(dir);
+const seeded = defineTemplate((dir) => {
 	git(dir, "init", "-q", "-b", "main");
 	git(dir, "config", "user.email", "t@example.com");
 	git(dir, "config", "user.name", "T");
@@ -34,6 +33,13 @@ function repo() {
 	for (const f of ["a.js", "b.js", "docs/one.md"]) write(dir, f, `${f} v0\n`);
 	git(dir, "add", "-A");
 	git(dir, "commit", "-q", "-m", "base");
+});
+
+function repo() {
+	const dir = seeded.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rst-"))),
+	);
+	dirs.push(dir);
 	return dir;
 }
 

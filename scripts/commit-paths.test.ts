@@ -6,7 +6,11 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
 import { readText } from "./lib/file-read.js";
-import { defineTemplate, initGitRepo } from "./lib/git-fixture";
+import {
+	committedRepoTemplate,
+	defineTemplate,
+	initGitRepo,
+} from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { installLib } from "./lib/lib-install-testkit";
 import { plantSequencer, ROOT } from "./lib/precommit-gate-testkit";
@@ -22,6 +26,7 @@ const repoTemplate = defineTemplate((dir) => {
 	initGitRepo(dir, none);
 	fs.rmdirSync(none);
 });
+const committedSub = defineTemplate(committedRepoTemplate);
 let hooks = "";
 const sb = freshSandbox((s) => {
 	hooks = path.join(s.dir, "hooks");
@@ -640,9 +645,7 @@ describe("--patch: some of a file's lines, the working tree never written (#801)
 				["-c", "user.name=t", "-c", "user.email=t@t", ...args],
 				{ cwd: sub, encoding: "utf8" },
 			).trim();
-		fs.mkdirSync(sub);
-		subGit("init", "-q");
-		subGit("commit", "-q", "--allow-empty", "-m", "one");
+		committedSub.instantiate(sub);
 		const old = subGit("rev-parse", "HEAD");
 		git("add", "sub");
 		git("commit", "-qm", "seed sub");

@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildAgentsBranch, buildListedRow } from "./lib/agents-stop-fake";
 import { writeClaudeStub } from "./lib/claude-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-main-checkout-cutover.js");
@@ -31,32 +32,38 @@ const listSessionIn = (cwd: string) =>
 		]),
 	]);
 
-beforeEach(() => {
-	tmp = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), "main-checkout-cutover-")),
-	);
-	const origin = path.join(tmp, "origin.git");
-	main = path.join(tmp, "main");
-	config = path.join(tmp, "config");
-	fs.mkdirSync(path.join(config, "bin"), { recursive: true });
+const originAndClone = defineTemplate((at) => {
+	const origin = path.join(at, "origin.git");
+	const clone = path.join(at, "main");
+	fs.mkdirSync(path.join(at, "config", "bin"), { recursive: true });
 	fs.writeFileSync(
-		path.join(tmp, "npm"),
+		path.join(at, "npm"),
 		"#!/bin/sh\nmkdir node_modules && cp package-lock.json node_modules/lock\n",
 	);
-	fs.chmodSync(path.join(tmp, "npm"), 0o755);
-	git(tmp, "init", "-q", "--bare", "-b", "main", origin);
-	git(tmp, "clone", "-q", origin, main);
-	git(main, "config", "user.email", "t@t");
-	git(main, "config", "user.name", "t");
+	fs.chmodSync(path.join(at, "npm"), 0o755);
+	git(at, "init", "-q", "--bare", "-b", "main", origin);
+	git(at, "clone", "-q", origin, clone);
+	git(clone, "config", "user.email", "t@t");
+	git(clone, "config", "user.name", "t");
 	for (const [name, text] of Object.entries({
 		".gitignore": ".claude/\n",
 		"package-lock.json": "{}\n",
 	}))
-		fs.writeFileSync(path.join(main, name), text);
-	git(main, "add", "-A");
-	git(main, "commit", "-qm", "seed");
-	git(main, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
-	git(main, "branch", "-q", "--set-upstream-to=origin/landing", "main");
+		fs.writeFileSync(path.join(clone, name), text);
+	git(clone, "add", "-A");
+	git(clone, "commit", "-qm", "seed");
+	git(clone, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git(clone, "branch", "-q", "--set-upstream-to=origin/landing", "main");
+});
+
+beforeEach(() => {
+	tmp = originAndClone.instantiate(
+		fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "main-checkout-cutover-")),
+		),
+	);
+	main = path.join(tmp, "main");
+	config = path.join(tmp, "config");
 });
 afterEach(() => {
 	execFileSync("chmod", ["-R", "u+w", tmp]);

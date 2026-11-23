@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { stubLaunch } from "./lib/suite-handoff-testkit";
 import TestPassReporter from "./vitest-pass-reporter.js";
 
@@ -650,22 +651,49 @@ describe("the closure the reporter records (#189)", () => {
 		return { withProject };
 	}
 
+	const repoEdges: Record<string, string[]>[] = [
+		{},
+		{ "docs/x.md": ["a.test.ts"] },
+	];
+	const repoTemplate = defineTemplate(
+		Object.fromEntries(
+			repoEdges.map((edges) => [
+				JSON.stringify(edges),
+				(dir: string) => {
+					const git = (...args: string[]) =>
+						execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+					fs.mkdirSync(path.join(dir, "docs"));
+					fs.writeFileSync(
+						path.join(dir, "docs", "test-read-edges.json"),
+						JSON.stringify({ edges }),
+					);
+					fs.writeFileSync(path.join(dir, ".gitignore"), ".claude/\n");
+					git("init", "-q", ".");
+					git(
+						"-c",
+						"user.email=t@example.com",
+						"-c",
+						"user.name=t",
+						"add",
+						".",
+					);
+					git(
+						"-c",
+						"user.email=t@example.com",
+						"-c",
+						"user.name=t",
+						"commit",
+						"-qm",
+						"base",
+					);
+				},
+			]),
+		),
+	);
+
 	function scratchRepo(edges: Record<string, string[]> = {}) {
 		const made = scratch(edges);
-		const git = (...args: string[]) =>
-			execFileSync("git", args, { cwd: root, stdio: "ignore" });
-		fs.writeFileSync(path.join(root, ".gitignore"), ".claude/\n");
-		git("init", "-q", ".");
-		git("-c", "user.email=t@example.com", "-c", "user.name=t", "add", ".");
-		git(
-			"-c",
-			"user.email=t@example.com",
-			"-c",
-			"user.name=t",
-			"commit",
-			"-qm",
-			"base",
-		);
+		repoTemplate.instantiate(root, JSON.stringify(edges));
 		return made;
 	}
 

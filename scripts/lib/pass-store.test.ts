@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import {
 	type Audit,
 	NO_READS,
@@ -48,9 +49,9 @@ const shardOf = (dir: string, file: string) =>
 		`${createHash("sha256").update(file).digest("hex").slice(0, 16)}.jsonl`,
 	);
 
-function repo(edges: Record<string, string[]> = { "doc.md": [A] }) {
-	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pst-")));
-	dirs.push(dir);
+const DEFAULT_EDGES = { "doc.md": [A] };
+
+const seeded = defineTemplate((dir) => {
 	git(dir, "init", "-q", "-b", "main");
 	git(dir, "config", "user.email", "t@example.com");
 	git(dir, "config", "user.name", "T");
@@ -69,9 +70,21 @@ function repo(edges: Record<string, string[]> = { "doc.md": [A] }) {
 		"package-lock.json",
 	])
 		write(dir, f, `${f} v0\n`);
-	write(dir, EDGES_FILE, JSON.stringify({ edges }));
+	write(dir, EDGES_FILE, JSON.stringify({ edges: DEFAULT_EDGES }));
 	git(dir, "add", "-A");
 	git(dir, "commit", "-q", "-m", "base");
+});
+
+function repo(edges?: Record<string, string[]>) {
+	const dir = seeded.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pst-"))),
+	);
+	dirs.push(dir);
+	if (edges) {
+		write(dir, EDGES_FILE, JSON.stringify({ edges }));
+		git(dir, "add", "-A");
+		git(dir, "commit", "-q", "--amend", "-m", "base");
+	}
 	return dir;
 }
 

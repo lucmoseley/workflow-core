@@ -1,6 +1,5 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +10,7 @@ import {
 	registerSession,
 	store,
 } from "./arbiter-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { runCore, splitCheckout } from "./guard-core-testkit";
 import { REAL_RUFF } from "./ruff-testkit";
 
@@ -47,9 +47,14 @@ const context = (r: ReturnType<typeof run>) =>
 	r.output?.additionalContext ?? null;
 
 describe("post-write — format, then record, in that order", () => {
+	const seeded = defineTemplate((dir) => {
+		fs.mkdirSync(path.join(dir, "docs"));
+		emptyRepoTemplate(dir);
+		fs.mkdirSync(path.join(dir, "scripts"));
+	});
+
 	beforeEach(() => {
-		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
-		fs.mkdirSync(path.join(sb.repo, "scripts"), { recursive: true });
+		seeded.instantiate(sb.repo);
 		registerSession(sb, "alice", process.pid);
 	});
 

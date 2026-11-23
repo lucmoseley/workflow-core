@@ -1,11 +1,14 @@
 // @vitest-environment node
-import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readText } from "./lib/file-read.js";
-import { mkScratchDir } from "./lib/git-fixture";
+import {
+	defineTemplate,
+	emptyRepoTemplate,
+	mkScratchDir,
+} from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { chargeMb as launchChargeMb } from "./lib/launch-charge";
 import { noop } from "./lib/noop.js";
@@ -974,18 +977,16 @@ describe("queue-run.js", () => {
 		});
 
 		describe("off the real /proc and config reads (#5303)", () => {
+			const emptyRepo = defineTemplate(emptyRepoTemplate);
 			const world = () => {
 				const base = mkScratchDir("gate-ancestor-");
 				dirs.push(base);
 				const repo = (name: string, config: object) => {
-					const root = path.join(base, name);
+					const root = emptyRepo.instantiate(path.join(base, name));
 					fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
 					fs.writeFileSync(
 						path.join(root, ".claude", "workflow-core.json"),
 						JSON.stringify({ contract: 1, ...config }),
-					);
-					expect(spawnSync("git", ["init", "-q"], { cwd: root }).status).toBe(
-						0,
 					);
 					return root;
 				};

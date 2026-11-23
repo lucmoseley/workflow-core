@@ -5,9 +5,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const CLI = path.resolve(__dirname, "list-noun-readers.js");
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 
 let tmp: string;
 beforeEach(() => {
@@ -18,16 +20,13 @@ afterEach(() => {
 });
 
 const list = (source: string) => {
+	emptyRepo.instantiate(tmp);
 	fs.writeFileSync(path.join(tmp, "sample.js"), source);
 	fs.writeFileSync(
 		path.join(tmp, "untracked.js"),
 		"function stray() { return fs.readFileSync(f); }\n",
 	);
-	for (const args of [
-		["init", "-q"],
-		["add", "sample.js"],
-	])
-		expect(spawnSync("git", args, { cwd: tmp }).status).toBe(0);
+	expect(spawnSync("git", ["add", "sample.js"], { cwd: tmp }).status).toBe(0);
 	const r = runInProcess(CLI, [], { cwd: tmp });
 	expect(r.status).toBe(0);
 	return r.stdout;

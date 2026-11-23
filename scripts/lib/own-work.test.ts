@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { mkScratchDir } from "./git-fixture";
+import { defineTemplate, mkScratchDir } from "./git-fixture";
 
 const require = createRequire(import.meta.url);
 const { readNeighbourCommits, readOwnPaths } = require("./own-work.js");
@@ -26,23 +26,32 @@ function commit(dir: string, files: Record<string, string>) {
 	return git(dir, "rev-parse", "HEAD");
 }
 
-function range() {
-	const dir = mkScratchDir("own-work-");
-	dirs.push(dir);
+const ranged = defineTemplate((dir) => {
 	git(dir, "init", "-q", "-b", "main");
 	git(dir, "config", "user.email", "t@example.com");
 	git(dir, "config", "user.name", "t");
-	const base = commit(dir, {
+	commit(dir, {
 		"mine.js": "0\n",
 		"theirs.js": "0\n",
 		"loose.js": "0\n",
 		"shared.js": "0\n",
 		"reverted.js": "0\n",
 	});
-	const mine = commit(dir, { "mine.js": "1\n", "shared.js": "1\n" });
-	const theirs = commit(dir, { "theirs.js": "1\n", "reverted.js": "1\n" });
-	const loose = commit(dir, { "loose.js": "1\n" });
-	const theirsToo = commit(dir, { "shared.js": "2\n" });
+	commit(dir, { "mine.js": "1\n", "shared.js": "1\n" });
+	commit(dir, { "theirs.js": "1\n", "reverted.js": "1\n" });
+	commit(dir, { "loose.js": "1\n" });
+	commit(dir, { "shared.js": "2\n" });
+});
+
+function range() {
+	const dir = ranged.instantiate(mkScratchDir("own-work-"));
+	dirs.push(dir);
+	const [base, mine, theirs, loose, theirsToo] = git(
+		dir,
+		"rev-list",
+		"--reverse",
+		"HEAD",
+	).split("\n");
 	return { dir, base, mine, theirs, loose, theirsToo };
 }
 

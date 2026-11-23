@@ -13,10 +13,15 @@ import {
 	store,
 } from "./arbiter-testkit";
 import { writeFaultyGit } from "./git-fault-fake";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { shellQuote } from "./sh-quote.js";
 import { sleepSync } from "./sleep-sync.js";
 
 const sb = freshSandbox();
+const sandboxRepo = defineTemplate((dir) => {
+	emptyRepoTemplate(dir);
+	fs.mkdirSync(path.join(dir, "docs"));
+});
 
 describe("the tier scan — a baseline for a write no hook ever sees (mantahostels#419)", () => {
 	const auditScript = "scripts/evidence-audit.py";
@@ -43,7 +48,7 @@ describe("the tier scan — a baseline for a write no hook ever sees (mantahoste
 	};
 
 	beforeEach(() => {
-		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
+		sandboxRepo.instantiate(sb.repo);
 		write(auditScript, "seeded\n");
 		write(guarded, "seeded\n");
 	});
@@ -198,7 +203,7 @@ describe("the tier scan re-hashes only what moved (#833)", () => {
 	const settle = () => sleepSync(1100);
 
 	beforeEach(() => {
-		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
+		sandboxRepo.instantiate(sb.repo);
 		fs.mkdirSync(path.dirname(abs(auditScript)), { recursive: true });
 		fs.writeFileSync(abs(auditScript), "seeded\n");
 		live(sb, "alice");

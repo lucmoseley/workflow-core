@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-cli-args.js");
@@ -14,6 +15,8 @@ let hooks: string;
 
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: root, stdio: "pipe" });
+
+const mainRepo = defineTemplate(identityRepoTemplate);
 
 const script = (name: string, body: string) => {
 	fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
@@ -33,11 +36,10 @@ const ON_HELPER =
 	'const { parseOrExit } = require("./lib/cli-args");\nparseOrExit(process.argv.slice(2), SPEC);\n';
 
 beforeEach(() => {
-	root = fs.mkdtempSync(path.join(os.tmpdir(), "cli-args-"));
+	root = mainRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "cli-args-")),
+	);
 	hooks = fs.mkdtempSync(path.join(os.tmpdir(), "cli-args-hooks-"));
-	git("init", "-q", "-b", "main");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
 	git("config", "core.hooksPath", hooks);
 });
 afterEach(() => {

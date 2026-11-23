@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-test-env-writes.js");
@@ -33,9 +34,12 @@ const run = (...args: string[]) => {
 	};
 };
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "test-env-writes-"));
-	git("init", "-q");
+	dir = emptyRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "test-env-writes-")),
+	);
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 

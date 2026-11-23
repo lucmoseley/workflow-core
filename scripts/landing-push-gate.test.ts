@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -14,8 +15,27 @@ let tmp: string;
 let work: string;
 let sha: string;
 
-const git = (...args: string[]) =>
-	execFileSync("git", args, { cwd: work, encoding: "utf8" }).trim();
+const gitIn = (cwd: string, ...args: string[]) =>
+	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+const git = (...args: string[]) => gitIn(work, ...args);
+
+const seeded = defineTemplate((root) => {
+	gitIn(root, "init", "-q", "-b", "main");
+	gitIn(
+		root,
+		"-c",
+		"user.email=t@t",
+		"-c",
+		"user.name=t",
+		"commit",
+		"-q",
+		"--allow-empty",
+		"-m",
+		"seed",
+	);
+	gitIn(root, "config", "user.email", "t@t");
+	gitIn(root, "config", "user.name", "t");
+});
 
 const ledger = () =>
 	path.join(work, ".claude", "tmp", "markers", ".landing-green-ledger");
@@ -35,22 +55,7 @@ const check = (stdin: string) =>
 
 beforeEach(() => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "landing-push-"));
-	work = path.join(tmp, "work");
-	fs.mkdirSync(work);
-	git("init", "-q", "-b", "main");
-	git(
-		"-c",
-		"user.email=t@t",
-		"-c",
-		"user.name=t",
-		"commit",
-		"-q",
-		"--allow-empty",
-		"-m",
-		"seed",
-	);
-	git("config", "user.email", "t@t");
-	git("config", "user.name", "t");
+	work = seeded.instantiate(path.join(tmp, "work"));
 	sha = git("rev-parse", "HEAD");
 });
 

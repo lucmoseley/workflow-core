@@ -576,6 +576,7 @@
 			"scripts/lib/morning-review-filing.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-shellcheck-gate.test.ts",
+			"scripts/report-new-shared-faults.test.ts",
 			"scripts/session-checkout.test.ts"
 		],
 		".github/actions/shellcheck/action.yml": [
@@ -31249,16 +31250,6 @@
 		],
 		"scripts/lib/git-fixture.ts": [
 			"scripts/check-guard-errors.test.ts",
-			"scripts/check-guard-registry-carry.test.ts",
-			"scripts/check-guard-registry-dispatchers.test.ts",
-			"scripts/check-guard-registry-expiry-pathspec.test.ts",
-			"scripts/check-guard-registry-expiry.test.ts",
-			"scripts/check-guard-registry-implicit.test.ts",
-			"scripts/check-guard-registry-landing.test.ts",
-			"scripts/check-guard-registry-reads.test.ts",
-			"scripts/check-guard-registry-rule-text.test.ts",
-			"scripts/check-guard-registry-stale.test.ts",
-			"scripts/check-guard-registry.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
@@ -31269,7 +31260,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/git-long-options.js": [

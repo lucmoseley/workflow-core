@@ -13,6 +13,7 @@ import {
 	refused,
 	stubGhRoutes,
 } from "./lib/gh-stub";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { splitCheckout } from "./lib/guard-core-testkit";
 import {
 	cutGateScript,
@@ -1174,6 +1175,8 @@ describe("the pre-commit upstream-record gate (#2394)", () => {
 	});
 });
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 function upstreamClone(
 	source: string,
 	files: Record<string, string>,
@@ -1204,7 +1207,7 @@ function upstreamClone(
 			fs.writeFileSync(abs, body);
 		}
 	};
-	git("init", "-q");
+	emptyRepo.instantiate(clone);
 	git("remote", "add", "origin", `https://github.com/${source}.git`);
 	write(files);
 	git("add", "-A");

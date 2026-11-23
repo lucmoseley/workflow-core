@@ -5,12 +5,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { commandPath } from "./command-path-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { noop } from "./noop.js";
 import { shellQuote } from "./sh-quote.js";
 import { restoreStderr, spyStderr } from "./write-fd-testkit";
 
 const LIB = path.resolve(__dirname, "wfc-config.sh");
 let dir: string;
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 
 const writeConfig = (text: string) => {
 	fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
@@ -551,16 +553,16 @@ describe("parity with the JS reader (#1481)", () => {
 	];
 
 	const write = (row: Row) => {
+		if (row.remote) {
+			emptyRepo.instantiate(dir);
+			spawnSync("git", ["-C", dir, "remote", "add", "origin", row.remote]);
+		}
 		if (row.config !== undefined)
 			writeConfig(
 				typeof row.config === "string"
 					? row.config
 					: JSON.stringify(row.config),
 			);
-		if (row.remote) {
-			spawnSync("git", ["-C", dir, "init", "-q"]);
-			spawnSync("git", ["-C", dir, "remote", "add", "origin", row.remote]);
-		}
 	};
 
 	const thrownAnswer = (e: unknown) => {

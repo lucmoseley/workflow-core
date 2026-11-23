@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import {
 	build,
 	committedRepo,
@@ -729,11 +730,7 @@ describe("an adopter that generates its own rule fragments", () => {
 	const gen = path.join(__dirname, "generate-rule-fragments.js");
 	const coreId = "claim-bash-route";
 
-	function adopter(): string {
-		const root = fs.mkdtempSync(
-			path.join(os.tmpdir(), "guard-registry-adopter-"),
-		);
-		temps.push(root);
+	const adopterRepo = defineTemplate((root) => {
 		execFileSync("git", ["init", "-q"], { cwd: root });
 		fs.mkdirSync(path.join(root, "docs", "agents"), { recursive: true });
 		fs.writeFileSync(
@@ -744,6 +741,13 @@ describe("an adopter that generates its own rule fragments", () => {
 			path.join(root, "CLAUDE.md"),
 			`# Adopter\n\n<!-- guard-registry:begin -->\n- **A Bash-route write to a claimed file is announced.** **Unenforceable**: \`rule:${coreId}\`.\n<!-- guard-registry:end -->\n`,
 		);
+	});
+
+	function adopter(): string {
+		const root = adopterRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "guard-registry-adopter-")),
+		);
+		temps.push(root);
 		return root;
 	}
 

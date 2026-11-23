@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { runInProcess } from "./run-in-process";
 import { spyStderr } from "./write-fd-testkit";
 
@@ -45,6 +46,8 @@ const writeConfig = (root: string, text: string) => {
 };
 const git = (...args: string[]) =>
 	execFileSync("git", ["-C", dir, ...args], { stdio: "ignore" });
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+const initRepo = () => emptyRepo.instantiate(dir);
 const stubGh = (body: string) => {
 	const gh = path.join(dir, "gh");
 	fs.writeFileSync(gh, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
@@ -76,9 +79,9 @@ describe("hostRoot", () => {
 
 	it("falls back to the git top level of the working directory", () => {
 		vi.stubEnv("CLAUDE_PROJECT_DIR", undefined);
+		initRepo();
 		const sub = path.join(dir, "a", "b");
 		fs.mkdirSync(sub, { recursive: true });
-		execFileSync("git", ["init", "-q", dir]);
 		expect(hostRoot(sub)).toBe(dir);
 	});
 });
@@ -718,8 +721,11 @@ describe("readConfig — contract", () => {
 });
 
 describe("readConfig at a revision (#3132)", () => {
+	beforeEach(() => {
+		initRepo();
+	});
+
 	const commit = () => {
-		git("init", "-q");
 		git("add", ".");
 		git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "c");
 	};
@@ -768,7 +774,6 @@ describe("readConfig at a revision (#3132)", () => {
 	});
 
 	it("throws where the revision names no commit, an unborn HEAD included", () => {
-		git("init", "-q");
 		expect(() => readConfig({ root: dir, rev: "HEAD" })).toThrow(
 			"at HEAD cannot be read",
 		);
@@ -777,20 +782,20 @@ describe("readConfig at a revision (#3132)", () => {
 
 describe("resolveKey — derivation", () => {
 	it("prefers a declared tracker to the remote", () => {
-		git("init", "-q");
+		initRepo();
 		git("remote", "add", "origin", "git@github.com:other/remote.git");
 		writeConfig(dir, JSON.stringify({ tracker: "owner/repo" }));
 		expect(resolveKey("tracker", { root: dir })).toBe("owner/repo");
 	});
 
 	it("derives tracker from the origin remote at the host root", () => {
-		git("init", "-q");
+		initRepo();
 		git("remote", "add", "origin", "git@github.com:owner/remote.git");
 		expect(resolveKey("tracker", { root: dir })).toBe("owner/remote");
 	});
 
 	it("derives no tracker where the remote is not GitHub", () => {
-		git("init", "-q");
+		initRepo();
 		git("remote", "add", "origin", "https://gitlab.com/owner/remote.git");
 		expect(resolveKey("tracker", { root: dir })).toBeUndefined();
 	});
@@ -805,9 +810,11 @@ describe("resolveKey — derivation", () => {
 	});
 
 	it("derives codeRepo from the origin remote before the tracker", () => {
-		writeConfig(dir, JSON.stringify({ tracker: "owner/tracker" }));
+		const config = JSON.stringify({ tracker: "owner/tracker" });
+		writeConfig(dir, config);
 		expect(resolveKey("codeRepo", { root: dir })).toBe("owner/tracker");
-		git("init", "-q");
+		initRepo();
+		writeConfig(dir, config);
 		git("remote", "add", "origin", "git@github.com:owner/remote.git");
 		expect(resolveKey("codeRepo", { root: dir })).toBe("owner/remote");
 	});
@@ -899,7 +906,7 @@ describe("resolveKey — derivation", () => {
 		["ssh://git@github.com/o/r.git", "o/r"],
 		["git@gitlab.com:o/r.git", undefined],
 	])("derives the tracker from an origin remote at %s", (url, want) => {
-		git("init", "-q");
+		initRepo();
 		git("remote", "add", "origin", url);
 		expect(resolveKey("tracker", { root: dir })).toBe(want);
 	});
@@ -924,7 +931,7 @@ describe("the `corpus` verb, the recurrence hook's tracker list (#512)", () => {
 	});
 
 	it("prints the own tracker plus the upstream tracker where undeclared", () => {
-		git("init", "-q");
+		initRepo();
 		git("remote", "add", "origin", "git@github.com:owner/remote.git");
 		const r = run("{}");
 		expect([r.status, r.stdout, r.stderr]).toEqual([

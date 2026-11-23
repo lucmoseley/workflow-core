@@ -31,9 +31,9 @@ const LAUNCH_ROOM_MS =
 	2 * CLAUDE_TIMEOUT_MS + 2 * STATUS_TIMEOUT_MS + NODE_START_MS;
 
 /**
- * @typedef {{ root: string, seat: string, jobId: string, jobDir: string,
- *   intent: string, name: string, flags: string[], short: string,
- *   providerEnv: Record<string, string> }} Job
+ * @typedef {import("./lib/job-paths.js").JobRef & { root: string,
+ *   jobDir: string, intent: string, name: string, flags: string[],
+ *   short: string, providerEnv: Record<string, string> }} Job
  * @typedef {{ ok: boolean, output: string }} Ran
  * @typedef {{
  *   job: () => Job | null,
@@ -166,17 +166,16 @@ function readJob(payload, env) {
 	if (typeof payload.cwd !== "string") return null;
 	const jobDir = readJobDir(env);
 	if (jobDir === null) return null;
-	const where = parseJobDir(jobDir);
-	if (where === null) return null;
+	const ref = parseJobDir(jobDir);
+	if (ref === null) return null;
 	const record = readJobRecordIn(jobDir);
 	if (record === null) return null;
 	const cwd = fs.realpathSync(payload.cwd);
 	const root = mainCheckout(cwd);
 	if (root === null || fs.realpathSync(root) !== cwd) return null;
 	return {
+		...ref,
 		root: cwd,
-		seat: where.seat,
-		jobId: where.jobId,
 		jobDir: path.resolve(jobDir),
 		intent: typeof record.intent === "string" ? record.intent : "",
 		name: String(record.name ?? "session"),
@@ -185,7 +184,7 @@ function readJob(payload, env) {
 					/** @param {unknown} f */ (f) => typeof f === "string",
 				)
 			: [],
-		short: String(record.daemonShort ?? shortJobId(where.jobId)),
+		short: String(record.daemonShort ?? shortJobId(ref.jobId)),
 		providerEnv: Object.fromEntries(
 			Object.entries(record.providerEnv ?? {}).filter(
 				([, v]) => typeof v === "string",

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 import { seatDirs, seatEnv } from "./lib/seat-testkit";
 
@@ -18,6 +19,29 @@ const {
 } = require("./lib/history-trim.js");
 
 const readRoot = (seatDir: string) => readRoots([seatDir])[0];
+
+const repoAndTreeTemplate = defineTemplate((at) => {
+	const repo = path.join(at, "repo");
+	fs.mkdirSync(repo);
+	const git = (...args: string[]) =>
+		execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+	git("init", "-q");
+	fs.copyFileSync(
+		path.resolve(__dirname, "..", ".gitignore"),
+		path.join(repo, ".gitignore"),
+	);
+	git("add", ".gitignore");
+	git(
+		"-c",
+		"user.email=t@example.com",
+		"-c",
+		"user.name=t",
+		"commit",
+		"-qm",
+		"base",
+	);
+	git("worktree", "add", "-q", "--detach", path.join(at, "tree"));
+});
 
 let home: string;
 const HOUR = 36e5;
@@ -358,28 +382,12 @@ describe("end to end", () => {
 	});
 
 	it("records into the host's marker store from a linked worktree, leaving both trees clean (#4465)", () => {
+		repoAndTreeTemplate.instantiate(home);
 		const repo = path.join(home, "repo");
-		fs.mkdirSync(repo);
+		const tree = path.join(home, "tree");
 		const gitIn = (dir: string, ...args: string[]) =>
 			execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
 		const git = (...args: string[]) => gitIn(repo, ...args);
-		git("init", "-q");
-		fs.copyFileSync(
-			path.resolve(__dirname, "..", ".gitignore"),
-			path.join(repo, ".gitignore"),
-		);
-		git("add", ".gitignore");
-		git(
-			"-c",
-			"user.email=t@example.com",
-			"-c",
-			"user.name=t",
-			"commit",
-			"-qm",
-			"base",
-		);
-		const tree = path.join(home, "tree");
-		git("worktree", "add", "-q", "--detach", tree);
 		history(".claude", [NOW - 5 * HOUR]);
 		const env: Record<string, string | undefined> = {
 			...process.env,

@@ -7,6 +7,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import type * as NotifyReport from "./lib/notify-report.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -19,6 +20,22 @@ const notify: typeof NotifyReport = createRequire(__filename)(
 );
 
 const sb = freshSandbox();
+
+const repo = defineTemplate((dir) => {
+	const g = (...args: string[]) =>
+		execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+	g("init", "-q", "-b", "main");
+	g("config", "user.email", "t@example.invalid");
+	g("config", "user.name", "Test");
+	fs.mkdirSync(path.join(dir, ".github", "workflows"), { recursive: true });
+	fs.writeFileSync(
+		path.join(dir, ".github", "workflows", "scheduled-checks.yml"),
+		"",
+	);
+	g("add", "-A");
+	g("commit", "-q", "-m", "init");
+	g("commit", "-q", "--allow-empty", "-m", "next");
+});
 
 const NOW = "2026-08-21T21:30:00Z";
 const OTHER = "0123456789abcdef0123456789abcdef01234567";
@@ -70,22 +87,11 @@ const deliver = (session = "mine") => {
 
 beforeEach(() => {
 	file = (name) => path.join(sb.dir, name);
-	const g = (...args: string[]) =>
-		execFileSync("git", args, { cwd: sb.repo, stdio: "ignore" });
-	g("init", "-q", "-b", "main");
-	g("config", "user.email", "t@example.invalid");
-	g("config", "user.name", "Test");
-	fs.mkdirSync(path.join(sb.repo, ".github", "workflows"), { recursive: true });
-	fs.writeFileSync(
-		path.join(sb.repo, ".github", "workflows", "scheduled-checks.yml"),
-		"",
-	);
-	g("add", "-A");
-	g("commit", "-q", "-m", "init");
-	behind = execFileSync("git", ["rev-parse", "HEAD"], { cwd: sb.repo })
+	repo.instantiate(sb.repo);
+	fs.mkdirSync(path.join(sb.repo, "docs"), { recursive: true });
+	behind = execFileSync("git", ["rev-parse", "HEAD~1"], { cwd: sb.repo })
 		.toString()
 		.trim();
-	g("commit", "-q", "--allow-empty", "-m", "next");
 	vi.stubEnv("WFC_REPO_DIR", sb.repo);
 	vi.stubEnv("WFC_NOW", NOW);
 	vi.stubEnv("WFC_NOTIFY_PERSIST", undefined);

@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { readStopGuardBlock } from "./lib/stop-guard-testkit";
 
 const require_ = createRequire(__filename);
@@ -23,6 +24,10 @@ const HELD = {
 	at: "2026-11-01T15:00:00.000Z",
 };
 const OWN_RUN = { reason: "opened", waitS: 40 };
+
+const mainRepo = defineTemplate((dir) => {
+	execFileSync("git", ["init", "-q", "-b", "main", dir]);
+});
 
 let root: string;
 
@@ -62,7 +67,7 @@ const run = () =>
 
 beforeEach(() => {
 	root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "tc-owed-")));
-	execFileSync("git", ["init", "-q", "-b", "main", root]);
+	mainRepo.instantiate(root);
 	declareCommands({ typecheck: "npm run typecheck" });
 });
 

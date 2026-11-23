@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
 import { CITATION_CEILING } from "./lib/qualify-citations.js";
@@ -27,19 +28,32 @@ interface Repo {
 	stage: (rel: string, body: string) => void;
 }
 
-function newRepo(seed = SEED): Repo {
-	const root = fs.mkdtempSync(path.join(os.tmpdir(), "cite-tracker-"));
-	temps.push(root);
+const seeded = (seed: string) => (dir: string) => {
 	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: root, encoding: "utf8" });
+		execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 	git("init", "-q", ".");
 	git("symbolic-ref", "HEAD", "refs/heads/main");
 	git("config", "user.email", "t@t");
 	git("config", "user.name", "t");
 
-	fs.writeFileSync(path.join(root, "history.md"), seed);
+	fs.writeFileSync(path.join(dir, "history.md"), seed);
 	git("add", "--", ".");
 	git("commit", "-qm", "seed");
+};
+
+const repoTemplate = defineTemplate({
+	cited: seeded(SEED),
+	uncited: seeded("A seed with no citations in it.\n"),
+});
+
+function newRepo(variant: "cited" | "uncited" = "cited"): Repo {
+	const root = repoTemplate.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "cite-tracker-")),
+		variant,
+	);
+	temps.push(root);
+	const git = (...args: string[]) =>
+		execFileSync("git", args, { cwd: root, encoding: "utf8" });
 
 	const stage = (rel: string, body: string) => {
 		const abs = path.join(root, rel);
@@ -247,7 +261,7 @@ describe("the citation prefix gate", () => {
 	});
 
 	it("passes a baseline that holds no prefixed citation at all", () => {
-		const repo = newRepo("A seed with no citations in it.\n");
+		const repo = newRepo("uncited");
 		repo.stage("notes.md", "Nothing to cite here either.\n");
 
 		const r = run(repo);
