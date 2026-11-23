@@ -13,6 +13,7 @@ import {
 } from "./precommit-dispatch.js";
 import { readStaged } from "./precommit-dispatch-ports.js";
 import { buildRepoPorts } from "./precommit-gate-testkit";
+import { GATES } from "./precommit-gates.js";
 
 type Arm =
 	| { always: true }
@@ -237,6 +238,19 @@ describe("arming", () => {
 		const gone = repo({}, { "wf/a.yml": "a\n" });
 		fs.rmSync(path.join(gone, "wf/a.yml"));
 		expect((await run(live, { dir: gone })).ran).toEqual([]);
+	});
+
+	it("leaves workflow-permissions unarmed where a commit deletes the last workflow", async () => {
+		const gate = GATES.find((g) => g.id === "workflow-permissions");
+		expect(gate).toBeDefined();
+		const rows = [row("workflow-permissions", { arm: gate?.arm as Arm })];
+		const wf = ".github/workflows/ci.yml";
+		const deleted = repo({ [wf]: "on: push\n" }, { [wf]: null });
+		expect((await run(rows, { dir: deleted })).ran).toEqual([]);
+		const edited = repo({ [wf]: "on: push\n" }, { [wf]: "on: pull_request\n" });
+		expect((await run(rows, { dir: edited })).ran).toEqual([
+			"workflow-permissions",
+		]);
 	});
 });
 

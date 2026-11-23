@@ -44,6 +44,11 @@ const modes = {
 		process.on("uncaughtException", noop);
 		process.on("SIGUSR2", noop);
 	},
+	"write-callbacks": () => {
+		process.stdout.write("x", () =>
+			process.stdout.write("y", "utf8", () => process.exit(4)),
+		);
+	},
 	"read-file": () => say(fs.readFileSync(String(arg), "utf8")),
 	"entry-module": () => say(String(require.main === module)),
 	state: () => {

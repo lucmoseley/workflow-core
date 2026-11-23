@@ -44,7 +44,7 @@ describe("projectDirs", () => {
 		expect(projectDirs()).toEqual([projects(".claude"), projects(".claude2")]);
 	});
 
-	it("adds each worktree's slug a seat lists, from the main checkout or a worktree (#4236)", () => {
+	it("adds each worktree's slug a seat lists, a reaped one included, from the main checkout or a worktree (#4236)", () => {
 		home = fs.realpathSync(
 			fs.mkdtempSync(path.join(os.tmpdir(), "project-dirs-")),
 		);
@@ -66,14 +66,22 @@ describe("projectDirs", () => {
 		);
 		const worktree = path.join(main, ".claude", "worktrees", "w1");
 		git("worktree", "add", "-q", "--detach", worktree);
+		const reaped = path.join(main, ".claude", "worktrees", "gone");
+		git("worktree", "add", "-q", "--detach", reaped);
+		git("worktree", "remove", reaped);
 		const seat = path.join(home, ".claude");
 		const at = (p: string) => path.join(seat, "projects", projectSlug(p));
-		for (const p of [worktree, path.join(main, "elsewhere"), `${main}2`])
+		for (const p of [
+			worktree,
+			reaped,
+			path.join(main, "elsewhere"),
+			`${main}2`,
+		])
 			fs.mkdirSync(at(p), { recursive: true });
 		vi.stubEnv("CLAUDE_CONFIG_DIR", seat);
 		for (const k of knobs.slice(2)) vi.stubEnv(k, seat);
 
-		const want = [at(main), at(worktree)];
+		const want = [at(main), at(reaped), at(worktree)];
 		vi.stubEnv("CLAUDE_PROJECT_DIR", main);
 		expect(projectDirs()).toEqual(want);
 		vi.stubEnv("CLAUDE_PROJECT_DIR", worktree);
