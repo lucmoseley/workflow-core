@@ -52,9 +52,10 @@ class TransientFault extends Error {}
  * @typedef {import("./lander-records.js").PipelineRecord} PipelineRecord
  * @typedef {import("./lander-records.js").DropRecord} DropRecord
  * @typedef {{readonly ref: string, readonly sha: string}} DroppedRef
+ * @typedef {DroppedRef & {readonly remote: string}} TrackerDroppedRef
  * @typedef {{readonly main: string|null, readonly queue: readonly QueueRef[],
  *   readonly dropped: readonly DroppedRef[],
- *   readonly trackerDropped: readonly DroppedRef[]}} QueueRefs
+ *   readonly trackerDropped: readonly TrackerDroppedRef[]}} QueueRefs
  * @typedef {{readonly name: string, readonly sha: string,
  *   readonly onto: string, readonly main: string}} Deferral
  * @typedef {{readonly kind: "merged", readonly sha: string}
@@ -91,12 +92,13 @@ class TransientFault extends Error {}
  *     readonly held: readonly DroppedRef[]}
  *   | {readonly kind: "settle-drop", readonly drop: Drop,
  *     readonly main: string, readonly close: boolean,
+ *     readonly remote: string|null,
  *     readonly refresh: {readonly drop: Drop,
  *       readonly held: readonly DroppedRef[]}|null}
  *   | {readonly kind: "adopt-dropped-ref", readonly ref: string,
  *     readonly sha: string, readonly onto: string}
  *   | {readonly kind: "delete-dropped-ref", readonly ref: string,
- *     readonly sha: string}
+ *     readonly sha: string, readonly remote: string|null}
  *   | {readonly kind: "test-sha", readonly sha: string}
  *   | ({readonly kind: "rerun-files"} & TestRun)
  *   | {readonly kind: "check-base", readonly sha: string,
@@ -145,7 +147,7 @@ class TransientFault extends Error {}
  * @property {boolean} busy
  * @property {readonly Unread[]} unread
  * @property {readonly DroppedRef[]} dropped
- * @property {readonly DroppedRef[]} trackerDropped
+ * @property {readonly TrackerDroppedRef[]} trackerDropped
  * @property {readonly Drop[]} drops
  * @property {number} now
  * @property {(ticket: number) => boolean} isClosed
@@ -1204,6 +1206,17 @@ const isStanding = (d, isClosed) =>
  */
 const sameDropAs = (d) => (x) => x.ref === d.ref && x.sha === d.sha;
 
+// #5629
+/**
+ * @param {QueueState} s
+ * @param {DroppedRef} d
+ * @returns {string|null}
+ */
+const trackerHolderOf = (s, d) =>
+	s.dropped.some(sameDropAs(d))
+		? null
+		: (s.trackerDropped.find(sameDropAs(d))?.remote ?? null);
+
 /**
  * @template {{at: number}} T
  * @param {readonly T[]} drops
@@ -1232,6 +1245,7 @@ function settleAction(s, d, main) {
 		drop: d,
 		main,
 		close: d.ticket !== null && newer === undefined,
+		remote: trackerHolderOf(s, d),
 		refresh:
 			newer === undefined
 				? null
@@ -1451,7 +1465,12 @@ function idleAction(s, main, search, waiting) {
 			d.reapedAt === undefined && d.ticket !== null && s.isClosed(d.ticket),
 	);
 	if (reaped)
-		return { kind: "delete-dropped-ref", ref: reaped.ref, sha: reaped.sha };
+		return {
+			kind: "delete-dropped-ref",
+			ref: reaped.ref,
+			sha: reaped.sha,
+			remote: trackerHolderOf(s, reaped),
+		};
 	if (waiting.length === 0) return exit("no queue ref waits");
 	if (s.superseded)
 		return {
@@ -1521,7 +1540,7 @@ function stepOrEnd(s) {
  * @property {(onto: string, members: readonly Member[], fresh?: boolean,
  *   started?: (sha: string) => void) => MergeResult} mergeMembers
  * @property {(sha: string, leases: readonly Lease[]) => PushResult} pushMain
- * @property {(branch: string, sha: string) => boolean} deleteRef
+ * @property {(branch: string, sha: string, remote?: string) => boolean} deleteRef
  * @property {(sha: string, of: string) => boolean} isAncestor
  * @property {(branch: string, sha: string) => void} createRef
  * @typedef {object} QueueTracker
@@ -1776,7 +1795,11 @@ function refreshTicket(deps, ticket, reaped, { drop, held }) {
  * @param {QueueRun} run
  * @returns {QueueRun}
  */
-function settleDrop(deps, { drop: d, main, close, refresh }, run) {
+function settleDrop(
+	deps,
+	{ drop: d, main, close, remote: holder, refresh },
+	run,
+) {
 	const at = deps.now();
 	if (d.state !== "settled")
 		rewriteDrops(deps, sameDropAs(d), (x) => ({
@@ -1800,7 +1823,7 @@ function settleDrop(deps, { drop: d, main, close, refresh }, run) {
 		}
 		deps.logQueue("close", d);
 	} else deps.logQueue("settle", d);
-	deps.git.deleteRef(d.ref, d.sha);
+	deps.git.deleteRef(d.ref, d.sha, holder ?? undefined);
 	rewriteDrops(deps, sameDropAs(d), (x) => ({ ...x, reapedAt: at }));
 	if (refresh && ticket !== null) refreshTicket(deps, ticket, d.ref, refresh);
 	const { isClosed } = run;
@@ -2295,7 +2318,7 @@ async function act(deps, action, run) {
 				? run
 				: { ...run, kept: [...run.kept, `${action.name}@${action.sha}`] };
 		case "delete-dropped-ref":
-			git.deleteRef(action.ref, action.sha);
+			git.deleteRef(action.ref, action.sha, action.remote ?? undefined);
 			deps.drops.write(
 				deps.drops
 					.read()
@@ -2736,6 +2759,9 @@ const goneReason = (n) =>
 		? "its queue ref is gone from the remote"
 		: "their queue refs are gone from the remote";
 
+/** @param {string|null} holder */
+const onRemote = (holder) => (holder === null ? "" : ` on ${holder}`);
+
 /**
  * @param {QueueAction} a
  * @returns {string}
@@ -2766,13 +2792,13 @@ function buildQueueActionLine(a) {
 		case "file-fix-ticket":
 			return `file-fix-ticket ${a.drop.ref}@${short(a.drop.sha)}`;
 		case "settle-drop":
-			return `settle-drop ${a.drop.ref}@${short(a.drop.sha)} on main@${short(a.main)}${a.close ? `, closing #${a.drop.ticket}` : ""}`;
+			return `settle-drop ${a.drop.ref}@${short(a.drop.sha)}${onRemote(a.remote)} on main@${short(a.main)}${a.close ? `, closing #${a.drop.ticket}` : ""}`;
 		case "adopt-dropped-ref":
 			return `adopt-dropped-ref ${a.ref}@${short(a.sha)}`;
 		case "delete-landed-ref":
 			return `delete-landed-ref ${queueBranch(a.name)}@${short(a.sha)}`;
 		case "delete-dropped-ref":
-			return `delete-dropped-ref ${a.ref}@${short(a.sha)}`;
+			return `delete-dropped-ref ${a.ref}@${short(a.sha)}${onRemote(a.remote)}`;
 		case "rerun-files":
 			return `rerun-files ${a.sha} pass ${a.pass}: ${a.files.join(", ")}`;
 		case "check-base":

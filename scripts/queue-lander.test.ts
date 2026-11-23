@@ -1038,10 +1038,18 @@ describe("the adapters", () => {
 			);
 		}
 
-		const { dropped, trackerDropped } = queueGit(work).refs();
+		const g = queueGit(work);
+		const { dropped, trackerDropped } = g.refs();
 
 		expect(dropped).toEqual([]);
-		expect(trackerDropped).toEqual([{ ref: "dropped/a", sha: a }]);
+		expect(trackerDropped).toEqual([
+			{ ref: "dropped/a", sha: a, remote: "archive" },
+		]);
+
+		expect(g.deleteRef("dropped/a", a, "archive")).toBe(true);
+		expect(
+			git(path.join(tmp, "tracker.git"), "branch", "--list"),
+		).not.toContain("dropped/a");
 	});
 
 	it("merges a lone member descending from main as a new commit where asked fresh, never its own sha", () => {

@@ -254,11 +254,11 @@ const readConflictedFiles = (inTree) =>
 /**
  * @param {string} root
  * @param {string[]} args
- * @param {NodeJS.ProcessEnv} [env]
+ * @param {{env?: NodeJS.ProcessEnv, to?: string}} [options]
  */
-function pushRemote(root, args, env = process.env) {
+function pushRemote(root, args, { env = process.env, to = REMOTE } = {}) {
 	try {
-		execGit(["push", "--quiet", REMOTE, ...args], {
+		execGit(["push", "--quiet", to, ...args], {
 			cwd: root,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
@@ -284,12 +284,15 @@ const GONE = /remote ref does not exist/;
  * @param {string} root
  * @param {string} branch
  * @param {string} sha
+ * @param {string} [to]
  * @returns {boolean}
  */
-function deleteRemoteRef(root, branch, sha) {
+function deleteRemoteRef(root, branch, sha, to = REMOTE) {
 	const ref = `refs/heads/${branch}`;
 	try {
-		pushRemote(root, [`--force-with-lease=${ref}:${sha}`, `:${ref}`]);
+		pushRemote(root, [`--force-with-lease=${ref}:${sha}`, `:${ref}`], {
+			to,
+		});
 		return true;
 	} catch (err) {
 		const refused = parseErrorText(err);
