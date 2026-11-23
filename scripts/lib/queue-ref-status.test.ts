@@ -19,29 +19,33 @@ let member: string;
 let merged: string;
 let later: string;
 
-const git = (...args: string[]) =>
-	execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+const gitIn =
+	(at: string) =>
+	(...args: string[]) =>
+		execFileSync("git", args, { cwd: at, encoding: "utf8" }).trim();
+const git = (...args: string[]) => gitIn(root)(...args);
 
-const commit = (name: string) => {
-	fs.writeFileSync(path.join(root, `${name}.txt`), name);
-	git("add", "-A");
-	git("commit", "-qm", name);
-	return git("rev-parse", "HEAD");
+const commitIn = (at: string, name: string) => {
+	const g = gitIn(at);
+	fs.writeFileSync(path.join(at, `${name}.txt`), name);
+	g("add", "-A");
+	g("commit", "-qm", name);
+	return g("rev-parse", "HEAD");
 };
 
 const markers = () => path.join(root, ".claude", "tmp", "markers");
 const short = (sha: string) => sha.slice(0, 9);
 
 const history = defineTemplate((dir) => {
-	root = dir;
-	git("init", "-q", "-b", "main");
-	git("config", "user.email", "t@t");
-	git("config", "user.name", "t");
-	const base = commit("seed");
-	const side = commit("member");
-	commit("later");
-	git("checkout", "-q", "--detach", base);
-	git("merge", "-q", "--no-ff", "--no-edit", side);
+	const g = gitIn(dir);
+	g("init", "-q", "-b", "main");
+	g("config", "user.email", "t@t");
+	g("config", "user.name", "t");
+	const base = commitIn(dir, "seed");
+	const side = commitIn(dir, "member");
+	commitIn(dir, "later");
+	g("checkout", "-q", "--detach", base);
+	g("merge", "-q", "--no-ff", "--no-edit", side);
 });
 
 beforeEach(() => {

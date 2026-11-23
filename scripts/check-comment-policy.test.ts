@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHookShim } from "./lib/adopter-skeleton.js";
 import { CODE_FILE } from "./lib/comment-policy.js";
 import { coreOwnedPaths } from "./lib/core-owned-files.js";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { dispatch } from "./lib/precommit-dispatch.js";
 import { factsAt } from "./lib/precommit-dispatch-ports.js";
 import { GATES } from "./lib/precommit-gates.js";
@@ -30,13 +30,7 @@ let hooks: string;
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: root, stdio: "pipe" });
 
-const mainRepo = defineTemplate((dir) => {
-	const g = (...args: string[]) =>
-		execFileSync("git", args, { cwd: dir, stdio: "pipe" });
-	g("init", "-q", "-b", "main");
-	g("config", "user.email", "test@example.com");
-	g("config", "user.name", "test");
-});
+const mainRepo = defineTemplate(identityRepoTemplate);
 
 const write = (rel: string, text: string) => {
 	fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });

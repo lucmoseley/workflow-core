@@ -28,15 +28,11 @@ const OVER_TOTAL = OVER_N * OVER_EACH;
 
 let dir: string;
 
-const seed = () => {
+beforeEach(() => {
+	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-session-"));
 	pool();
 	injector();
 	ruleCap(RULE_CAP);
-};
-
-beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-session-"));
-	seed();
 });
 
 afterEach(() => {
@@ -805,7 +801,6 @@ describe("--against HEAD over a guard's own bytes", () => {
 
 	beforeEach(() => {
 		mainRepo.instantiate(dir);
-		seed();
 	});
 
 	function baseline() {

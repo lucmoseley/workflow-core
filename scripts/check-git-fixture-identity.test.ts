@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-git-fixture-identity.js");
@@ -16,13 +16,7 @@ let dir: string;
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
-const identityRepo = defineTemplate((at) => {
-	const g = (...args: string[]) =>
-		execFileSync("git", args, { cwd: at, encoding: "utf8" });
-	g("init", "-q");
-	g("config", "user.email", "t@t");
-	g("config", "user.name", "t");
-});
+const identityRepo = defineTemplate(identityRepoTemplate);
 
 const track = (rel: string, body: string) => {
 	fs.mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });

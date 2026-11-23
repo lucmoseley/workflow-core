@@ -117,13 +117,7 @@ const seeded = defineTemplate((root) => {
 beforeEach(() => {
 	sleeper = null;
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "level-")));
-	seeded.instantiate(tmp, {
-		extraPaths: [
-			"lander/.git/logs/HEAD",
-			"lander/.git/logs/refs/heads/main",
-			"lander/.git/logs/refs/remotes/origin/HEAD",
-		],
-	});
+	seeded.instantiate(tmp);
 	main = path.join(tmp, "main");
 	worktree = path.join(tmp, "session");
 	lander = path.join(tmp, "lander");

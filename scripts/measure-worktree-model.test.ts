@@ -67,12 +67,6 @@ function writeTranscript(at: number) {
 	fs.utimesSync(path.join(dir, "s1.jsonl"), when, when);
 }
 
-const CLONE_REFLOGS = [
-	"main/.git/logs/HEAD",
-	"main/.git/logs/refs/heads/main",
-	"main/.git/logs/refs/remotes/origin/HEAD",
-];
-
 const cloned = defineTemplate((dir) => {
 	const origin = path.join(dir, "origin.git");
 	const seed = path.join(dir, "seed");
@@ -91,7 +85,6 @@ const cloned = defineTemplate((dir) => {
 beforeEach(() => {
 	tmp = cloned.instantiate(
 		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wtm-"))),
-		{ extraPaths: CLONE_REFLOGS },
 	);
 	main = path.join(tmp, "main");
 	seat = path.join(tmp, "seat-a");

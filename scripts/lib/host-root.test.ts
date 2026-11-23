@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	bareRepoTemplate,
 	defineTemplate,
 	mkDirOutsideRepo,
 	mkScratchDir,
@@ -13,9 +14,7 @@ import {
 const SEAM = path.join(__dirname, "host-root.js");
 
 const template = defineTemplate(trioTemplate());
-const bareRepo = defineTemplate((at) => {
-	spawnSync("git", ["init", "-q", "--bare", at]);
-});
+const bareRepo = defineTemplate(bareRepoTemplate);
 
 describe("the host seam", () => {
 	let dir: string;

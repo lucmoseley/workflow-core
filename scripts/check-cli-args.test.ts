@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-cli-args.js");
@@ -16,13 +16,7 @@ let hooks: string;
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: root, stdio: "pipe" });
 
-const mainRepo = defineTemplate((dir) => {
-	const g = (...args: string[]) =>
-		execFileSync("git", args, { cwd: dir, stdio: "pipe" });
-	g("init", "-q", "-b", "main");
-	g("config", "user.email", "test@example.com");
-	g("config", "user.name", "test");
-});
+const mainRepo = defineTemplate(identityRepoTemplate);
 
 const script = (name: string, body: string) => {
 	fs.mkdirSync(path.join(root, "scripts"), { recursive: true });

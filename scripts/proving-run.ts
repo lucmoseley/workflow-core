@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { type RouteAnswer, stubGhHandler, stubGhRoutes } from "./lib/gh-stub";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { Session } from "./proving-session";
 
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -11,10 +11,8 @@ const REPO_ROOT = path.resolve(__dirname, "..");
 const arenaRepo = defineTemplate((dir) => {
 	const repo = path.join(dir, "repo");
 	fs.mkdirSync(repo);
+	identityRepoTemplate(repo);
 	const git = (...args: string[]) => execFileSync("git", args, { cwd: repo });
-	git("init", "-q", "-b", "main", ".");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
 	// lucmoseley/mantahostels#100
 	git("config", "core.hooksPath", path.join(dir, "no-hooks"));
 	git("config", "branch.main.merge", "refs/heads/landing");

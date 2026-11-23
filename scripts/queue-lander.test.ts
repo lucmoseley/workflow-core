@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineTemplate } from "./lib/git-fixture";
+import { bareRepoTemplate, defineTemplate } from "./lib/git-fixture";
 import {
 	build,
 	hooksWiring,
@@ -55,9 +55,7 @@ const { TransientFault } = createRequire(__filename)("./lib/queue-lander.js");
 const { PushRefused } = createRequire(__filename)("./lib/network-fault.js");
 
 const START_LANDER = path.resolve(__dirname, "start-lander.js");
-const bareRepo = defineTemplate((dir) => {
-	execFileSync("git", ["init", "-q", "--bare", dir]);
-});
+const bareRepo = defineTemplate(bareRepoTemplate);
 const ANCHORS = ".claude/guard-registry-anchors.json";
 
 const isLive = (pid: string) => {

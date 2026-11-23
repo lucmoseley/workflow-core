@@ -1281,11 +1281,14 @@ describe("the repo a close names", () => {
 
 		it("reads an undeclared tracker off the origin remote (#1481)", () => {
 			writeTracker({});
-			for (const args of [
-				["init", "-q"],
-				["remote", "add", "origin", "git@github.com:acme/tracker.git"],
-			])
-				spawnSync("git", ["-C", shared, ...args]);
+			spawnSync("git", [
+				"-C",
+				shared,
+				"remote",
+				"add",
+				"origin",
+				"git@github.com:acme/tracker.git",
+			]);
 			expect(cardClose("gh issue close 12 --repo owner/other")).toBe("allow");
 			expect(cardClose("gh issue close 12 --repo acme/tracker")).toBe("deny");
 		});

@@ -17,13 +17,17 @@ const DOC2 = ["docs", "other.md"].join("/");
 
 let dir: string;
 
-const write = (file: string, body: string) => {
-	fs.mkdirSync(path.join(dir, path.dirname(file)), { recursive: true });
-	fs.writeFileSync(path.join(dir, file), body);
+const writeIn = (root: string, file: string, body: string) => {
+	fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true });
+	fs.writeFileSync(path.join(root, file), body);
 };
 
-const git = (...args: string[]) =>
-	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+const write = (file: string, body: string) => writeIn(dir, file, body);
+
+const gitIn = (root: string, ...args: string[]) =>
+	execFileSync("git", args, { cwd: root, encoding: "utf8" });
+
+const git = (...args: string[]) => gitIn(dir, ...args);
 
 const runResult = (...args: string[]) =>
 	runInProcess(SCRIPT, ["--root", dir, ...args], { cwd: dir });
@@ -38,19 +42,19 @@ const readManifest = () =>
 	JSON.parse(fs.readFileSync(path.join(dir, OUT), "utf8")).edges;
 
 const staged = defineTemplate((root) => {
-	dir = root;
-	git("init", "-q");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
-	write(DOC, "a tracked document\n");
-	write("scripts/reader.test.ts", `process.cwd(); read("${DOC}");`);
-	write("scripts/fixture.test.ts", `tmpdir(); write("${DOC}");`);
-	git("add", "-A");
+	gitIn(root, "init", "-q");
+	gitIn(root, "config", "user.email", "test@example.com");
+	gitIn(root, "config", "user.name", "test");
+	writeIn(root, DOC, "a tracked document\n");
+	writeIn(root, "scripts/reader.test.ts", `process.cwd(); read("${DOC}");`);
+	writeIn(root, "scripts/fixture.test.ts", `tmpdir(); write("${DOC}");`);
+	gitIn(root, "add", "-A");
 });
 
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "read-edges-"));
-	staged.instantiate(dir);
+	dir = staged.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "read-edges-")),
+	);
 });
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));

@@ -47,21 +47,17 @@ const SPARE_PATH: string = poolMember(
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-"));
+	fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+	fs.mkdirSync(path.join(dir, ".claude", "skills"), { recursive: true });
+	fs.mkdirSync(path.join(dir, ".claude", "commands"), { recursive: true });
 	vi.stubEnv("WFC_TRACKER_TEXT_FILE", path.join(dir, TEXT_MODULE));
 	const emptyFallback = fs.mkdtempSync(
 		path.join(os.tmpdir(), "ctxbudget-fallback-"),
 	);
 	rulesFallbackDirs.push(emptyFallback);
 	vi.stubEnv("WFC_RULES_FALLBACK_DIR", emptyFallback);
-	seedDir();
-});
-
-function seedDir() {
-	fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
-	fs.mkdirSync(path.join(dir, ".claude", "skills"), { recursive: true });
-	fs.mkdirSync(path.join(dir, ".claude", "commands"), { recursive: true });
 	injector(INJECTION_CAP - 1);
-}
+});
 
 function injector(bytes: number, extra = "") {
 	writeTextModule(dir, textModuleSource("x".repeat(bytes), extra));
@@ -884,7 +880,6 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 
 	beforeEach(() => {
 		mainRepo.instantiate(dir);
-		seedDir();
 	});
 
 	function baseline() {

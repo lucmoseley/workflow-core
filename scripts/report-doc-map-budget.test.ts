@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { printed, refused, stubGhRoutes } from "./lib/gh-stub";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -18,12 +18,7 @@ const commas = (n: number) => n.toLocaleString("en-GB");
 const TITLE = "doc-map §B — drain the entries over the 300-word prose cap";
 
 const temps: string[] = [];
-const configuredRepo = defineTemplate((dir) => {
-	const git = (...args: string[]) => execFileSync("git", args, { cwd: dir });
-	git("init", "-q", "-b", "main", ".");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
-});
+const configuredRepo = defineTemplate(identityRepoTemplate);
 afterEach(() => {
 	for (const t of temps.splice(0))
 		fs.rmSync(t, { recursive: true, force: true });

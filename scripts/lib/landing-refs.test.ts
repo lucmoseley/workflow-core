@@ -91,9 +91,9 @@ describe("pushedRef", () => {
 });
 
 describe("readUnpushedRef", () => {
-	function checkout(branch: string, upstream?: string) {
+	const branchBuild = (branch: string, upstream?: string) => (dir: string) => {
 		const git = (...args: string[]) =>
-			execFileSync("git", args, { cwd: root, stdio: "ignore" });
+			execFileSync("git", args, { cwd: dir, stdio: "ignore" });
 		git("init", "-q", "-b", branch);
 		git(
 			"-c",
@@ -107,7 +107,7 @@ describe("readUnpushedRef", () => {
 			"c",
 		);
 		if (!upstream) return;
-		git("remote", "add", "origin", root);
+		git("remote", "add", "origin", dir);
 		git("update-ref", `refs/remotes/${upstream}`, "HEAD");
 		git("config", `branch.${branch}.remote`, "origin");
 		git(
@@ -115,10 +115,15 @@ describe("readUnpushedRef", () => {
 			`branch.${branch}.merge`,
 			`refs/heads/${upstream.slice("origin/".length)}`,
 		);
-	}
+	};
+
+	const branches = defineTemplate({
+		spike: branchBuild("spike/x", "origin/spike/x"),
+		wip: branchBuild("wip"),
+	});
 
 	it("is a spike branch's own upstream", () => {
-		checkout("spike/x", "origin/spike/x");
+		branches.instantiate(root, "spike");
 		expect(readUnpushedRef({ root })).toBe("origin/spike/x");
 	});
 
@@ -129,7 +134,7 @@ describe("readUnpushedRef", () => {
 	});
 
 	it("is the pushed ref on a branch with no upstream", () => {
-		checkout("wip");
+		branches.instantiate(root, "wip");
 		expect(readUnpushedRef({ root })).toBe("origin/main");
 	});
 });

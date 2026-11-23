@@ -4,7 +4,11 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
+import {
+	defineTemplate,
+	identityRepoTemplate,
+	mkScratchDir,
+} from "./lib/git-fixture";
 import { buildReleaseMessage } from "./lib/release-tags.js";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -32,9 +36,8 @@ const cut = (tag: string, message: string) => cutIn(repo, tag, message);
 
 const released = defineTemplate((root) => {
 	const at = path.join(root, "repo");
-	execFileSync("git", ["init", "-q", "-b", "main", at]);
-	gitIn(at, "config", "user.email", "test@example.com");
-	gitIn(at, "config", "user.name", "test");
+	fs.mkdirSync(at);
+	identityRepoTemplate(at);
 	gitIn(at, "config", "core.hooksPath", path.join(root, "no-hooks"));
 
 	cutIn(at, "v0.9.0", "Release demo v0.9.0");

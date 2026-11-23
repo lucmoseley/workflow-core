@@ -13,7 +13,7 @@ import {
 	expect,
 	it,
 } from "vitest";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { buildTree } from "./lib/plugin-tree.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -46,13 +46,7 @@ const run = (...args: string[]) => {
 const UNQUOTED = "Turn it on or off: Sonnet up to Opus.";
 const QUOTED = `"${UNQUOTED}"`;
 
-const repoTemplate = defineTemplate((at) => {
-	execFileSync("git", ["init", "-q", "-b", "main"], { cwd: at });
-	execFileSync("git", ["config", "user.email", "test@example.com"], {
-		cwd: at,
-	});
-	execFileSync("git", ["config", "user.name", "test"], { cwd: at });
-});
+const repoTemplate = defineTemplate(identityRepoTemplate);
 
 beforeEach(() => {
 	root = repoTemplate.instantiate(

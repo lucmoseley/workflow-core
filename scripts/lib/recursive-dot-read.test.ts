@@ -20,30 +20,38 @@ let logs: string[];
 
 const EXPANSION = ".claude .gitignore CLAUDE.md app newdir";
 
-const git = (...args: string[]) =>
-	spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+const gitIn =
+	(at: string) =>
+	(...args: string[]) =>
+		spawnSync("git", ["-C", at, ...args], { encoding: "utf8" });
+const git = (...args: string[]) => gitIn(repo)(...args);
 
 const emptyRepo = defineTemplate(emptyRepoTemplate);
 
 const seeded = defineTemplate((d) => {
-	repo = d;
-	fs.mkdirSync(path.join(repo, "app"));
-	fs.mkdirSync(path.join(repo, ".claude"));
-	fs.writeFileSync(path.join(repo, "app", "a.ts"), "x\n");
-	fs.writeFileSync(path.join(repo, ".claude", "settings.json"), "{}\n");
-	fs.writeFileSync(path.join(repo, "CLAUDE.md"), "x\n");
-	fs.writeFileSync(path.join(repo, ".gitignore"), "node_modules/\n.cache/\n");
+	fs.mkdirSync(path.join(d, "app"));
+	fs.mkdirSync(path.join(d, ".claude"));
+	fs.writeFileSync(path.join(d, "app", "a.ts"), "x\n");
+	fs.writeFileSync(path.join(d, ".claude", "settings.json"), "{}\n");
+	fs.writeFileSync(path.join(d, "CLAUDE.md"), "x\n");
+	fs.writeFileSync(path.join(d, ".gitignore"), "node_modules/\n.cache/\n");
 
-	fs.mkdirSync(path.join(repo, "newdir"));
-	fs.writeFileSync(path.join(repo, "newdir", "b.ts"), "x\n");
-	fs.mkdirSync(path.join(repo, ".mypy_cache"));
-	fs.writeFileSync(path.join(repo, ".mypy_cache", "c"), "x\n");
-	fs.writeFileSync(path.join(repo, ".scratch.out"), "x\n");
-	fs.mkdirSync(path.join(repo, "node_modules"));
-	fs.writeFileSync(path.join(repo, "node_modules", "d"), "x\n");
+	fs.mkdirSync(path.join(d, "newdir"));
+	fs.writeFileSync(path.join(d, "newdir", "b.ts"), "x\n");
+	fs.mkdirSync(path.join(d, ".mypy_cache"));
+	fs.writeFileSync(path.join(d, ".mypy_cache", "c"), "x\n");
+	fs.writeFileSync(path.join(d, ".scratch.out"), "x\n");
+	fs.mkdirSync(path.join(d, "node_modules"));
+	fs.writeFileSync(path.join(d, "node_modules", "d"), "x\n");
 
-	git("init", "-q");
-	git("add", "app/a.ts", ".claude/settings.json", "CLAUDE.md", ".gitignore");
+	gitIn(d)("init", "-q");
+	gitIn(d)(
+		"add",
+		"app/a.ts",
+		".claude/settings.json",
+		"CLAUDE.md",
+		".gitignore",
+	);
 });
 
 beforeEach(() => {

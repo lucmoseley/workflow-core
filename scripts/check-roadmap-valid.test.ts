@@ -12,7 +12,7 @@ import {
 	witaStamp,
 } from "../.claude/skills/roadmap-edit/scripts/roadmap-fixture";
 import { seenFrom } from "./lib/core-path-testkit";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-roadmap-valid.js");
@@ -24,11 +24,7 @@ const gitIn = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" });
 const git = (...args: string[]) => gitIn(repo, ...args);
 
-const configuredRepo = defineTemplate((at) => {
-	gitIn(at, "init", "-q", ".");
-	gitIn(at, "config", "user.email", "test@example.com");
-	gitIn(at, "config", "user.name", "test");
-});
+const configuredRepo = defineTemplate(identityRepoTemplate);
 
 const newRepo = (tag: string) =>
 	configuredRepo.instantiate(fs.mkdtempSync(path.join(os.tmpdir(), tag)));

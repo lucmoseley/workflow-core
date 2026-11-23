@@ -108,9 +108,12 @@ const appendDecision = (
 	);
 };
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 function tableRepo() {
 	const root = wfc();
 	fs.rmSync(path.join(root, ".git"), { recursive: true });
+	emptyRepo.instantiate(root);
 	const git = (args: string[], env: object = {}) =>
 		execFileSync("git", args, {
 			cwd: root,
@@ -144,7 +147,6 @@ function tableRepo() {
 		});
 		return git(["rev-parse", "--short", "HEAD"]).trim();
 	};
-	git(["init", "-q"]);
 	return { git, table, commit };
 }
 
@@ -562,8 +564,6 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 	});
 
 	describe("throughput (#5275)", () => {
-		const emptyRepo = defineTemplate(emptyRepoTemplate);
-
 		afterEach(() => vi.unstubAllEnvs());
 
 		const readFiledBody = async () => {

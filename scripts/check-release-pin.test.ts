@@ -4,7 +4,11 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
+import {
+	defineTemplate,
+	identityRepoTemplate,
+	mkScratchDir,
+} from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-release-pin.js");
@@ -73,9 +77,7 @@ const repoAndRemote = defineTemplate((at) => {
 	const atRemote = path.join(at, "remote");
 	execFileSync("git", ["init", "-q", "--bare", "-b", "main", atRemote]);
 	fs.mkdirSync(path.join(atRepo, ".claude-plugin"), { recursive: true });
-	git(at, "init", "-q", "-b", "main", atRepo);
-	git(atRepo, "config", "user.email", "test@example.com");
-	git(atRepo, "config", "user.name", "test");
+	identityRepoTemplate(atRepo);
 	git(atRepo, "config", "core.hooksPath", path.join(at, "no-hooks"));
 	git(atRepo, "remote", "add", "origin", atRemote);
 });

@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -13,19 +13,24 @@ const SCRIPT = path.resolve(__dirname, "check-website-copy.js");
 
 let repo: string;
 
-const git = (...args: string[]) =>
-	execFileSync("git", args, { cwd: repo, encoding: "utf8" });
+const gitIn =
+	(at: string) =>
+	(...args: string[]) =>
+		execFileSync("git", args, { cwd: at, encoding: "utf8" });
+const git = (...args: string[]) => gitIn(repo)(...args);
 
-const write = (file: string, body: string) => {
-	fs.mkdirSync(path.join(repo, path.dirname(file)), { recursive: true });
-	fs.writeFileSync(path.join(repo, file), body);
+const writeIn = (at: string, file: string, body: string) => {
+	fs.mkdirSync(path.join(at, path.dirname(file)), { recursive: true });
+	fs.writeFileSync(path.join(at, file), body);
 };
+const write = (file: string, body: string) => writeIn(repo, file, body);
 
-const commit = (file: string, body: string) => {
-	write(file, body);
-	git("add", file);
-	git("commit", "-qm", "x");
+const commitIn = (at: string, file: string, body: string) => {
+	writeIn(at, file, body);
+	gitIn(at)("add", file);
+	gitIn(at)("commit", "-qm", "x");
 };
+const commit = (file: string, body: string) => commitIn(repo, file, body);
 
 const check = (...args: string[]) => {
 	const options = {
@@ -47,16 +52,8 @@ const check = (...args: string[]) => {
 };
 
 const cleanRepo = defineTemplate((at) => {
-	const own = repo;
-	repo = at;
-	try {
-		git("init", "-q", ".");
-		git("config", "user.email", "test@example.com");
-		git("config", "user.name", "test");
-		commit("app/clean.tsx", 'export const c = "Surf, sleep, repeat.";\n');
-	} finally {
-		repo = own;
-	}
+	identityRepoTemplate(at);
+	commitIn(at, "app/clean.tsx", 'export const c = "Surf, sleep, repeat.";\n');
 });
 
 beforeEach(() => {

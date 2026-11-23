@@ -82,16 +82,9 @@ const pair = defineTemplate((at) => {
 	git(second, "config", "user.name", "t");
 });
 
-const CLONE_REFLOGS = [
-	"other/.git/logs/HEAD",
-	"other/.git/logs/refs/heads/main",
-	"other/.git/logs/refs/remotes/origin/HEAD",
-];
-
 beforeEach(() => {
 	tmp = pair.instantiate(
 		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cutover-"))),
-		{ extraPaths: CLONE_REFLOGS },
 	);
 	main = path.join(tmp, "main");
 	other = path.join(tmp, "other");

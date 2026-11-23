@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-restatement-edges.js");
@@ -15,14 +15,18 @@ const ALLOWLIST = "docs/doc-map-restatement-allowlist.json";
 
 let repo: string;
 
-const git = (...args: string[]) =>
-	execFileSync("git", args, { cwd: repo, encoding: "utf8" });
+const gitIn =
+	(at: string) =>
+	(...args: string[]) =>
+		execFileSync("git", args, { cwd: at, encoding: "utf8" });
+const git = (...args: string[]) => gitIn(repo)(...args);
 
-const track = (file: string, body: string) => {
-	fs.mkdirSync(path.join(repo, path.dirname(file)), { recursive: true });
-	fs.writeFileSync(path.join(repo, file), body);
-	git("add", "--", file);
+const trackIn = (at: string, file: string, body: string) => {
+	fs.mkdirSync(path.join(at, path.dirname(file)), { recursive: true });
+	fs.writeFileSync(path.join(at, file), body);
+	gitIn(at)("add", "--", file);
 };
+const track = (file: string, body: string) => trackIn(repo, file, body);
 
 const row = (p: string, cls: string) =>
 	`| \`${p}\` | a doc | \`${cls}\` | Direct | — |`;
@@ -55,15 +59,17 @@ const entry = (id: string, title: string, ...bullets: string[]) =>
 		"",
 	].join("\n");
 
-const edges = (
-	data: Record<
-		string,
-		{
-			paths: { path: string; locator?: string; gloss?: string }[];
-			note?: string;
-		}
-	>,
-) => track(RESTATEMENTS, JSON.stringify(data));
+type Edges = Record<
+	string,
+	{
+		paths: { path: string; locator?: string; gloss?: string }[];
+		note?: string;
+	}
+>;
+
+const edgesIn = (at: string, data: Edges) =>
+	trackIn(at, RESTATEMENTS, JSON.stringify(data));
+const edges = (data: Edges) => edgesIn(repo, data);
 
 const allow = (data: unknown) => track(ALLOWLIST, JSON.stringify(data));
 
@@ -82,18 +88,10 @@ const check = (...args: string[]) => {
 const json = (...args: string[]) => JSON.parse(check("--json", ...args).stdout);
 
 const stagedSeed = defineTemplate((at) => {
-	const own = repo;
-	repo = at;
-	try {
-		git("init", "-q", ".");
-		git("config", "user.email", "test@example.com");
-		git("config", "user.name", "test");
-		track("docs/history.bin", "on its date the figure was $45\n");
-		edges({ B1: { paths: [{ path: "docs/owner.md" }] } });
-		track("docs/owner.md", "the blended average order value is $45\n");
-	} finally {
-		repo = own;
-	}
+	identityRepoTemplate(at);
+	trackIn(at, "docs/history.bin", "on its date the figure was $45\n");
+	edgesIn(at, { B1: { paths: [{ path: "docs/owner.md" }] } });
+	trackIn(at, "docs/owner.md", "the blended average order value is $45\n");
 });
 
 beforeEach(() => {

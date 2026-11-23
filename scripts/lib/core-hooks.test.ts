@@ -280,7 +280,7 @@ describe("a materialised core revision (#2445)", () => {
 		};
 		expect(ownHooksFile(host, { core })).toBe(SELF_PLUGIN_HOOKS);
 		expect(readOwnHooks(host, { core })).toEqual(both);
-		initRepo(host);
+		configuredRepo.instantiate(host, "configured");
 		git(host, "add", "-A");
 		git(host, "commit", "-qm", "first");
 		write(host, SELF_PLUGIN_HOOKS, { hooks: stop("on-disk.sh") });

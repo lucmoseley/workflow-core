@@ -10,7 +10,7 @@ import {
 	readPendingConsent,
 	setPendingConsent,
 } from "./lib/adopter-consent.js";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { noop } from "./lib/noop.js";
 import { writePsStub } from "./lib/ps-stub";
@@ -48,11 +48,7 @@ const repos = defineTemplate({
 			{ cwd: dir },
 		);
 	},
-	adopter: (dir) => {
-		execSync("git init -q -b main", { cwd: dir });
-		execSync("git config user.email t@t", { cwd: dir });
-		execSync("git config user.name t", { cwd: dir });
-	},
+	adopter: identityRepoTemplate,
 });
 
 function fixture({

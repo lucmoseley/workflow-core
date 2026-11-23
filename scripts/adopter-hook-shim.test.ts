@@ -7,16 +7,14 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { HOOKS, renderHookShim } from "./lib/adopter-skeleton";
 import { depsPattern, judgeSource } from "./lib/comment-policy.js";
-import { defineTemplate } from "./lib/git-fixture";
+import { bareRepoTemplate, defineTemplate } from "./lib/git-fixture";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 const ROOT = path.join(__dirname, "..");
 const KEY = "workflow-core@wc";
-const bareRepo = defineTemplate((dir) => {
-	execFileSync("git", ["init", "-q", "--bare", "."], { cwd: dir });
-});
+const bareRepo = defineTemplate(bareRepoTemplate);
 
 function fakeCore(dir: string, version: string, log: string) {
 	fs.mkdirSync(path.join(dir, ".claude-plugin"), { recursive: true });

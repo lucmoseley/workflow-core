@@ -13,15 +13,17 @@ const PAGE = path.resolve(__dirname, "..", "docs", "adopter-boundary.md");
 
 let root: string;
 
-const write = (rel: string, body: string) => {
-	fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
-	fs.writeFileSync(path.join(root, rel), body);
+const writeIn = (at: string, rel: string, body: string) => {
+	fs.mkdirSync(path.dirname(path.join(at, rel)), { recursive: true });
+	fs.writeFileSync(path.join(at, rel), body);
 };
+const write = (rel: string, body: string) => writeIn(root, rel, body);
 
-const track = (...rels: string[]) => {
-	for (const rel of rels) write(rel, "x\n");
-	execFileSync("git", ["add", "--", ...rels], { cwd: root });
+const trackIn = (at: string, ...rels: string[]) => {
+	for (const rel of rels) writeIn(at, rel, "x\n");
+	execFileSync("git", ["add", "--", ...rels], { cwd: at });
 };
+const track = (...rels: string[]) => trackIn(root, ...rels);
 
 const run = () => {
 	const r = runInProcess(SCRIPT, ["--root", root], {
@@ -35,8 +37,7 @@ const page = () => fs.readFileSync(PAGE, "utf8");
 
 const tracked = defineTemplate((dir) => {
 	execFileSync("git", ["init", "-q"], { cwd: dir });
-	root = dir;
-	track("scripts/x.js", "docs/x.md", "CLAUDE.md");
+	trackIn(dir, "scripts/x.js", "docs/x.md", "CLAUDE.md");
 });
 
 beforeEach(() => {

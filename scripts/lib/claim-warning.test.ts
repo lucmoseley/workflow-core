@@ -16,7 +16,7 @@ import {
 } from "./arbiter-testkit";
 import { warnings } from "./claim-warning.js";
 import { buildHostPorts } from "./claimed-bash-write-host.js";
-import { defineTemplate } from "./git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./git-fixture";
 import { runCore } from "./guard-core-testkit";
 import { buildBashPayload } from "./pretool-guard-testkit";
 
@@ -35,10 +35,7 @@ const sandboxRepo = defineTemplate((dir) => {
 		path.join(dir, "package.json"),
 		'{"scripts":{"test":"node scripts/run-vitest.js"}}',
 	);
-	const git = gitIn(dir);
-	git("init", "-q", "-b", "main", ".");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
+	identityRepoTemplate(dir);
 });
 
 const sb = freshSandbox((fresh) => {

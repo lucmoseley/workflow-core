@@ -103,17 +103,9 @@ const pushed = defineTemplate((root) => {
 
 const emptyRepo = defineTemplate(emptyRepoTemplate);
 
-const CLONE_REFLOGS = [
-	"logs/HEAD",
-	"logs/refs/heads/main",
-	"logs/refs/remotes/origin/HEAD",
-].map((log) => path.join("checkout", ".git", log));
-
 beforeEach(() => {
 	atRoot(
-		pushed.instantiate(fs.mkdtempSync(path.join(os.tmpdir(), "refill-code-")), {
-			extraPaths: CLONE_REFLOGS,
-		}),
+		pushed.instantiate(fs.mkdtempSync(path.join(os.tmpdir(), "refill-code-"))),
 	);
 });
 

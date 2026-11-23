@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { defineTemplate } from "./lib/git-fixture";
+import { bareRepoTemplate, defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -56,18 +56,23 @@ const buildRefLine = (local: string, remoteRef = "refs/heads/landing") =>
 const check = (stdin: string, url = CODE_URL) =>
 	runInProcess(CHECK, [url], { cwd: work, env: { ...process.env }, stdin });
 
-const bareRepo = defineTemplate((dir) => {
-	execFileSync("git", ["init", "-q", "--bare", dir]);
-});
+const bareRepo = defineTemplate(bareRepoTemplate);
 
-let grafted = { old: "", root: "", next: "" };
+const commitTreeIn = (at: string, ...args: string[]) =>
+	gitIn(at)(
+		"-c",
+		"user.email=t@t",
+		"-c",
+		"user.name=t",
+		"commit-tree",
+		...args,
+	);
 
 const graftedRepo = defineTemplate((dir) => {
 	const at = path.join(dir, "work");
 	fs.mkdirSync(at);
 	const gitAt = gitIn(at);
-	const commitTree = (...args: string[]) =>
-		gitAt("-c", "user.email=t@t", "-c", "user.name=t", "commit-tree", ...args);
+	const commitTree = (...args: string[]) => commitTreeIn(at, ...args);
 	gitAt("init", "-q", "-b", "main");
 	const seed = commitTree(
 		"-m",
@@ -77,12 +82,10 @@ const graftedRepo = defineTemplate((dir) => {
 	const oldSha = commitTree("-p", seed, "-m", "old", `${seed}^{tree}`);
 	const rootSha = commitTree("-m", "squash", `${oldSha}^{tree}`);
 	gitAt("replace", "--graft", rootSha, oldSha);
-	const nextSha = commitTree("-p", rootSha, "-m", "next", `${rootSha}^{tree}`);
 	gitAt("remote", "add", "origin", CODE_URL);
 	gitAt("remote", "add", "archive", TRACKER_URL);
 	gitAt("update-ref", "refs/remotes/archive/main", oldSha);
 	writeConfig("o/code", at);
-	grafted = { old: oldSha, root: rootSha, next: nextSha };
 });
 
 beforeEach(() => {
@@ -90,7 +93,9 @@ beforeEach(() => {
 		fs.mkdtempSync(path.join(os.tmpdir(), "public-push-")),
 	);
 	work = path.join(tmp, "work");
-	({ old, root, next } = grafted);
+	old = git("rev-parse", "refs/remotes/archive/main");
+	root = git("replace", "-l");
+	next = commitTreeIn(work, "-p", root, "-m", "next", `${root}^{tree}`);
 });
 
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));

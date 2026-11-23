@@ -9,7 +9,7 @@ import { baselineOf } from "./check.js";
 import { readBaselineCommit } from "./citation-tracker.js";
 import { commitSha, readCommit } from "./commit-sha.js";
 import { gitReader } from "./git.js";
-import { defineTemplate } from "./git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./git-fixture";
 
 let dir: string;
 
@@ -24,11 +24,7 @@ function commitOnce() {
 	return git(["rev-parse", "HEAD"]);
 }
 
-const configuredRepo = defineTemplate((at) => {
-	git(["init", "-q", "-b", "main"], at);
-	git(["config", "user.email", "t@example.invalid"], at);
-	git(["config", "user.name", "Test"], at);
-});
+const configuredRepo = defineTemplate(identityRepoTemplate);
 
 beforeEach(() => {
 	dir = configuredRepo.instantiate(

@@ -7,7 +7,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { orFallback } from "./lib/caught.js";
 import { MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 import { useScratchCore } from "./lib/scratch-core-testkit";
 
@@ -147,13 +147,7 @@ function script(name: string, { executable = true } = {}) {
 	return at;
 }
 
-const marketRepo = defineTemplate((at) => {
-	const marketGit = (...args: string[]) =>
-		spawnSync("git", ["-C", at, ...args], { encoding: "utf8" });
-	marketGit("init", "-q");
-	marketGit("config", "user.email", "t@example.invalid");
-	marketGit("config", "user.name", "t");
-});
+const marketRepo = defineTemplate(identityRepoTemplate);
 
 function plugin(
 	cfg: string,
