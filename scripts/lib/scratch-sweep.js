@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught, ignoreFailure } = require("./caught.js");
+const { caught } = require("./caught.js");
 
 // guess, lucmoseley/mantahostels#2090
 const SCRATCH_AGE_MS = 24 * 60 * 60 * 1000;
@@ -258,18 +258,3 @@ module.exports = {
 	sweepScratch,
 	writtenAtMs,
 };
-
-if (require.main === module) {
-	ignoreFailure(() => {
-		const core = require("./arbiter-core");
-		const { listedAgents } = require("./agent-liveness");
-		const { hostRoot } = require("./host-root.js");
-		sweepScratch({
-			dir:
-				process.env.WFC_SCRATCH_DIR || path.join(hostRoot(), ".claude", "tmp"),
-			readAgents: () => listedAgents({ requireSelf: false }),
-			logError: core.logError,
-		});
-	});
-	process.exit(0);
-}
