@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { buildReport, level, renderOutcome } from "./lib/level-main.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -28,7 +29,6 @@ const CANARY_FILES = [
 const HOUR = 3_600_000;
 
 let tmp: string;
-let origin: string;
 let main: string;
 let worktree: string;
 let lander: string;
@@ -79,26 +79,16 @@ const run = (cwd: string, ...args: string[]) =>
 const builtLock = () =>
 	fs.readFileSync(path.join(main, "node_modules", "lock"), "utf8");
 
-beforeEach(() => {
-	sleeper = null;
-	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "level-")));
-	origin = path.join(tmp, "origin.git");
-	main = path.join(tmp, "main");
-	worktree = path.join(tmp, "session");
-	lander = path.join(tmp, "lander");
-	npmCalls = path.join(tmp, "npm-calls");
-	npmStub = path.join(tmp, "npm");
-	fs.writeFileSync(
-		npmStub,
-		`#!/bin/sh\nmkdir node_modules && cp package-lock.json node_modules/lock && pwd >> ${shellQuote(npmCalls)}\n`,
-	);
-	fs.chmodSync(npmStub, 0o755);
-	git(tmp, "init", "-q", "--bare", "-b", "main", origin);
-	git(tmp, "clone", "-q", origin, main);
-	git(main, "config", "user.email", "t@t");
-	git(main, "config", "user.name", "t");
+const seeded = defineTemplate((root) => {
+	const bare = path.join(root, "origin.git");
+	const clone = path.join(root, "main");
+	const landerClone = path.join(root, "lander");
+	git(root, "init", "-q", "--bare", "-b", "main", bare);
+	git(root, "clone", "-q", bare, clone);
+	git(clone, "config", "user.email", "t@t");
+	git(clone, "config", "user.name", "t");
 	commitIn(
-		main,
+		clone,
 		{
 			".gitignore": "/node_modules\n",
 			"package.json": "{}\n",
@@ -109,11 +99,41 @@ beforeEach(() => {
 		},
 		"seed",
 	);
-	git(main, "push", "-q", "origin", "HEAD:main");
-	git(main, "worktree", "add", "-q", "--detach", worktree, "origin/main");
-	git(tmp, "clone", "-q", origin, lander);
-	git(lander, "config", "user.email", "t@t");
-	git(lander, "config", "user.name", "t");
+	git(clone, "push", "-q", "origin", "HEAD:main");
+	git(
+		clone,
+		"worktree",
+		"add",
+		"-q",
+		"--detach",
+		path.join(root, "session"),
+		"origin/main",
+	);
+	git(root, "clone", "-q", bare, landerClone);
+	git(landerClone, "config", "user.email", "t@t");
+	git(landerClone, "config", "user.name", "t");
+});
+
+beforeEach(() => {
+	sleeper = null;
+	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "level-")));
+	seeded.instantiate(tmp, {
+		extraPaths: [
+			"lander/.git/logs/HEAD",
+			"lander/.git/logs/refs/heads/main",
+			"lander/.git/logs/refs/remotes/origin/HEAD",
+		],
+	});
+	main = path.join(tmp, "main");
+	worktree = path.join(tmp, "session");
+	lander = path.join(tmp, "lander");
+	npmCalls = path.join(tmp, "npm-calls");
+	npmStub = path.join(tmp, "npm");
+	fs.writeFileSync(
+		npmStub,
+		`#!/bin/sh\nmkdir node_modules && cp package-lock.json node_modules/lock && pwd >> ${shellQuote(npmCalls)}\n`,
+	);
+	fs.chmodSync(npmStub, 0o755);
 	expect(pass().install.installed).toBe(true);
 	fs.rmSync(npmCalls, { force: true });
 });

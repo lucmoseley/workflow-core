@@ -11,6 +11,7 @@ import {
 	writeLaunchAnswer,
 } from "./lib/bg-launch-fake";
 import { buildBgBranch, writeClaudeStub } from "./lib/claude-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { STATUS_TIMEOUT_MS } from "./lib/launch-auth.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -117,9 +118,27 @@ const cutNames = () =>
 		? fs.readdirSync(worktrees()).filter((n) => !n.startsWith("."))
 		: [];
 
+const seeded = defineTemplate((root) => {
+	const origin = path.join(root, "origin.git");
+	const clone = path.join(root, "main");
+	git(root, "init", "-q", "--bare", "-b", "main", origin);
+	git(root, "clone", "-q", origin, clone);
+	git(clone, "config", "user.email", "t@t");
+	git(clone, "config", "user.name", "t");
+	for (const [name, text] of Object.entries({
+		".gitignore": "/node_modules\n.claude/worktrees/\n",
+		"package.json": "{}\n",
+		"package-lock.json": "lock-1\n",
+	}))
+		fs.writeFileSync(path.join(clone, name), text);
+	git(clone, "add", "-A");
+	git(clone, "commit", "-qm", "seed");
+	git(clone, "push", "-q", "origin", "HEAD:main");
+});
+
 beforeEach(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mcjob-")));
-	const origin = path.join(tmp, "origin.git");
+	seeded.instantiate(tmp);
 	main = path.join(tmp, "main");
 	seat = path.join(tmp, "seat");
 	jobDir = path.join(seat, "jobs", RECORD.daemonShort);
@@ -131,19 +150,6 @@ beforeEach(() => {
 		`#!/bin/sh\nmkdir node_modules && pwd >> ${shellQuote(path.join(tmp, "npm-calls"))}\n`,
 	);
 	fs.chmodSync(path.join(tmp, "npm"), 0o755);
-	git(tmp, "init", "-q", "--bare", "-b", "main", origin);
-	git(tmp, "clone", "-q", origin, main);
-	git(main, "config", "user.email", "t@t");
-	git(main, "config", "user.name", "t");
-	for (const [name, text] of Object.entries({
-		".gitignore": "/node_modules\n.claude/worktrees/\n",
-		"package.json": "{}\n",
-		"package-lock.json": "lock-1\n",
-	}))
-		fs.writeFileSync(path.join(main, name), text);
-	git(main, "add", "-A");
-	git(main, "commit", "-qm", "seed");
-	git(main, "push", "-q", "origin", "HEAD:main");
 	writeRecord(RECORD);
 });
 

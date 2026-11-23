@@ -1,10 +1,10 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -28,12 +28,15 @@ const register = (...cards: string[]) =>
 		"",
 	].join("\n");
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 let dir: string;
 let config: string;
 
 beforeEach(() => {
 	({ dir, config } = guardDirs("issue-phase-scope-entry-"));
-	execFileSync("git", ["init", "-q", dir]);
+	emptyRepo.instantiate(dir);
+	fs.mkdirSync(config, { recursive: true });
 	fs.mkdirSync(path.join(dir, "docs"));
 	fs.writeFileSync(path.join(dir, "docs/reference-roadmap.html"), ROADMAP);
 	fs.writeFileSync(path.join(dir, "docs/called-cards.md"), register());

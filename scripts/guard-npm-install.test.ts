@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
+import { defineTemplate } from "./lib/git-fixture";
 import {
 	buildPassingRegistry,
 	type Registry,
@@ -17,6 +18,10 @@ import {
 } from "./lib/pretool-guard-testkit";
 
 const CORE = "guard-npm-install";
+
+const mainRepo = defineTemplate((root) => {
+	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: root });
+});
 
 let dir: string;
 let config: string;
@@ -70,8 +75,7 @@ beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-npm-"));
 	config = path.join(dir, "config");
 	shared = path.join(dir, "shared");
-	fs.mkdirSync(shared, { recursive: true });
-	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: shared });
+	mainRepo.instantiate(shared);
 	fs.writeFileSync(
 		path.join(shared, "package.json"),
 		JSON.stringify({

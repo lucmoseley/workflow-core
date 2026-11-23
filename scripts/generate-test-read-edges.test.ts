@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { coreFile } from "./lib/core-path-testkit";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -36,8 +37,8 @@ const run = (...args: string[]) => {
 const readManifest = () =>
 	JSON.parse(fs.readFileSync(path.join(dir, OUT), "utf8")).edges;
 
-beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "read-edges-"));
+const staged = defineTemplate((root) => {
+	dir = root;
 	git("init", "-q");
 	git("config", "user.email", "test@example.com");
 	git("config", "user.name", "test");
@@ -45,6 +46,11 @@ beforeEach(() => {
 	write("scripts/reader.test.ts", `process.cwd(); read("${DOC}");`);
 	write("scripts/fixture.test.ts", `tmpdir(); write("${DOC}");`);
 	git("add", "-A");
+});
+
+beforeEach(() => {
+	dir = fs.mkdtempSync(path.join(os.tmpdir(), "read-edges-"));
+	staged.instantiate(dir);
 });
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));

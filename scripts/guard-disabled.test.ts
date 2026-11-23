@@ -1,9 +1,10 @@
 // @vitest-environment node
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 
 const REPO = path.resolve(__dirname, "..");
 const { CONTRACT } = require("./lib/workflow-core-config.js");
@@ -28,6 +29,8 @@ const disabledName = (guard: string) => {
 	return ROWS.has(row) ? row : path.basename(guard);
 };
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 let host: string;
 let home: string;
 let shim: string;
@@ -38,7 +41,7 @@ beforeEach(() => {
 	home = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "disabled-home-")),
 	);
-	execFileSync("git", ["init", "-q", host]);
+	emptyRepo.instantiate(host);
 	readMark = path.join(home, "stdin-read");
 	shim = path.join(home, "stdin-shim.cjs");
 	fs.writeFileSync(
