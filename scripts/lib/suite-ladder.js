@@ -242,7 +242,6 @@ module.exports = {
 	EARLYOOM_FLOOR_MB,
 	SUITE_MAX,
 	WHOLE_SUITE_MAX,
-	LADDER_SUITE_WORKERS,
 	SUITE_DIP_MB,
 	rungMb,
 	reachableRung,
