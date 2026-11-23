@@ -108,12 +108,6 @@ def root_files():
 
 
 def _files_under(root):
-    """(path relative to root, path, is_subagent) for one root's transcripts.
-
-    Subagent turns are NOT sidechain lines in the parent transcript, so a sweep
-    of `*.jsonl` alone undercounts spend. How far:
-    https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/burn-measurement-method-correction.md, re-derived at mantahostels#1121.
-    """
     for p in glob.glob(os.path.join(root, "*.jsonl")):
         yield os.path.relpath(p, root), p, False
     for p in glob.glob(os.path.join(root, "*", "subagents", "agent-*.jsonl")):

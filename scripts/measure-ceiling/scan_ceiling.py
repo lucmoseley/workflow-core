@@ -1,38 +1,4 @@
 #!/usr/bin/env python3
-"""scan_ceiling.py — measure how much of the week this machine spends past the allowance ceiling.
-
-Commissioned by mantahostels#1125 (the ticket that found every procurement option priced
-against an unmeasured figure). The only number in evidence was the founder's
-recollection on mantahostels#829 — "exhausts both subscriptions in roughly 5 days of a
-7-day week" — and a policy that buys spillover capacity needs the measurement,
-not the recollection.
-
-The signal is exact, not inferred. When a window is exhausted Claude Code
-writes a synthetic assistant record carrying `"error":"rate_limit"`,
-`apiErrorStatus: 429` and a text saying when the allowance returns:
-
-    You've hit your session limit · resets 6:40pm (Asia/Singapore)
-
-That reset time is what makes blocked *duration* measurable rather than
-guessable: the block runs from the first such record to the stated reset.
-
-Three distinctions the report depends on:
-
-  * **A 429 is not always a ceiling.** `Request rejected (429) · This request
-    would exceed your account's rate limit` is a throughput rejection carrying
-    no reset time, and it frees up in seconds. It is reported separately and
-    never counted as ceiling time.
-  * **One window blocks every session at once.** Events are grouped into
-    episodes by the reset instant they name, so six sessions walking into one
-    exhausted window is one outage of one duration, not six.
-  * **Blocked wall-clock is not lost work.** A block at 03:00 local costs
-    nothing if nobody was working. Both are reported, against the day's own
-    active hours as well as against the clock.
-
-Transcript layout, and the trap that subagent turns live in
-`<session-id>/subagents/agent-*.jsonl`: https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/allowance-burn-measurement.md.
-"""
-
 import argparse
 import datetime as dt
 from dataclasses import dataclass, field
@@ -608,9 +574,7 @@ def report(events, act, owner, tally):
 
 
 def main():
-    argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    ).parse_args()
+    argparse.ArgumentParser().parse_args()
     tally = Counter()
     events = [e for p in transcripts() for e in scan_file(p, tally)]
     report(events, activity(tally), account_owner(), tally)

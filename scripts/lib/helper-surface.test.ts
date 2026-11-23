@@ -5,6 +5,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+	committedRepoTemplate,
+	defineTemplate,
+	emptyRepoTemplate,
+} from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
 import { isShipped } from "./plugin-tree.js";
 import { runInProcess, runInProcessAsync } from "./run-in-process.js";
@@ -28,6 +33,8 @@ const entries = Object.entries(manifest.entryPoints);
 const ofKind = (ext: string) =>
 	entries.filter(([file]) => path.extname(file) === ext);
 const KINDS = [".js", ".sh", ".py", ".ts"];
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+const committedRepo = defineTemplate(committedRepoTemplate);
 
 describe("the helper-surface manifest", () => {
 	it("names at least one entry point, each exporting at least one name", () => {
@@ -199,22 +206,8 @@ describe("the helper-surface commands", () => {
 			const cmd = manifest.commands["scripts/run-vitest.js"];
 			expect(cmd.positionals).toEqual([]);
 			expect(cmd.flags.map((f) => f.name)).toEqual(["--changed"]);
-			const dir = tmp();
+			const dir = committedRepo.instantiate(tmp());
 			try {
-				const git = (...args: string[]) =>
-					spawnSync("git", args, { cwd: dir, encoding: "utf8" });
-				git("init", "-q");
-				git(
-					"-c",
-					"user.name=t",
-					"-c",
-					"user.email=t@t",
-					"commit",
-					"-q",
-					"--allow-empty",
-					"-m",
-					"init",
-				);
 				const seen = path.join(dir, "argv.json");
 				const bin = path.join(dir, "node_modules", ".bin", "vitest");
 				fs.mkdirSync(path.dirname(bin), { recursive: true });
@@ -262,11 +255,7 @@ describe("the helper-surface commands", () => {
 			expect(cmd.flags.map((f) => f.name)).toEqual(["--full"]);
 			const dir = tmp();
 			try {
-				const repo = path.join(dir, "repo");
-				fs.mkdirSync(repo);
-				const git = gitIn(repo);
-				git("init", "-q");
-				git("commit", "-q", "--allow-empty", "-m", "init");
+				const repo = committedRepo.instantiate(path.join(dir, "repo"));
 				const argvFile = path.join(dir, "argv.json");
 				const python = path.join(dir, "python3");
 				fs.writeFileSync(
@@ -313,9 +302,8 @@ describe("the helper-surface commands", () => {
 		expect(cmd.flags).toEqual([]);
 		const dir = tmp();
 		try {
-			const repo = path.join(dir, "repo");
+			const repo = emptyRepo.instantiate(path.join(dir, "repo"));
 			const bin = path.join(dir, "bin");
-			fs.mkdirSync(repo);
 			fs.mkdirSync(bin);
 			const argvFile = path.join(dir, "argv");
 			fs.writeFileSync(
@@ -327,7 +315,6 @@ describe("the helper-surface commands", () => {
 				.split(path.delimiter)
 				.filter((d) => d && !fs.existsSync(path.join(d, "biome")));
 			const git = gitIn(repo);
-			git("init", "-q");
 			const codes = exitCodes();
 			const check = (withStandIn: boolean, biomeExit = "0") => {
 				const r = run("scripts/biome-staged.js", ["--max-diagnostics=5"], {
@@ -413,7 +400,7 @@ describe("the helper-surface commands", () => {
 				return r;
 			};
 			expect(list(dir).status).toBe(1);
-			spawnSync("git", ["init", "-q"], { cwd: dir });
+			emptyRepo.instantiate(dir);
 			fs.writeFileSync(path.join(dir, "a.sh"), "echo\n");
 			fs.writeFileSync(path.join(dir, "b.js"), "1;\n");
 			spawnSync("git", ["add", "."], { cwd: dir });
@@ -429,24 +416,8 @@ describe("the helper-surface commands", () => {
 	it("scripts/lib/run-cost-report.js keeps its timings positional and exits 0, fail-open included", () => {
 		const cmd = manifest.commands["scripts/lib/run-cost-report.js"];
 		expect(cmd.flags).toEqual([]);
-		const dir = tmp();
+		const dir = committedRepo.instantiate(tmp());
 		try {
-			spawnSync("git", ["init", "-q"], { cwd: dir });
-			spawnSync(
-				"git",
-				[
-					"-c",
-					"user.name=t",
-					"-c",
-					"user.email=t@t",
-					"commit",
-					"-q",
-					"--allow-empty",
-					"-m",
-					"init",
-				],
-				{ cwd: dir },
-			);
 			fs.writeFileSync(path.join(dir, "a.test.js"), "\n");
 			const codes = exitCodes();
 			const report = (body: string) => {
@@ -479,8 +450,8 @@ describe("the helper-surface commands", () => {
 		expect(cmd.flags.map((f) => f.name)).toEqual(["--seed"]);
 		const dir = tmp();
 		try {
+			emptyRepo.instantiate(dir);
 			const git = gitIn(dir);
-			git("init", "-q");
 			const put = (rel: string, text: string) => {
 				fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
 				fs.writeFileSync(path.join(dir, rel), text);

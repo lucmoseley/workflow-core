@@ -1,41 +1,4 @@
 #!/usr/bin/env python3
-"""scan_medium_frame.py — build the `medium` sampling frame for mantahostels#1214 and draw six at random.
-
-mantahostels#1214 asks for a control mantahostels#1108 never ran: put six closed `medium`
-`takes:implement` commits through the same blind review the `low` arm got
-(https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/effort-low-arm-measurement.md). This script builds that
-frame and performs the draw, so both are reproducible and checkable for
-cherry-picking rather than asserted.
-
-Frame, in order:
-
-  1. `scan_effort_arms.sessions()` restricted to arm=medium, skill=implement,
-     model=opus, window 2026-08-12..2026-08-23 (identical to the `low` arm's
-     own match criteria).
-  2. Turns in [47, 97] -- the closed interval spanning the six already-reviewed
-     `low` tickets (mantahostels#1148 47, mantahostels#1150 65, mantahostels#1145 97, mantahostels#1034 89, mantahostels#1106 76, mantahostels#1191
-     52). This is a biased proxy, not clean difficulty-matching, and the bias
-     has a known direction: 47-97 was the range *`low` effort produced*
-     (median 58.5), well under the medium arm's own median of 84 turns/session
-     (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/effort-low-arm-measurement.md). Filtering medium sessions
-     to that band selects medium's faster-finishing, likely easier tickets --
-     which favours the medium arm on exactly the defect-rate comparison this
-     ticket exists to make. No better proxy is available (task size has no
-     independent measure here), so the frame is built on it anyway and the
-     bias is reported, not hidden, in the write-up.
-  3. Each session's own issue number, read from its transcript's
-     `<command-args>` (the `/implement <n>` invocation) -- never hand-mapped.
-  4. Deduplicated to one session per issue (resumes), keeping the first
-     session encountered in `scan_effort_arms`'s own (arm, t0) order.
-  5. Issue closed, carries `takes:implement` -- checked against
-     `gh issue list --state closed --label takes:implement`.
-  6. Issue does not carry `measured:effort-low` (would mean it's already in
-     the reviewed low arm under another label path).
-
-The draw is `random.Random(seed).sample(frame, 6)`, seed and full frame
-printed so the six can be checked against the whole population.
-"""
-
 import argparse
 import json
 import os
@@ -143,9 +106,7 @@ def build_frame(tally, window=("2026-08-12", "2026-08-23")):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, required=True)
     ap.add_argument("--n", type=int, default=6)
     ap.add_argument("--json", action="store_true")

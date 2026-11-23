@@ -407,10 +407,6 @@ function checkCancelled(pass, key) {
 	pass.cancelled.push({ checker: name, startedAt: run.startedAt });
 	if (SELF_REPORTS_CANCELLATION.has(key)) return;
 	const opened = Date.parse(run.startedAt);
-	/* THE CAUSE IS ALWAYS A DEAD PROCESS, NEVER A TIMEOUT, so this text
-	 * must never send a reader after the ceiling in the hook's registration
-	 * — on an `async` entry that number does nothing (mantahostels#2331,
-	 * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/async-hook-timeout-enforcement.md). */
 	pass.ctx.warn(
 		"CANCELLED",
 		`${name} was cut off mid-run — it opened at ${run.startedAt}` +

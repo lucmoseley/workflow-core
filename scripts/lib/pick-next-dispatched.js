@@ -30,19 +30,6 @@ function dispatchAge(rec, now) {
 	return `${age}${buildHeldText(rec)} — ${rec?.prompt || "prompt not recorded"}`;
 }
 
-/*
- * Whether an ALREADY DISPATCHED launch's own job is still alive (mantahostels#3488). The
- * ledger holds an issue for the whole window REGARDLESS (pick-next.js's
- * `dispatchedIssues` header), which is what made a finished launch and a
- * running one print identically — this is the join that tells them apart.
- *
- * `JOB_STATE_TERMINAL` is `lib/agent-liveness.js#TERMINAL_STATES`, imported
- * under this name: the job's own `state.json` and the oracle's own session
- * record are two different files, but both are stamped by the SAME CLI code
- * path off the same three words (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md
- * §F1) — one constant, not two that could drift apart unnoticed.
- */
-
 /**
  * @param {Jobs} jobs
  * @param {string} jobId
