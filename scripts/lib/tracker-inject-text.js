@@ -200,7 +200,7 @@ const CLOSING_STEPS = {
 };
 
 const FILING_VALUES =
-	"\n\nA ticket filed from the founder's ask quotes his words verbatim; a build ticket lists under `## Values` each value the build will set that no ruling sets. A `wayfinder:task` has no value to set that a goal of the founder's decides: put such a value to him first. At a build's close, `resolve-ticket.js` refuses a `**Values:**` entry marked untraced, a guess or an estimate unless it is tagged `delegated — <why no goal of the founder's turns on it>` or `house: #N` (#5647).";
+	"\n\nA ticket filed from the founder's ask quotes his words verbatim; a build ticket lists under `## Values` each value the build will set that no ruling sets. A `wayfinder:task` has no value to set that a goal of the founder's decides: put such a value to him first.";
 
 /** @type {Record<string, string>} */
 const FILING_TEXT = { implement: FILING_VALUES, wayfinder: FILING_VALUES };

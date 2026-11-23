@@ -322,7 +322,7 @@ describe("a successful resolve", () => {
 describe("a build close's untagged guess on its Values line (#5647)", () => {
 	const closing = (values: string) =>
 		`Done.\n\n${TRAILER}${values}\n**Outstanding:** none.\n`;
-	const Guess = "X = 0.25 (a first guess)";
+	const guessEntry = "X = 0.25 (a first guess)";
 
 	it.each([["takes:implement"], ["wayfinder:task"]])(
 		"refuses %s, naming the entry and both tags",
@@ -330,10 +330,10 @@ describe("a build close's untagged guess on its Values line (#5647)", () => {
 			setUp({ labels: [label, "kind:ticket"] });
 			const r = run(
 				DECISION,
-				closing(`10 tool calls — house: #1684; ${Guess}`),
+				closing(`10 tool calls — house: #1684; ${guessEntry}`),
 			);
 			expect(r.status).toBe(2);
-			expect(r.stderr).toContain(`  - ${Guess}\n`);
+			expect(r.stderr).toContain(`  - ${guessEntry}\n`);
 			expect(r.stderr).not.toContain("10 tool calls");
 			expect(r.stderr).toContain(
 				'"<entry> — delegated — <why no goal of the founder\'s turns on it>" or "<entry> — house: #<the ruling that set it>"',
@@ -342,20 +342,48 @@ describe("a build close's untagged guess on its Values line (#5647)", () => {
 		},
 	);
 
+	const refusedNaming = (entry: string, comment = closing(entry)) => {
+		const r = run(DECISION, comment);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`  - ${entry}\n`);
+		expect(r.stderr).toContain("— delegated — <why no goal");
+		untouched();
+	};
+
 	it.each([
 		["untraced", "cap of 3 — untraced"],
 		["an estimate", "40 KiB — estimated from one run"],
 		["a guess", "timeout 30 s — my guess"],
 	])("refuses a value marked %s", (_, entry) => {
 		setUp();
-		expect(run(DECISION, closing(entry)).status).toBe(2);
-		untouched();
+		refusedNaming(entry);
+	});
+
+	it("reads a tag inside the entry's own parentheses as that entry's", () => {
+		setUp();
+		const r = run(
+			DECISION,
+			closing("X = 0.25 (a first guess; delegated — no goal turns on it)"),
+		);
+		expect(r.status).toBe(0);
+	});
+
+	it("skips a Values line quoted in a fenced block", () => {
+		setUp();
+		const r = run(
+			DECISION,
+			`Done.\n\n\`\`\`\n**Values:** ${guessEntry}\n\`\`\`\n\n${TRAILER}none\n**Outstanding:** none.\n`,
+		);
+		expect(r.status).toBe(0);
 	});
 
 	it.each([
-		["delegated", `${Guess} — delegated — a test fixture no goal turns on`],
-		["house", `${Guess} — house: #5619`],
-		["house in another tracker", `${Guess} — house: mantahostels#1728`],
+		[
+			"delegated",
+			`${guessEntry} — delegated — a test fixture no goal turns on`,
+		],
+		["house", `${guessEntry} — house: #5619`],
+		["house in another tracker", `${guessEntry} — house: mantahostels#1728`],
 	])("passes the same entry tagged %s", (_, entry) => {
 		setUp();
 		expect(run(DECISION, closing(entry)).status).toBe(0);
@@ -372,19 +400,19 @@ describe("a build close's untagged guess on its Values line (#5647)", () => {
 
 	it("refuses a delegated tag with no reason", () => {
 		setUp();
-		expect(run(DECISION, closing(`${Guess} — delegated —`)).status).toBe(2);
+		refusedNaming(`${guessEntry} — delegated —`);
 	});
 
 	it("passes an untagged guess on a ticket that is not a build", () => {
 		setUp({ labels: ["wayfinder:grilling", "kind:ticket"] });
-		expect(run(DECISION, closing(Guess)).status).toBe(0);
+		expect(run(DECISION, closing(guessEntry)).status).toBe(0);
 	});
 
 	it("exempts a not-planned build close", () => {
 		setUp();
 		const r = run(
 			[...DECISION, "--reason", "not planned"],
-			`Dropped.\n\n**Bound:** read the ticket.\n**Values:** ${Guess}\n`,
+			`Dropped.\n\n**Bound:** read the ticket.\n**Values:** ${guessEntry}\n`,
 		);
 		expect(r.status).toBe(0);
 	});
