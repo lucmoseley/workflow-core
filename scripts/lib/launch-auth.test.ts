@@ -247,6 +247,7 @@ describe("a --bg launch, which runs under the daemon's environment (#5607)", () 
 			const why = bgRefusal({ WFC_FAKE_DAEMON: Daemon });
 			expect(why).toContain(`the Claude daemon (pid ${Daemon})`);
 			expect(why).toContain(`${named} set in its environment`);
+			expect(why).toContain("let it idle-exit");
 			expect(why).toContain("#2236");
 		},
 	);
