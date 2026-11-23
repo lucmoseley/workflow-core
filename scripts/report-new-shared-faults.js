@@ -14,7 +14,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { caught, ignoreFailure } = require("./lib/caught.js");
 const { pidAlive } = require("./lib/arbiter-proc.js");
-const { SIDE_ENV } = require("./lib/check-side.js");
+const { SIDE_ENV, SIDE_REV_ENV } = require("./lib/check-side.js");
 const { spawnAllSync } = require("./lib/spawn-all.js");
 const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
 const { NOTICES } = require("./lib/shared-fault-notices.js");
@@ -176,14 +176,15 @@ function parseEnvelope(
 
 /**
  * @param {string} checker
- * @param {string} root
+ * @param {{ root: string, rev: string, cwd: string }} tree
  * @param {"index" | "baseline"} side
  * @returns {import("./lib/spawn-all.js").Job}
  */
-const envelopeJob = (checker, root, side) => ({
+const envelopeJob = (checker, { root, rev, cwd }, side) => ({
 	file: process.execPath,
 	args: [checker, "--root", root, "--json"],
-	env: { ...process.env, [SIDE_ENV]: side },
+	cwd,
+	env: { ...process.env, [SIDE_ENV]: side, [SIDE_REV_ENV]: rev },
 });
 
 function readDocMapEnvelope(
@@ -291,8 +292,8 @@ function collectNewFaults(trees) {
 	try {
 		results = spawnAllSync(
 			checkers.flatMap(([, checker]) => [
-				envelopeJob(checker, shaDir, "index"),
-				envelopeJob(checker, parentDir, "baseline"),
+				envelopeJob(checker, { root: shaDir, rev: sha, cwd }, "index"),
+				envelopeJob(checker, { root: parentDir, rev: parent, cwd }, "baseline"),
 			]),
 		);
 	} catch (e) {
