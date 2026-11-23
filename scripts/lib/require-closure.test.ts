@@ -92,3 +92,31 @@ it("follows a shell file's launches and their requires, skipping a path it lacks
 		"gate.sh",
 	]);
 });
+
+it("follows no require a comment shows as usage, from the caller's directory (#5656)", () => {
+	const src = path.join(tmp, "src");
+	const out = path.join(tmp, "out");
+	const write = (rel: string, body: string) => {
+		fs.mkdirSync(path.dirname(path.join(src, rel)), { recursive: true });
+		fs.writeFileSync(path.join(src, rel), body);
+	};
+	write(
+		"scripts/lib/used.js",
+		[
+			"/*",
+			" * Usage:",
+			' *   const { run } = require("./lib/used.js");',
+			" */",
+			'// require("./lib/other.js");',
+			'require("./dep.js");',
+		].join("\n"),
+	);
+	write("scripts/lib/dep.js", "");
+
+	copyRequireClosure(out, src, ["scripts/lib/used.js"]);
+
+	expect(fs.readdirSync(path.join(out, "scripts/lib")).sort()).toEqual([
+		"dep.js",
+		"used.js",
+	]);
+});

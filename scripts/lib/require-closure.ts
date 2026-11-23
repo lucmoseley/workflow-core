@@ -8,12 +8,25 @@ const { requiredGroup } = require("./regex-group.js");
 const LOCAL_REQUIRE = /\brequire\(\s*["'](\.\.?\/[^"']+)["']\s*\)/g;
 const NAMED_SCRIPT = /(?<![\w.-])scripts\/[\w./-]+\.(?:js|sh)\b/g;
 
-export function launchedScripts(text: string): string[] {
-	const code = text
+function uncommented(text: string, marks: string[]): string {
+	return text
 		.split("\n")
-		.filter((line) => !line.trimStart().startsWith("#"))
+		.filter((line) => !marks.some((mark) => line.trimStart().startsWith(mark)))
 		.join("\n");
-	return [...new Set(code.match(NAMED_SCRIPT))];
+}
+
+export function jsCode(text: string): string {
+	return uncommented(text, ["//", "/*", "*"]);
+}
+
+export function localRequires(text: string): string[] {
+	return [...jsCode(text).matchAll(LOCAL_REQUIRE)].map((m) =>
+		requiredGroup(m, 1, LOCAL_REQUIRE),
+	);
+}
+
+export function launchedScripts(text: string): string[] {
+	return [...new Set(uncommented(text, ["#"]).match(NAMED_SCRIPT))];
 }
 
 export function requireClosure(source: string, rels: string[]): string[] {
@@ -23,11 +36,8 @@ export function requireClosure(source: string, rels: string[]): string[] {
 		if (seen.has(rel)) continue;
 		seen.add(rel);
 		const text = fs.readFileSync(path.join(source, rel), "utf8");
-		for (const m of text.matchAll(LOCAL_REQUIRE)) {
-			const dep = path.join(
-				path.dirname(rel),
-				requiredGroup(m, 1, LOCAL_REQUIRE),
-			);
+		for (const req of localRequires(text)) {
+			const dep = path.join(path.dirname(rel), req);
 			queue.push(fs.existsSync(path.join(source, dep)) ? dep : `${dep}.js`);
 		}
 		if (rel.endsWith(".sh"))

@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { keptSpawn } from "./kept-spawn.js";
 import { adopterFixtures } from "./plugin-state-testkit.js";
+import { jsCode } from "./require-closure";
 import { resolveCore } from "./resolve-core.js";
 import { shellQuote } from "./sh-quote.js";
 
@@ -389,9 +390,9 @@ describe("resolve-core.js before the core is found (#457)", () => {
 			path.join(__dirname, "resolve-core.js"),
 			"utf8",
 		);
-		const required = [...source.matchAll(/require\(\s*["']([^"']+)["']/g)].map(
-			(m) => m[1],
-		);
+		const required = [
+			...jsCode(source).matchAll(/require\(\s*["']([^"']+)["']/g),
+		].map((m) => m[1]);
 		expect(required.length).toBeGreaterThan(0);
 		expect(required.filter((id) => !id?.startsWith("node:"))).toEqual([]);
 	});

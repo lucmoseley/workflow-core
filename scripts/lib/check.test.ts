@@ -14,7 +14,7 @@ import {
 	readRun,
 } from "./notify-report.js";
 import { runRecordFile } from "./notify-report-testkit";
-import { copyRequireClosure } from "./require-closure";
+import { copyRequireClosure, localRequires } from "./require-closure";
 import { runInProcess, runInProcessAsync } from "./run-in-process";
 
 const LIB = path.resolve(__dirname, "check.js");
@@ -2022,8 +2022,8 @@ runCheck({ name: "closure", usage: "node closure-check.js", run() { return { okL
 			if (seen.has(file)) return;
 			seen.add(file);
 			const src = fs.readFileSync(file, "utf8");
-			for (const m of src.matchAll(/\brequire\(\s*["'](\.{1,2}\/[^"']+)["']/g))
-				walk(createRequire(file).resolve(m[1]));
+			for (const req of localRequires(src))
+				walk(createRequire(file).resolve(req));
 		};
 		walk(LIB);
 		expect(seen).toContain(path.join(__dirname, "persist-mode.js"));
