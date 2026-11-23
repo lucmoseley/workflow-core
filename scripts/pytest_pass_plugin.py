@@ -3,9 +3,13 @@ import fnmatch
 import json
 import os
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from fail_open import fail_open, tallied
 
 _OUTCOME_KEYS = ("failed", "error", "skipped", "passed")
 
@@ -17,7 +21,7 @@ _collected = None
 
 _NEXT_STAGE = {"setup": "call", "call": "teardown"}
 
-_told = set()
+_told = Counter()
 
 
 def _nodeid_outcomes(terminalreporter):
@@ -171,13 +175,22 @@ class _ReportedAs(contextlib.AbstractContextManager):
         return True
 
 
-def _told_once(headline):
-    def write_line(line):
-        if line not in _told:
-            _told.add(line)
-            print(line, file=sys.stderr, flush=True)
+class _ToldOnce(contextlib.AbstractContextManager):
+    def __init__(self, headline):
+        self._headline = headline
 
-    return _ReportedAs(write_line, headline)
+    def __exit__(self, exc_type, error, tb):
+        if not isinstance(error, Exception):
+            return False
+        cause = (self._headline, str(error))
+        if not _told[cause]:
+            fail_open(error, self._headline)
+        tallied(error, _told, cause)
+        return True
+
+
+def _told_once(headline):
+    return _ToldOnce(headline)
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
