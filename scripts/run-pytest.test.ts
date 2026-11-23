@@ -8,6 +8,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { tmpRootWithMarkers } from "./lib/admission-testkit";
 import { freshSandbox, ledger } from "./lib/arbiter-testkit";
+import { defineTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcessAsync } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -35,10 +36,7 @@ function hasPytest(): boolean {
 	);
 }
 
-function repo(at?: string) {
-	const dir =
-		at ?? fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runpy-")));
-	if (!at) dirs.push(dir);
+const rootedRepo = defineTemplate((dir) => {
 	for (const args of [
 		["init", "-q"],
 		["config", "user.email", "t@example.com"],
@@ -46,7 +44,13 @@ function repo(at?: string) {
 		["commit", "-q", "--allow-empty", "-m", "root"],
 	])
 		spawnSync("git", args, { cwd: dir });
-	return dir;
+});
+
+function repo(at?: string) {
+	const dir =
+		at ?? fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runpy-")));
+	if (!at) dirs.push(dir);
+	return rootedRepo.instantiate(dir);
 }
 
 afterEach(() => {

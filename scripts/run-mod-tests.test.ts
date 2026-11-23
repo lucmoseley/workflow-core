@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -32,14 +33,17 @@ const git = (dir: string, ...args: string[]) =>
 		stdio: ["ignore", "pipe", "ignore"],
 	}).trim();
 
-function repo() {
-	const dir = tmp("modtests-");
+const modRepo = defineTemplate((dir) => {
 	git(dir, "init", "-q", "-b", "main");
 	git(dir, "config", "user.email", "t@example.com");
 	git(dir, "config", "user.name", "t");
-	const root = commitTouching(dir, `${MOD}/tests/a.test.ts`, "other.txt");
+	commitTouching(dir, `${MOD}/tests/a.test.ts`, "other.txt");
 	git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
-	return { dir, root };
+});
+
+function repo() {
+	const dir = modRepo.instantiate(tmp("modtests-"));
+	return { dir, root: git(dir, "rev-parse", "HEAD") };
 }
 
 function commitTouching(dir: string, ...paths: string[]) {

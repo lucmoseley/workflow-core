@@ -27,6 +27,7 @@ import {
 import { stubGhScript } from "./lib/gh-stub";
 import {
 	defineTemplate,
+	emptyRepoTemplate,
 	initGitRepo,
 	mkDirOutsideRepo,
 	mkScratchDir,
@@ -71,6 +72,8 @@ const repoTemplate = defineTemplate((dir) => {
 	])
 		require("node:child_process").execFileSync("git", args, { cwd: dir });
 });
+
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 
 function repo() {
 	const dir = mkDirOutsideRepo("runvitest-");
@@ -5626,7 +5629,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				const root = mkScratchDir("runvitest-overlay-");
 				const dir = mkScratchDir("runvitest-overlay-wt-");
 				dirs.push(root, dir);
-				gitIn(dir, ["init", "-q"]);
+				emptyRepo.instantiate(dir);
 				fs.symlinkSync("elsewhere.txt", path.join(root, "link.txt"));
 				expect(overlayFiles(root, dir, ["link.txt"])).toBe(null);
 				const copied = path.join(dir, "link.txt");
