@@ -1439,34 +1439,42 @@ describe("a gate judge override on the body (#4970)", () => {
 		);
 	});
 
+	const key = overrideFingerprint(OVERRIDE_REASON);
+	const reviewed = `**Gate judge override reviewed:** ${key} — 2026-11-23 — #251`;
+
+	it("keys a reason to a fixed 8-hex digest, blind to whitespace (#5673)", () => {
+		expect(key).toBe("6664daf1");
+		expect(
+			overrideFingerprint(` ${OVERRIDE_REASON.replace(/ /g, "  \t")} `),
+		).toBe(key);
+	});
+
 	it("names the reviewed line to add, keyed to the reason (#5673)", async () => {
 		const out = await report(`${line}\n`);
-		expect(out).toContain(
-			`**Gate judge override reviewed:** ${overrideFingerprint(OVERRIDE_REASON)} — <date>`,
-		);
+		expect(out).toContain(`**Gate judge override reviewed:** ${key} — <date>`);
 	});
 
 	it("raises none once a reviewed line records the reason's key (#5673)", async () => {
-		const reviewed = `**Gate judge override reviewed:** ${overrideFingerprint(OVERRIDE_REASON)} — 2026-11-23 — #251`;
 		expect(await report(`${line}\n${reviewed}\n`)).not.toContain(
 			"GATE-JUDGE-OVERRIDE",
 		);
 	});
 
 	it("warns again once the reason is edited after its review (#5673)", async () => {
-		const reviewed = `**Gate judge override reviewed:** ${overrideFingerprint(OVERRIDE_REASON)} — 2026-11-23 — #251`;
 		const out = await report(
 			`**Gate judge override:** ${OVERRIDE_REASON}, and more\n${reviewed}\n`,
 		);
 		expect(out).toContain("GATE-JUDGE-OVERRIDE");
-		expect(out).toContain("a reason since edited");
+		expect(out).toContain("does not match this reason");
 	});
 
-	it("still warns where the reviewed line sits in a fence (#5673)", async () => {
-		const reviewed = `**Gate judge override reviewed:** ${overrideFingerprint(OVERRIDE_REASON)} — 2026-11-23 — #251`;
+	it("still warns on a reviewed line in a fence or with no date and source (#5673)", async () => {
 		expect(await report(`${line}\n\`\`\`\n${reviewed}\n\`\`\`\n`)).toContain(
 			"GATE-JUDGE-OVERRIDE",
 		);
+		expect(
+			await report(`${line}\n**Gate judge override reviewed:** ${key}\n`),
+		).toContain("GATE-JUDGE-OVERRIDE");
 	});
 });
 

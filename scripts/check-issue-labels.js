@@ -12,6 +12,7 @@ const {
 	judgeOverrideOf,
 	overrideFingerprint,
 	overrideReviewOf,
+	overrideReviewedLine,
 } = require("./lib/issue-gate");
 const { readBasisFaults, unreadNote } = require("./lib/basis-cited-read");
 const { parseRepoOfUrl } = require("./lib/issue-ref");
@@ -418,8 +419,8 @@ function checkJudgeOverride(iss, raise) {
 	raise(
 		"WARN",
 		"GATE-JUDGE-OVERRIDE",
-		`a session overrode the gate judge's model reading of this body — "${reason}"${reviewed ? ` (its \`**Gate judge override reviewed:**\` line records ${reviewed}, a reason since edited)` : ""}`,
-		`read the body against the reason: where the model was right, give the wait a \`**Gate basis:**\` that derives its window and delete the override line and any reviewed line; where it was wrong, leave the override line and add or replace beneath it \`**Gate judge override reviewed:** ${fingerprint} — <date> — <the issue or comment that records the review>\``,
+		`a session overrode the gate judge's model reading of this body — "${reason}"${reviewed ? ` (its reviewed line records ${reviewed}, which does not match this reason)` : ""}`,
+		`read the body against the reason: where the model was right, give the wait a \`**Gate basis:**\` that derives its window and delete the override line and any reviewed line; where it was wrong, leave the override line and add or replace beneath it \`${overrideReviewedLine(fingerprint)}\``,
 	);
 }
 

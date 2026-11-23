@@ -178,18 +178,25 @@ function judgeOverrideOf(body) {
 	return m ? { reason: requiredGroup(m, 1, OVERRIDE_RE).trim() } : null;
 }
 
+const OVERRIDE_REVIEWED_LEAD = "**Gate judge override reviewed:**";
+// guess, #5673
+const OVERRIDE_KEY_LENGTH = 8;
 const OVERRIDE_REVIEWED_RE = new RegExp(
-	`${AT_LINE_HEAD}\\*\\*Gate judge override reviewed:\\*\\*${BLANKS}([0-9a-f]{8})\\b`,
+	`${AT_LINE_HEAD}\\*\\*Gate judge override reviewed:\\*\\*${BLANKS}([0-9a-f]{${OVERRIDE_KEY_LENGTH}})[ \\t]+—[ \\t]*\\S.*—[ \\t]*\\S`,
 	"gim",
 );
 
-/** #5673 @param {string} reason */
+/** @param {string} reason */
 function overrideFingerprint(reason) {
 	return createHash("sha256")
 		.update(reason.replace(/\s+/g, " ").trim())
 		.digest("hex")
-		.slice(0, 8);
+		.slice(0, OVERRIDE_KEY_LENGTH);
 }
+
+/** @param {string} key */
+const overrideReviewedLine = (key) =>
+	`${OVERRIDE_REVIEWED_LEAD} ${key} — <date> — <where the review is recorded>`;
 
 /**
  * @param {string} body
@@ -1119,6 +1126,7 @@ module.exports = {
 	judgeOverrideOf,
 	overrideFingerprint,
 	overrideReviewOf,
+	overrideReviewedLine,
 	otherIssueRefs,
 	gateRuleHandover,
 	citedKey,
