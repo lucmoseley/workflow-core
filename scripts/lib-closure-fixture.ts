@@ -1,19 +1,16 @@
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
+import { localRequires } from "./lib/require-closure-testkit";
 
-const { requiredGroup }: typeof import("./lib/regex-group.js") = createRequire(
-	import.meta.url,
-)("./lib/regex-group.js");
-
-const SIBLING_REQUIRE = /require\("\.\/([^"]+)"\)/g;
-const PROGRAM_LIB_REQUIRE = /require\("\.\/lib\/([^"]+)"\)/g;
+const SIBLING = /^\.\/([^/]+)$/;
+const PROGRAM_LIB = /^\.\/lib\/([^/]+)$/;
 
 const requiresOf = (pattern: RegExp) => (text: string) =>
-	[...text.matchAll(pattern)]
-		.map((m) => {
-			const name = requiredGroup(m, 1, pattern);
-			return name.endsWith(".js") ? name : `${name}.js`;
+	localRequires(text)
+		.flatMap((req) => {
+			const name = pattern.exec(req)?.[1];
+			if (name === undefined) return [];
+			return [name.endsWith(".js") ? name : `${name}.js`];
 		})
 		.filter((lib) => fs.existsSync(path.resolve(__dirname, "lib", lib)));
 
@@ -26,7 +23,7 @@ const readRequiredLibs = (entry: string): string[] => {
 		entry,
 		...readLibClosure(
 			fs.readFileSync(path.resolve(__dirname, "lib", entry), "utf8"),
-			requiresOf(SIBLING_REQUIRE),
+			requiresOf(SIBLING),
 		).filter((lib) => lib !== entry),
 	];
 	return [...libs, ...libs.flatMap((lib) => READ_BY_PATH[lib] ?? [])];
@@ -34,7 +31,7 @@ const readRequiredLibs = (entry: string): string[] => {
 
 export const readProgramLibs = (program: string): string[] => [
 	...new Set(
-		requiresOf(PROGRAM_LIB_REQUIRE)(
+		requiresOf(PROGRAM_LIB)(
 			fs.readFileSync(path.resolve(__dirname, program), "utf8"),
 		).flatMap(readRequiredLibs),
 	),

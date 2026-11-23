@@ -1,10 +1,7 @@
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
-
-const require = createRequire(import.meta.url);
-const { requiredGroup } = require("./regex-group.js");
-const { stripComments } = require("./strip-comments.js");
+import { requiredGroup } from "./regex-group.js";
+import { stripComments } from "./strip-comments.js";
 
 const LOCAL_REQUIRE = /\brequire\(\s*["'](\.\.?\/[^"']+)["']\s*\)/g;
 const NAMED_SCRIPT = /(?<![\w.-])scripts\/[\w./-]+\.(?:js|sh)\b/g;

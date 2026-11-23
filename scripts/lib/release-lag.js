@@ -1,10 +1,9 @@
 const { isTagRef, sameRelease } = require("./plugin-state.js");
+const { WIDE_SHA } = require("./git.js");
 const { scriptPath } = require("./script-path.js");
 
 // guess, #4448
 const LAG_WARN_DAYS = 7;
-
-const SHORT_SHA = 12;
 
 const MAIN = "origin/main";
 const DAY_S = 86_400;
@@ -106,7 +105,7 @@ function judgeLag(tag, reading, adopters) {
 			finding: "LAG-UNREAD",
 			line: `${tag}'s lag is unread: its message names no rendered-from source, so ${scriptPath("release-plugin.js")} did not cut it; the next release it cuts is read. ${adopters}`,
 		};
-	const short = reading.source.slice(0, SHORT_SHA);
+	const short = reading.source.slice(0, WIDE_SHA);
 	if (reading.kind === "source-absent")
 		return {
 			state: "UNREAD",

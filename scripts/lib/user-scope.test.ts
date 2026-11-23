@@ -214,7 +214,8 @@ spawnOutliving(${JSON.stringify(recorder)}, ["job"], { stdio: "ignore", ...${opt
 		).toEqual([...stripped].sort());
 		expect(stripped).toContain("WFC_REPORT_OWNER");
 		expect(stripped).toContain("WFC_NOW");
-		expect(shellCeiling).toBe("2700");
+		const { scoped } = launch(true, "{}");
+		expect(scoped[0]?.words).toContain(`RuntimeMaxSec=${shellCeiling} `);
 	});
 
 	it("names the starter's report owner and stops at the shared ceiling where it is given neither", () => {

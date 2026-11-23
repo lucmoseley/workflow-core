@@ -10,6 +10,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const { spendFire } = require("./lib/sweep-budget.js");
 const {
 	SLOT_INPUT,
+	SWEEP_GH_TIMEOUT_MS,
 	SWEEP_WORKFLOW,
 	readLedgerRuns,
 	slotKey,
@@ -18,8 +19,6 @@ const {
 const { writeFd } = require("./lib/write-fd.js");
 
 const MARKER = ".sweep-slot-repair";
-
-const GH_TIMEOUT_MS = 8000;
 
 /** @param {number} t */
 function dueSlot(t) {
@@ -58,9 +57,10 @@ const settle = (marker, slot, outcome) =>
 function isRepairDone(marker, slot, t) {
 	const key = slotKey(slot);
 	if (readSettled(marker) === key) return true;
-	const delivered = sweepLedger(readLedgerRuns(GH_TIMEOUT_MS), t).slots.some(
-		(s) => s.at === slot && s.run !== null,
-	);
+	const delivered = sweepLedger(
+		readLedgerRuns(SWEEP_GH_TIMEOUT_MS),
+		t,
+	).slots.some((s) => s.at === slot && s.run !== null);
 	if (delivered) settle(marker, key, "delivered");
 	return delivered;
 }
@@ -106,7 +106,7 @@ function main() {
 	}
 	try {
 		gh(["workflow", "run", SWEEP_WORKFLOW, "-f", `${SLOT_INPUT}=${key}`], {
-			timeout: GH_TIMEOUT_MS,
+			timeout: SWEEP_GH_TIMEOUT_MS,
 		});
 	} catch (e) {
 		fs.rmSync(marker, { force: true });

@@ -1,3 +1,5 @@
+const { WIDE_SHA } = require("./git.js");
+
 const HEAD = "1111111111111111111111111111111111111111";
 const TIP = "2222222222222222222222222222222222222222";
 const BASE = "3333333333333333333333333333333333333333";
@@ -304,7 +306,7 @@ const ANSWERS = {
 		unjudged: {
 			verdict: {
 				judged: false,
-				why: `git could not resolve the merge-base of ${HEAD.slice(0, 12)} with origin/main`,
+				why: `git could not resolve the merge-base of ${HEAD.slice(0, WIDE_SHA)} with origin/main`,
 			},
 			timedOut: false,
 			redFault: null,
@@ -312,7 +314,7 @@ const ANSWERS = {
 		timedOut: {
 			verdict: {
 				judged: false,
-				why: `git could not resolve the merge-base of ${HEAD.slice(0, 12)} with origin/main`,
+				why: `git could not resolve the merge-base of ${HEAD.slice(0, WIDE_SHA)} with origin/main`,
 			},
 			timedOut: true,
 			redFault: null,

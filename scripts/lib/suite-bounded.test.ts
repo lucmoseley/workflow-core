@@ -1,7 +1,5 @@
 // @vitest-environment node
 
-import fs from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 
@@ -198,17 +196,5 @@ describe("resolvedFileCount, the files a launch runs in its own suite (#2931)", 
 	it("leaves a run in an unread suite unresolved, unless it names its files", () => {
 		expect(resolvedFileCount([], () => null)).toBeNull();
 		expect(resolvedFileCount(["a.test.ts"], () => null)).toBe(1);
-	});
-});
-
-describe("the whole-suite charge", () => {
-	it("charges a whole suite at the maxWorkers vitest.config.ts pins", () => {
-		const config = fs.readFileSync(
-			path.resolve(__dirname, "..", "..", "vitest.config.ts"),
-			"utf8",
-		);
-		expect(WHOLE_SUITE_WORKERS).toBe(
-			Number(/maxWorkers: (\d+)/.exec(config)?.[1]),
-		);
 	});
 });

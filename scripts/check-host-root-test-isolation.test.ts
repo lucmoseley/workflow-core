@@ -183,6 +183,25 @@ describe("what it declines to flag", () => {
 		expect(run().status).toBe(0);
 	});
 
+	it("follows no require a comment shows as usage, against the marker-root indirection it does follow (#5659)", () => {
+		track("scripts/lib/marker-root.js", 'require("./host-root.js");\n');
+		track(
+			"scripts/thing.js",
+			[
+				"/**",
+				' * const { hostRoot } = require("./lib/host-root.js");',
+				" */",
+				'/* require("./lib/marker-root.js") */ process.exit(0); // require("../host-root")',
+			].join("\n"),
+		);
+		track(
+			"scripts/thing.test.ts",
+			'const SCRIPT = path.resolve(__dirname, "thing.js");\n' +
+				'spawnSync("node", [SCRIPT], {});\n',
+		);
+		expect(run().status).toBe(0);
+	});
+
 	it("passes a test that only names a rooted script in a string", () => {
 		rooted("thing.js");
 		track(

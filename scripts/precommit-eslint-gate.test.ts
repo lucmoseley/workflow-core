@@ -12,7 +12,10 @@ import {
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
 import { LIB, ROOT } from "./lib/precommit-gate-testkit";
-import { copyRequireClosure, launchedScripts } from "./lib/require-closure";
+import {
+	copyRequireClosure,
+	launchedScripts,
+} from "./lib/require-closure-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
