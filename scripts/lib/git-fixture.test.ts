@@ -396,6 +396,8 @@ describe("copyTemplate", () => {
 		const dest = path.join(root, "copy");
 		fs.mkdirSync(dest, { recursive: true });
 		fs.writeFileSync(path.join(dest, "seeded.md"), "mine\n");
+		fs.mkdirSync(path.join(dest, "repo"));
+		fs.writeFileSync(path.join(dest, "repo", "seeded.md"), "mine too\n");
 		let calls = 0;
 		copyTemplate(templateDir, dest, (source, destination, opts) => {
 			calls++;
@@ -405,6 +407,9 @@ describe("copyTemplate", () => {
 		expect(calls).toBe(2);
 		expect(fs.readFileSync(path.join(dest, "seeded.md"), "utf8")).toBe(
 			"mine\n",
+		);
+		expect(fs.readFileSync(path.join(dest, "repo", "seeded.md"), "utf8")).toBe(
+			"mine too\n",
 		);
 	});
 

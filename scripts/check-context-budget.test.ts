@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,7 +9,7 @@ import { getPoolFiles } from "./lib/always-loaded-pool.js";
 import { SHED_REGISTERS } from "./lib/context-budget-pathspecs";
 import { liveCaps } from "./lib/context-budget-testkit";
 import { PROFILES } from "./lib/fault-profiles.js";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { CORE_RULES } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -869,14 +869,7 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 		return r.stdout;
 	}
 
-	const mainRepo = defineTemplate((at) => {
-		for (const args of [
-			["init", "-q", "-b", "main"],
-			["config", "user.email", "t@example.invalid"],
-			["config", "user.name", "t"],
-		])
-			execFileSync("git", args, { cwd: at });
-	});
+	const mainRepo = defineTemplate(identityRepoTemplate);
 
 	beforeEach(() => {
 		mainRepo.instantiate(dir);

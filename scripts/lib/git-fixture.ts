@@ -252,11 +252,19 @@ export function copyTemplate(
 	const messageOf = (err: unknown): string =>
 		err instanceof Error ? err.message : String(err);
 	const copyFrom = (source: string): string => {
-		for (const entry of fs.readdirSync(source))
-			fs.rmSync(path.join(destination, entry), {
-				recursive: true,
-				force: true,
-			});
+		for (const entry of fs.readdirSync(source, {
+			recursive: true,
+			withFileTypes: true,
+		}))
+			if (!entry.isDirectory())
+				fs.rmSync(
+					path.join(
+						destination,
+						path.relative(source, entry.parentPath),
+						entry.name,
+					),
+					{ recursive: true, force: true },
+				);
 		cpSync(source, destination, { recursive: true });
 		return source;
 	};
@@ -301,9 +309,7 @@ function git(cwd: string, ...args: string[]): string {
 
 export function initGitRepo(at: string, hooks: string): void {
 	fs.mkdirSync(at, { recursive: true });
-	git(at, "init", "-q", "-b", "main", ".");
-	git(at, "config", "user.email", "test@example.com");
-	git(at, "config", "user.name", "test");
+	identityRepoTemplate(at);
 	git(at, "config", "core.hooksPath", hooks);
 	fs.writeFileSync(path.join(at, "a.md"), "a\n");
 	git(at, "add", "a.md");
