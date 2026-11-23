@@ -1,7 +1,7 @@
 const { absolute } = require("./shell-words.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
 
-/** @typedef {{ pwd: string, jobDir: string }} Where */
+/** @typedef {{ pwd: string, jobDir: string | null }} Where */
 
 const SHAPE_RE = /\/\.claude.*\/jobs\/.*\//s;
 const VAR_REL_RE = /\$\{?CLAUDE_JOB_DIR\}?\/(.+)$/s;

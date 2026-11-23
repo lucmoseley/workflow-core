@@ -222,7 +222,7 @@ function bodyPathWords(words, spans) {
 /** @param {Parsed} parsed @param {TrackerContext} ctx */
 function scanJobDir(parsed, ctx) {
 	if (!parsed.subject.includes("gh")) return false;
-	const jobDir = readJobDir(ctx.env) ?? "";
+	const jobDir = readJobDir(ctx.env);
 	const home = ctx.vars.HOME ?? "";
 	let seen = false;
 	walkCommands(
