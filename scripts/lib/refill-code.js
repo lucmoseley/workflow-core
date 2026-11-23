@@ -4,6 +4,7 @@ const path = require("node:path");
 const { isUnder } = require("./is-under.js");
 const { readProcCwd } = require("./claude-sessions.js");
 const { procRoot } = require("./proc-root.js");
+const { parentInFields, readStatFields } = require("./proc-stat.js");
 const { readProcTable } = require("./proc-table.js");
 const {
 	PROGRAM,
@@ -275,6 +276,22 @@ function registrationKeeper(root, codeDir, log) {
 	};
 }
 
+/** @returns {string[]} */
+function readChildPids() {
+	const proc = procRoot();
+	let entries;
+	try {
+		entries = fs.readdirSync(proc);
+	} catch {
+		return [];
+	}
+	return entries.filter(
+		(e) =>
+			/^\d+$/.test(e) &&
+			parentInFields(readStatFields(e, proc)) === process.pid,
+	);
+}
+
 /** @typedef {(file: string, args: string[], env: NodeJS.ProcessEnv) => void} Exec */
 const proc = /** @type {NodeJS.Process & {execve: Exec}} */ (process);
 
@@ -291,8 +308,12 @@ function codeUpdater({ program, codeDir, log }) {
 		log(`code update off: git would not read ${root}, ${whyOf(err)}`);
 		return null;
 	}
+	// #5668
+	const inherited = new Set(readChildPids());
 	/** @type {string|null} */
 	let refused = null;
+	/** @type {string|null} */
+	let waitedFor = null;
 	/** @type {string|null} */
 	let fetchFailed = null;
 	let linked = false;
@@ -356,7 +377,17 @@ function codeUpdater({ program, codeDir, log }) {
 		/** @param {{hold: boolean}} opts */
 		adoptIfMoved({ hold }) {
 			const tip = hold ? null : newTip();
-			if (tip !== null) adopt(tip);
+			if (tip === null) return;
+			const unreaped = readChildPids().filter((pid) => !inherited.has(pid));
+			if (unreaped.length === 0) {
+				adopt(tip);
+				return;
+			}
+			if (waitedFor !== tip)
+				log(
+					`holding ${short(tip)} until pid ${unreaped.join(", ")} is reaped: an exec now would leave it a zombie`,
+				);
+			waitedFor = tip;
 		},
 		afterTick() {
 			keepRegistered();

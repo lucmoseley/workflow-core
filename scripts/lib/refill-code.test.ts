@@ -10,6 +10,7 @@ import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
 import { SHA_SHOWN } from "./pinned-code.js";
 import { makeProcRoot, writeCwd } from "./proc-fake";
+import { FIELD, readStatFields } from "./proc-stat.js";
 import {
 	bootProgram,
 	codeUpdater,
@@ -22,7 +23,11 @@ const CODE_LIB = path.resolve(__dirname, "refill-code.js");
 const LOOP = path.resolve(__dirname, "..", "refill-loop.js");
 const PID_LOCK_LIB = path.resolve(__dirname, "pid-lock.js");
 
-const DRIVER = `const fs = require("node:fs");
+const CHILD = `const fs = require("node:fs");
+setInterval(() => fs.existsSync(process.argv[1]) || process.exit(0), 20);`;
+
+const DRIVER = `const { spawn } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
 const { codeUpdater } = require(${JSON.stringify(CODE_LIB)});
 const { pidLock } = require(${JSON.stringify(PID_LOCK_LIB)});
@@ -36,7 +41,14 @@ function main() {
 	}
 	const updater = codeUpdater({ program: __filename, codeDir: path.join(dir, "code"), log });
 	let n = 0;
+	let spawned = false;
 	const tick = () => {
+		const flag = path.join(dir, "child");
+		if (!spawned && fs.existsSync(flag)) {
+			spawned = true;
+			const child = spawn(process.execPath, ["-e", ${JSON.stringify(CHILD)}, flag], { stdio: "ignore" });
+			log("spawned " + child.pid);
+		}
 		updater.adoptIfMoved({ hold: fs.existsSync(path.join(dir, "hold")) });
 		log("tick " + n++ + " " + marker + " pid " + process.pid);
 		updater.afterTick();
@@ -134,7 +146,10 @@ async function until(test: () => boolean, what: string) {
 
 const readTicks = () => readLogLines().filter((l) => l.startsWith("tick "));
 
-async function startLoop(env: Record<string, string> = {}) {
+async function startLoop(
+	env: Record<string, string> = {},
+	{ leadIn = [] as string[] } = {},
+) {
 	const launch = launchProgram({
 		scriptsDir: path.join(checkout, "scripts"),
 		codeDir,
@@ -142,7 +157,7 @@ async function startLoop(env: Record<string, string> = {}) {
 	if ("error" in launch) throw new Error(launch.error);
 	loopProc = keptSpawn("concurrent").spawn(
 		process.execPath,
-		[launch.program, "run"],
+		[...leadIn, launch.program, "run"],
 		{
 			env: { ...gitEnv, FIXTURE_DIR: dir, ...env },
 			stdio: "ignore",
@@ -757,6 +772,72 @@ describe("adoption", () => {
 		);
 		expect(readTicks().at(-1)).toContain(" one ");
 		expect(fs.existsSync(path.join(codeDir, bad))).toBe(false);
+	});
+
+	const readZombiesOf = (pid: number) =>
+		fs.readdirSync("/proc").filter((entry) => {
+			const fields = /^\d+$/.test(entry)
+				? readStatFields(entry, "/proc")
+				: null;
+			return (
+				Number(fields?.[FIELD.ppid]) === pid && fields?.[FIELD.state] === "Z"
+			);
+		});
+
+	const readSpawned = () =>
+		readLogLines().filter((l) => l.startsWith("spawned "));
+
+	async function adoptPastChild(marker: string) {
+		const seen = readSpawned().length;
+		fs.writeFileSync(path.join(dir, "child"), "");
+		await until(() => readSpawned().length > seen, "the child");
+		const tip = push({
+			"scripts/lib/marker.js": `module.exports = "${marker}";\n`,
+		});
+		await until(
+			() => readLogLines().some((l) => l.startsWith(`holding ${short(tip)}`)),
+			"the hold",
+		);
+		expect(readTicks().at(-1)).not.toContain(` ${marker} `);
+		fs.rmSync(path.join(dir, "child"));
+		await until(
+			() => readTicks().some((l) => l.includes(` ${marker} `)),
+			"the new code",
+		);
+	}
+
+	it("holds an adopt while a child of the image runs, so no exec leaves a zombie, across two adopts (#5668)", async () => {
+		await startLoop();
+		const pid = Number(loopProc?.pid);
+		await adoptPastChild("two");
+		await adoptPastChild("three");
+		await moreTicks(2);
+		expect(readZombiesOf(pid), readLogLines().join("\n")).toEqual([]);
+		expect(readTicks().at(-1)).toContain(`pid ${pid}`);
+		expect(readLogLines().filter((l) => l.startsWith("holding "))).toHaveLength(
+			2,
+		);
+	});
+
+	it("adopts past a zombie an earlier image left, which no image can reap (#5668)", async () => {
+		const flag = path.join(dir, "inherited");
+		fs.writeFileSync(flag, "");
+		const leadIn = [
+			"-e",
+			`const { spawn } = require("node:child_process");
+spawn(process.execPath, ["-e", ${JSON.stringify(CHILD)}, ${JSON.stringify(flag)}], { stdio: "ignore" });
+process.execve(process.execPath, [process.execPath, ...process.argv.slice(1)], process.env);`,
+		];
+		await startLoop({}, { leadIn });
+		fs.rmSync(flag);
+		const pid = Number(loopProc?.pid);
+		await until(() => readZombiesOf(pid).length === 1, "the inherited zombie");
+		push({ "scripts/lib/marker.js": 'module.exports = "two";\n' });
+		await until(
+			() => readTicks().some((l) => l.includes(" two ")),
+			"the new code",
+		);
+		expect(readLogLines().some((l) => l.startsWith("holding "))).toBe(false);
 	});
 
 	it("adopts nothing while held, as by a running gate sweep or a pending stop, then adopts once released", async () => {
