@@ -13,5 +13,5 @@ export function seenFrom<T>(cwd: string, read: () => T): T {
 	}
 }
 
-export const coreFile = (rel: string): string =>
-	shellQuote(path.join(coreRoot(), rel));
+export const coreFile = (rel: string, env = process.env): string =>
+	shellQuote(path.join(coreRoot(env), rel));

@@ -4,9 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
+import { coreFile } from "./lib/core-path-testkit";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { morningReviewFixture } from "./lib/morning-review-fixture";
-import { shellQuote } from "./lib/sh-quote.js";
 import { WSL_KERNEL, writeOsrelease, writeWsl } from "./lib/wsl-fake";
 
 const SCRIPT = path.resolve(__dirname, "file-morning-review.js");
@@ -140,7 +140,7 @@ describe("file-morning-review.js (#2011)", () => {
 				"",
 				"Each tracker's open efforts nothing has launched lately, the oldest, and why the refill loop skips it:",
 				"",
-				`- \`The refill loop is not running, so it serves no tracker. node ${shellQuote(path.join(runEnv().WFC_SCRIPT_ROOT, "scripts", "refill-loop.js"))} start restarts it.\``,
+				`- \`The refill loop is not running, so it serves no tracker. node ${coreFile("scripts/refill-loop.js", runEnv())} start restarts it.\``,
 				"- `acme/wfc: 1 idle past 2 days (the refill loop does not serve it); oldest #12 (Stranded effort), idle 5.0 days; skip reason: none, the launch filter passes it`",
 				"",
 			].join("\n"),

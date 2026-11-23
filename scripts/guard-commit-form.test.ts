@@ -71,18 +71,16 @@ const emission = (
 
 const failOpenLog = () => readFailOpenLog(config, shared);
 
-const { readRuleText: readRule } = createRequire(__filename)(
-	"./lib/rule-text",
-) as {
+const { readRuleText } = createRequire(__filename)("./lib/rule-text") as {
 	readRuleText: (id: string) => string;
 };
 
-const readRuleText = (id: string, cwd = shared) =>
-	seenFrom(cwd, () => readRule(id));
+const ruleSeenFrom = (id: string, cwd = shared) =>
+	seenFrom(cwd, () => readRuleText(id));
 
 const commitRule = () =>
 	["commit-pathspec", "commit-show-diff", "commit-message", "push-cadence"]
-		.map((id) => readRuleText(id))
+		.map((id) => ruleSeenFrom(id))
 		.join("\n\n");
 
 const NO_VERIFY =
@@ -121,7 +119,7 @@ describe("each exit path", () => {
 			'git commit -m "Fixes #1" -- a.md',
 		).permissionDecisionReason;
 		expect(reason).toContain("What matched: `Fixes #1`");
-		expect(reason).toContain(readRuleText("commit-closes-keyword"));
+		expect(reason).toContain(ruleSeenFrom("commit-closes-keyword"));
 		expect(reason).toContain(
 			"Rewrite the message with a non-closing reference and commit again.",
 		);
@@ -174,7 +172,7 @@ describe("the commit rules are handed over once a session", () => {
 	it("hands the push rule on a session's first commit-paths.js call and not its second (#2285)", () => {
 		const command = 'node scripts/commit-paths.js -m "x" -- a.md';
 		expect(emission(command, "cp-push").additionalContext).toContain(
-			readRuleText("push-cadence"),
+			ruleSeenFrom("push-cadence"),
 		);
 		expect(emission(command, "cp-push")).toBeNull();
 	});
@@ -190,10 +188,10 @@ describe("the commit rules are handed over once a session", () => {
 		const at = { env: { WFC_MODULES: "roadmap" } };
 		const first = emission(command, "wide", at).additionalContext as string;
 		expect(Buffer.byteLength(first, "utf8")).toBeLessThanOrEqual(4000);
-		expect(first).toContain(readRuleText("machinery-superseded"));
-		expect(first).not.toContain(readRuleText("push-cadence"));
+		expect(first).toContain(ruleSeenFrom("machinery-superseded"));
+		expect(first).not.toContain(ruleSeenFrom("push-cadence"));
 		expect(emission(command, "wide", at).additionalContext).toBe(
-			readRuleText("push-cadence"),
+			ruleSeenFrom("push-cadence"),
 		);
 	});
 });
@@ -283,7 +281,7 @@ describe("each production adapter, crossed for real", () => {
 		git(fresh, "config", "core.hooksPath", path.join(dir, "no-hooks"));
 		fs.writeFileSync(path.join(fresh, "docs", "doc-map.md"), "map\n");
 		const at = { cwd: fresh, project: fresh };
-		const doc = readRuleText("doc-map-precommit", fresh);
+		const doc = ruleSeenFrom("doc-map-precommit", fresh);
 		expect(
 			emission('git commit -m "init"', "p1", at).additionalContext,
 		).not.toContain(doc);
@@ -342,7 +340,7 @@ describe("each production adapter, crossed for real", () => {
 			path.join(shared, "own.patch"),
 			git(shared, "diff", "HEAD", "--", "docs/p.md"),
 		);
-		const doc = readRuleText("doc-map-precommit");
+		const doc = ruleSeenFrom("doc-map-precommit");
 		expect(
 			emission('node scripts/commit-paths.js -m "x" --patch own.patch')
 				.additionalContext,

@@ -844,21 +844,19 @@ describe("a pointer count disagreeing with its sidecar", () => {
 	});
 
 	it("refuses the commit and prints the fix", async () => {
-		const repo = realCheckerRepo(2, 2, 1);
-		const { code, output } = await runGate(repo);
-		const sidecar = (name: string) => coreFile(`docs/${name}`);
+		const { code, output } = await runGate(realCheckerRepo(2, 2, 1));
 		expect(code).not.toBe(0);
 		expect(output).toContain(
 			"B1 — pointer says 2 path(s), the sidecar holds 1",
 		);
 		expect(output).toContain(
-			`- **Restated in:** <n> paths, in \`${sidecar("doc-map-restatements.json")}\`.`,
+			"- **Restated in:** <n> paths, in `docs/doc-map-restatements.json`.",
 		);
 		expect(output).toContain(
 			"- **Restated in:** none — <one clause saying why>.",
 		);
 		expect(output).toContain(
-			`- **Supersedes:** see \`${sidecar("doc-map-superseded.json")}\`.`,
+			"- **Supersedes:** see `docs/doc-map-superseded.json`.",
 		);
 	});
 });
