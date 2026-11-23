@@ -5755,6 +5755,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 						}
 						return null;
 					});
+					let env: Record<string, string> = {};
 					const got = await runSeeing(dir, ["--queue", "--changed"], {
 						pid: 5579,
 						sessionId: "mine",
@@ -5766,10 +5767,19 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 						claimFn: () => ({ claimed: true }),
 						queueDir: qdir(),
 						gateRead,
+						spawnFn: (
+							_bin: string,
+							_a: string[],
+							opts: { env: Record<string, string> },
+						) => {
+							env = opts.env;
+							return fakeChild({ code: 0 });
+						},
 					});
 					expect(gateRead).toHaveBeenCalled();
 					return {
 						...got,
+						admissible: readLaunch(env).admissible,
 						manifest: fs.readFileSync(path.join(dir, EDGES_FILE), "utf8"),
 					};
 				}
@@ -5783,10 +5793,22 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					);
 				});
 
-				it("brings it up to date where a queued run loaded the walk its tree holds (#5579)", async () => {
+				it("marks a queued run not admissible, saying why, where it selected with the walk a commit during its wait replaced (#5635)", async () => {
+					const got = await queuedAcrossCommit("old walk\n");
+					expect(got.admissible).toBe(false);
+					expect(got.out).toContain(
+						`Readers selected with the render code this run loaded (${extractorFile}), which differs from the tree it selects in, so this run is not admissible`,
+					);
+				});
+
+				it("brings it up to date, and keeps the run admissible, where a queued run loaded the walk its tree holds (#5579, #5635)", async () => {
 					const got = await queuedAcrossCommit("new walk\n");
 					expect(got.manifest).toContain('"manifest.test.ts"');
 					expect(got.out).toContain("brought up to date");
+					expect(got.out).not.toContain(
+						"Readers selected with the render code",
+					);
+					expect(got.admissible).toBe(true);
 				});
 
 				it("hands vitest the own readers, and no neighbour's", async () => {

@@ -163,4 +163,4 @@ function freshenManifest(
 	);
 }
 
-module.exports = { RENDER_SNAPSHOT, freshenManifest };
+module.exports = { RENDER_SNAPSHOT, freshenManifest, renderDrift };
