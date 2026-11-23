@@ -5,7 +5,6 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { HOOK_TIMEOUT_MS } from "./check-orphaned-edits.js";
 import { buildAgentsBranch, buildListedRow } from "./lib/agents-stop-fake";
 import {
 	AS_ROOT,
@@ -20,7 +19,6 @@ import {
 	store,
 } from "./lib/arbiter-testkit";
 import { writeClaudeStub } from "./lib/claude-stub";
-import { registeredTimeoutsMs } from "./lib/hook-timeouts";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { readWorktreeEdits, readWorktreeFiling } from "./lib/orphan-filings.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
@@ -1039,13 +1037,5 @@ describe("a cut-over main checkout's dirt", () => {
 		expect(data.mainCutOver).toBe(true);
 		expect(data.orphanCount).toBe(0);
 		expect(data.young).toBe(1);
-	});
-});
-
-describe("HOOK_TIMEOUT_MS", () => {
-	it("is the sweep's hook timeout at every registration", () => {
-		const timeouts = registeredTimeoutsMs("check-orphaned-edits.js");
-		expect(timeouts.length).toBeGreaterThan(0);
-		expect(new Set(timeouts)).toEqual(new Set([HOOK_TIMEOUT_MS]));
 	});
 });

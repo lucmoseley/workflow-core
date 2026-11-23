@@ -97,7 +97,7 @@ done
 {
   printf '\nRead this against docs/environment.md §6 before acting on it: a\n'
   printf 'faster arm that needed more headroom than the rungs allow is not a\n'
-  printf 'usable setting. Raising `maxWorkers` in vitest.config.ts is the change\n'
+  printf 'usable setting. Raising WHOLE_SUITE_WORKERS in scripts/lib/suite-bounded.js is the change\n'
   printf 'these numbers argue for or against (mantahostels#1906).\n'
 } >>"$OUT"
 say "finished"

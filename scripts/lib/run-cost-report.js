@@ -10,6 +10,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { WIDE_SHA } = require("./git.js");
 const { readDefaultChangedBase } = require("./changed-selection.js");
 const { gitRead, readUntrackedFiles } = require("./dirty-tree.js");
 const { ghJson, parseErrLine } = require("./gh.js");
@@ -97,7 +98,7 @@ function linesFor({
 		.filter(({ seconds, grown }) => seconds > BUDGET_SECONDS && (grown || !ci))
 		.sort((a, b) => b.seconds - a.seconds);
 	const ciRun = record
-		? `CI run ${record.run} at ${record.sha.slice(0, 12)}`
+		? `CI run ${record.run} at ${record.sha.slice(0, WIDE_SHA)}`
 		: "";
 	const lines = over.map(({ file, atBase, seconds, recorded, grown }) => {
 		const took = `${PREFIX} ${file} took ${fixed1(seconds)} ${label}`;

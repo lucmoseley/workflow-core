@@ -3,13 +3,24 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
+const INJECTOR_SCRIPT = "inject-tracker-docs.js";
+
 const PROBE_SESSION_ID = "check-context-budget-probe-00000000";
 
 const INJECTOR_ENTRY =
-	process.env.WFC_INJECTOR_ENTRY ||
-	path.join(__dirname, "..", "inject-tracker-docs.js");
+	process.env.WFC_INJECTOR_ENTRY || path.join(__dirname, "..", INJECTOR_SCRIPT);
 
-const RUN_TIMEOUT_MS = 10_000;
+/** @returns {number} */
+function injectorTimeoutMs() {
+	const { flattenHooks, pluginHooksFile } = require("./core-hooks.js");
+	const { hooks = {} } = JSON.parse(fs.readFileSync(pluginHooksFile(), "utf8"));
+	const seconds = flattenHooks(hooks)
+		.filter((h) => h.command?.includes(INJECTOR_SCRIPT))
+		.map((h) => h.timeout ?? 0);
+	if (seconds.length === 0)
+		throw new Error(`hooks/hooks.json registers no ${INJECTOR_SCRIPT}`);
+	return Math.min(...seconds) * 1000;
+}
 
 /**
  * @typedef {{ command: string, chars: number | null, error?: string }} RenderedPayload
@@ -33,7 +44,8 @@ function renderedPayloads(commands, root) {
 			WFC_GH: gh,
 		};
 		delete env.CLAUDE_CODE_SESSION_ID;
-		return commands.map((command) => render(root, env, command));
+		const timeout = injectorTimeoutMs();
+		return commands.map((command) => render(root, env, command, timeout));
 	} finally {
 		fs.rmSync(tmp, { recursive: true, force: true });
 	}
@@ -43,9 +55,10 @@ function renderedPayloads(commands, root) {
  * @param {string} root
  * @param {NodeJS.ProcessEnv} env
  * @param {string} command
+ * @param {number} timeout
  * @returns {RenderedPayload}
  */
-function render(root, env, command) {
+function render(root, env, command, timeout) {
 	const input = JSON.stringify({
 		prompt: `/${command} 1`,
 		hook_event_name: "UserPromptSubmit",
@@ -57,7 +70,7 @@ function render(root, env, command) {
 		env,
 		cwd: root,
 		encoding: "utf8",
-		timeout: RUN_TIMEOUT_MS,
+		timeout,
 	});
 	if (r.error || r.status !== 0)
 		return {
@@ -76,7 +89,6 @@ function render(root, env, command) {
 }
 
 module.exports = {
-	RUN_TIMEOUT_MS,
 	INJECTOR_ENTRY,
 	PROBE_SESSION_ID,
 	renderedPayloads,

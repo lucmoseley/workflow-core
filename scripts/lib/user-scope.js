@@ -303,7 +303,6 @@ function hasOwnScopeHitCap() {
 }
 
 module.exports = {
-	OUTLIVE_CEILING_S,
 	probeUserScope,
 	spawnOutliving,
 	spawnInRunScope,

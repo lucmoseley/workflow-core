@@ -11,9 +11,9 @@ const {
 // #2221 guess
 const DRAW_MARGIN_MB = 300;
 
-// measured: MemTotal at the 10 GB cap, lucmoseley/mantahostels#2766
+// measured 9924 MB MemTotal on 18 Aug 2026, lucmoseley/mantahostels#1127
 const MEM_TOTAL_MIB = 9924;
-// guess: earlyoom's -m 8 kill line, #2221
+// #2221
 const EARLYOOM_KILL_PERCENT = 8;
 const EARLYOOM_FLOOR_MB = Math.ceil(
 	(MEM_TOTAL_MIB * EARLYOOM_KILL_PERCENT) / 100,

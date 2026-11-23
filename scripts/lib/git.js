@@ -239,6 +239,7 @@ const HOOK_GIT_TIMEOUT_MS = 3000;
 const GIT_TIMEOUT_MS = 30_000;
 // guess, #2607
 const SHORT_SHA = 9;
+// guess: a sha in a report line, unique where 9 may not be, #892
 const WIDE_SHA = 12;
 
 /**

@@ -8,6 +8,7 @@ const SWEEP_WORKFLOW = "scheduled-checks.yml";
 
 const SWEEP_BRANCH = "main";
 
+// guess: a per-call gh cap in a sweep, lucmoseley/mantahostels#2134
 const SWEEP_GH_TIMEOUT_MS = 8000;
 
 // guess: four runs a day plus repairs, well past 24 h, #4447
