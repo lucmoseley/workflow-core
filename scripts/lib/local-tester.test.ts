@@ -304,6 +304,29 @@ it("installs once per lockfile through WFC_NPM, again only when it changes", asy
 	expect(npm).toEqual([stub, stub]);
 });
 
+it("beats between a group's checkout and its install, so the lander's heartbeat waits on one bounded call (#5644)", async () => {
+	vi.stubEnv("WFC_NPM", path.join(tmp, "stub-npm"));
+	write("package-lock.json", '{"v":1}');
+	const locked = commit("lock v1");
+	const order: string[] = [];
+	const { exec } = recordingExec();
+	const tester = localTester({
+		root: work,
+		admit: admitted().admit,
+		exec: (bin: string, args: string[], cwd: string) => {
+			order.push(args[0] === "ci" ? "install" : "git");
+			exec(bin, args, cwd);
+		},
+		beat: () => order.push("beat"),
+	});
+
+	await tester.verdict(BATCH0, locked);
+	const install = order.indexOf("install");
+	expect(install).toBeGreaterThan(0);
+	expect(order[install - 1]).toBe("beat");
+	expect(order.slice(0, install - 1)).toContain("git");
+});
+
 it("runs the declared full_test over test, and the Python suite only where the config routes Python tests", async () => {
 	const pytest = path.join(tmp, "fake-pytest.js");
 	const ran = path.join(tmp, "pytest-ran");

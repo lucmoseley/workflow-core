@@ -90,6 +90,27 @@ function heartbeatWriter(file) {
 }
 
 /**
+ * @template {object} T
+ * @param {() => void} beat
+ * @param {T} deps
+ * @returns {T}
+ */
+const beatingBefore = (beat, deps) =>
+	/** @type {T} */ (
+		Object.fromEntries(
+			Object.entries(deps).map(([key, value]) => [
+				key,
+				typeof value === "function"
+					? (/** @type {unknown[]} */ ...args) => {
+							beat();
+							return value(...args);
+						}
+					: value,
+			]),
+		)
+	);
+
+/**
  * @param {string} file
  * @returns {Heartbeat|null}
  */
@@ -109,6 +130,7 @@ function readHeartbeat(file) {
 module.exports = {
 	HEARTBEAT_MS,
 	fileLedger,
+	beatingBefore,
 	heartbeatWriter,
 	landerLock,
 	parseLedgerShas,

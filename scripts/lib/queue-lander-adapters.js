@@ -157,6 +157,7 @@ function readOtherTrackerRemotes(root) {
  * @param {boolean} [options.ciRepeats]
  * @param {number} [options.gateGraceMs]
  * @param {boolean} [options.suiteRepeats]
+ * @param {() => void} [options.beat]
  * @returns {QueueGit}
  */
 function queueGit(
@@ -167,6 +168,7 @@ function queueGit(
 		ciRepeats = false,
 		suiteRepeats = false,
 		gateGraceMs = HOOK_GRACE_MS,
+		beat = () => undefined,
 	} = {},
 ) {
 	const batchSet = batchGateSet(ciRepeats, suiteRepeats);
@@ -217,6 +219,7 @@ function queueGit(
 				path.resolve(root, common, "objects", broken[1] ?? "", broken[2] ?? ""),
 				{ force: true },
 			);
+			beat();
 			git(["fetch", "--quiet", REMOTE, ...fetchSpecs]);
 			throw new TransientFault(
 				`a broken git object, removed and fetched again: ${parseRefusal(parseErrorText(err))}`,
@@ -225,7 +228,10 @@ function queueGit(
 		}
 	};
 	/** @param {string[]} args */
-	const git = (args) => readGit(root, args);
+	const git = (args) => {
+		beat();
+		return readGit(root, args);
+	};
 	/** @type {DroppedRef[]|null} */
 	let trackerDropped = null;
 	// #5539
@@ -355,11 +361,17 @@ function queueGit(
 	 * @returns {MergeResult}
 	 */
 	function mergeGated(onto, members, started) {
+		beat();
 		return withThrowawayTree(
 			root,
 			onto,
 			{ program: "queue-lander", use: "merge" },
-			(dir, inTree) => {
+			(dir, untimed) => {
+				/** @type {MergeTree["inTree"]} */
+				const inTree = (args, timeout) => {
+					beat();
+					return untimed(args, timeout);
+				};
 				const gates = hookGates(dir, inTree);
 				const gateCopy = gateCopies(dir);
 				for (const m of members) {
@@ -459,6 +471,7 @@ function queueGit(
 					"scripts/check-guard-registry.js",
 				);
 				if (!fs.existsSync(checker)) return null;
+				beat();
 				const r = spawnSync(
 					process.execPath,
 					[checker, "--root", dir, "--json"],
@@ -522,6 +535,7 @@ function queueGit(
 				);
 				return;
 			}
+			beat();
 			runHook(hook, set, {
 				dir,
 				limitMs: mergeTimeoutMs,
@@ -571,6 +585,7 @@ function queueGit(
 	function regenerate(dir, inTree, gateCopy) {
 		for (const [file, { generator }] of regenerated) {
 			if (!fs.existsSync(path.join(dir, file))) continue;
+			beat();
 			execFileSync(process.execPath, [gateCopy(generator)], {
 				cwd: dir,
 				encoding: "utf8",

@@ -181,6 +181,33 @@ describe("a run", () => {
 		expect(fs.existsSync(path.join(hooks, "calls.log"))).toBe(false);
 	});
 
+	it("beats before each gate and between a member's chained merge calls, so no gate starts more than one bounded call after a beat (#5644)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const members = ["a", "b"].map((name, i) => ({
+			name,
+			sha: pushQueue(name, seed),
+			pushedAt: i,
+		}));
+		const calls = stubHooks(["pre-commit"]);
+		const ranAtBeat: number[] = [];
+		const log = path.resolve(
+			work,
+			git(work, "rev-parse", "--git-common-dir"),
+			"hooks",
+			"calls.log",
+		);
+		const beat = () => {
+			ranAtBeat.push(fs.existsSync(log) ? calls().length : 0);
+		};
+		expect(queueGit(work, { beat }).mergeMembers(seed, members).kind).toBe(
+			"merged",
+		);
+		const gates = calls().length;
+		expect(gates).toBe(3);
+		for (let ran = 0; ran < gates; ran++) expect(ranAtBeat).toContain(ran);
+		expect(ranAtBeat.length).toBeGreaterThan(gates * 2);
+	});
+
 	it("runs the batch gate set where the Actions run repeats the rest, the tested set where the local tester repeats the suite, and every gate where neither does (#4545, #5308)", () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const members = [

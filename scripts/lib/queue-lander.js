@@ -1674,6 +1674,7 @@ function dropMember(deps, d, run) {
 	]);
 	if (left && left !== batch) deps.record.write(left);
 	deps.git.createRef(d.ref, d.sha);
+	deps.beat();
 	deps.git.deleteRef(queueBranch(d.name), d.sha);
 	deps.logQueue("drop", d);
 	return { ...run, acting: left, unmerged: null, alone: null };
