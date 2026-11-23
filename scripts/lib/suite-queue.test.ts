@@ -1215,19 +1215,6 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		expect(await turnOpen({ queueDir, pid: 11 })).toBe(false);
 		expect(fs.readdirSync(queueDir)).toHaveLength(2);
 	});
-
-	it("keeps waiting on an open gate while it is not this waiter's turn", async () => {
-		let turns = 3;
-		const sleepFn = vi.fn(() => Promise.resolve());
-		await waitForGate({
-			gate: () => false,
-			turn: () => turns-- <= 0,
-			admit: noQueue,
-			sleepFn,
-			out: { write: () => true },
-		});
-		expect(sleepFn).toHaveBeenCalledTimes(3);
-	});
 });
 
 describe("two launches whose turns came true on one poll (#2622)", () => {
@@ -1559,23 +1546,6 @@ describe("the queues ordered against each other where the climb decides (#4760)"
 		expect(lines[1]).toBe(
 			"q: after 0s, held on an older waiter in the other queue the climb charge holds, PID 22 in wfc-tsc-queue\n",
 		);
-	});
-
-	it("stamps a wait the climb alone holds, never one MemAvailable itself fails", async () => {
-		const heard: boolean[] = [];
-		const polls = [
-			{ limb: "memory", mb: 3000, rungMb: 2750, climbMb: 500 },
-			{ limb: "memory", mb: 2000, rungMb: 2750, climbMb: 500 },
-			{ limb: "memory", mb: 3000, rungMb: 2750, climbMb: 500 },
-		];
-		await waitForGate({
-			gate: () => polls.shift() ?? null,
-			admit: noQueue,
-			sleepFn: () => Promise.resolve(),
-			out: { write: () => true },
-			onClimbStamp: (held: boolean) => heard.push(held),
-		});
-		expect(heard).toEqual([true, false, true, false]);
 	});
 });
 
@@ -2203,25 +2173,6 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			expect(climb).toBe(0);
 			expect(unread).toEqual(["ps"]);
 		});
-	});
-
-	it("names the charge apart from the reading when the rung refuses at the bound", async () => {
-		const said: string[] = [];
-		await waitForGate({
-			gate: (climbMb: number) => ({
-				limb: "memory",
-				mb: 3000,
-				rungMb: 3250,
-				climbMb,
-			}),
-			climbMb: () => 700,
-			timeoutMs: 0,
-			admit: noQueue,
-			out: { write: (s: string) => said.push(s) },
-		});
-		expect(said.join("")).toMatch(
-			/\(MemAvailable 3000 MB, less 700 MB the other queue's launches have yet to draw, against the ~3250 MB rung\)/,
-		);
 	});
 });
 

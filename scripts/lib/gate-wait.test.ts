@@ -642,3 +642,54 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 		expect(wait.exits).toEqual([["refused", 30, { limb: "memory" }]]);
 	});
 });
+
+describe("waitForGate on the turn and the climb charge it reads", () => {
+	it("keeps waiting on an open gate while it is not this waiter's turn", async () => {
+		let turns = 3;
+		const sleepFn = vi.fn(() => Promise.resolve());
+		await waitForGate({
+			gate: () => false,
+			turn: () => turns-- <= 0,
+			admit: noQueue,
+			sleepFn,
+			out: { write: () => true },
+		});
+		expect(sleepFn).toHaveBeenCalledTimes(3);
+	});
+
+	it("stamps a wait the climb alone holds, never one MemAvailable itself fails", async () => {
+		const heard: boolean[] = [];
+		const polls = [
+			{ limb: "memory", mb: 3000, rungMb: 2750, climbMb: 500 },
+			{ limb: "memory", mb: 2000, rungMb: 2750, climbMb: 500 },
+			{ limb: "memory", mb: 3000, rungMb: 2750, climbMb: 500 },
+		];
+		await waitForGate({
+			gate: () => polls.shift() ?? null,
+			admit: noQueue,
+			sleepFn: () => Promise.resolve(),
+			out: { write: () => true },
+			onClimbStamp: (held: boolean) => heard.push(held),
+		});
+		expect(heard).toEqual([true, false, true, false]);
+	});
+
+	it("names the charge apart from the reading when the rung refuses at the bound", async () => {
+		const said: string[] = [];
+		await waitForGate({
+			gate: (climbMb: number) => ({
+				limb: "memory",
+				mb: 3000,
+				rungMb: 3250,
+				climbMb,
+			}),
+			climbMb: () => 700,
+			timeoutMs: 0,
+			admit: noQueue,
+			out: { write: (s: string) => said.push(s) },
+		});
+		expect(said.join("")).toMatch(
+			/\(MemAvailable 3000 MB, less 700 MB the other queue's launches have yet to draw, against the ~3250 MB rung\)/,
+		);
+	});
+});
