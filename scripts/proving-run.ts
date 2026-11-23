@@ -3,9 +3,22 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { type RouteAnswer, stubGhHandler, stubGhRoutes } from "./lib/gh-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { Session } from "./proving-session";
 
 const REPO_ROOT = path.resolve(__dirname, "..");
+
+const arenaRepo = defineTemplate((dir) => {
+	const repo = path.join(dir, "repo");
+	fs.mkdirSync(repo);
+	const git = (...args: string[]) => execFileSync("git", args, { cwd: repo });
+	git("init", "-q", "-b", "main", ".");
+	git("config", "user.email", "test@example.com");
+	git("config", "user.name", "test");
+	// lucmoseley/mantahostels#100
+	git("config", "core.hooksPath", path.join(dir, "no-hooks"));
+	git("config", "branch.main.merge", "refs/heads/landing");
+});
 
 export class Arena {
 	readonly dir: string;
@@ -16,18 +29,11 @@ export class Arena {
 		this.dir = fs.mkdtempSync(path.join(os.tmpdir(), "proving-run-"));
 		this.repo = path.join(this.dir, "repo");
 		this.home = path.join(this.dir, "home");
-		fs.mkdirSync(this.repo);
+		arenaRepo.instantiate(this.dir);
 		fs.mkdirSync(path.join(this.home, ".claude", "jobs"), { recursive: true });
 		fs.mkdirSync(path.join(this.home, ".claude", "sessions"), {
 			recursive: true,
 		});
-
-		this.git("init", "-q", "-b", "main", ".");
-		this.git("config", "user.email", "test@example.com");
-		this.git("config", "user.name", "test");
-		// lucmoseley/mantahostels#100
-		this.git("config", "core.hooksPath", path.join(this.dir, "no-hooks"));
-		this.git("config", "branch.main.merge", "refs/heads/landing");
 	}
 
 	git(...args: string[]) {

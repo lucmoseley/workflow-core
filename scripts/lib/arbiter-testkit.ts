@@ -8,6 +8,7 @@ import { buildAgentsBranch, buildListedRow } from "./agents-stop-fake";
 import { caught } from "./caught.js";
 import { writeClaudeStub } from "./claude-stub";
 import { type RouteAnswer, stubGhRoutes, stubGhScript } from "./gh-stub";
+import { defineTemplate } from "./git-fixture";
 import { runInProcess } from "./run-in-process";
 import { sleepSync } from "./sleep-sync.js";
 
@@ -238,12 +239,16 @@ export function ghCalls(sb: Sandbox): string[] {
 
 export const ghCallCount = (sb: Sandbox) => ghCalls(sb).length;
 
-export function gitRepo(sb: Sandbox) {
-	execFileSync("git", ["init", "-q"], { cwd: sb.repo });
+const identifiedRepo = defineTemplate((dir) => {
+	execFileSync("git", ["init", "-q"], { cwd: dir });
 	fs.appendFileSync(
-		path.join(sb.repo, ".git", "config"),
+		path.join(dir, ".git", "config"),
 		"[user]\n\temail = t@t\n\tname = t\n",
 	);
+});
+
+export function gitRepo(sb: Sandbox) {
+	identifiedRepo.instantiate(sb.repo);
 }
 
 export function commitAll(sb: Sandbox, message = "seed") {
