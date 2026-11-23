@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 
 const SCRIPT = path.resolve(__dirname, "burn-mode.sh");
 const FIXTURE = path.resolve(__dirname, "fixtures/model-routing/fixture.json");
@@ -308,12 +309,8 @@ describe("status", () => {
 });
 
 describe("the marker is one per machine, not one per checkout", () => {
-	const repo = (name: string) => {
-		const at = path.join(dir, name);
-		fs.mkdirSync(at, { recursive: true });
-		spawnSync("git", ["init", "-q"], { cwd: at });
-		return at;
-	};
+	const emptyRepo = defineTemplate(emptyRepoTemplate);
+	const repo = (name: string) => emptyRepo.instantiate(path.join(dir, name));
 
 	const runIn = (at: string, arg: string) => {
 		const { CLAUDE_PROJECT_DIR: _drop, ...env } = process.env;

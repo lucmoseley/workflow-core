@@ -1,6 +1,5 @@
 // @vitest-environment node
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -8,15 +7,18 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fakeGitHub } from "./lib/alarm-notice-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { ROOT } from "./lib/precommit-gate-testkit";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(ROOT, "scripts/alarm-notice.js");
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 let tmp: string;
 
 beforeEach(() => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "alarm-notice-"));
-	spawnSync("git", ["init", "-q", tmp]);
+	tmp = emptyRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "alarm-notice-")),
+	);
 	fs.mkdirSync(path.join(tmp, ".claude"));
 	fs.writeFileSync(
 		path.join(tmp, ".claude/workflow-core.json"),

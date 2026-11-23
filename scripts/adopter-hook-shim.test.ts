@@ -7,12 +7,16 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { HOOKS, renderHookShim } from "./lib/adopter-skeleton";
 import { depsPattern, judgeSource } from "./lib/comment-policy.js";
+import { defineTemplate } from "./lib/git-fixture";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 const ROOT = path.join(__dirname, "..");
 const KEY = "workflow-core@wc";
+const bareRepo = defineTemplate((dir) => {
+	execFileSync("git", ["init", "-q", "--bare", "."], { cwd: dir });
+});
 
 function fakeCore(dir: string, version: string, log: string) {
 	fs.mkdirSync(path.join(dir, ".claude-plugin"), { recursive: true });
@@ -298,8 +302,7 @@ describe("an adopter's hook shims (#1839)", () => {
 			},
 		);
 		fs.chmodSync(path.join(core, ".husky", "pre-push"), 0o755);
-		const remote = path.join(a.work, "remote.git");
-		execFileSync("git", ["init", "-q", "--bare", remote], { cwd: a.work });
+		const remote = bareRepo.instantiate(path.join(a.work, "remote.git"));
 		const r = spawnSync("git", ["push", "-q", remote, "HEAD:refs/heads/main"], {
 			cwd: bare,
 			encoding: "utf8",
@@ -317,8 +320,7 @@ describe("an adopter's hook shims (#1839)", () => {
 			a.log,
 		);
 		a.record(installed);
-		const remote = path.join(a.work, "remote.git");
-		execFileSync("git", ["init", "-q", "--bare", remote], { cwd: a.work });
+		const remote = bareRepo.instantiate(path.join(a.work, "remote.git"));
 		const r = spawnSync("git", ["push", "-q", remote, "HEAD:refs/heads/main"], {
 			cwd: a.root,
 			encoding: "utf8",
@@ -335,8 +337,7 @@ describe("an adopter's hook shims (#1839)", () => {
 
 	it("lets a push through where nothing resolves, as pre-push refuses none on a checker that cannot run (#1444)", () => {
 		const a = buildAdopter();
-		const remote = path.join(a.work, "remote.git");
-		execFileSync("git", ["init", "-q", "--bare", remote], { cwd: a.work });
+		const remote = bareRepo.instantiate(path.join(a.work, "remote.git"));
 		const r = spawnSync("git", ["push", "-q", remote, "HEAD:refs/heads/main"], {
 			cwd: a.root,
 			encoding: "utf8",

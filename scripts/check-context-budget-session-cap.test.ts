@@ -1,10 +1,11 @@
 // @vitest-environment node
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { textModuleSource, writeTextModule } from "./lib/tracker-text-fixture";
@@ -27,11 +28,15 @@ const OVER_TOTAL = OVER_N * OVER_EACH;
 
 let dir: string;
 
-beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-session-"));
+const seed = () => {
 	pool();
 	injector();
 	ruleCap(RULE_CAP);
+};
+
+beforeEach(() => {
+	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-session-"));
+	seed();
 });
 
 afterEach(() => {
@@ -789,10 +794,21 @@ describe("--against HEAD over a guard's own bytes", () => {
 		return { ...r, json: () => JSON.parse(r.stdout) };
 	}
 
+	const mainRepo = defineTemplate((at) => {
+		for (const args of [
+			["init", "-q", "-b", "main"],
+			["config", "user.email", "t@example.invalid"],
+			["config", "user.name", "t"],
+		])
+			execFileSync("git", args, { cwd: at });
+	});
+
+	beforeEach(() => {
+		mainRepo.instantiate(dir);
+		seed();
+	});
+
 	function baseline() {
-		git("init", "-q", "-b", "main");
-		git("config", "user.email", "t@example.invalid");
-		git("config", "user.name", "t");
 		git("add", "-A");
 		git("commit", "-q", "--no-verify", "-m", "baseline");
 	}

@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import { getPoolFiles } from "./lib/always-loaded-pool.js";
 import { SHED_REGISTERS } from "./lib/context-budget-pathspecs";
 import { liveCaps } from "./lib/context-budget-testkit";
 import { PROFILES } from "./lib/fault-profiles.js";
+import { defineTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { CORE_RULES } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -46,17 +47,21 @@ const SPARE_PATH: string = poolMember(
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-"));
-	fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
-	fs.mkdirSync(path.join(dir, ".claude", "skills"), { recursive: true });
-	fs.mkdirSync(path.join(dir, ".claude", "commands"), { recursive: true });
 	vi.stubEnv("WFC_TRACKER_TEXT_FILE", path.join(dir, TEXT_MODULE));
 	const emptyFallback = fs.mkdtempSync(
 		path.join(os.tmpdir(), "ctxbudget-fallback-"),
 	);
 	rulesFallbackDirs.push(emptyFallback);
 	vi.stubEnv("WFC_RULES_FALLBACK_DIR", emptyFallback);
-	injector(INJECTION_CAP - 1);
+	seedDir();
 });
+
+function seedDir() {
+	fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+	fs.mkdirSync(path.join(dir, ".claude", "skills"), { recursive: true });
+	fs.mkdirSync(path.join(dir, ".claude", "commands"), { recursive: true });
+	injector(INJECTION_CAP - 1);
+}
 
 function injector(bytes: number, extra = "") {
 	writeTextModule(dir, textModuleSource("x".repeat(bytes), extra));
@@ -849,6 +854,18 @@ describe("the injected tracker docs", () => {
 	});
 });
 
+function gate(...args: string[]) {
+	const r = keptSpawn("fd").spawnSync(
+		"node",
+		[SCRIPT, "--against", "HEAD", ...args],
+		{
+			cwd: dir,
+			encoding: "utf8",
+		},
+	);
+	return { ...r, json: () => JSON.parse(r.stdout) };
+}
+
 describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1834)", () => {
 	function git(...args: string[]) {
 		const r = spawnSync("git", args, { cwd: dir, encoding: "utf8" });
@@ -856,22 +873,21 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 		return r.stdout;
 	}
 
-	function gate(...args: string[]) {
-		const r = keptSpawn("fd").spawnSync(
-			"node",
-			[SCRIPT, "--against", "HEAD", ...args],
-			{
-				cwd: dir,
-				encoding: "utf8",
-			},
-		);
-		return { ...r, json: () => JSON.parse(r.stdout) };
-	}
+	const mainRepo = defineTemplate((at) => {
+		for (const args of [
+			["init", "-q", "-b", "main"],
+			["config", "user.email", "t@example.invalid"],
+			["config", "user.name", "t"],
+		])
+			execFileSync("git", args, { cwd: at });
+	});
+
+	beforeEach(() => {
+		mainRepo.instantiate(dir);
+		seedDir();
+	});
 
 	function baseline() {
-		git("init", "-q", "-b", "main");
-		git("config", "user.email", "t@example.invalid");
-		git("config", "user.name", "t");
 		git("add", "-A");
 		git("commit", "-q", "--no-verify", "-m", "baseline");
 	}
@@ -1305,18 +1321,8 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 		expect(r.json().outcome).not.toBe("BROKEN");
 	});
 
-	it("is BROKEN outside a git repository, never an empty baseline", () => {
-		pool(CAP + 500);
-		const r = gate("--json");
-		expect(r.json().outcome).toBe("BROKEN");
-		expect(r.status).toBe(2);
-	});
-
 	it("refuses a first commit over the cap, against the empty tree", () => {
 		pool(CAP + 500);
-		git("init", "-q", "-b", "main");
-		git("config", "user.email", "t@example.invalid");
-		git("config", "user.name", "t");
 		git("add", "-A");
 		const r = gate("--json");
 		expect(r.json().outcome).toBe("FAIL");
@@ -1362,6 +1368,15 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 		const r = gate("--json");
 		expect(r.status).toBe(0);
 		expect(r.json().added ?? []).toEqual([]);
+	});
+});
+
+describe("--against HEAD outside a git repository", () => {
+	it("is BROKEN outside a git repository, never an empty baseline", () => {
+		pool(CAP + 500);
+		const r = gate("--json");
+		expect(r.json().outcome).toBe("BROKEN");
+		expect(r.status).toBe(2);
 	});
 });
 

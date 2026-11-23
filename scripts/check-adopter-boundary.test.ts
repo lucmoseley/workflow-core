@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-adopter-boundary.js");
@@ -32,10 +33,16 @@ const run = () => {
 
 const page = () => fs.readFileSync(PAGE, "utf8");
 
-beforeEach(() => {
-	root = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-boundary-"));
-	execFileSync("git", ["init", "-q"], { cwd: root });
+const tracked = defineTemplate((dir) => {
+	execFileSync("git", ["init", "-q"], { cwd: dir });
+	root = dir;
 	track("scripts/x.js", "docs/x.md", "CLAUDE.md");
+});
+
+beforeEach(() => {
+	root = tracked.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "adopter-boundary-")),
+	);
 });
 afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });

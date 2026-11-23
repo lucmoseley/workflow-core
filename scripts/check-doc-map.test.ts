@@ -4359,6 +4359,11 @@ describe("Section A render agreement", () => {
 		expect(r.out).toContain("§A matches the generator against 3 sidecar rows");
 	});
 
+	const sourceCore = defineTemplate((dir) => {
+		fs.writeFileSync(path.join(dir, "package.json"), "{}\n");
+		execFileSync("git", ["init", "-q"], { cwd: dir });
+	});
+
 	const handEdited = [
 		rendered[0],
 		"| `docs/doc-map.md` | hand-written prose | `source-of-truth` | Direct | — |",
@@ -4375,9 +4380,7 @@ describe("Section A render agreement", () => {
 	});
 
 	it("names the generator by its absolute path where the core is a source checkout outside the adopter (#5584)", () => {
-		const core = mkScratchDir("checkout-core-");
-		fs.writeFileSync(path.join(core, "package.json"), "{}\n");
-		execFileSync("git", ["init", "-q"], { cwd: core });
+		const core = sourceCore.instantiate(mkScratchDir("checkout-core-"));
 		setUp(handEdited);
 		const r = check({ WFC_SCRIPT_ROOT: core });
 		expect(r.status).toBe(1);
