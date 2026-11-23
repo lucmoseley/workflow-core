@@ -232,12 +232,19 @@ function isMutexRecord(record) {
 	);
 }
 
+/**
+ * @param {ReadLock} lock
+ * @returns {lock is LockRecord & {unreadable?: false}}
+ */
+const isReadableLock = (lock) => !lock.unreadable;
+
 module.exports = {
 	isBreakRecord,
 	isIssueClaimRecord,
 	isLockRecord,
 	isMutexRecord,
 	isObservationRecord,
+	isReadableLock,
 	isRecordObject,
 	isWantRecord,
 };

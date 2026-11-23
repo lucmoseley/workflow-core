@@ -10,7 +10,7 @@ const core = require("./arbiter-core.js");
 const ledger = require("./arbiter-ledger.js");
 const lockFiles = require("./arbiter-lock-files.js");
 const observations = require("./arbiter-observations.js");
-const { isLockRecord } = require("./arbiter-records.js");
+const { isLockRecord, isReadableLock } = require("./arbiter-records.js");
 const { caught, ignoreFailure } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
@@ -225,9 +225,9 @@ function conflictingLock(subject, me) {
 	if (!regions.isRegioned(rel)) return null;
 	const all = lockFiles.readLocks();
 	if (all === null) return null;
-	const others = all.flatMap((l) =>
-		!l.unreadable && core.splitSubject(l.path).region !== region ? [l] : [],
-	);
+	const others = all
+		.filter(isReadableLock)
+		.filter((l) => core.splitSubject(l.path).region !== region);
 	const resumed = core.resumedHolderTest(
 		"claim",
 		"the sessions registry could not be read, so a whole-file claim held by a " +

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildLockRecord } from "./arbiter-testkit";
 
 const graph = require("./conflict-graph.js");
 const arbiter = require("./arbiter-store.js");
@@ -346,11 +347,7 @@ describe("reading the live file claims", () => {
 		fs.mkdirSync(locks, { recursive: true });
 		fs.writeFileSync(
 			path.join(locks, `${key}.json`),
-			JSON.stringify({
-				path: rel,
-				sessionId,
-				claimedAt: new Date().toISOString(),
-			}),
+			JSON.stringify(buildLockRecord({ path: rel, sessionId })),
 		);
 	};
 

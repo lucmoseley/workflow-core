@@ -88,7 +88,6 @@ function readHeldFiles(listed, openIssues) {
  * @returns {boolean}
  */
 function isOtherLock(lock, me) {
-	if (!lock.path) return false;
 	return !(me && lock.sessionId === me);
 }
 

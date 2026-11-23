@@ -444,7 +444,7 @@ describe("readLocks — a record that will not parse", () => {
 		expect(bad.reason).toBe("unparseable");
 	});
 
-	it("lists a record that parses but is no lock as unparseable", () => {
+	it("lists a record that parses but is no lock as unparseable (#5662)", () => {
 		planted("deadbeefcafe000c.json", JSON.stringify({ path: "docs/PRD.md" }));
 		const locks = store.readLocks(noop);
 		assert(locks);
@@ -885,7 +885,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		expect(readErrors()).not.toContain("no lock written");
 	});
 
-	it("breaks a record that parses but is no lock, as it breaks a torn one", () => {
+	it("breaks a record that parses but is no lock, as it breaks a torn one (#5662)", () => {
 		registerSession(sb, "a", process.pid);
 		const p = corrupt(JSON.stringify({ path: rel, sessionId: "bob" }));
 

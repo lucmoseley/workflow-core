@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const regions = require("./doc-map-regions.js");
 const core = require("./arbiter-core.js");
-const { isLockRecord } = require("./arbiter-records.js");
+const { isLockRecord, isReadableLock } = require("./arbiter-records.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { caught, ignoreFailure } = require("./caught.js");
 
@@ -161,14 +161,13 @@ function readLocksHeldBy(sessionId) {
 	if (!sessionId) return null;
 	const locks = readLocks();
 	if (locks === null) return null;
-	return locks.flatMap((l) =>
-		!l.unreadable && l.sessionId === sessionId ? [l] : [],
-	);
+	return locks.filter(isReadableLock).filter((l) => l.sessionId === sessionId);
 }
 
 /**
  * @param {string} rel
  * @param {string|null} sessionId
+ * @returns {LockRecord|null}
  */
 function readOwnLockOnFile(rel, sessionId) {
 	const file = core.subjectPath(rel);
@@ -179,9 +178,9 @@ function readOwnLockOnFile(rel, sessionId) {
 	);
 	if (direct?.sessionId === sessionId) return direct;
 	if (regions.isRegioned(file)) {
-		const onFile = (readLocks() || []).flatMap((l) =>
-			!l.unreadable && core.splitSubject(l.path).rel === file ? [l] : [],
-		);
+		const onFile = (readLocks() || [])
+			.filter(isReadableLock)
+			.filter((l) => core.splitSubject(l.path).rel === file);
 		const mine = onFile.find((l) => l.sessionId === sessionId);
 		if (mine) return mine;
 		if (direct) return direct;

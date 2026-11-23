@@ -8,6 +8,7 @@ const issues = require("./arbiter-issue-claims.js");
 const lockFiles = require("./arbiter-lock-files.js");
 const markers = require("./arbiter-markers.js");
 const observations = require("./arbiter-observations.js");
+const { isReadableLock } = require("./arbiter-records.js");
 const snapshots = require("./arbiter-snapshots.js");
 const wants = require("./arbiter-wants.js");
 const { caught } = require("./caught.js");
@@ -31,9 +32,7 @@ function pruneBlobRefs() {
 		core.logError("pruneBlobRefs", new Error("break records unreadable"));
 		return;
 	}
-	const claimed = new Set(
-		locks.flatMap((l) => (l.unreadable ? [] : [l.claimId])),
-	);
+	const claimed = new Set(locks.filter(isReadableLock).map((l) => l.claimId));
 	const observed = observations.readObservedIds();
 	if (observed === null) {
 		core.logError("pruneBlobRefs", new Error("observations unreadable"));

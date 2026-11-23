@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reclaimableMb } from "./lib/admission.js";
 import { readProcStartOf } from "./lib/arbiter-proc.js";
+import { buildLockRecord } from "./lib/arbiter-testkit";
 import { coreFile } from "./lib/core-path-testkit";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import {
@@ -311,8 +312,14 @@ describe("the claim store, as the run reads it", () => {
 	}
 
 	it("reports the holders of every readable claim", () => {
-		writeLock("a", JSON.stringify({ sessionId: "holder-1", path: "a.md" }));
-		writeLock("b", JSON.stringify({ sessionId: "holder-2", path: "b.md" }));
+		writeLock(
+			"a",
+			JSON.stringify(buildLockRecord({ sessionId: "holder-1", path: "a.md" })),
+		);
+		writeLock(
+			"b",
+			JSON.stringify(buildLockRecord({ sessionId: "holder-2", path: "b.md" })),
+		);
 		const r = runWith(["holder-1", "holder-2"]);
 		expect(r.claimsUnread).toBeNull();
 		expect(r.claimsOf("holder-1")).toEqual(["a.md"]);
@@ -320,14 +327,23 @@ describe("the claim store, as the run reads it", () => {
 	});
 
 	it("reports every path one holder claims, grouped under it", () => {
-		writeLock("a", JSON.stringify({ sessionId: "holder-1", path: "a.md" }));
-		writeLock("b", JSON.stringify({ sessionId: "holder-1", path: "b.md" }));
+		writeLock(
+			"a",
+			JSON.stringify(buildLockRecord({ sessionId: "holder-1", path: "a.md" })),
+		);
+		writeLock(
+			"b",
+			JSON.stringify(buildLockRecord({ sessionId: "holder-1", path: "b.md" })),
+		);
 		const r = runWith(["holder-1"]);
 		expect([...r.claimsOf("holder-1")].sort()).toEqual(["a.md", "b.md"]);
 	});
 
 	it("judges every readable claim past a record that will not parse", () => {
-		writeLock("a", JSON.stringify({ sessionId: "holder-1", path: "a.md" }));
+		writeLock(
+			"a",
+			JSON.stringify(buildLockRecord({ sessionId: "holder-1", path: "a.md" })),
+		);
 		writeLock("b", "{ this is not json");
 		writeLock("c", "");
 		const r = runWith(["holder-1", "holder-2"]);
@@ -338,8 +354,11 @@ describe("the claim store, as the run reads it", () => {
 	});
 
 	it("names a record carrying no session id rather than refusing the run", () => {
-		writeLock("a", JSON.stringify({ path: "a.md" }));
-		writeLock("b", JSON.stringify({ sessionId: "holder-1", path: "b.md" }));
+		writeLock("a", JSON.stringify(buildLockRecord({ path: "a.md" })));
+		writeLock(
+			"b",
+			JSON.stringify(buildLockRecord({ sessionId: "holder-1", path: "b.md" })),
+		);
 		const r = runWith(["holder-1"]);
 		expect(r.claimsUnread).toBeNull();
 		expect(r.claimsOf("holder-1")).toEqual(["b.md"]);
@@ -347,7 +366,10 @@ describe("the claim store, as the run reads it", () => {
 	});
 
 	it("reports no unreadable records when every claim parses", () => {
-		writeLock("a", JSON.stringify({ sessionId: "holder-1", path: "a.md" }));
+		writeLock(
+			"a",
+			JSON.stringify(buildLockRecord({ sessionId: "holder-1", path: "a.md" })),
+		);
 		expect(runWith(["holder-1"]).unnamedRecords).toEqual([]);
 	});
 
@@ -1482,7 +1504,7 @@ describe("the SessionStart wiring: a claim does not keep a session", () => {
 		for (const [i, rel] of claimed.entries()) {
 			fs.writeFileSync(
 				path.join(locks, `lock-${i}.json`),
-				JSON.stringify({ sessionId: "holder-1", path: rel }),
+				JSON.stringify(buildLockRecord({ sessionId: "holder-1", path: rel })),
 			);
 		}
 		const res = runReaper(

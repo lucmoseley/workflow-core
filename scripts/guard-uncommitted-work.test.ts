@@ -7,8 +7,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc";
-import { AS_ROOT, registerSession } from "./lib/arbiter-testkit";
+import { readProcStartOf } from "./lib/arbiter-proc";
+import {
+	AS_ROOT,
+	buildLockRecord,
+	registerSession,
+} from "./lib/arbiter-testkit";
 import { cutWorktree, defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -76,14 +80,15 @@ function claim(rel: string, owner: string, tree?: string) {
 	fs.mkdirSync(dir, { recursive: true });
 	fs.writeFileSync(
 		path.join(dir, `${rel.replace(/[^A-Za-z0-9_-]/g, "-")}.json`),
-		JSON.stringify({
-			path: rel,
-			...(tree ? { tree } : {}),
-			sessionId: owner,
-			pid: process.pid,
-			procStart: readProcStartOf(process.pid),
-			bootId: readCurrentBootId(),
-		}),
+		JSON.stringify(
+			buildLockRecord({
+				path: rel,
+				...(tree ? { tree } : {}),
+				sessionId: owner,
+				pid: process.pid,
+				procStart: readProcStartOf(process.pid),
+			}),
+		),
 	);
 }
 
