@@ -12,6 +12,7 @@ import {
 	parseReading,
 	workersFor,
 } from "./away-load.js";
+import { awayLoadGate } from "./away-load-fixture";
 
 const AWAY_S = 900;
 const NOW = 1_800_000_000;
@@ -26,12 +27,7 @@ const reading = (
 	commitPct,
 	idleS,
 });
-const GATE = {
-	ticket: 5473,
-	since: "2026-11-24T09:01",
-	minutes: 988,
-	resetAfter: "2026-11-11T17:26:25",
-};
+const GATE = awayLoadGate;
 const base = {
 	now: NOW,
 	running: false,
@@ -106,12 +102,15 @@ describe("decide", () => {
 		).toBe("stop");
 	});
 
-	it("never starts with no gate armed, and stops a run whose gate is gone", () => {
+	it("starts with no gate armed only by hand, and stops a run whose gate is gone", () => {
 		const unarmed = { ...base, gate: null };
 		expect(decide({ ...unarmed, reading: reading(5000) }).kind).toBe("none");
 		expect(
 			decide({ ...unarmed, running: true, reading: reading(5000) }),
 		).toEqual({ kind: "stop", why: "no gate armed" });
+		expect(
+			decide({ ...unarmed, handUntil: NOW + 60, reading: reading(0) }).kind,
+		).toBe("start");
 	});
 });
 
@@ -201,7 +200,7 @@ describe("readings", () => {
 			"Event[0]:\n  Log Name: System\n  Date: 2026-11-11T17:26:26.4670000Z\n";
 		expect(newestResetOf(text)).toBe("2026-11-11T17:26:26");
 		expect(newestResetOf("No events")).toBeNull();
-		expect(isGateReset("2026-11-11T17:26:25", GATE)).toBe(false);
+		expect(isGateReset("2026-11-11T17:26:26", GATE)).toBe(false);
 		expect(isGateReset("2026-11-24T03:00:00", GATE)).toBe(true);
 		expect(isGateReset(null, GATE)).toBe(false);
 	});
@@ -229,7 +228,7 @@ describe("readings", () => {
 		expect(gateReading(GATE, 10, "2026-11-24T03:00:00")).toMatch(
 			/^met \(reset\): 10 of 988 precondition minutes since 2026-11-24 09:01 \(#5473\)/,
 		);
-		expect(gateReading(GATE, 988, "2026-11-11T17:26:25")).toMatch(
+		expect(gateReading(GATE, 988, "2026-11-11T17:26:26")).toMatch(
 			/^met \(clean\)/,
 		);
 		expect(gateReading(GATE, 987, null)).toBe(

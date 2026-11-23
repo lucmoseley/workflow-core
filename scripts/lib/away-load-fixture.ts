@@ -33,13 +33,10 @@ export const awayLoadGate = {
 	resetAfter: "2026-11-11T17:26:26",
 };
 
-export function writeAwayLoadGate(
-	stateDir: string,
-	gate: object = awayLoadGate,
-) {
+export function writeAwayLoadGate(stateDir: string) {
 	fs.mkdirSync(stateDir, { recursive: true });
 	fs.writeFileSync(
 		path.join(stateDir, "gate.json"),
-		`${JSON.stringify(gate)}\n`,
+		`${JSON.stringify(awayLoadGate)}\n`,
 	);
 }

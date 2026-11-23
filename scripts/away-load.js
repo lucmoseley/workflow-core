@@ -82,7 +82,7 @@ function textOf(file) {
 const doneOf = (p) => textOf(p.done)?.trim() || null;
 
 /** @param {string|null} text */
-function gateIn(text) {
+function parseArmedGate(text) {
 	if (text === null) return null;
 	const gate = parseGate(text);
 	if (gate === null)
@@ -91,7 +91,7 @@ function gateIn(text) {
 }
 
 /** @param {ReturnType<typeof paths>} p */
-function newestReset(p) {
+function readNewestReset(p) {
 	const read = runCommand(p.wevtutil, [
 		"qe",
 		"System",
@@ -110,7 +110,7 @@ function newestReset(p) {
  * @param {string} file
  * @param {import("./lib/away-load.js").Gate|null} gate
  */
-const tailFor = (file, gate) =>
+const buildMinuteTail = (file, gate) =>
 	new MinuteTail(
 		file,
 		(row) => gate !== null && isPreconditionMinute(row, gate),
@@ -196,7 +196,7 @@ class Runner {
 		this.gateText = null;
 		/** @type {import("./lib/away-load.js").Gate|null} */
 		this.gate = null;
-		this.tail = tailFor(p.minutes, null);
+		this.tail = buildMinuteTail(p.minutes, null);
 		this.running = false;
 		/** @type {string|null} */
 		this.startedAt = null;
@@ -257,8 +257,8 @@ class Runner {
 		const text = textOf(this.p.gate);
 		if (text === this.gateText) return;
 		this.gateText = text;
-		this.gate = gateIn(text);
-		this.tail = tailFor(this.p.minutes, this.gate);
+		this.gate = parseArmedGate(text);
+		this.tail = buildMinuteTail(this.p.minutes, this.gate);
 	}
 
 	tick() {
@@ -442,7 +442,7 @@ function fsck(p, repo) {
 
 function recover() {
 	const p = paths();
-	const { error, reset } = newestReset(p);
+	const { error, reset } = readNewestReset(p);
 	if (error !== null) {
 		logEvent(p, "recover-unread", { error });
 		return 1;
@@ -450,7 +450,7 @@ function recover() {
 	if (reset === null) return 0;
 	const lastSeen = textOf(p.seen)?.trim() || null;
 	const isNew = lastSeen === null || reset > lastSeen;
-	const gate = gateIn(textOf(p.gate));
+	const gate = parseArmedGate(textOf(p.gate));
 	if (isNew && gate !== null && isGateReset(reset, gate))
 		writeAtomic(
 			p.done,
@@ -479,7 +479,7 @@ function handStart(minutes) {
 /** @param {number} ticket @param {number} minutes */
 function arm(ticket, minutes) {
 	const p = paths();
-	const { error, reset } = newestReset(p);
+	const { error, reset } = readNewestReset(p);
 	if (error !== null) {
 		writeFd(2, `the event log will not read, so nothing is armed: ${error}\n`);
 		return 1;
@@ -492,26 +492,25 @@ function arm(ticket, minutes) {
 		resetAfter: reset ?? "",
 	};
 	writeAtomic(p.gate, `${JSON.stringify(gate)}\n`);
-	if (reset !== null) writeAtomic(p.seen, `${reset}\n`);
 	fs.rmSync(p.done, { force: true });
 	fs.rmSync(p.hand, { force: true });
 	logEvent(p, "arm", gate);
 	return 0;
 }
 
-function readGate() {
+function printGate() {
 	const p = paths();
-	const armed = gateIn(textOf(p.gate));
+	const armed = parseArmedGate(textOf(p.gate));
 	if (armed === null) {
 		writeFd(1, `unarmed: no gate in ${p.gate}\n`);
 		return 1;
 	}
-	const { error, reset } = newestReset(p);
+	const { error, reset } = readNewestReset(p);
 	if (error !== null) {
 		writeFd(1, `unread: the event log will not read: ${error}\n`);
 		return 1;
 	}
-	const tail = tailFor(p.minutes, armed);
+	const tail = buildMinuteTail(p.minutes, armed);
 	tail.advance();
 	writeFd(1, `${gateReading(armed, tail.count, reset)}\n`);
 	return 0;
@@ -620,7 +619,7 @@ async function main(argv = process.argv.slice(2)) {
 			return arm(ticket, minutes);
 		}
 		case "gate":
-			return readGate();
+			return printGate();
 		case "status":
 			return status();
 		case "install":

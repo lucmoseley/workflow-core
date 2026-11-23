@@ -136,17 +136,17 @@ function gateReading(gate, count, reset) {
 function decide(s) {
 	if (s.done !== null)
 		return s.running ? { kind: "stop", why: s.done } : { kind: "none" };
-	if (s.gate === null)
-		return s.running
-			? { kind: "stop", why: "no gate armed" }
-			: { kind: "none" };
-	if (s.gateCount >= s.gate.minutes)
+	if (s.gate !== null && s.gateCount >= s.gate.minutes)
 		return {
 			kind: "finish",
 			why: `the gate met (clean): ${s.gateCount} of ${s.gate.minutes} precondition minutes (#${s.gate.ticket})`,
 		};
 	if (s.handUntil !== null && s.now < s.handUntil)
 		return s.running ? { kind: "none" } : { kind: "start", why: "hand start" };
+	if (s.gate === null)
+		return s.running
+			? { kind: "stop", why: "no gate armed" }
+			: { kind: "none" };
 	const ageS = s.reading === null ? null : s.now - s.reading.at;
 	return s.running
 		? whileRunning(s.reading, ageS)

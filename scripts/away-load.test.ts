@@ -52,9 +52,6 @@ function rig(name: string) {
 	return { dir, env, files, tasks };
 }
 
-const writeGate = (env: Record<string, string>) =>
-	writeAwayLoadGate(env.WFC_AWAY_LOAD_STATE_DIR);
-
 const read = (file: string) =>
 	fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
 
@@ -72,7 +69,7 @@ async function until(what: string, test: () => boolean) {
 describe("run", () => {
 	it("starts on 15 idle minutes, holds and loads, and stops on input", async () => {
 		const { env, files } = rig("run");
-		writeGate(env);
+		writeAwayLoadGate(env.WFC_AWAY_LOAD_STATE_DIR);
 		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 900));
 		const child = keptSpawn("signal").spawn("node", [SCRIPT, "run"], {
 			env: { ...process.env, ...env },
@@ -144,7 +141,7 @@ describe("run, by its readings", () => {
 
 	it("releases only the newest holders, about the shortfall (#5472, where a release ended them all)", async () => {
 		const { env, files } = rig("release");
-		writeGate(env);
+		writeAwayLoadGate(env.WFC_AWAY_LOAD_STATE_DIR);
 		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 900));
 		let held: number[] = [];
 		let oldestKept = false;
@@ -171,7 +168,7 @@ describe("run, by its readings", () => {
 
 	it("ends the whole hold where Windows runs more Testlimits than it holds", async () => {
 		const { env, files, tasks } = rig("strays");
-		writeGate(env);
+		writeAwayLoadGate(env.WFC_AWAY_LOAD_STATE_DIR);
 		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 900));
 		let held: number[] = [];
 		await runUntil(env, "the strays", () => {
@@ -198,7 +195,7 @@ describe("run, by its readings", () => {
 
 	it("logs the gate met while it waits, and writes the end", async () => {
 		const { env } = rig("finish");
-		writeGate(env);
+		writeAwayLoadGate(env.WFC_AWAY_LOAD_STATE_DIR);
 		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 3));
 		const row = JSON.stringify({
 			ts: "2026-11-24T19:00:00+0800",
@@ -263,7 +260,7 @@ describe("recover", () => {
 		const repo = path.join(env.WFC_AWAY_LOAD_REPOS_ROOT, "alpha");
 		repoTemplate.instantiate(repo);
 		fs.mkdirSync(path.join(env.WFC_AWAY_LOAD_REPOS_ROOT, "not-a-repo"));
-		writeGate(env);
+		writeAwayLoadGate(env.WFC_AWAY_LOAD_STATE_DIR);
 		await recover(rigged, "2026-11-11T17:26:26");
 		const r = await recover(rigged, "2026-11-22T03:00:00");
 		expect(r.status).toBe(0);
@@ -295,17 +292,19 @@ describe("arm and gate", () => {
 	const withResets = (
 		{ dir, env }: ReturnType<typeof rig>,
 		resets: string[],
+		{ fails = false } = {},
 	) => ({
 		...process.env,
 		...env,
 		WFC_WEVTUTIL: writeWevtutil(path.join(dir, "wevtutil"), [], {
+			fails,
 			resets: resets.map((r) => Date.parse(`${r}Z`)),
 		}),
 	});
 	const cli = (args: string[], env: NodeJS.ProcessEnv) =>
 		runInProcessAsync(SCRIPT, args, { env });
 
-	it("arms from the next minute past the newest reset, clearing the last run's end", async () => {
+	it("arms from the next minute past the newest reset, clearing the last run's end and leaving the reset unrecovered", async () => {
 		const rigged = rig("arm");
 		const state = rigged.env.WFC_AWAY_LOAD_STATE_DIR;
 		fs.mkdirSync(state);
@@ -323,7 +322,7 @@ describe("arm and gate", () => {
 		expect(gate.since).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d$/);
 		expect(fs.existsSync(path.join(state, "done"))).toBe(false);
 		expect(fs.existsSync(path.join(state, "hand-until"))).toBe(false);
-		expect(read(path.join(state, "seen-reset"))).toBe("2026-11-11T17:26:25\n");
+		expect(fs.existsSync(path.join(state, "seen-reset"))).toBe(false);
 		expect(events(rigged.env.WFC_AWAY_LOAD_LOG)).toMatchObject([
 			{ event: "arm", ticket: 5473 },
 		]);
@@ -334,17 +333,53 @@ describe("arm and gate", () => {
 		const env = withResets(rigged, []);
 		const r = await cli(["arm", "--ticket", "5473"], env);
 		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			"arm takes --ticket and --minutes, each a whole number over 0\nusage:",
+		);
 		expect(
 			fs.existsSync(path.join(rigged.env.WFC_AWAY_LOAD_STATE_DIR, "gate.json")),
 		).toBe(false);
+	});
+
+	it("arms nothing where the event log will not read", async () => {
+		const rigged = rig("arm-unread");
+		const env = withResets(rigged, [], { fails: true });
+		const r = await cli(["arm", "--ticket", "5473", "--minutes", "988"], env);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"the event log will not read, so nothing is armed",
+		);
+		expect(
+			fs.existsSync(path.join(rigged.env.WFC_AWAY_LOAD_STATE_DIR, "gate.json")),
+		).toBe(false);
+	});
+
+	it("reads a gate that will not parse as unarmed, naming it on stderr", async () => {
+		const rigged = rig("gate-garbled");
+		const state = rigged.env.WFC_AWAY_LOAD_STATE_DIR;
+		fs.mkdirSync(state);
+		fs.writeFileSync(path.join(state, "gate.json"), "{\n");
+		const r = await cli(["gate"], withResets(rigged, []));
+		expect(r).toMatchObject({ status: 1 });
+		expect(r.stdout).toMatch(/^unarmed: no gate in /);
+		expect(r.stderr).toContain("the armed gate will not parse: {");
+	});
+
+	it("reads an armed gate as unread where the event log will not read", async () => {
+		const rigged = rig("gate-unread");
+		writeAwayLoadGate(rigged.env.WFC_AWAY_LOAD_STATE_DIR);
+		const r = await cli(["gate"], withResets(rigged, [], { fails: true }));
+		expect(r.status).toBe(1);
+		expect(r.stdout).toMatch(/^unread: the event log will not read: /);
 	});
 
 	it("reads the armed gate: unarmed, unmet, then met on a later reset", async () => {
 		const rigged = rig("gate");
 		const { env: base } = rigged;
 		const unarmed = await cli(["gate"], withResets(rigged, []));
+		expect(unarmed).toMatchObject({ status: 1 });
 		expect(unarmed.stdout).toMatch(/^unarmed: no gate in /);
-		writeGate(base);
+		writeAwayLoadGate(base.WFC_AWAY_LOAD_STATE_DIR);
 		const row = (ts: string) =>
 			JSON.stringify({ ts, cpu_busy_pct: 600, win_avail_mb: 800 });
 		fs.writeFileSync(
@@ -355,6 +390,7 @@ describe("arm and gate", () => {
 			["gate"],
 			withResets(rigged, ["2026-11-11T17:26:26"]),
 		);
+		expect(unmet.status).toBe(0);
 		expect(unmet.stdout).toBe(
 			"unmet: 2 of 988 precondition minutes since 2026-11-24 09:01 (#5473); newest Kernel-Power 41 at 2026-11-11T17:26:26 (local time)\n",
 		);
@@ -362,6 +398,7 @@ describe("arm and gate", () => {
 			["gate"],
 			withResets(rigged, ["2026-11-24T10:00:00"]),
 		);
+		expect(met).toMatchObject({ status: 0 });
 		expect(met.stdout).toMatch(/^met \(reset\): 2 of 988/);
 	});
 });
