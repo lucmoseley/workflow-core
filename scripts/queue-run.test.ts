@@ -80,11 +80,21 @@ const fixture = () => {
 	return { dir, signals, err, spawned, readMarkers, readLog, options };
 };
 
+const fakeStream = () =>
+	Object.assign(new EventEmitter(), { setEncoding: noop });
+
 class FakeChild extends EventEmitter {
 	killed: string[] = [];
+	stdout = fakeStream();
+	stderr = fakeStream();
 	kill(signal: string) {
 		this.killed.push(signal);
 		return true;
+	}
+	override emit(event: string | symbol, ...args: unknown[]) {
+		const heard = super.emit(event, ...args);
+		if (event === "exit") super.emit("close", ...args);
+		return heard;
 	}
 }
 
@@ -1378,9 +1388,11 @@ describe("queue-run.js", () => {
 			main(typecheck, own(f, { queueDir: undefined }));
 			await tick();
 			expect(f.spawned).toHaveLength(1);
-			expect(fs.readdirSync(path.join(f.dir, "wfc-tsc-queue"))).toEqual([
-				`wfc-suite-queue-${process.pid}.json`,
-			]);
+			expect(
+				fs
+					.readdirSync(path.join(f.dir, "wfc-tsc-queue"))
+					.filter((name) => name.startsWith("wfc-suite-queue-")),
+			).toEqual([`wfc-suite-queue-${process.pid}.json`]);
 		});
 
 		describe("nested in a `--tsc` launch's own command (#3404)", () => {
@@ -1483,6 +1495,446 @@ describe("queue-run.js", () => {
 				);
 				expect(r.status).toBe(7);
 				expect(fs.readdirSync(path.join(f.dir, "wfc-tsc-queue"))).toEqual([]);
+			});
+		});
+
+		describe("joining a queued run with the same worktree, directory and command (#5640)", () => {
+			const Where = { toplevel: "/w/tree", cwd: "/w/tree" };
+
+			const hub = () => {
+				const f = fixture();
+				const clock = { now: 1000, mono: 0 };
+				let pending: (() => void)[] = [];
+				const settle = async () => {
+					for (let k = 0; k < 6; k += 1) await tick();
+				};
+				const poll = async (rounds = 1) => {
+					for (let i = 0; i < rounds; i += 1) {
+						const due = pending;
+						pending = [];
+						for (const resolve of due) resolve();
+						await settle();
+					}
+				};
+				const request = (
+					pid: number,
+					{
+						open = () => true,
+						words = typecheck,
+						...extra
+					}: { open?: () => boolean; words?: string[] } & Record<
+						string,
+						unknown
+					> = {},
+				) => {
+					const out: string[] = [];
+					const err: string[] = [];
+					const stdout: string[] = [];
+					const exits: number[] = [];
+					const signals = new EventEmitter();
+					const code = main(words, {
+						...f.options(),
+						pid,
+						alive: () => true,
+						worktree: Where,
+						gate: () => null,
+						turn: open,
+						clock: () => clock.now,
+						monoClock: () => clock.mono,
+						sleepFn: () => new Promise<void>((r) => pending.push(r)),
+						out: { write: (s: string) => out.push(s) },
+						err: { write: (s: string) => err.push(s) },
+						stdout: { write: (s: string) => stdout.push(s) },
+						signals,
+						exit: (c: number) => exits.push(c),
+						...extra,
+					});
+					return { code, out, err, stdout, exits, signals };
+				};
+				const leftovers = () =>
+					fs
+						.readdirSync(f.dir)
+						.filter((name) => /^wfc-tsc-(join|run)-/.test(name));
+				const runMarker = (pid: number, at: number, extra: object = {}) =>
+					fs.writeFileSync(
+						path.join(f.dir, `wfc-suite-queue-${pid}.json`),
+						JSON.stringify({
+							pid,
+							at,
+							start: 0,
+							...Where,
+							command: typecheck.slice(2),
+							session: "s9",
+							...extra,
+						}),
+					);
+				return { f, clock, poll, request, leftovers, runMarker };
+			};
+
+			const finishRun = (
+				child: FakeChild,
+				code: number,
+				out = "src/a.ts(1,1): error TS2322\n",
+			) => {
+				child.emit("spawn");
+				child.stdout.emit("data", out);
+				child.stderr.emit("data", "tsc: warned\n");
+				child.emit("exit", code, null);
+			};
+
+			it.each([
+				["green", 0],
+				["red", 2],
+			])(
+				"makes one spawn for two requests, the joiner taking its output and its %s exit",
+				async (_colour, exit) => {
+					const h = hub();
+					let open = false;
+					const a = h.request(101, { open: () => open });
+					await tick();
+					h.clock.now = 2000;
+					const b = h.request(102);
+					await h.poll();
+					expect(h.f.spawned).toEqual([]);
+					open = true;
+					h.clock.now = 5000;
+					await h.poll();
+					expect(h.f.spawned).toHaveLength(1);
+					finishRun(h.f.spawned[0].child, exit);
+					expect(await a.code).toBe(exit);
+					await h.poll();
+					expect(await b.code).toBe(exit);
+					expect(h.f.spawned).toHaveLength(1);
+					expect(a.stdout.join("")).toBe("src/a.ts(1,1): error TS2322\n");
+					expect(a.err.join("")).toBe("tsc: warned\n");
+					expect(b.err).toEqual([
+						"queue-run: joined the type-check pid 101 (session s1) queued at 1970-01-01T00:00:01.000Z; its output and exit code follow\n",
+						"tsc: warned\n",
+					]);
+					expect(b.stdout.join("")).toBe("src/a.ts(1,1): error TS2322\n");
+					expect(h.f.readLog()).toEqual([
+						expect.objectContaining({ reason: "opened", kind: "tsc" }),
+						expect.objectContaining({
+							reason: "opened",
+							kind: "tsc",
+							session: "s1",
+							at: new Date(5000).toISOString(),
+							waitS: 3,
+							chargeMb: TSC_PEAK_MB,
+							joined: { pid: 101, session: "s1" },
+						}),
+					]);
+					expect(h.f.readLog()[0]).not.toHaveProperty("joined");
+					expect(h.leftovers()).toEqual([]);
+				},
+			);
+
+			it("joins across sessions, the joiner holding no place in the queue", async () => {
+				const h = hub();
+				h.request(111, { open: () => false, sessionId: "parent" });
+				await tick();
+				h.clock.now = 2000;
+				const b = h.request(112, { sessionId: "other" });
+				await h.poll();
+				expect(h.f.spawned).toEqual([]);
+				expect(h.f.readMarkers()).toEqual(["wfc-suite-queue-111.json"]);
+				expect(b.err).toEqual([]);
+			});
+
+			it("queues a run of its own behind a run that has spawned, which a later request joins", async () => {
+				const h = hub();
+				const a = h.request(121);
+				await tick();
+				h.f.spawned[0].child.emit("spawn");
+				let open = false;
+				h.clock.now = 2000;
+				const b = h.request(122, { open: () => open });
+				await h.poll();
+				expect(h.f.spawned).toHaveLength(1);
+				h.clock.now = 3000;
+				const c = h.request(123);
+				await h.poll();
+				expect(h.f.spawned).toHaveLength(1);
+				h.f.spawned[0].child.emit("exit", 0, null);
+				expect(await a.code).toBe(0);
+				open = true;
+				await h.poll();
+				expect(h.f.spawned).toHaveLength(2);
+				finishRun(h.f.spawned[1].child, 2);
+				expect(await b.code).toBe(2);
+				await h.poll();
+				expect(await c.code).toBe(2);
+				expect(c.err[0]).toMatch(/joined the type-check pid 122 /);
+			});
+
+			it.each([
+				["another worktree", { worktree: { toplevel: "/w/b", cwd: "/w/b" } }],
+				[
+					"another working directory",
+					{ worktree: { toplevel: "/w/tree", cwd: "/w/tree/sub" } },
+				],
+				[
+					"another command",
+					{
+						words: ["--tsc", "--", "npx", "tsc", "-p", "tsconfig.strict.json"],
+					},
+				],
+			])("never joins a run from %s", async (_why, extra) => {
+				const h = hub();
+				h.request(131, { open: () => false });
+				await tick();
+				h.clock.now = 2000;
+				const b = h.request(132, extra);
+				await h.poll();
+				expect(h.f.spawned).toHaveLength(1);
+				expect(b.err).toEqual([]);
+			});
+
+			it("settles a near tie on the earlier marker, by `at` then pid", async () => {
+				const later = hub();
+				later.runMarker(141, 1000);
+				later.request(142);
+				await later.poll();
+				expect(later.f.spawned).toEqual([]);
+
+				const earlier = hub();
+				earlier.runMarker(152, 1000);
+				earlier.request(151);
+				await earlier.poll();
+				expect(earlier.f.spawned).toHaveLength(1);
+			});
+
+			it("joins a run the per-session cap holds, by its ask, not its entry (#5595)", async () => {
+				const h = hub();
+				h.runMarker(261, 1000, { enteredAt: 9000 });
+				h.clock.now = 2000;
+				h.request(262);
+				await h.poll();
+				expect(h.f.spawned).toEqual([]);
+				expect(h.f.readMarkers()).toEqual(["wfc-suite-queue-261.json"]);
+			});
+
+			it("never joins a run admitted and not yet stamped spawned", async () => {
+				const h = hub();
+				h.runMarker(241, 500, { admitted: true });
+				const b = h.request(242, { open: () => false });
+				await h.poll();
+				expect(h.f.readMarkers()).toEqual([
+					"wfc-suite-queue-241.json",
+					"wfc-suite-queue-242.json",
+				]);
+				expect(h.leftovers()).toEqual([]);
+				expect(b.err).toEqual([]);
+			});
+
+			it("polls again, never falling back, on a marker read mid-write", async () => {
+				const h = hub();
+				let open = false;
+				h.request(251, { open: () => open });
+				await tick();
+				h.clock.now = 2000;
+				const b = h.request(252);
+				await h.poll();
+				const marker = path.join(h.f.dir, "wfc-suite-queue-251.json");
+				const whole = fs.readFileSync(marker, "utf8");
+				fs.writeFileSync(marker, whole.slice(0, 10));
+				await h.poll(2);
+				expect(h.f.spawned).toEqual([]);
+				fs.writeFileSync(marker, whole);
+				open = true;
+				await h.poll();
+				finishRun(h.f.spawned[0].child, 0);
+				await h.poll();
+				expect(await b.code).toBe(0);
+				expect(h.f.spawned).toHaveLength(1);
+			});
+
+			it("never joins a run that a no-wait try made, nor joins as one", async () => {
+				const h = hub();
+				vi.stubEnv("WFC_TSC_NO_WAIT", "1");
+				h.request(161);
+				await tick();
+				expect(h.f.spawned).toHaveLength(1);
+				vi.stubEnv("WFC_TSC_NO_WAIT", undefined);
+				h.clock.now = 2000;
+				h.request(162, { open: () => false });
+				await tick();
+				expect(h.f.readMarkers()).toEqual([
+					"wfc-suite-queue-161.json",
+					"wfc-suite-queue-162.json",
+				]);
+				h.f.spawned[0].child.emit("spawn");
+				vi.stubEnv("WFC_TSC_NO_WAIT", "1");
+				h.clock.now = 3000;
+				const c = h.request(163, { sessionId: "s2" });
+				await h.poll();
+				expect(h.f.spawned).toHaveLength(2);
+				expect(c.err).toEqual([]);
+			});
+
+			it("runs a nested type-check at once, joining nothing", async () => {
+				const h = hub();
+				h.request(171, { open: () => false });
+				await tick();
+				const outer = path.join(h.f.dir, "wfc-suite-queue-20.json");
+				fs.writeFileSync(
+					outer,
+					JSON.stringify({ pid: 20, at: 0, admitted: true, spawned: true }),
+				);
+				h.clock.now = 2000;
+				h.request(172, {
+					env: { WFC_TSC_SLOT: outer },
+					parentOf: () => 20,
+				});
+				await tick();
+				expect(h.f.spawned).toHaveLength(1);
+			});
+
+			it("refuses at the wait bound, counted from its ask, a joiner whose run has not spawned", async () => {
+				const h = hub();
+				h.request(181, { open: () => false });
+				await tick();
+				h.clock.mono = 1000;
+				const b = h.request(182, { timeoutMs: 10_000 });
+				await h.poll();
+				h.clock.mono = 11_000;
+				await h.poll();
+				expect(await b.code).toBe(1);
+				expect(b.out.join("")).toMatch(
+					/the type-check pid 181 this request joined had not started after 10s/,
+				);
+				expect(h.f.readLog()).toEqual([
+					expect.objectContaining({
+						reason: "timeout",
+						kind: "tsc",
+						waitS: 10,
+						joined: { pid: 181, session: "s1" },
+					}),
+				]);
+				expect(h.leftovers()).toEqual([]);
+				expect(h.f.spawned).toEqual([]);
+			});
+
+			it("falls back to its own run at its original place and wait clock when the run is refused", async () => {
+				const h = hub();
+				h.request(191, { open: () => false, timeoutMs: 5000 });
+				await tick();
+				h.clock.now = 2000;
+				h.clock.mono = 1000;
+				const b = h.request(192, { open: () => false, timeoutMs: 10_000 });
+				await h.poll();
+				h.clock.now = 9000;
+				h.clock.mono = 6000;
+				await h.poll(2);
+				expect(
+					JSON.parse(
+						fs.readFileSync(
+							path.join(h.f.dir, "wfc-suite-queue-192.json"),
+							"utf8",
+						),
+					).at,
+				).toBe(2000);
+				h.clock.mono = 11_000;
+				await h.poll();
+				expect(await b.code).toBe(1);
+				const rows = h.f.readLog();
+				expect(rows).toEqual([
+					expect.objectContaining({ reason: "refused" }),
+					expect.objectContaining({ reason: "refused", waitS: 10 }),
+				]);
+				expect(rows[1]).not.toHaveProperty("joined");
+				expect(h.f.spawned).toEqual([]);
+			});
+
+			it.each([
+				[
+					"its child never starts",
+					(h: ReturnType<typeof hub>) =>
+						h.f.spawned[0].child.emit("error", new Error("ENOENT")),
+				],
+				[
+					"its runner dies",
+					(_h: ReturnType<typeof hub>, dead: Set<number>) => dead.add(201),
+				],
+			])("queues its own run when %s", async (_why, leave) => {
+				const h = hub();
+				const dead = new Set<number>();
+				const alive = (pid: number) => !dead.has(pid);
+				let open = false;
+				h.request(201, { open: () => open, alive });
+				await tick();
+				h.clock.now = 2000;
+				h.request(202, { alive });
+				await h.poll();
+				open = true;
+				await h.poll();
+				expect(h.f.spawned).toHaveLength(1);
+				leave(h, dead);
+				await h.poll(2);
+				expect(h.f.spawned).toHaveLength(2);
+			});
+
+			it("joins another queued same-key run when its run leaves without a result", async () => {
+				const h = hub();
+				h.request(211, { open: () => false, timeoutMs: 5000 });
+				await tick();
+				h.clock.now = 2000;
+				const b = h.request(212);
+				await h.poll();
+				h.runMarker(215, 1500);
+				h.clock.mono = 6000;
+				await h.poll(2);
+				expect(h.f.spawned).toEqual([]);
+				const stem = path.join(h.f.dir, "wfc-tsc-run-215-0");
+				fs.writeFileSync(`${stem}.out`, "clean\n");
+				fs.writeFileSync(`${stem}.err`, "");
+				fs.writeFileSync(
+					`${stem}.result.json`,
+					JSON.stringify({
+						code: 0,
+						signal: null,
+						spawnedAt: 4000,
+						endedAt: 7000,
+					}),
+				);
+				fs.rmSync(path.join(h.f.dir, "wfc-suite-queue-215.json"));
+				await h.poll();
+				expect(await b.code).toBe(0);
+				expect(b.stdout.join("")).toBe("clean\n");
+				expect(h.f.readLog().at(-1)).toMatchObject({
+					reason: "opened",
+					waitS: 2,
+					joined: { pid: 215, session: "s9" },
+				});
+				expect(h.leftovers()).toEqual([]);
+			});
+
+			it("drops its join marker and logs `killed` when a signal ends its wait", async () => {
+				const h = hub();
+				h.request(221, { open: () => false });
+				await tick();
+				const b = h.request(222);
+				await h.poll();
+				b.signals.emit("SIGINT");
+				expect(b.exits).toEqual([130]);
+				expect(h.f.readLog()).toEqual([
+					expect.objectContaining({
+						reason: "killed",
+						signal: "SIGINT",
+						joined: { pid: 221, session: "s1" },
+					}),
+				]);
+				expect(h.leftovers()).toEqual([]);
+			});
+
+			it("leaves no capture behind a run nobody joined", async () => {
+				const h = hub();
+				const a = h.request(231);
+				await tick();
+				finishRun(h.f.spawned[0].child, 0);
+				expect(await a.code).toBe(0);
+				expect(a.stdout.join("")).toBe("src/a.ts(1,1): error TS2322\n");
+				expect(h.leftovers()).toEqual([]);
 			});
 		});
 

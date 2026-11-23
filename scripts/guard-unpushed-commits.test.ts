@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { cutWorktree } from "./lib/git-fixture";
 import { ROWS } from "./lib/post-commit-rows.js";
 import {
@@ -277,7 +278,7 @@ describe("a session worktree's commits (#2408, #4485)", () => {
 		const { wt } = sessionCommit("mine");
 		const out = run(undefined, undefined, wt);
 		expect(out?.reason).toContain(
-			"land it with `node scripts/session-checkout.js land`, which pushes your queue ref.",
+			`land it with \`node ${coreFile("scripts/session-checkout.js")} land\`, which pushes your queue ref.`,
 		);
 		expect(out?.reason).toContain("(`rule:push-cadence`)");
 		expect(out?.reason).not.toMatch(/push to `origin\/main`/);

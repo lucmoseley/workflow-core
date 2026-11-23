@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { type GhStubServer, serveGhStub, stubGhScript } from "./lib/gh-stub";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
@@ -244,7 +245,7 @@ function checkout(fx: ReturnType<typeof fixture>) {
 }
 
 const buildUnrecordedFault = (landed: string | undefined) =>
-	`o/manta@${landed} changes the sensitive area secrets and carries neither a Review-Tier: trailer nor a **Review findings:** record, so nothing answers for it until a record names it as landed, or its message cites that record's ticket within the record's base..landed; \`scripts/lib/rule-text.sh review-tier-records\` gives the record's form`;
+	`o/manta@${landed} changes the sensitive area secrets and carries neither a Review-Tier: trailer nor a **Review findings:** record, so nothing answers for it until a record names it as landed, or its message cites that record's ticket within the record's base..landed; \`${coreFile("scripts/lib/rule-text.sh")} review-tier-records\` gives the record's form`;
 
 function trailerCheckout(
 	fx: ReturnType<typeof fixture>,
@@ -356,7 +357,7 @@ const DELETE_RECORD =
 	"edit the old comment to delete that record's **Review findings:** head and its list";
 const SAME_REVIEW = `Of the same review means under a counted tier, sharing its reviewed tree, or its base, paths and landed sha, and holding all its FIXED and TICKETED lines. Where none can be posted, as a standard review owes none or a correction changes its tree and its base or paths, ${DELETE_RECORD}`;
 const buildNoTierFault = (where: string, landed: string, under: string) =>
-	`NO TIER: ${where} has a record, landed ${landed}, under ${under}, so its defects count nowhere until it is corrected: post a record of the same review under a \`**Review tier:**\` line of escalated or mission-critical where the review ran at one, as \`scripts/lib/rule-text.sh review-tier-records\` says. ${SAME_REVIEW}`;
+	`NO TIER: ${where} has a record, landed ${landed}, under ${under}, so its defects count nowhere until it is corrected: post a record of the same review under a \`**Review tier:**\` line of escalated or mission-critical where the review ran at one, as \`${coreFile("scripts/lib/rule-text.sh")} review-tier-records\` says. ${SAME_REVIEW}`;
 
 const NOTED_RECORDS = {
 	3817: "**Review findings:** base fa86cc9ed7c333202bc6b4e5c4939f1934f45641, reviewed 22018e4b7e5113b0a141a9db4f82a6203cf45fe3, landed 88a44510b, paths scripts/lib/read-hidden.js scripts/lib/read-hidden.test.ts scripts/test_write_secret_tty.py scripts/write-secret.js. scripts/write-secret.test.ts and docs/test-read-edges.json joined with the fixes.",
@@ -398,7 +399,7 @@ describe("the re-measure trigger", () => {
 		const r = run(fx);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toBe(
-			`UNPARSEABLE: ${OWN}#1 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: edit it, or post a record in that form sharing its reviewed tree, or its base and paths: ${bad}\n`,
+			`UNPARSEABLE: ${OWN}#1 has a record not in \`${coreFile("scripts/lib/rule-text.sh")} review-tier-records\`'s form, so its commit is not counted until it is corrected: edit it, or post a record in that form sharing its reviewed tree, or its base and paths: ${bad}\n`,
 		);
 		expect(r.stdout).toContain("Re-measure due: 15 counted commits. Filed");
 		const body = flag(creates(fx)[0], "--body");
@@ -586,7 +587,7 @@ describe("the re-measure trigger", () => {
 			},
 		});
 		const r = run(fx);
-		const fault = `o/fleet#7 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: edit it, or post a record in that form sharing its reviewed tree, or its base and paths: ${bad}`;
+		const fault = `o/fleet#7 has a record not in \`${coreFile("scripts/lib/rule-text.sh")} review-tier-records\`'s form, so its commit is not counted until it is corrected: edit it, or post a record in that form sharing its reviewed tree, or its base and paths: ${bad}`;
 		expect(r).toEqual({
 			code: 0,
 			stdout: "",
@@ -600,7 +601,7 @@ describe("the re-measure trigger", () => {
 	const buildCutOffRecord = (n: number, paths?: string) =>
 		`${record(n, ["FIXED: a leak"], sha("c", n), paths)}\n- FIXED: a lock (Standards)\n- TICKETED #9: a race (Standards)`;
 	const buildCutOffFault = (issue: number, n: number) =>
-		`o/fleet#${issue} has a record, landed ${sha("c", n)}, with 2 - FIXED or - TICKETED lines past a line that ends its list, so they count 0 until it is corrected: post a record of the same review with its whole list straight under it and the prose after, as \`scripts/lib/rule-text.sh review-tier-records\` says. ${SAME_REVIEW}`;
+		`o/fleet#${issue} has a record, landed ${sha("c", n)}, with 2 - FIXED or - TICKETED lines past a line that ends its list, so they count 0 until it is corrected: post a record of the same review with its whole list straight under it and the prose after, as \`${coreFile("scripts/lib/rule-text.sh")} review-tier-records\` says. ${SAME_REVIEW}`;
 	const wholeList = ["FIXED: a leak", "FIXED: a lock", "TICKETED #9: a race"];
 
 	it("reports a record with disposition lines past the line ending its list, under a counted tier, where no later record restates it: none, another commit's from its base and paths, one holding fewer lines or one under a standard tier (#3847)", () => {
@@ -691,7 +692,7 @@ describe("the re-measure trigger", () => {
 			/landed (\S+)/,
 			"landed $1 (queued on landing), paths lib/pricing/quote.ts",
 		);
-		const fault = `o/fleet#2 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: edit it, or post a record in that form sharing its reviewed tree, or its base and paths: ${noted.split("\n")[0]}`;
+		const fault = `o/fleet#2 has a record not in \`${coreFile("scripts/lib/rule-text.sh")} review-tier-records\`'s form, so its commit is not counted until it is corrected: edit it, or post a record in that form sharing its reviewed tree, or its base and paths: ${noted.split("\n")[0]}`;
 		const alone = run(
 			fixture({
 				hits: {
@@ -734,7 +735,7 @@ describe("the re-measure trigger", () => {
 		});
 		const r = run(fx);
 		expect(r.stderr).toBe(
-			`UNPARSEABLE: o/fleet#4 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: edit it, or post a record in that form sharing its reviewed tree, or its base and paths: ${stray.split("\n")[0]}\n`,
+			`UNPARSEABLE: o/fleet#4 has a record not in \`${coreFile("scripts/lib/rule-text.sh")} review-tier-records\`'s form, so its commit is not counted until it is corrected: edit it, or post a record in that form sharing its reviewed tree, or its base and paths: ${stray.split("\n")[0]}\n`,
 		);
 		expect(r.stdout).toContain("17 counted commits");
 		expect(flag(creates(fx)[0], "--body")).toContain(
@@ -785,7 +786,7 @@ describe("the re-measure trigger", () => {
 			],
 		});
 		const r = run(fx);
-		const fault = `${OWN}#7 has a record naming reviewed ${tree(landed[0])}, the tree landed ${landed[0]} carries on its paths, so a replay finds none of its fixed defects: post, under a counted tier, a record naming the tree pinned before the first round's dispatch, with its base, paths and landed sha, as \`scripts/lib/rule-text.sh review-tier-records\` says; where the correction changes its base or paths too, ${DELETE_RECORD}; with no pin taken, no correction exists, so this line stays`;
+		const fault = `${OWN}#7 has a record naming reviewed ${tree(landed[0])}, the tree landed ${landed[0]} carries on its paths, so a replay finds none of its fixed defects: post, under a counted tier, a record naming the tree pinned before the first round's dispatch, with its base, paths and landed sha, as \`${coreFile("scripts/lib/rule-text.sh")} review-tier-records\` says; where the correction changes its base or paths too, ${DELETE_RECORD}; with no pin taken, no correction exists, so this line stays`;
 		expect(r).toEqual({
 			code: 0,
 			stdout: "",
@@ -839,7 +840,7 @@ describe("the re-measure trigger", () => {
 		const r = run(fx);
 		expect(r.code).toBe(0);
 		expect(r.stderr.split("\n")).toEqual([
-			`OFF MAIN: o/manta#4 has a record naming landed ${lost}, which never reached main, so its commit is not counted until it is corrected: post a record naming the sha it landed under, under a counted tier, sharing its reviewed tree, or its base and paths, as \`scripts/lib/rule-text.sh review-tier-records\` says; where the correction changes both, ${DELETE_RECORD}`,
+			`OFF MAIN: o/manta#4 has a record naming landed ${lost}, which never reached main, so its commit is not counted until it is corrected: post a record naming the sha it landed under, under a counted tier, sharing its reviewed tree, or its base and paths, as \`${coreFile("scripts/lib/rule-text.sh")} review-tier-records\` says; where the correction changes both, ${DELETE_RECORD}`,
 			expect.stringMatching(
 				new RegExp(`^UNJUDGED: o/manta#5: could not walk landed ${unheld} `),
 			),
@@ -2133,7 +2134,7 @@ describe("a record that loses defects or credits false ones (#3907)", () => {
 		const mistier = "**Review tier:** mission critical — a money rule";
 		const { stderr, count } = read(mistier, record(1));
 		expect(stderr).toBe(
-			`UNKNOWN TIER: o/fleet#9 has a tier in no known word, so no record under it is counted until a line of standard, escalated or mission-critical follows, as \`scripts/lib/rule-text.sh review-tier-records\` says: ${mistier}\n${buildNoTierFault("o/fleet#9", sha("c", 1), "the tier mission")}\n`,
+			`UNKNOWN TIER: o/fleet#9 has a tier in no known word, so no record under it is counted until a line of standard, escalated or mission-critical follows, as \`${coreFile("scripts/lib/rule-text.sh")} review-tier-records\` says: ${mistier}\n${buildNoTierFault("o/fleet#9", sha("c", 1), "the tier mission")}\n`,
 		);
 		expect(count).toMatch(/^0 commits /);
 		const late = read(mistier, record(1), "**Review tier:** escalated");

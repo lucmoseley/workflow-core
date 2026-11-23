@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reclaimableMb } from "./lib/admission.js";
 import { readProcStartOf } from "./lib/arbiter-proc.js";
+import { coreFile } from "./lib/core-path-testkit";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import {
 	base as notifyBase,
@@ -1015,7 +1016,8 @@ describe("the SessionStart wiring: the run's own session is not yet registered",
 		it("--help prints the usage and exits 0", () => {
 			const res = runArgv(["--help"]);
 			expect(res.status).toBe(0);
-			expect(res.stdout).toMatch(/^usage: node scripts\/reap-finished/);
+			const usage = `usage: node ${coreFile("scripts/reap-finished-sessions.js")} `;
+			expect(res.stdout.slice(0, usage.length)).toBe(usage);
 		});
 
 		it("an unknown flag exits 2, naming it", () => {
@@ -1023,7 +1025,7 @@ describe("the SessionStart wiring: the run's own session is not yet registered",
 			expect(res.status).toBe(2);
 			expect(res.stderr).toContain("unknown flag: --bogus");
 			expect(res.stderr).toContain(
-				"usage: node scripts/reap-finished-sessions.js",
+				`usage: node ${coreFile("scripts/reap-finished-sessions.js")}`,
 			);
 		});
 	});

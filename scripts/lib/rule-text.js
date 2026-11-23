@@ -38,7 +38,7 @@ const { readConfig } = require("./workflow-core-config.js");
 const {
 	docPath,
 	expandPastePaths,
-	inCheckout,
+	isCoreRepo,
 	resolveScriptPaths,
 	scriptPath,
 } = require("./script-path.js");
@@ -255,7 +255,7 @@ function readRuleText(id, root) {
 		pinnedHostRoot ?? host,
 	);
 	return expandCommands(
-		!inCheckout() && path.dirname(file) === coreLayer()
+		!isCoreRepo() && path.dirname(file) === coreLayer()
 			? qualifyProse(resolved)
 			: resolved,
 		host,

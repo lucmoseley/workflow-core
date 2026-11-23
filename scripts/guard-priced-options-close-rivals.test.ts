@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { sweptMarkers } from "./lib/arbiter-testkit";
+import { seenFrom } from "./lib/core-path-testkit";
 import {
 	SHAPE_CAP,
 	SHAPE_HELD_PASS,
@@ -593,7 +594,7 @@ describe("the refusal", () => {
 	it("prints the house-decision rule for the look's stop, not a call or token budget (#1705)", () => {
 		write(founder());
 		const reason = stop(round(BOTH));
-		const rule = readRuleText("house-decision");
+		const rule = seenFrom(dir, () => readRuleText("house-decision"));
 		expect(reason.replace(/\s+/g, " ")).toContain(rule.replace(/\s+/g, " "));
 		expect(reason).not.toMatch(/10 tool calls|10k output tokens/);
 	});

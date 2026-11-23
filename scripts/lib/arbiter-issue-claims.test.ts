@@ -76,6 +76,65 @@ describe("issue claims — which session is working which issue (mantahostels#64
 		expect(why).toMatch(/1 issue-claim record could not be read/);
 	});
 
+	const misshapen = [
+		{ issue: "645", sessionId: "bob", claimedAt: old },
+		{ issue: 645, sessionId: 7, claimedAt: old },
+		{ issue: 645, claimedAt: old },
+		{ issue: 645, sessionId: "bob" },
+		[],
+	];
+
+	it("drops a record that parses but is no issue claim, as it drops one that does not parse (#5605)", () => {
+		store.claimIssue(645, me("alice"));
+		for (const [i, body] of misshapen.entries())
+			fs.writeFileSync(
+				path.join(store.paths.issueClaimsDir(), `645-odd${i}.json`),
+				JSON.stringify(body),
+			);
+		const listed = store.listIssueClaims();
+		assert(listed);
+		expect(listed.claims.map((c) => c.sessionId)).toEqual(["alice"]);
+		expect(listed.why).toMatch(
+			new RegExp(`${misshapen.length} issue-claim records could not be read`),
+		);
+		expect(
+			issueClaims.readIssueClaims(645).map((e) => e.record.sessionId),
+		).toEqual(["alice"]);
+	});
+
+	for (const [kind, body] of [
+		["does not parse", "not json"],
+		["parses but is no issue claim (#5605)", JSON.stringify(misshapen[0])],
+	])
+		it(`refuses an exclusive claim on doubt where a held record ${kind}`, () => {
+			fs.mkdirSync(store.paths.issueClaimsDir(), { recursive: true });
+			const f = claimFile(645, "bob");
+			fs.writeFileSync(f, body);
+			const r = issueClaims.claimIssueExclusive(
+				645,
+				me("alice"),
+				{ ids: new Set(["alice"]) },
+				Date.now(),
+			);
+			expect(r).toEqual({
+				status: "unreadable",
+				why: `the issue-claim record ${f} could not be read`,
+			});
+		});
+
+	it("re-stamps a re-claim whose own record parses but is no issue claim, where a well-formed one keeps its stamp (#5605)", () => {
+		fs.mkdirSync(store.paths.issueClaimsDir(), { recursive: true });
+		const f = claimFile(645, "alice");
+		fs.writeFileSync(
+			f,
+			JSON.stringify({ issue: 645, sessionId: "alice", claimedAt: 7 }),
+		);
+		store.claimIssue(645, me("alice"));
+		expect(JSON.parse(fs.readFileSync(f, "utf8")).claimedAt).toEqual(
+			expect.any(String),
+		);
+	});
+
 	it("refuses an argument that is not an issue number", () => {
 		for (const bad of ["", "abc", "-3", "0", "1.5"])
 			expect(store.claimIssue(bad, me("alice")).status).toBe("invalid");

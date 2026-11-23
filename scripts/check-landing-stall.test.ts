@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc.js";
+import { coreFile } from "./lib/core-path-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const CHECK = path.resolve(__dirname, "check-landing-stall.js");
@@ -81,8 +82,7 @@ const mainAt = (ago: number) => {
 	git(work, ["push", "-q", "origin", "HEAD:main"]);
 };
 
-const HINT =
-	"Run the queue lander by hand to see where it stops: node scripts/queue-lander.js run";
+const HINT = `Run the queue lander by hand to see where it stops: node ${coreFile("scripts/queue-lander.js")} run`;
 
 it("warns of a stall where a queue ref has waited and main has stood over 2 h, naming both", () => {
 	mainAt(8 * 60 * MIN);

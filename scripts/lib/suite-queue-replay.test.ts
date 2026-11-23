@@ -37,6 +37,7 @@ interface Waiter {
 	peerS?: number;
 	sessionCapS?: number;
 	limb?: HeldLimb;
+	joined?: { pid: number; session: string | null };
 }
 const exit = (w: Waiter, i: number) => ({
 	reason: "refused",
@@ -464,6 +465,73 @@ it("sums a session's waits and their union apart", () => {
 	expect(r.sessions).toHaveLength(1);
 	expect(r.sessions[0]).toMatchObject({ waits: 2, sum: 1200, union: 900 });
 	expect(r.peak.n).toBe(2);
+});
+
+describe("a wait that joined a queued same-key `tsc` run (#5639)", () => {
+	const cfg = {
+		waiters: [
+			{
+				from: 0,
+				to: 10,
+				kind: "tsc",
+				reason: "opened",
+				session: "s1",
+				pid: 101,
+			},
+			{
+				from: 2,
+				to: 10,
+				kind: "tsc",
+				reason: "opened",
+				session: "s1",
+				joined: { pid: 101, session: "s1" },
+			},
+		],
+	};
+
+	it("counts it as a wait in the sums, the session's sum and union and the peak", () => {
+		const r = replayOf(cfg);
+		const eras = [{ label: "later", from: 5 }];
+		expect(
+			replayOf({ ...cfg, eras }).eraWait.map((e) => [e.label, e.waitS]),
+		).toEqual([
+			["window start", 480],
+			["later", 600],
+		]);
+		expect(r.queued).toBe(2);
+		expect(r.waitS).toBe(1080);
+		expect(r.joined).toEqual({ waits: 1, waitS: 480 });
+		expect(r.sessions).toEqual([
+			expect.objectContaining({
+				session: "s1",
+				waits: 2,
+				sum: 1080,
+				union: 600,
+				joined: 1,
+				joinedS: 480,
+			}),
+		]);
+		expect(r.peak.n).toBe(2);
+	});
+
+	it("keeps it out of the `tsc` fifo and every run count", () => {
+		const r = replayOf(cfg);
+		expect(hoursOf(r.limb)).toEqual({ open: 600 });
+		expect(r.matchable).toBe(0);
+		expect(r.passes.counted).toBe(0);
+		expect(r.peers.tsc).toEqual({ held: 0, heldS: 0, atBound: 0 });
+	});
+
+	it("reports it apart in the summary and the Sessions table", () => {
+		const out = render(replayOf(cfg), window());
+		expect(out).toContain(
+			"1 of the waits joined a queued same-key `tsc` run rather than queue their own, 0.13 h; no limb, run count or match counts them (#5639).",
+		);
+		expect(out).toContain(
+			"| Session | Waits | Sum (h) | Union (h) | Joined | Joined (h) | Limbs (h) |",
+		);
+		expect(out).toContain("| `s1` | 2 | 0.30 | 0.17 | 1 | 0.13 | open 0.17 |");
+	});
 });
 
 describe("the windows limb, the Windows-memory hold (#4782, #4850)", () => {

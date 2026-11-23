@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { initGitRepo } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 
@@ -64,7 +65,7 @@ describe("check-husky-shim.js (#3172)", () => {
 		expect(r.stderr).toContain("STOCK-SHIM");
 		expect(r.stderr).toContain(shim());
 		expect(r.stderr).toContain("husky's stock shim");
-		expect(r.stderr).toContain("node scripts/install-hooks.js");
+		expect(r.stderr).toContain(`node ${coreFile("scripts/install-hooks.js")}`);
 		expect(r.status).toBe(1);
 
 		install();
@@ -80,7 +81,7 @@ describe("check-husky-shim.js (#3172)", () => {
 		const r = check();
 		expect(r.stderr).toContain("UNPINNED-HOOKS-PATH");
 		expect(r.stderr).toContain('core.hooksPath reads ".husky/_"');
-		expect(r.stderr).toContain("node scripts/install-hooks.js");
+		expect(r.stderr).toContain(`node ${coreFile("scripts/install-hooks.js")}`);
 		expect(r.status).toBe(1);
 
 		install();

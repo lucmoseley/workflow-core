@@ -32,6 +32,7 @@ const {
 	queuedRunnerPeakMb,
 	readSlotPlace,
 } = require("./lib/suite-queue.js");
+const { captureRun, joinOrSeat, readJoinKey } = require("./lib/tsc-join.js");
 const { unwrapArgv } = require("./lib/shell-parse.js");
 const {
 	TSC_BUSY_EXIT,
@@ -216,11 +217,16 @@ const suiteRefusedWith = (why) => (words) => {
  *   inSuite?: () => boolean,
  *   shortGate?: typeof shortGateDenial,
  *   tree?: string,
+ *   stdout?: Out,
+ *   worktree?: { toplevel: string, cwd: string },
  * }} Options
  */
 
 /** @type {Out} */
 const STDERR = { write: (s) => writeFd(2, s) };
+
+/** @type {Out} */
+const STDOUT = { write: (s) => writeFd(1, s) };
 
 /**
  * @param {number|null} code
@@ -280,6 +286,7 @@ function sayTscHeld(err) {
  *   exitExtra?: { noWait?: boolean, chargeMb: number },
  *   sayPlace: () => void,
  *   start: (words: string[], launch: Launch) => import("node:child_process").ChildProcess,
+ *   joining?: Omit<import("./lib/tsc-join.js").Joining, "logExit" | "signals">,
  * }} SlotWait
  *
  * @typedef {{
@@ -332,7 +339,8 @@ function buildTscWait(options, words) {
 		...buildTscWaitText(chargeMb),
 	};
 	const noWait = process.env[TSC_NO_WAIT_ENV] === "1";
-	return {
+	/** @type {SlotWait} */
+	const plain = {
 		queue,
 		join: { ...queue, chargeMb },
 		wait: noWait ? tryOn(gate) : waitOn(gate),
@@ -340,6 +348,56 @@ function buildTscWait(options, words) {
 		exitExtra: noWait ? { noWait: true, chargeMb } : { chargeMb },
 		sayPlace: sayNoPlace,
 		start: handing(TSC_SLOT_ENV),
+	};
+	const key = noWait ? null : readJoinKey(words, options.worktree);
+	return key ? withJoining(plain, options, key) : plain;
+}
+
+/**
+ * @param {SlotWait} plain
+ * @param {Options} options
+ * @param {import("./lib/tsc-join.js").JoinKey} key
+ * @returns {SlotWait}
+ */
+function withJoining(plain, options, key) {
+	const { queue } = plain;
+	const session =
+		options.sessionId === undefined ? idSeam.fromEnv() : options.sessionId;
+	const pid = options.pid ?? process.pid;
+	const asked = {
+		wall: (options.clock ?? Date.now)(),
+		mono: (options.monoClock ?? monotonicMs)(),
+	};
+	return {
+		...plain,
+		join: {
+			...plain.join,
+			holder: { ...key, session },
+			clock: () => asked.wall,
+		},
+		start: (startWords, launch) =>
+			spawnCommand(startWords, {
+				handed: TSC_SLOT_ENV,
+				...launch,
+				capture: captureRun({
+					...queue,
+					pid,
+					queueDir: queue.queueDir ?? defaultTscQueueDir(),
+				}),
+			}),
+		joining: {
+			...queue,
+			queueDir: queue.queueDir ?? defaultTscQueueDir(),
+			pid,
+			session,
+			key,
+			asked,
+			out: options.out ?? process.stderr,
+			stdout: options.stdout ?? STDOUT,
+			err: options.err ?? STDERR,
+			label: LABEL,
+			exitStatus,
+		},
 	};
 }
 
@@ -674,22 +732,34 @@ async function run(words, slot, options, err) {
 	const held = heldMarker(kind.heldMarkerEnv, options) !== null;
 	const unseated = held || kind.runsAtOnceInSuite(options);
 	const slotted = kind.wait(options, words);
-	const { queue, join, wait, refused, exitExtra } = slotted;
+	const { queue, join, wait, refused, exitExtra, joining } = slotted;
+	const logged = withExitExtra(logExit, exitExtra);
+	const signals = signalsOf(options);
 	/** @type {import("node:child_process").ChildProcess | null} */
 	let child = null;
-	const seat = queueSeat({
-		queue,
-		join: unseated ? false : { ...join, session },
-		logExit: withExitExtra(logExit, exitExtra),
-		signals: {
-			...(options.signals ? { emitter: options.signals } : {}),
-			...(options.exit ? { exit: options.exit } : {}),
-			onSignal: (signal) => {
-				child?.kill(signal);
-				return true;
+	const seatAfter = (/** @type {number} */ waitedMs) => {
+		const made = queueSeat({
+			queue,
+			join: unseated ? false : { ...join, session },
+			waitedMs,
+			logExit: logged,
+			signals: {
+				...signals,
+				onSignal: (signal) => made === seat && passOn(child, signal),
 			},
-		},
-	});
+		});
+		return made;
+	};
+	let seat = seatAfter(0);
+	if (joining && !unseated) {
+		const joined = await joinOrSeat(
+			{ ...joining, logExit: logged, signals },
+			seat,
+			seatAfter,
+		);
+		if ("code" in joined) return joined.code;
+		seat = joined.seat;
+	}
 	/** @type {(code: number) => void} */
 	let finish = noop;
 	const done = new Promise((resolve) => {
@@ -714,6 +784,23 @@ async function run(words, slot, options, err) {
 			? spawnCommand(kind.argv(words), { handed: null, ...launch })
 			: slotted.start(words, launch);
 	return done;
+}
+
+/** @param {Options} options */
+const signalsOf = (options) => ({
+	...(options.signals ? { emitter: options.signals } : {}),
+	...(options.exit ? { exit: options.exit } : {}),
+});
+
+/**
+ * @param {import("node:child_process").ChildProcess | null} child
+ * @param {NodeJS.Signals} signal
+ * @returns {boolean}
+ */
+function passOn(child, signal) {
+	if (!child) return false;
+	child.kill(signal);
+	return true;
 }
 
 /**
@@ -916,21 +1003,57 @@ function makeGateSelectionFile(err) {
  *   options: Options,
  *   err: Out,
  *   finish: (code: number) => void,
+ *   capture?: ReturnType<typeof captureRun>,
  * }} launch
  */
-function spawnCommand(words, { handed, seat, options, err, finish }) {
+function spawnCommand(words, { handed, seat, options, err, finish, capture }) {
 	const [command = "", ...args] = words;
 	const running = (options.spawnFn ?? spawn)(command, args, {
-		stdio: "inherit",
+		stdio: capture ? ["inherit", "pipe", "pipe"] : "inherit",
 		...(handed ? { env: { ...process.env, [handed]: seat.ticket } } : {}),
 	});
-	running.once("spawn", seat.spawned);
+	const wall = options.clock ?? Date.now;
+	/** @type {number | null} */
+	let spawnedAt = null;
+	running.once("spawn", () => {
+		spawnedAt = wall();
+		seat.spawned();
+	});
+	if (capture) {
+		tee(running.stdout, [options.stdout ?? STDOUT, { write: capture.out }]);
+		tee(running.stderr, [err, { write: capture.err }]);
+	}
+	let ended = false;
+	/** @param {number} code */
+	const end = (code) => {
+		if (ended) return;
+		ended = true;
+		finish(code);
+		capture?.release();
+	};
 	running.once("error", (error) => {
 		err.write(`${LABEL}: ${command} would not start — ${error.message}\n`);
-		finish(127);
+		capture?.close();
+		end(127);
 	});
-	running.once("exit", (code, signal) => finish(exitStatus(code, signal)));
+	running.once(capture ? "close" : "exit", (code, signal) => {
+		if (spawnedAt !== null)
+			capture?.settle({ code, signal, spawnedAt, endedAt: wall() });
+		end(exitStatus(code, signal));
+	});
 	return running;
+}
+
+/**
+ * @param {import("node:stream").Readable | null} stream
+ * @param {Out[]} sinks
+ */
+function tee(stream, sinks) {
+	if (!stream) return;
+	stream.setEncoding("utf8");
+	stream.on("data", (/** @type {string} */ text) => {
+		for (const sink of sinks) sink.write(text);
+	});
 }
 
 if (require.main === module)

@@ -4,9 +4,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { seenFrom } from "./lib/core-path-testkit";
 import { Q_MARKER } from "./lib/round-marker";
 import { readRuleText } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process";
+import { resolveScriptPaths } from "./lib/script-path";
 
 const ROOT = path.resolve(__dirname, "..");
 const STYLE = path.join(ROOT, ".claude", "output-styles", "core-voice.md");
@@ -240,7 +242,10 @@ describe("the founder hand-over rule (#597)", () => {
 	const printedWhole = (text: string) => {
 		const pieces = fragment.trim().split(/^.*\{host-root\}.*$/m);
 		expect(pieces).toHaveLength(2);
-		for (const piece of pieces) expect(text).toContain(piece);
+		for (const piece of pieces)
+			expect(text).toContain(
+				seenFrom(SCRATCH, () => resolveScriptPaths(piece)),
+			);
 		expect(text).not.toMatch(/\{host-root\}|\{script:/);
 	};
 

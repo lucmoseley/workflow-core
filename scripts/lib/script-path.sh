@@ -31,16 +31,60 @@ sp_shell_word() {
   fi
 }
 
-sp_in_checkout() {
-  local root
+_sp_git_dir_common() {
+  local git_dir="$1" common
+  common="$git_dir"
+  if [[ -f "$git_dir/commondir" ]]; then
+    IFS= read -r common <"$git_dir/commondir" || [[ -n "$common" ]] || return 1
+    [[ "$common" == /* ]] || common="$git_dir/$common"
+  fi
+  CDPATH='' cd -P -- "$common" 2>/dev/null && pwd
+}
+
+_sp_repo_common() {
+  local dir="$1" line
+  while :; do
+    if [[ -d "$dir/.git" ]]; then
+      printf '%s\n' "$dir"
+      _sp_git_dir_common "$dir/.git"
+      return
+    fi
+    if [[ -f "$dir/.git" ]]; then
+      IFS= read -r line <"$dir/.git" || [[ -n "$line" ]] || return 1
+      [[ "$line" == "gitdir: "* ]] || return 1
+      line="${line#gitdir: }"
+      [[ "$line" == /* ]] || line="$dir/$line"
+      printf '%s\n' "$dir"
+      _sp_git_dir_common "$line"
+      return
+    fi
+    [[ -n "$dir" && "$dir" != / ]] || return 1
+    dir="${dir%/*}"
+  done
+}
+
+# #5584
+sp_in_core_repo() {
+  local root own here git_dir
   _sp_root_into root
-  [[ -f "$root/package.json" ]]
+  [[ -f "$root/package.json" ]] || return 1
+  own="$(_sp_repo_common "$root")" || return 1
+  [[ "${own%%$'\n'*}" == "$root" ]] || return 1
+  if [[ -n "${GIT_DIR:-}" ]]; then
+    git_dir="$GIT_DIR"
+    [[ "$git_dir" == /* ]] || git_dir="$PWD/$git_dir"
+    here="$(_sp_git_dir_common "$git_dir")" || return 1
+  else
+    here="$(_sp_repo_common "$PWD")" || return 1
+    here="${here#*$'\n'}"
+  fi
+  [[ "${own#*$'\n'}" == "$here" ]]
 }
 
 script_path() {
   local root
   _sp_root_into root
-  if sp_in_checkout; then
+  if sp_in_core_repo; then
     printf 'scripts/%s' "$1"
   else
     sp_shell_word "$root/scripts/$1"
@@ -50,7 +94,7 @@ script_path() {
 doc_path() {
   local root
   _sp_root_into root
-  if sp_in_checkout; then
+  if sp_in_core_repo; then
     printf 'docs/%s' "$1"
   else
     sp_shell_word "$root/docs/$1"
@@ -61,7 +105,7 @@ resolve_script_paths() {
   local LC_ALL=C text root out='' pre edge dot dir rest name
   _sp_read_stdin text
   _sp_root_into root
-  if sp_in_checkout; then
+  if sp_in_core_repo; then
     printf '%s' "$text"
     return 0
   fi

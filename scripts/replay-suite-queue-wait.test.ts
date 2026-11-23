@@ -78,6 +78,39 @@ it("charges a `tsc` wait to the type-check slot's limbs, never a suite's (#3316)
 	expect(r.stdout).not.toMatch(/part\?|whole\?/);
 });
 
+it("counts a joined `tsc` wait as a wait, out of the fifo, reported apart (#5639)", () => {
+	fs.writeFileSync(
+		path.join(dir, ".suite-queue-exits.jsonl"),
+		`${JSON.stringify({
+			at: "2026-10-27T00:10:00.000Z",
+			waitS: 600,
+			reason: "opened",
+			kind: "tsc",
+			session: "a",
+			pid: 1,
+		})}\n${JSON.stringify({
+			at: "2026-10-27T00:10:00.000Z",
+			waitS: 300,
+			reason: "opened",
+			kind: "tsc",
+			session: "b",
+			pid: 2,
+			joined: { pid: 1, session: "a" },
+		})}\n`,
+	);
+	const r = run("--since", SINCE, "--until", UNTIL);
+	expect(r.status).toBe(0);
+	expect(r.stdout).toContain(
+		"2 queued waits (2 exits less 0 skipped), 0.25 h inside the window.",
+	);
+	expect(r.stdout).toContain(
+		"1 of the waits joined a queued same-key `tsc` run rather than queue their own, 0.08 h;",
+	);
+	expect(r.stdout).toContain("| `b` | 1 | 0.08 | 0.08 | 1 | 0.08 |  |");
+	expect(r.stdout).toContain("| open | 0.17 |");
+	expect(r.stdout).not.toContain("| tsc-fifo |");
+});
+
 it.each([
 	["holds a wait on the windows limb off a fresh reading", 180, true],
 	["holds none off a reading past the live reader's freshness", 181, false],

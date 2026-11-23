@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import {
 	hookEnv,
 	linkedCommit,
@@ -421,7 +422,7 @@ describe("the notice the session reads", () => {
 		expect(text).toContain("REPORTS and never blocks");
 		expect(text).toContain("In full, WARNs and context included: node");
 		expect(text).toContain(
-			`Re-read this notice after a later commit: node scripts/report-new-shared-faults.js ${child}`,
+			`Re-read this notice after a later commit: node ${coreFile("scripts/report-new-shared-faults.js")} ${child}`,
 		);
 	});
 
@@ -496,7 +497,7 @@ describe("the notice the session reads", () => {
 		for (const full of routes) {
 			const script = full.replace(/^node /, "");
 			expect(
-				fs.existsSync(path.join(REPO_ROOT, script)),
+				fs.existsSync(path.resolve(REPO_ROOT, script)),
 				`a route in names ${script}, which does not exist`,
 			).toBe(true);
 			expect(full).not.toContain("report-new-shared-faults");

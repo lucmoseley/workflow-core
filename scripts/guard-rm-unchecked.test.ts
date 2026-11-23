@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
+import { coreFile, seenFrom } from "./lib/core-path-testkit";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -55,7 +56,7 @@ describe("the refusal, end to end", () => {
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toContain("`$T/*`");
 		expect(out.permissionDecisionReason).toContain(
-			readRuleText("rm-unchecked"),
+			seenFrom(dir, () => readRuleText("rm-unchecked")),
 		);
 		expect(fs.readFileSync(latchFile(COMMAND, "one-session"), "utf8")).toBe("");
 		expect(emission(buildBashPayload(COMMAND, "one-session"))).toBeNull();
@@ -89,7 +90,7 @@ describe("the refusal, end to end", () => {
 		const out = emission(buildBashPayload(COMMAND), { WFC_RULES_DIR: store });
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toContain(
-			"the rule could not be read from docs/agents/rules/rm-unchecked.txt",
+			`the rule could not be read from ${coreFile("docs/agents/rules/rm-unchecked.txt")}`,
 		);
 	});
 

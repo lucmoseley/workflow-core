@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { coreFile } from "./lib/core-path-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "retry-failed-files.js");
@@ -146,6 +147,6 @@ it("refuses a missing report argument, printing its usage", () => {
 	const r = runInProcess(SCRIPT, [], { cwd: root });
 	expect(r.status).toBe(2);
 	expect(r.stderr).toContain(
-		"usage: node scripts/retry-failed-files.js <report.json>",
+		`usage: node ${coreFile("scripts/retry-failed-files.js")} <report.json>`,
 	);
 });
