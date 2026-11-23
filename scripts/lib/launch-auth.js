@@ -165,13 +165,20 @@ function sourceOf(status, env) {
  * @returns {string|null}
  */
 function launchAuthRefusal({ bin, env, cwd, settings, bg, spawn = spawnRaw }) {
-	const refused = (/** @type {string} */ why) =>
-		`this model launch would not bill the subscription: ${why}. Rule: ${RULE}. Unset what set it, or launch from a shell without it.`;
+	const refused = (
+		/** @type {string} */ why,
+		remedy = "Unset what set it, or launch from a shell without it.",
+	) =>
+		`this model launch would not bill the subscription: ${why}. Rule: ${RULE}. ${remedy}`;
 	if (isSet(env.ANTHROPIC_BASE_URL))
 		return refused("ANTHROPIC_BASE_URL is set");
 	if (bg) {
 		const why = daemonRefusal(bin, env, cwd, spawn);
-		if (why) return refused(why);
+		if (why)
+			return refused(
+				why,
+				"The daemon keeps the environment it started with: let it idle-exit (`claude daemon status` names what holds it open), then launch from a shell without it.",
+			);
 	}
 	const parsed = parseSettingsHelper(settings);
 	if ("why" in parsed) return refused(parsed.why);

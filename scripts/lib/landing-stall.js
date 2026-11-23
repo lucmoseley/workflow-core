@@ -18,6 +18,9 @@ const {
 	short,
 } = require("./lander-git.js");
 const { INSTALL_TIMEOUT_MS } = require("./npm-ci-staging.js");
+const { HOOK_GRACE_MS } = require("./run-budgeted.js");
+const { FILING_TIMEOUT_MS } = require("./queue-issue.js");
+const { ADOPT_WAIT_MS } = require("./guard-code.js");
 const { queueBranch } = require("./landing-refs.js");
 const { readOwedDrops } = require("./lander-records.js");
 const { markersDir } = require("./marker-root.js");
@@ -35,15 +38,17 @@ const { parseLanderLog, readLogSince } = require("./time-to-land.js");
 const STALE_MS = 5 * HEARTBEAT_MS;
 // guess, #5436
 const HELD_WINDOW_MS = DAY_MS;
-const LONGEST_CALL_MS = Math.max(
+const LONGEST_GAP_MS = Math.max(
 	PUSH_TIMEOUT_MS,
 	INSTALL_TIMEOUT_MS,
-	GATED_COMMIT_TIMEOUT_MS,
-	GH_TIMEOUT_MS,
-	LANDER_GIT_TIMEOUT_MS,
+	GATED_COMMIT_TIMEOUT_MS + HOOK_GRACE_MS,
+	GATED_COMMIT_TIMEOUT_MS + 2 * LANDER_GIT_TIMEOUT_MS,
+	FILING_TIMEOUT_MS,
+	2 * GH_TIMEOUT_MS,
+	3 * LANDER_GIT_TIMEOUT_MS,
+	2 * ADOPT_WAIT_MS,
 );
-// guess, #5644
-const HUNG_MS = 2 * LONGEST_CALL_MS;
+const HUNG_MS = LONGEST_GAP_MS + HEARTBEAT_MS;
 
 /**
  * @typedef {{tag: "LANDING-STALLED", line: string, movedAt: number}
@@ -246,6 +251,7 @@ function recordWake(file, { startedAt, now }) {
 }
 
 module.exports = {
+	HUNG_MS,
 	buildHeldLine,
 	buildUnreadLine,
 	readHeldExit,

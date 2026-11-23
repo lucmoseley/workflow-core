@@ -4,7 +4,7 @@ const { parseErrorText } = require("./caught.js");
 const { parseFiledLine } = require("./filed-line.js");
 const { buildScriptFilerArgv } = require("./script-filer-argv.js");
 const { parseFirstLine } = require("./first-line.js");
-const { gh, ghIssueListAll } = require("./gh.js");
+const { GH_TIMEOUT_MS, gh, ghIssueListAll } = require("./gh.js");
 const { gateLinesOf } = require("./issue-gate.js");
 const { buildStandaloneLine } = require("./standalone-line.js");
 const { similarTitles } = require("./tracker-ops.js");
@@ -102,6 +102,9 @@ function relabel({ number, labels }, addLabels) {
 	return ` Re-added ${missing.join(", ")}.`;
 }
 
+// guess, #5644: a filing's create and its parent link, each one gh call
+const FILING_TIMEOUT_MS = 2 * GH_TIMEOUT_MS;
+
 /**
  * @param {string} root
  * @returns {QueueIssueDeps["fileIssue"]}
@@ -110,7 +113,7 @@ const fileIssueIn = (root) => (args, input) => {
 	const r = spawnSync(
 		process.execPath,
 		[path.join(__dirname, "..", "file-issue.js"), ...args],
-		{ cwd: root, encoding: "utf8", input },
+		{ cwd: root, encoding: "utf8", input, timeout: FILING_TIMEOUT_MS },
 	);
 	return {
 		status: r.status,
@@ -169,4 +172,9 @@ function liveQueueDeps(root) {
 	};
 }
 
-module.exports = { queueIssueFiler, queueIssueCloser, liveQueueDeps };
+module.exports = {
+	FILING_TIMEOUT_MS,
+	queueIssueFiler,
+	queueIssueCloser,
+	liveQueueDeps,
+};
