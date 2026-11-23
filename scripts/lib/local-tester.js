@@ -3,6 +3,7 @@ const { gitBinary, gitSpawnOptions } = require("./git.js");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { noop } = require("./noop.js");
 const {
 	TREE_PEAK_SAMPLE_MS,
 	readPsRows,
@@ -71,6 +72,7 @@ const STAMP = path.join("node_modules", ".lander-lock-hash");
  * @property {string} [pytest]
  * @property {(pid: number) => number} [treePss]
  * @property {(dir: string) => string|null} [timings]
+ * @property {() => void} [beat]
  */
 
 /**
@@ -286,6 +288,7 @@ function readRunsAt(dir, pytest, files, timings) {
  * @property {() => Promise<Admission>} admit
  * @property {(pid: number) => number} treePss
  * @property {{ran: number, peakKb: number, samples: number}} tally
+ * @property {() => void} beat
  */
 
 /**
@@ -303,11 +306,13 @@ function checkOutOrWhy({ root, dir, sha, exec }) {
 
 /**
  * @param {Checkout} checkout
+ * @param {() => void} beat
  * @returns {string|null}
  */
-function checkOutAndInstall(checkout) {
+function checkOutAndInstall(checkout, beat) {
 	const why = checkOutOrWhy(checkout);
 	if (why !== null) return why;
+	beat();
 	try {
 		install(checkout.dir, checkout.exec);
 		return null;
@@ -322,7 +327,7 @@ function checkOutAndInstall(checkout) {
  * @param {SlotRuns} slotRuns
  * @returns {Promise<Verdict>}
  */
-async function runEach(groups, checkout, { admit, treePss, tally }) {
+async function runEach(groups, checkout, { admit, treePss, tally, beat }) {
 	/** @type {Set<string>} */
 	const failing = new Set();
 	/** @type {import("./queue-lander.js").Failure[]} */
@@ -341,7 +346,7 @@ async function runEach(groups, checkout, { admit, treePss, tally }) {
 		if (!slot.ok)
 			return { kind: "unknown", reason: slot.reason, transient: true };
 		try {
-			const unready = checkOutAndInstall(checkout);
+			const unready = checkOutAndInstall(checkout, beat);
 			if (unready !== null) return { kind: "unknown", reason: unready };
 			const why = await runInSlot(runs, checkout.dir, {
 				spawned: slot.spawned,
@@ -549,6 +554,7 @@ function localTester({
 	pytest = path.join(__dirname, "..", "run-pytest.js"),
 	treePss = readTreePssKb,
 	timings = readLatestTimings,
+	beat = noop,
 }) {
 	const dir = path.join(root, LANDER_WORKTREE);
 	return {
@@ -568,6 +574,7 @@ function localTester({
 				admit: watched.admit,
 				treePss,
 				tally,
+				beat,
 			});
 			if (tally.ran > 0)
 				recordRun(root, {

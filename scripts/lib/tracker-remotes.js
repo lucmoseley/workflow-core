@@ -1,5 +1,5 @@
 const { parseGithubRemote } = require("./workflow-core-config.js");
-const { spawnGitSync } = require("./git.js");
+const { GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
 const { shellQuote } = require("./sh-quote.js");
 
 /** @param {string} url @param {string} repo */
@@ -8,17 +8,21 @@ const names = (url, repo) =>
 
 /** @param {string} tracker @param {{ cwd?: string }} [opts] */
 function readTrackerRemotes(tracker, { cwd } = {}) {
-	const out = spawnGitSync(["config", "--get-regexp", "^remote\\..*\\.url$"], {
+	const r = spawnGitSync(["config", "--get-regexp", "^remote\\..*\\.url$"], {
 		cwd,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "ignore"],
-	}).stdout;
-	return out.split("\n").flatMap((line) => {
-		const [key, url] = line.split(/\s+/);
-		return key !== undefined && url !== undefined && names(url, tracker)
-			? [key.slice("remote.".length, -".url".length)]
-			: [];
+		timeout: GIT_TIMEOUT_MS,
 	});
+	if (r.error) throw r.error;
+	return String(r.stdout)
+		.split("\n")
+		.flatMap((line) => {
+			const [key, url] = line.split(/\s+/);
+			return key !== undefined && url !== undefined && names(url, tracker)
+				? [key.slice("remote.".length, -".url".length)]
+				: [];
+		});
 }
 
 /** @param {string[]} remotes @param {string} tracker */

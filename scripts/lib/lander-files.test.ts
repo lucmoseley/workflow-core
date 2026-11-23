@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 
-const { fileLedger, heartbeatWriter, readHeartbeat } =
+const { beatingBefore, fileLedger, heartbeatWriter, readHeartbeat } =
 	createRequire(__filename)("./lander-files.js");
 
 let dir: string;
@@ -51,4 +51,19 @@ it("keeps the batch last named on a heartbeat that names none (#5360)", () => {
 	beat(null);
 	beat();
 	expect(readHeartbeat(file).batch).toBeNull();
+});
+
+it("beats before each call through its deps, passing each call's arguments and result through (#5644)", () => {
+	const order: string[] = [];
+	const deps = beatingBefore(() => order.push("beat"), {
+		read: (n: number) => {
+			order.push(`read ${n}`);
+			return n * 2;
+		},
+		label: "kept",
+	});
+	expect(deps.read(2)).toBe(4);
+	expect(deps.read(3)).toBe(6);
+	expect(deps.label).toBe("kept");
+	expect(order).toEqual(["beat", "read 2", "beat", "read 3"]);
 });
