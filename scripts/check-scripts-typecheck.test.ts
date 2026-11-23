@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-scripts-typecheck.js");
@@ -38,12 +39,19 @@ const run = (args: string[] = [], env: Record<string, string> = {}) => {
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 };
 
+const rootedRepo = defineTemplate((at) => {
+	const gitAt = (...args: string[]) =>
+		execFileSync("git", args, { cwd: at, encoding: "utf8" });
+	gitAt("init", "-q");
+	gitAt("config", "user.email", "t@example.com");
+	gitAt("config", "user.name", "t");
+	gitAt("commit", "-q", "--allow-empty", "-m", "root");
+});
+
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "scripts-typecheck-"));
-	git("init", "-q");
-	git("config", "user.email", "t@example.com");
-	git("config", "user.name", "t");
-	git("commit", "-q", "--allow-empty", "-m", "root");
+	dir = rootedRepo.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "scripts-typecheck-")),
+	);
 });
 
 afterEach(() => {

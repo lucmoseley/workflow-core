@@ -8,6 +8,7 @@ import { MARKER_WRITER, SELF_PLUGIN_HOOKS } from "./lib/core-hooks.js";
 import { CANARY_MAIN_SCRIPTS, MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
 import { coreFile } from "./lib/core-path-testkit";
 import { guardDirs, isDenyCapableIn } from "./lib/deny-capable.js";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { guardKey } from "./lib/guard-fires.js";
 import { renderAt } from "./lib/plugin-hooks-render.js";
 import { runInProcess } from "./lib/run-in-process";
@@ -253,10 +254,12 @@ describe("the plugin and marketplace manifests", () => {
 });
 
 describe("a render in a fixture repo", () => {
+	const emptyRepo = defineTemplate(emptyRepoTemplate);
 	let dir: string;
 	beforeEach(() => {
-		dir = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-hooks-"));
-		execFileSync("git", ["init", "-q", dir]);
+		dir = emptyRepo.instantiate(
+			fs.mkdtempSync(path.join(os.tmpdir(), "plugin-hooks-")),
+		);
 		fs.mkdirSync(path.join(dir, "self-plugin/hooks"), { recursive: true });
 		fs.mkdirSync(path.join(dir, "scripts"));
 		fs.mkdirSync(path.join(dir, ".claude-plugin"));

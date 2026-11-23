@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { noop } from "./noop.js";
 import { runInProcess } from "./run-in-process.js";
 
@@ -495,24 +496,23 @@ describe("the CLI tail, which is what the session-start launcher runs", () => {
 
 describe("the write time userland cannot rewind (#1003)", () => {
 	const day = 24 * HOUR;
-
-	it("spares a fixture extracted by tar from an old commit, every session having started after that commit", () => {
-		const repo = freshDir();
-		const git = (...args: string[]) =>
-			execFileSync("git", args, {
-				cwd: repo,
-				encoding: "buffer",
-				env: {
-					...process.env,
-					GIT_AUTHOR_DATE: "2020-01-01T00:00:00Z",
-					GIT_COMMITTER_DATE: "2020-01-01T00:00:00Z",
-				},
-			});
-		git("init", "-q");
-		fs.mkdirSync(path.join(repo, "r2"));
-		fs.writeFileSync(path.join(repo, "r2", "page.html"), "<p>r2</p>");
-		git("add", "r2");
-		git(
+	const gitAt = (cwd: string, ...args: string[]) =>
+		execFileSync("git", args, {
+			cwd,
+			encoding: "buffer",
+			env: {
+				...process.env,
+				GIT_AUTHOR_DATE: "2020-01-01T00:00:00Z",
+				GIT_COMMITTER_DATE: "2020-01-01T00:00:00Z",
+			},
+		});
+	const oldCommit = defineTemplate((dir) => {
+		gitAt(dir, "init", "-q");
+		fs.mkdirSync(path.join(dir, "r2"));
+		fs.writeFileSync(path.join(dir, "r2", "page.html"), "<p>r2</p>");
+		gitAt(dir, "add", "r2");
+		gitAt(
+			dir,
 			"-c",
 			"user.name=T",
 			"-c",
@@ -521,6 +521,11 @@ describe("the write time userland cannot rewind (#1003)", () => {
 			"-qm",
 			"r2",
 		);
+	});
+
+	it("spares a fixture extracted by tar from an old commit, every session having started after that commit", () => {
+		const repo = oldCommit.instantiate(freshDir());
+		const git = (...args: string[]) => gitAt(repo, ...args);
 		const archive = path.join(repo, "r2.tar");
 		fs.writeFileSync(archive, git("archive", "HEAD", "r2"));
 

@@ -139,6 +139,7 @@ const unsetCommands = () =>
  * @typedef {object} ConfigOpts
  * @property {string} [root]
  * @property {string} [rev]
+ * @property {NodeJS.ProcessEnv} [env]
  */
 
 /** @typedef {ConfigBase & Partial<Record<PathKey, string>>} Config */
@@ -480,12 +481,13 @@ function readTestCanary(cfg) {
 
 /**
  * @param {RawConfig} cfg
+ * @param {NodeJS.ProcessEnv} env
  * @returns {Module[]}
  */
-function readModules(cfg) {
+function readModules(cfg, env) {
 	/** @type {Module[]} */
 	const modules = [];
-	const injected = process.env.WFC_MODULES;
+	const injected = env.WFC_MODULES;
 	if (injected !== undefined) {
 		for (const m of injected.split(",").filter(Boolean)) {
 			if (MODULES.includes(/** @type {Module} */ (m)))
@@ -580,10 +582,11 @@ function readManualRender(cfg) {
 
 /**
  * @param {RawConfig} cfg
+ * @param {NodeJS.ProcessEnv} env
  * @returns {string[]|undefined}
  */
-function readAlwaysLoaded(cfg) {
-	const injectedPool = process.env.WFC_ALWAYS_LOADED;
+function readAlwaysLoaded(cfg, env) {
+	const injectedPool = env.WFC_ALWAYS_LOADED;
 	const alwaysLoaded =
 		injectedPool === undefined
 			? readKey(cfg, "alwaysLoaded", isStringArray, "an array of strings")
@@ -748,7 +751,12 @@ function isHoldArmable(modules, sensitivePaths) {
  * @param {ConfigOpts & {quiet?: boolean}} [opts]
  * @returns {Config}
  */
-function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
+function readConfig({
+	env = process.env,
+	root = hostRoot(undefined, { env }),
+	rev,
+	quiet = false,
+} = {}) {
 	let file = path.join(root, CONFIG_PATH);
 	let raw;
 	if (rev === undefined) raw = parseConfigFile(file);
@@ -775,7 +783,7 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		isDeploy,
 		`one of ${DEPLOYS.join(", ")}`,
 	);
-	const modules = readModules(cfg);
+	const modules = readModules(cfg, env);
 	const categories =
 		readKey(cfg, "categories", isStringRecord, "an object of strings") ?? {};
 	const overrides = readOverrides(cfg);
@@ -832,10 +840,10 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		'an object of "workflow", "repo" (owner/name, holding the holds\' issues) and "mention" (a login, no @)',
 	);
 
-	if (process.env.WFC_OUTPUT_STYLE !== undefined)
-		overrides.output_style = process.env.WFC_OUTPUT_STYLE || null;
+	if (env.WFC_OUTPUT_STYLE !== undefined)
+		overrides.output_style = env.WFC_OUTPUT_STYLE || null;
 
-	const alwaysLoaded = readAlwaysLoaded(cfg);
+	const alwaysLoaded = readAlwaysLoaded(cfg, env);
 
 	const retro = /** @type {{weeklyCount?: number}|undefined} */ (
 		readSubObject(cfg, "retro", {
@@ -1100,7 +1108,7 @@ function declaresLadder(opts = {}) {
 	}
 }
 
-/** @param {{root?: string, say?: (line: string) => void}} [opts] */
+/** @param {{root?: string, env?: NodeJS.ProcessEnv, say?: (line: string) => void}} [opts] */
 function readOutputStylePath({ say, ...opts } = {}) {
 	try {
 		const c = readConfig({ ...opts, quiet: true });

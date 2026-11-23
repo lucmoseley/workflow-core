@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { stubGhScript } from "./gh-stub";
+import { defineTemplate } from "./git-fixture";
 
 const { readFiringAlarms } = require("./queue-alarms.js");
 
@@ -33,18 +34,24 @@ const quietRuns = (rows: object[]) => {
 	fs.writeFileSync(runs, JSON.stringify({ "landing-quiet.yml": rows }));
 };
 
+const pushed = defineTemplate((dir) => {
+	const remote = path.join(dir, "remote.git");
+	const clone = path.join(dir, "work");
+	git(dir, ["init", "-q", "--bare", "-b", "main", remote]);
+	git(dir, ["clone", "-q", remote, clone]);
+	git(clone, ["config", "user.email", "t@t"]);
+	git(clone, ["config", "user.name", "t"]);
+	git(clone, ["commit", "-q", "--allow-empty", "-m", "seed"]);
+	git(clone, ["push", "-q", "origin", "HEAD:main"]);
+});
+
 beforeEach(() => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "queue-alarms-"));
-	const remote = path.join(tmp, "remote.git");
+	tmp = pushed.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "queue-alarms-")),
+	);
 	work = path.join(tmp, "work");
 	log = path.join(tmp, "calls.log");
 	runs = path.join(tmp, "runs.json");
-	git(tmp, ["init", "-q", "--bare", "-b", "main", remote]);
-	git(tmp, ["clone", "-q", remote, work]);
-	git(work, ["config", "user.email", "t@t"]);
-	git(work, ["config", "user.name", "t"]);
-	git(work, ["commit", "-q", "--allow-empty", "-m", "seed"]);
-	git(work, ["push", "-q", "origin", "HEAD:main"]);
 	main = git(work, ["rev-parse", "HEAD"]);
 	const { env } = stubGhScript(
 		tmp,

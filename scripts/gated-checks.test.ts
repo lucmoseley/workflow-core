@@ -1,9 +1,9 @@
 // @vitest-environment node
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const CONFIG = ".claude/workflow-core.json";
@@ -78,9 +78,11 @@ const ROWS: Row[] = [
 
 let host: string;
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 beforeEach(() => {
 	host = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "gated-")));
-	execFileSync("git", ["init", "-q", host]);
+	emptyRepo.instantiate(host);
 });
 afterEach(() => {
 	fs.rmSync(host, { recursive: true, force: true });

@@ -7,6 +7,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
 import { SELF_PLUGIN_DIR } from "./lib/core-hooks.js";
 import { seenFrom } from "./lib/core-path-testkit";
+import {
+	defineTemplate,
+	emptyRepoTemplate,
+	type TemplateHandle,
+} from "./lib/git-fixture";
 import { readManifestRows } from "./lib/guard-cores.js";
 import {
 	expectShellHooks,
@@ -33,11 +38,49 @@ let config: string;
 
 const ENTRY = path.join(__dirname, "guard-dispatch.js");
 
+const linkScripts = () =>
+	fs.symlinkSync(path.resolve(__dirname), path.join(dir, "scripts"));
+
 beforeEach(() => {
 	({ dir, config } = guardDirs("dispatch-entry-"));
 	dir = fs.realpathSync(dir);
-	fs.symlinkSync(path.resolve(__dirname), path.join(dir, "scripts"));
+	linkScripts();
 });
+
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+const mainRepo = defineTemplate((root) => {
+	gitIn(root)("init", "-q", "-b", "main", ".");
+});
+const trunkRepo = defineTemplate((root) => {
+	const git = gitIn(root);
+	git("init", "-q", "-b", "trunk", ".");
+	git(
+		"-c",
+		"user.name=t",
+		"-c",
+		"user.email=t@t",
+		"commit",
+		"-q",
+		"--allow-empty",
+		"-m",
+		"Set C005 to a score of 1",
+	);
+});
+const citedRepo = defineTemplate((root) => {
+	const git = gitIn(root);
+	git("init", "-q", ".");
+	git("config", "user.email", "t@t");
+	git("config", "user.name", "t");
+	fs.writeFileSync(path.join(root, "a.test.ts"), `// ${cite(900)}\n`);
+	git("add", "--", ".");
+	git("commit", "-qm", "seed");
+});
+
+const repoAtDir = (template: TemplateHandle) => {
+	template.instantiate(dir);
+	fs.mkdirSync(config, { recursive: true });
+	if (!fs.existsSync(path.join(dir, "scripts"))) linkScripts();
+};
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
@@ -336,15 +379,7 @@ describe("each input channel", () => {
 
 describe("the real adapters, crossed once", () => {
 	it("joins a test write's rules and a citation's notice, read through git and the file on disk", () => {
-		const repo = path.join(dir, "repo");
-		fs.mkdirSync(repo);
-		const git = gitIn(repo);
-		git("init", "-q", ".");
-		git("config", "user.email", "t@t");
-		git("config", "user.name", "t");
-		fs.writeFileSync(path.join(repo, "a.test.ts"), `// ${cite(900)}\n`);
-		git("add", "--", ".");
-		git("commit", "-qm", "seed");
+		const repo = citedRepo.instantiate(path.join(dir, "repo"));
 		fs.symlinkSync(path.resolve(__dirname), path.join(repo, "scripts"));
 		const link = path.join(dir, "link");
 		fs.symlinkSync(repo, link);
@@ -358,7 +393,7 @@ describe("the real adapters, crossed once", () => {
 					content: `// ${cite(900)}\n// ${cite(2015)}\n`,
 				},
 			},
-			{ WFC_CITATION_BASELINE: git("rev-parse", "HEAD").trim() },
+			{ WFC_CITATION_BASELINE: gitIn(repo)("rev-parse", "HEAD").trim() },
 			{ project: link },
 		);
 		expect(out.additionalContext).toBe(
@@ -471,8 +506,7 @@ describe("the scratch-path cores through the hook line (#2789)", () => {
 
 	describe("over real git", () => {
 		beforeEach(() => {
-			const git = gitIn(dir);
-			git("init", "-q", ".");
+			repoAtDir(emptyRepo);
 			fs.writeFileSync(path.join(dir, ".gitignore"), ".kept\nscripts\n");
 		});
 
@@ -553,10 +587,7 @@ describe("the skill, tracker and publish cores through the hook line (#2792)", (
 	});
 
 	it("refuses a force-push of main, and a plain one as the lander's alone", () => {
-		execFileSync("git", ["init", "-q", "-b", "main", "."], {
-			cwd: dir,
-			stdio: "ignore",
-		});
+		repoAtDir(mainRepo);
 		const out = emission(bash({ command: "git push --force origin main" }));
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toMatch(
@@ -614,7 +645,7 @@ describe("the session-behaviour cores through the hook line (#2790)", () => {
 	});
 
 	it("spends the day's sweep budget in the git common dir, refusing the fourth fire", () => {
-		execFileSync("git", ["init", "-q", "."], { cwd: dir, stdio: "ignore" });
+		repoAtDir(emptyRepo);
 		const env = { WFC_NOW: "2026-10-25T12:00:00Z" };
 		const fire = bash({ command: "gh workflow run scheduled-checks.yml" });
 		for (let i = 0; i < 3; i++) expect(emission(fire, env)).toBeNull();
@@ -683,21 +714,7 @@ describe("the Agent dispatch cores through the hook line (#2791)", () => {
 	});
 
 	describe("over real git", () => {
-		beforeEach(() => {
-			const git = gitIn(dir);
-			git("init", "-q", "-b", "trunk", ".");
-			git(
-				"-c",
-				"user.name=t",
-				"-c",
-				"user.email=t@t",
-				"commit",
-				"-q",
-				"--allow-empty",
-				"-m",
-				"Set C005 to a score of 1",
-			);
-		});
+		beforeEach(() => repoAtDir(trunkRepo));
 
 		it("refuses a blind dispatch with the snapshot of the payload's cwd, dropping the rewrite", () => {
 			const out = emission(
@@ -723,8 +740,8 @@ describe("the Agent dispatch cores through the hook line (#2791)", () => {
 
 describe("the dot-read and wide-read cores through the hook line (#2791)", () => {
 	it("leads a recursive grep at the payload's cwd with git's own expansion of the root, the heavy-tree rule beside it", () => {
+		repoAtDir(emptyRepo);
 		const git = gitIn(dir);
-		git("init", "-q", ".");
 		fs.mkdirSync(path.join(dir, "app"));
 		fs.writeFileSync(path.join(dir, "app", "a.ts"), "x\n");
 		fs.writeFileSync(path.join(dir, ".gitignore"), "scripts\nconfig/\n");
@@ -740,8 +757,8 @@ describe("the dot-read and wide-read cores through the hook line (#2791)", () =>
 	});
 
 	it("names the prompt only where the payload's permission_mode can show one (#1731)", () => {
+		repoAtDir(emptyRepo);
 		const git = gitIn(dir);
-		git("init", "-q", ".");
 		fs.writeFileSync(path.join(dir, "a.ts"), "x\n");
 		git("add", "a.ts");
 		const rg = (mode?: string) =>

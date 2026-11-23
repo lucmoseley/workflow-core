@@ -416,11 +416,13 @@ describe("record-divergence.js", () => {
 		expect(readRows()[0][7]).toBe("origin/trunk");
 	});
 
+	const soloRepo = defineTemplate((dir) => {
+		initRepo(dir);
+		git(dir, "commit", "--allow-empty", "--no-verify", "-m", "only");
+	});
+
 	it("records `unknown` rather than nothing where there is no ref to count against", () => {
-		const bare = path.join(scratch, "solo");
-		fs.mkdirSync(bare);
-		initRepo(bare);
-		git(bare, "commit", "--allow-empty", "--no-verify", "-m", "only");
+		const bare = soloRepo.instantiate(path.join(scratch, "solo"));
 		fire(bare, "git pull --ff-only", FF_REFUSAL);
 		expect(readRows()[0].slice(3, 6)).toEqual(["-", "-", "unknown"]);
 		expect(readRows()[0][7]).toBe("-");

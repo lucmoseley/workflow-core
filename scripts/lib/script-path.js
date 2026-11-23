@@ -111,11 +111,12 @@ function absoluteScriptPath(name, env = process.env) {
 /**
  * @param {string} text
  * @param {string} host
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {string}
  */
-function expandPastePaths(text, host) {
+function expandPastePaths(text, host, env = process.env) {
 	return text.replace(/\{(?:host-root|script:([\w./-]+))\}/g, (_, name) =>
-		name === undefined ? shellQuote(host) : absoluteScriptPath(name),
+		name === undefined ? shellQuote(host) : absoluteScriptPath(name, env),
 	);
 }
 
@@ -137,13 +138,14 @@ function readHostOwnedPaths() {
 
 /**
  * @param {string} text
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {string}
  */
-function resolveScriptPaths(text) {
-	if (isCoreRepo()) return text;
+function resolveScriptPaths(text, env = process.env) {
+	if (isCoreRepo(env)) return text;
 	return text.replace(CORE_PATH, (whole, dir, rest) => {
 		const name = trimEndRun(rest, ".");
-		const file = `${coreRoot()}/${dir}/${name}`;
+		const file = `${coreRoot(env)}/${dir}/${name}`;
 		if (
 			!name ||
 			readHostOwnedPaths().has(`${dir}/${name}`) ||

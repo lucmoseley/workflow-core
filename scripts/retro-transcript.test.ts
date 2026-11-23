@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { API_PROMPT, IDLE_PROMPT, scriptPrompt } from "./lib/loop-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
@@ -15,10 +16,12 @@ const SID = "11111111-2222-3333-4444-555555555555";
 
 let repo: string;
 let logs: string;
+const emptyRepo = defineTemplate(emptyRepoTemplate);
 
 beforeEach(() => {
-	repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "retro-tx-")));
-	execFileSync("git", ["init", "-q", repo]);
+	repo = emptyRepo.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "retro-tx-"))),
+	);
 	logs = path.join(repo, "logs");
 	fs.mkdirSync(logs);
 });

@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CANARY_COMMAND as CANARY } from "./lib/core-hooks.js";
+import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { emptyRegistry } from "./lib/registrations.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -75,12 +76,13 @@ function registeredAdopter(): void {
 	write(".husky/pre-commit", "node scripts/check-b.js\n");
 }
 
+const repoTemplate = defineTemplate(identityRepoTemplate);
+
 beforeEach(() => {
-	root = fs.mkdtempSync(path.join(os.tmpdir(), "registrations-"));
+	root = repoTemplate.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "registrations-")),
+	);
 	hooks = fs.mkdtempSync(path.join(os.tmpdir(), "registrations-hooks-"));
-	git("init", "-q", "-b", "main");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
 	git("config", "core.hooksPath", hooks);
 });
 afterEach(() => {

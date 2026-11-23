@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { coreFile } from "./lib/core-path-testkit";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -37,6 +38,24 @@ interface Sweep {
 	suite: string | null;
 }
 
+const historyOf = (commits: number) => (root: string) => {
+	const git = (args: string[]) =>
+		execFileSync("git", args, { cwd: root, encoding: "utf8" });
+	git(["init", "-q", "-b", "main", "."]);
+	git(["config", "user.email", "test@example.com"]);
+	git(["config", "user.name", "test"]);
+	for (let i = 0; i < commits; i++) {
+		fs.writeFileSync(path.join(root, `f${i}.txt`), `contents ${i}\n`);
+		git(["add", "--", `f${i}.txt`]);
+		git(["commit", "-qm", `commit ${i}`, "--", `f${i}.txt`]);
+	}
+};
+const history = defineTemplate({
+	"1": historyOf(1),
+	"2": historyOf(2),
+	"3": historyOf(3),
+});
+
 function fixture(opts: {
 	commits?: number;
 	openIssues?: unknown;
@@ -46,21 +65,15 @@ function fixture(opts: {
 	ciRuns?: Sweep[];
 	tracks?: string[];
 }): Fixture {
-	const root = fs.mkdtempSync(path.join(os.tmpdir(), "red-suite-"));
+	const root = history.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "red-suite-")),
+		String(opts.commits ?? 3),
+	);
 	temps.push(root);
 
 	const git = (args: string[]) =>
 		execFileSync("git", args, { cwd: root, encoding: "utf8" });
-	git(["init", "-q", "-b", "main", "."]);
-	git(["config", "user.email", "test@example.com"]);
-	git(["config", "user.name", "test"]);
-	const shas: string[] = [];
-	for (let i = 0; i < (opts.commits ?? 3); i++) {
-		fs.writeFileSync(path.join(root, `f${i}.txt`), `contents ${i}\n`);
-		git(["add", "--", `f${i}.txt`]);
-		git(["commit", "-qm", `commit ${i}`, "--", `f${i}.txt`]);
-		shas.push(git(["rev-parse", "HEAD"]).trim());
-	}
+	const shas = git(["rev-list", "--reverse", "HEAD"]).trim().split("\n");
 
 	fs.mkdirSync(path.join(root, ".claude"));
 	fs.writeFileSync(

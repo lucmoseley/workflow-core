@@ -7,6 +7,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { coreFile } from "./lib/core-path-testkit";
 import { stubGhScript } from "./lib/gh-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { MARKERS_REL } from "./lib/marker-root";
 import { plantDeadLock, plantLiveLock } from "./lib/pid-lock-testkit";
@@ -29,15 +30,18 @@ let repo: string;
 let markers: string;
 let exitLog: string;
 
-beforeEach(() => {
-	home = fs.mkdtempSync(path.join(os.tmpdir(), "queue-wait-"));
-	repo = path.join(home, "repo");
-	fs.mkdirSync(path.join(repo, ".claude-plugin"), { recursive: true });
-	execFileSync("git", ["init", "-q", repo]);
+const pluginRepo = defineTemplate((dir) => {
+	fs.mkdirSync(path.join(dir, ".claude-plugin"), { recursive: true });
+	execFileSync("git", ["init", "-q", dir]);
 	fs.writeFileSync(
-		path.join(repo, ".claude-plugin", "plugin.json"),
+		path.join(dir, ".claude-plugin", "plugin.json"),
 		JSON.stringify({ name: "workflow-core" }),
 	);
+});
+
+beforeEach(() => {
+	home = fs.mkdtempSync(path.join(os.tmpdir(), "queue-wait-"));
+	repo = pluginRepo.instantiate(path.join(home, "repo"));
 	declareTest("npm run test");
 	markers = path.join(repo, MARKERS_REL);
 	fs.mkdirSync(markers, { recursive: true });

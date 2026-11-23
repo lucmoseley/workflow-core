@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkScratchDir } from "./lib/git-fixture";
+import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { scrubbedGitEnv } from "./lib/hook-entry.js";
 import { installHuskyShim } from "./lib/husky-testkit";
@@ -36,10 +36,7 @@ interface Repo {
 	stub: (rel: string, name: string, exit?: number, stderr?: string) => void;
 }
 
-function repo(): Repo {
-	const root = fs.realpathSync(mkScratchDir("prepare-commit-msg-dispatch-"));
-	dirs.push(root);
-	const log = path.join(root, "ran.log");
+const envOf = (root: string): NodeJS.ProcessEnv => {
 	const env: NodeJS.ProcessEnv = {
 		...scrubbedGitEnv(process.env),
 		CLAUDE_CODE_SESSION_ID: SID,
@@ -47,8 +44,39 @@ function repo(): Repo {
 		GIT_EDITOR: "true",
 	};
 	delete env.WFC_PLUGIN_ROOT;
-	const git = (...a: string[]) =>
+	return env;
+};
+
+const gitIn =
+	(root: string, env: NodeJS.ProcessEnv) =>
+	(...a: string[]) =>
 		execFileSync("git", a, { cwd: root, env, encoding: "utf8" }).trim();
+
+const precommitExitsIn = (root: string) => (code: number) =>
+	fs.writeFileSync(
+		path.join(root, ".husky", "pre-commit"),
+		`echo pre-commit >> ${shellQuote(path.join(root, "ran.log"))}\n` +
+			(code === 0
+				? 'd="$(git rev-parse --absolute-git-dir)"\ngit write-tree >"$d/wfc-precommit-stamp"\nexit 0\n'
+				: `exit ${code}\n`),
+	);
+
+const stubIn =
+	(root: string) =>
+	(rel: string, name: string, exit = 0, stderr = "") =>
+		fs.writeFileSync(
+			path.join(root, rel),
+			programStub(path.join(root, "ran.log"), name, exit, stderr),
+		);
+
+const STUBS = [
+	path.join(".husky", "pre-commit"),
+	"scripts/review-hold-gate.js",
+	"scripts/review-tier-trailer.js",
+];
+
+const based = defineTemplate((root) => {
+	const git = gitIn(root, envOf(root));
 	git("init", "-q", "-b", "main", ".");
 	git("config", "user.email", "t@t");
 	git("config", "user.name", "t");
@@ -65,38 +93,35 @@ function repo(): Repo {
 	])
 		fs.symlinkSync(path.join(ROOT, rel), path.join(root, rel));
 	fs.writeFileSync(path.join(root, ".git", "info", "exclude"), "*.log\n");
-	const precommitExits = (code: number) =>
-		fs.writeFileSync(
-			path.join(root, ".husky", "pre-commit"),
-			`echo pre-commit >> ${shellQuote(log)}\n` +
-				(code === 0
-					? 'd="$(git rev-parse --absolute-git-dir)"\ngit write-tree >"$d/wfc-precommit-stamp"\nexit 0\n'
-					: `exit ${code}\n`),
-		);
-	const stub = (rel: string, name: string, exit = 0, stderr = "") =>
-		fs.writeFileSync(
-			path.join(root, rel),
-			programStub(log, name, exit, stderr),
-		);
-	precommitExits(0);
-	stub("scripts/review-hold-gate.js", "hold");
-	stub("scripts/review-tier-trailer.js", "trailer");
+	precommitExitsIn(root)(0);
+	stubIn(root)("scripts/review-hold-gate.js", "hold");
+	stubIn(root)("scripts/review-tier-trailer.js", "trailer");
 	fs.writeFileSync(path.join(root, "base.txt"), "base\n");
 	git("add", "--", "base.txt");
 	git("commit", "-qm", "base", "--no-verify");
-	fs.rmSync(log, { force: true });
+	fs.rmSync(path.join(root, "ran.log"), { force: true });
+});
+
+function repo(): Repo {
+	const root = based.instantiate(
+		fs.realpathSync(mkScratchDir("prepare-commit-msg-dispatch-")),
+		{ extraPaths: STUBS },
+	);
+	dirs.push(root);
+	const log = path.join(root, "ran.log");
+	const env = envOf(root);
 	return {
 		root,
 		gitDir: path.join(root, ".git"),
 		log,
 		env,
-		git,
+		git: gitIn(root, env),
 		ran: () =>
 			fs.existsSync(log)
 				? fs.readFileSync(log, "utf8").split("\n").filter(Boolean)
 				: [],
-		precommitExits,
-		stub,
+		precommitExits: precommitExitsIn(root),
+		stub: stubIn(root),
 	};
 }
 

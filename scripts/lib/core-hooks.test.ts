@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineTemplate } from "./git-fixture";
 
 const {
 	MatcherError,
@@ -44,6 +45,14 @@ function initRepo(root: string, ...initArgs: string[]) {
 	git(root, "config", "user.name", "test");
 }
 
+const configuredRepo = defineTemplate({
+	configured: (root) => initRepo(root),
+	committed: (root) => {
+		initRepo(root);
+		git(root, "commit", "-q", "--allow-empty", "--no-verify", "-m", "init");
+	},
+});
+
 let core: string;
 let host: string;
 beforeEach(() => {
@@ -66,7 +75,7 @@ describe("readRunningHooks at the core's own checkout", () => {
 	});
 
 	it("reads the settings at the same revision as the self-plugin's file", () => {
-		initRepo(core);
+		configuredRepo.instantiate(core, "configured");
 		write(core, SELF_PLUGIN_HOOKS, { hooks: stop("self.sh") });
 		write(core, ".claude/settings.json", { hooks: stop("committed.sh") });
 		git(core, "add", "-A");
@@ -78,7 +87,7 @@ describe("readRunningHooks at the core's own checkout", () => {
 	});
 
 	it("reads the file at a revision, and the index under an empty revision", () => {
-		initRepo(core);
+		configuredRepo.instantiate(core, "configured");
 		write(core, SELF_PLUGIN_HOOKS, { hooks: stop("first.sh") });
 		git(core, "add", "-A");
 		git(core, "commit", "-qm", "first");
@@ -105,7 +114,7 @@ describe("readRunningHooks at the core's own checkout", () => {
 		expect(() => readRunningHooks(core, { core })).toThrow(
 			`${SELF_PLUGIN_HOOKS} cannot be read at ${core}`,
 		);
-		initRepo(core);
+		configuredRepo.instantiate(core, "configured");
 		write(core, "a", "a");
 		git(core, "add", "-A");
 		git(core, "commit", "-qm", "a");
@@ -159,7 +168,7 @@ describe("readRunningHooks at an adopter host", () => {
 	});
 
 	it("refuses a revision, which no caller reads an adopter at", () => {
-		initRepo(host);
+		configuredRepo.instantiate(host, "configured");
 		write(host, ".claude/settings.json", { hooks: stop("host.sh") });
 		git(host, "add", "-A");
 		git(host, "commit", "-qm", "first");
@@ -178,7 +187,7 @@ describe("readRunningHooks at an adopter host", () => {
 
 describe("ownHooks, the hooks a repo registers itself (#2442)", () => {
 	it("reads the self-plugin's file then the settings' canary at the core, at a revision too (#2572)", () => {
-		initRepo(core);
+		configuredRepo.instantiate(core, "configured");
 		write(core, SELF_PLUGIN_HOOKS, { hooks: stop("committed.sh") });
 		write(core, ".claude/settings.json", { hooks: stop("canary.sh") });
 		git(core, "add", "-A");
@@ -202,7 +211,7 @@ describe("ownHooks, the hooks a repo registers itself (#2442)", () => {
 	});
 
 	it("reads an adopter's settings at a revision", () => {
-		initRepo(host);
+		configuredRepo.instantiate(host, "configured");
 		write(host, ".claude/settings.json", { hooks: stop("committed.sh") });
 		git(host, "add", "-A");
 		git(host, "commit", "-qm", "first");
@@ -214,7 +223,7 @@ describe("ownHooks, the hooks a repo registers itself (#2442)", () => {
 
 	it("answers null for an adopter's absent settings, and none for one with no hooks key", () => {
 		expect(readOwnHooks(host, { core })).toBeNull();
-		initRepo(host);
+		configuredRepo.instantiate(host, "configured");
 		write(host, "a", "a");
 		git(host, "add", "-A");
 		git(host, "commit", "-qm", "a");
@@ -271,7 +280,7 @@ describe("a materialised core revision (#2445)", () => {
 		};
 		expect(ownHooksFile(host, { core })).toBe(SELF_PLUGIN_HOOKS);
 		expect(readOwnHooks(host, { core })).toEqual(both);
-		initRepo(host);
+		configuredRepo.instantiate(host, "configured");
 		git(host, "add", "-A");
 		git(host, "commit", "-qm", "first");
 		write(host, SELF_PLUGIN_HOOKS, { hooks: stop("on-disk.sh") });
@@ -280,7 +289,7 @@ describe("a materialised core revision (#2445)", () => {
 	});
 
 	it("is an adopter at a revision that does not carry the file, though the disk does", () => {
-		initRepo(host);
+		configuredRepo.instantiate(host, "configured");
 		write(host, ".claude/settings.json", { hooks: stop("settings.sh") });
 		git(host, "add", "-A");
 		git(host, "commit", "-qm", "first");
@@ -301,7 +310,7 @@ describe("a materialised core revision (#2445)", () => {
 	});
 
 	it("throws on a revision git cannot show, never reading it as an adopter", () => {
-		initRepo(host);
+		configuredRepo.instantiate(host, "configured");
 		write(host, ".claude/settings.json", { hooks: stop("settings.sh") });
 		git(host, "add", "-A");
 		git(host, "commit", "-qm", "first");
@@ -375,11 +384,10 @@ describe("selfPluginSetup (#2461)", () => {
 	const Placeholder = "<absolute path to the main checkout>";
 
 	function checkout(name: string) {
-		const at = path.join(fs.realpathSync(host), name);
-		fs.mkdirSync(at);
-		initRepo(at);
-		git(at, "commit", "-q", "--allow-empty", "--no-verify", "-m", "init");
-		return at;
+		return configuredRepo.instantiate(
+			path.join(fs.realpathSync(host), name),
+			"committed",
+		);
 	}
 
 	function worktreeOf(main: string) {

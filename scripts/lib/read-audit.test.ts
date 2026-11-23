@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
 import { watched } from "./pass-store-testkit";
 
@@ -55,9 +56,9 @@ function write(dir: string, file: string, text: string) {
 	fs.writeFileSync(path.join(dir, file), text);
 }
 
-function checkout() {
-	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rda-")));
-	dirs.push(dir);
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
+const seededCheckout = defineTemplate((dir) => {
 	git(dir, "init", "-q", "-b", "main");
 	write(dir, ".claude/settings.json", '{"hooks":{}}\n');
 	write(dir, ".claude/skills/one/SKILL.md", "one\n");
@@ -74,6 +75,13 @@ function checkout() {
 			"",
 		].join("\n"),
 	);
+});
+
+function checkout() {
+	const dir = seededCheckout.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rda-"))),
+	);
+	dirs.push(dir);
 	return dir;
 }
 
@@ -332,7 +340,7 @@ describe("what a test file reads, as the audit sees it", () => {
 			fs.mkdtempSync(path.join(os.tmpdir(), "rda-own-")),
 		);
 		dirs.push(fixture);
-		git(fixture, "init", "-q");
+		emptyRepo.instantiate(fixture);
 		const own = audited(root, T, call(fixture, ["status"]), { env });
 		expect(readAudits(own, root).get(T).reads.git).toEqual([]);
 		const listed = audited(
@@ -416,7 +424,7 @@ describe("what a test file reads, as the audit sees it", () => {
 			fs.mkdtempSync(path.join(os.tmpdir(), "rda-own-")),
 		);
 		dirs.push(fixture);
-		git(fixture, "init", "-q");
+		emptyRepo.instantiate(fixture);
 		const own = audited(
 			root,
 			T,
@@ -1271,7 +1279,7 @@ describe("a guarded git the guard keeps no record of (#5015)", () => {
 			fs.mkdtempSync(path.join(os.tmpdir(), "rda-repo-")),
 		);
 		dirs.push(dir);
-		git(dir, "init", "-q");
+		emptyRepo.instantiate(dir);
 		return dir;
 	};
 	const runsGit = (
@@ -1448,7 +1456,7 @@ describe("the routes still open after #4982 (#4997)", () => {
 	describe("what real git runs", () => {
 		const fixture = (hook?: string) => {
 			const dir = outsideDir();
-			git(dir, "init", "-q");
+			emptyRepo.instantiate(dir);
 			if (hook !== undefined) {
 				write(dir, "hooks/pre-commit", hook);
 				fs.chmodSync(path.join(dir, "hooks/pre-commit"), 0o755);
@@ -1617,7 +1625,7 @@ describe("the routes still open after #4982 (#4997)", () => {
 		it("keeps a git moved by -C out of the checkout from a directory under it", () => {
 			const root = checkout();
 			const away = outsideDir();
-			git(away, "init", "-q");
+			emptyRepo.instantiate(away);
 			const body = [
 				minting(root),
 				stripped(["-C", away, "status"], "scratch"),
@@ -1639,7 +1647,7 @@ describe("the routes still open after #4982 (#4997)", () => {
 				),
 			).toHaveProperty("reads");
 			const source = outsideDir();
-			git(source, "init", "-q");
+			emptyRepo.instantiate(source);
 			expect(
 				untraced(root, inScratch(["clone", "-q", source, "made"])),
 			).toHaveProperty("reads");

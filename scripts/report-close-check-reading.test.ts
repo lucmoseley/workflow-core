@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { minute } from "./lib/log-reading";
 import { MARKERS_REL } from "./lib/marker-root";
@@ -51,8 +52,31 @@ let seats: string[];
 let systmp: string;
 let roots: Record<Repo, string>;
 
+const REPOS: Repo[] = [
+	"workflow-core",
+	"mantahostels",
+	"fantasy-books",
+	"design-vault",
+];
+const reposTemplate = defineTemplate((root) => {
+	for (const name of REPOS) {
+		const r = path.join(root, name);
+		fs.mkdirSync(path.join(r, ".claude"), { recursive: true });
+		execFileSync("git", ["init", "-q", r]);
+		fs.writeFileSync(
+			path.join(r, ".claude", "workflow-core.json"),
+			JSON.stringify({
+				contract: 1,
+				...(name === "fantasy-books" ? { refillLoop: false } : {}),
+			}),
+		);
+	}
+});
+
 beforeEach(() => {
-	home = fs.mkdtempSync(path.join(os.tmpdir(), "close-reading-"));
+	home = reposTemplate.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "close-reading-")),
+	);
 	seats = seatDirs(home);
 	for (const s of seats)
 		fs.mkdirSync(path.join(s, "projects"), { recursive: true });
@@ -64,17 +88,6 @@ beforeEach(() => {
 		"fantasy-books": path.join(home, "fantasy-books"),
 		"design-vault": path.join(home, "design-vault"),
 	};
-	for (const [name, r] of Object.entries(roots)) {
-		fs.mkdirSync(path.join(r, ".claude"), { recursive: true });
-		execFileSync("git", ["init", "-q", r]);
-		fs.writeFileSync(
-			path.join(r, ".claude", "workflow-core.json"),
-			JSON.stringify({
-				contract: 1,
-				...(name === "fantasy-books" ? { refillLoop: false } : {}),
-			}),
-		);
-	}
 	fs.mkdirSync(path.join(roots["workflow-core"], DATA), { recursive: true });
 	fs.copyFileSync(
 		BASELINE,

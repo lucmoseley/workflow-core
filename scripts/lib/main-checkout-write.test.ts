@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 
 let at: { main: string; worktree: string };
@@ -290,6 +291,8 @@ describe("an interpreter on no script file, run from the main checkout, is refus
 });
 
 describe("before the cutover, it refuses a worktree session alone (#4697)", () => {
+	const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 	const beforeCutover = () =>
 		git(at.main, "config", "branch.main.merge", "refs/heads/landing");
 
@@ -353,9 +356,9 @@ describe("before the cutover, it refuses a worktree session alone (#4697)", () =
 
 	it("allows a session whose cwd is another repository", () => {
 		beforeCutover();
-		const other = path.join(path.dirname(at.main), "other");
-		fs.mkdirSync(other);
-		git(other, "init", "-q");
+		const other = emptyRepo.instantiate(
+			path.join(path.dirname(at.main), "other"),
+		);
 		expect(
 			refusal("Bash", { command: `echo x > ${at.main}/a.md` }, { cwd: other }),
 		).toBeNull();

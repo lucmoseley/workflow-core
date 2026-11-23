@@ -1,10 +1,10 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "generate-core-docs.js");
@@ -53,6 +53,8 @@ Now.
 
 let root: string;
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 const write = (rel: string, body: string) => {
 	fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
 	fs.writeFileSync(path.join(root, rel), body);
@@ -69,7 +71,7 @@ const run = (...args: string[]) => {
 
 beforeEach(() => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "core-docs-"));
-	execFileSync("git", ["init", "-q"], { cwd: root });
+	emptyRepo.instantiate(root);
 	write(".claude-plugin/plugin.json", "{}\n");
 	write("GLOSSARY.md", "# terms\n");
 	write("docs/doc-map.md", DOC_MAP);

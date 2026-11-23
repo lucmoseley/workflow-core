@@ -13,6 +13,7 @@ import {
 	readStoredSecrets,
 	secretsFile,
 } from "./lib/env-file.js";
+import { defineTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { noop } from "./lib/noop.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
@@ -38,6 +39,18 @@ const gitIn =
 	(...args: string[]) =>
 		execFileSync("git", args, { cwd, env: isolatedEnv() });
 
+const isolatedInit =
+	(...args: string[]) =>
+	(dir: string) =>
+		execFileSync("git", ["init", "-q", ...args], {
+			cwd: dir,
+			env: isolatedEnv({ HOME: dir, XDG_CONFIG_HOME: dir }),
+		});
+const repoTemplate = defineTemplate({
+	work: isolatedInit(),
+	bare: isolatedInit("--bare"),
+});
+
 beforeEach(() => {
 	host = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "write-secret-")),
@@ -45,7 +58,7 @@ beforeEach(() => {
 	config = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "write-secret-config-")),
 	);
-	gitIn(host)("init", "-q");
+	repoTemplate.instantiate(host, "work");
 });
 afterEach(() => {
 	vi.unstubAllEnvs();
@@ -643,7 +656,7 @@ describe("write-secret", () => {
 	it("refuses with exit 1 where the config directory is a symlink into a git working tree", () => {
 		const dots = path.join(config, "dots");
 		fs.mkdirSync(path.join(dots, "config"), { recursive: true });
-		gitIn(dots)("init", "-q");
+		repoTemplate.instantiate(dots, "work");
 		const link = path.join(config, "linked");
 		fs.symlinkSync(path.join(dots, "config"), link);
 		const r = run(["K"], SECRET, { XDG_CONFIG_HOME: link });
@@ -1308,8 +1321,7 @@ describe("write-secret", () => {
 	});
 
 	it("replaces a symlinked .gitignore, which git does not follow, keeping the file out of a bare dotfiles repository's `add -A` (#3663)", () => {
-		const dots = path.join(host, "dots.git");
-		execFileSync("git", ["init", "-q", "--bare", dots], { env: isolatedEnv() });
+		const dots = repoTemplate.instantiate(path.join(host, "dots.git"), "bare");
 		const target = path.join(config, "ignore-target");
 		fs.writeFileSync(target, "*\n");
 		const ignore = path.join(makeStoreDir(), ".gitignore");
@@ -1326,8 +1338,7 @@ describe("write-secret", () => {
 	});
 
 	it("keeps the file out of a bare dotfiles repository's `add -A` (#3539)", () => {
-		const dots = path.join(host, "dots.git");
-		execFileSync("git", ["init", "-q", "--bare", dots], { env: isolatedEnv() });
+		const dots = repoTemplate.instantiate(path.join(host, "dots.git"), "bare");
 		const cfg = (...args: string[]) =>
 			execFileSync(
 				"git",

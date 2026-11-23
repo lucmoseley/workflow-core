@@ -1,13 +1,17 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox, live, readLockAt, store } from "./arbiter-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { runCore, splitCheckout } from "./guard-core-testkit";
 
 const sb = freshSandbox();
+const sandboxRepo = defineTemplate((dir) => {
+	emptyRepoTemplate(dir);
+	fs.mkdirSync(path.join(dir, "docs"));
+});
 const REL = "scripts/evidence-audit.py";
 
 const run = (sessionId?: string, env: Record<string, string> = {}) =>
@@ -25,7 +29,7 @@ const run = (sessionId?: string, env: Record<string, string> = {}) =>
 
 describe("refresh-claims — re-record what this session holds, after a Bash call", () => {
 	beforeEach(() => {
-		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
+		sandboxRepo.instantiate(sb.repo);
 		fs.mkdirSync(path.join(sb.repo, "scripts"), { recursive: true });
 	});
 

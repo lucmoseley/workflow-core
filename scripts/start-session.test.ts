@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { writeLaunchAnswer } from "./lib/bg-launch-fake";
 import { buildBgBranch, writeClaudeStub } from "./lib/claude-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { writeReg } from "./lib/reg-fake.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -69,33 +70,38 @@ const readCalls = () =>
 const worktree = (name: string) =>
 	path.join(main, ".claude", "worktrees", name);
 
+const template = defineTemplate((dir) => {
+	const bare = path.join(dir, "origin.git");
+	const clone = path.join(dir, "main");
+	git(dir, "init", "-q", "--bare", "-b", "main", bare);
+	git(dir, "clone", "-q", bare, clone);
+	git(clone, "config", "user.email", "t@t");
+	git(clone, "config", "user.name", "t");
+	for (const [name, text] of Object.entries({
+		".gitignore": "/node_modules\n.claude/worktrees/\n",
+		"package.json": "{}\n",
+		"package-lock.json": "lock\n",
+	}))
+		fs.writeFileSync(path.join(clone, name), text);
+	git(clone, "add", "-A");
+	git(clone, "commit", "-qm", "seed");
+	git(clone, "push", "-q", "origin", "HEAD:main");
+	fs.writeFileSync(path.join(clone, "landed.txt"), "x");
+	git(clone, "add", "-A");
+	git(clone, "commit", "-qm", "landed");
+	git(clone, "push", "-q", "origin", "HEAD:main");
+	git(clone, "reset", "-q", "--hard", "HEAD~1");
+});
+
 beforeEach(() => {
 	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "start-")));
-	const origin = path.join(tmp, "origin.git");
+	template.instantiate(tmp);
 	main = path.join(tmp, "main");
 	calls = path.join(tmp, "calls");
 	stubs = {
 		npm: stub("npm", "mkdir node_modules"),
 		claude: claudeStub(),
 	};
-	git(tmp, "init", "-q", "--bare", "-b", "main", origin);
-	git(tmp, "clone", "-q", origin, main);
-	git(main, "config", "user.email", "t@t");
-	git(main, "config", "user.name", "t");
-	for (const [name, text] of Object.entries({
-		".gitignore": "/node_modules\n.claude/worktrees/\n",
-		"package.json": "{}\n",
-		"package-lock.json": "lock\n",
-	}))
-		fs.writeFileSync(path.join(main, name), text);
-	git(main, "add", "-A");
-	git(main, "commit", "-qm", "seed");
-	git(main, "push", "-q", "origin", "HEAD:main");
-	fs.writeFileSync(path.join(main, "landed.txt"), "x");
-	git(main, "add", "-A");
-	git(main, "commit", "-qm", "landed");
-	git(main, "push", "-q", "origin", "HEAD:main");
-	git(main, "reset", "-q", "--hard", "HEAD~1");
 });
 
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));

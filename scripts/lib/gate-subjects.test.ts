@@ -4,7 +4,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readIndexSubjects, readSubjectModules } from "./gate-subjects.js";
-import { mkScratchDir } from "./git-fixture";
+import { defineTemplate, mkScratchDir } from "./git-fixture";
+
+const mainRepo = defineTemplate((at) => {
+	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: at });
+});
 
 let dir: string;
 
@@ -22,8 +26,7 @@ const track = (files: Record<string, string> | string[]) => {
 const readSubjects = () => readIndexSubjects(dir).map((s) => s.subject);
 
 beforeEach(() => {
-	dir = mkScratchDir("gate-subjects-");
-	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: dir });
+	dir = mainRepo.instantiate(mkScratchDir("gate-subjects-"));
 });
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });

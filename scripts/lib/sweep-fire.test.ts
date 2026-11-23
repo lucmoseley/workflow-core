@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { type CoreRun, runCore, splitCheckout } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
@@ -57,11 +58,13 @@ const autofire = (at = NOON) => {
 	);
 };
 
+const mainRepo = defineTemplate((d) => {
+	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: d });
+});
+
 beforeEach(() => {
 	dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "sweep-fire-")));
-	shared = path.join(dir, "shared");
-	fs.mkdirSync(shared, { recursive: true });
-	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: shared });
+	shared = mainRepo.instantiate(path.join(dir, "shared"));
 });
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));

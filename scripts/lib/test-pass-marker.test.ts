@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { stubLaunch } from "./suite-handoff-testkit";
 import {
 	attestationOf,
@@ -786,24 +787,28 @@ describe("markerFrom", () => {
 });
 
 describe("the suites a range is asked about", () => {
+	const gitAt = (cwd: string, ...args: string[]) =>
+		execFileSync("git", args, {
+			cwd,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		}).trim();
+	const rooted = defineTemplate((dir) => {
+		gitAt(dir, "init", "-q", "-b", "main");
+		gitAt(dir, "config", "user.email", "t@example.com");
+		gitAt(dir, "config", "user.name", "T");
+		fs.writeFileSync(path.join(dir, "seed.txt"), "seed\n");
+		gitAt(dir, "add", "-A");
+		gitAt(dir, "commit", "-q", "-m", "root");
+		gitAt(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+	});
+
 	function suitesAskedOf(paths: string[]): string[] {
-		const dir = fs.realpathSync(
-			fs.mkdtempSync(path.join(os.tmpdir(), "suites-")),
+		const dir = rooted.instantiate(
+			fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "suites-"))),
 		);
 		dirs.push(dir);
-		const git = (...args: string[]) =>
-			execFileSync("git", args, {
-				cwd: dir,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-			}).trim();
-		git("init", "-q", "-b", "main");
-		git("config", "user.email", "t@example.com");
-		git("config", "user.name", "T");
-		fs.writeFileSync(path.join(dir, "seed.txt"), "seed\n");
-		git("add", "-A");
-		git("commit", "-q", "-m", "root");
-		git("update-ref", "refs/remotes/origin/main", "HEAD");
+		const git = (...args: string[]) => gitAt(dir, ...args);
 		for (const p of paths) {
 			fs.mkdirSync(path.dirname(path.join(dir, p)), { recursive: true });
 			fs.writeFileSync(path.join(dir, p), `${p}\n`);
@@ -1375,11 +1380,7 @@ describe("attesting a sha by tree (#189)", () => {
 				stdio: ["ignore", "pipe", "ignore"],
 			}).trim();
 
-		function repo() {
-			const dir = fs.realpathSync(
-				fs.mkdtempSync(path.join(os.tmpdir(), "attest-")),
-			);
-			dirs.push(dir);
+		const rooted = defineTemplate((dir) => {
 			git(dir, "init", "-q", "-b", "main");
 			git(dir, "config", "user.email", "t@example.com");
 			git(dir, "config", "user.name", "T");
@@ -1388,6 +1389,13 @@ describe("attesting a sha by tree (#189)", () => {
 			git(dir, "add", "-A");
 			git(dir, "commit", "-q", "-m", "root");
 			git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+		});
+
+		function repo() {
+			const dir = rooted.instantiate(
+				fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "attest-"))),
+			);
+			dirs.push(dir);
 			return dir;
 		}
 
@@ -1601,11 +1609,7 @@ describe("certificates composed across sessions (#811, #789)", () => {
 			stdio: ["ignore", "pipe", "ignore"],
 		}).trim();
 
-	function repo() {
-		const dir = fs.realpathSync(
-			fs.mkdtempSync(path.join(os.tmpdir(), "compose-")),
-		);
-		dirs.push(dir);
+	const rooted = defineTemplate((dir) => {
 		git(dir, "init", "-q", "-b", "main");
 		git(dir, "config", "user.email", "t@example.com");
 		git(dir, "config", "user.name", "T");
@@ -1621,6 +1625,13 @@ describe("certificates composed across sessions (#811, #789)", () => {
 		git(dir, "add", "-A");
 		git(dir, "commit", "-q", "-m", "root");
 		git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+	});
+
+	function repo() {
+		const dir = rooted.instantiate(
+			fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "compose-"))),
+		);
+		dirs.push(dir);
 		return { dir, root: git(dir, "rev-parse", "HEAD") };
 	}
 
@@ -1938,11 +1949,7 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 		"unread.md": [],
 	};
 
-	function repo() {
-		const dir = fs.realpathSync(
-			fs.mkdtempSync(path.join(os.tmpdir(), "per-test-")),
-		);
-		dirs.push(dir);
+	const rooted = defineTemplate((dir) => {
 		git(dir, "init", "-q", "-b", "main");
 		git(dir, "config", "user.email", "t@example.com");
 		git(dir, "config", "user.name", "T");
@@ -1961,6 +1968,13 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 		git(dir, "add", "-A");
 		git(dir, "commit", "-q", "-m", "root");
 		git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+	});
+
+	function repo() {
+		const dir = rooted.instantiate(
+			fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "per-test-"))),
+		);
+		dirs.push(dir);
 		return { dir, root: git(dir, "rev-parse", "HEAD") };
 	}
 

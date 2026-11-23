@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { assert, describe, expect, it, vi } from "vitest";
@@ -8,7 +8,7 @@ import { freshSandbox, live, store, storeAt } from "./arbiter-testkit";
 import { plan } from "./bash-write-plan.js";
 import { decide } from "./claimed-bash-write.js";
 import { buildHostPorts } from "./claimed-bash-write-host.js";
-import { cutWorktree } from "./git-fixture";
+import { cutWorktree, defineTemplate } from "./git-fixture";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { hostAdapters } from "./guard-host-ports.js";
 import { registrationsOf } from "./hook-wiring";
@@ -18,14 +18,75 @@ import { readRuleText } from "./rule-text.js";
 
 const NAME = "guard-claimed-bash-write";
 
-const sb = freshSandbox((fresh) => {
-	fs.mkdirSync(path.join(fresh.repo, "scripts", "lib"), { recursive: true });
-	fs.mkdirSync(path.join(fresh.repo, "docs", "agents"), { recursive: true });
-	fs.mkdirSync(path.join(fresh.repo, ".claude"), { recursive: true });
+const layHost = (repo: string) => {
+	fs.mkdirSync(path.join(repo, "scripts", "lib"), { recursive: true });
+	fs.mkdirSync(path.join(repo, "docs", "agents"), { recursive: true });
+	fs.mkdirSync(path.join(repo, ".claude"), { recursive: true });
 	fs.writeFileSync(
-		path.join(fresh.repo, "package.json"),
+		path.join(repo, "package.json"),
 		'{"scripts":{"test":"node scripts/run-vitest.js"}}',
 	);
+};
+
+const sb = freshSandbox(({ repo }) => layHost(repo));
+
+const DELETION_TRACKED = [
+	"scripts/gone.js",
+	"docs/gone.md",
+	"docs/old.md",
+	"scripts/lib/a.test.ts",
+	"scripts/old/x.js",
+	"scripts/old/y.js",
+];
+
+const hostGit =
+	(repo: string) =>
+	(...args: string[]) =>
+		execFileSync(
+			"git",
+			["-C", repo, "-c", "user.email=t@t", "-c", "user.name=t", ...args],
+			{ encoding: "utf8" },
+		);
+
+const hostRepo = defineTemplate({
+	plain: (repo) => {
+		layHost(repo);
+		hostGit(repo)("init", "-q");
+	},
+	deletions: (repo) => {
+		layHost(repo);
+		for (const f of DELETION_TRACKED) {
+			fs.mkdirSync(path.dirname(path.join(repo, f)), { recursive: true });
+			fs.writeFileSync(path.join(repo, f), "");
+		}
+		const git = hostGit(repo);
+		git("init", "-q");
+		git("add", "--", ...DELETION_TRACKED);
+	},
+	restorable: (repo) => {
+		layHost(repo);
+		const git = hostGit(repo);
+		git("init", "-q");
+		fs.writeFileSync(path.join(repo, "f.txt"), "a\n");
+		fs.writeFileSync(path.join(repo, "docs", "x.md"), "a\n");
+		git("add", "f.txt", "docs/x.md");
+		git("commit", "-qm", "base");
+	},
+	scriptTracked: (repo) => {
+		layHost(repo);
+		const git = hostGit(repo);
+		fs.writeFileSync(path.join(repo, "scripts", "a.js"), "");
+		git("init", "-q");
+		git("add", "--", "scripts/a.js");
+	},
+	fileBase: (repo) => {
+		layHost(repo);
+		const git = hostGit(repo);
+		git("init", "-q");
+		fs.writeFileSync(path.join(repo, "f.txt"), "a\n");
+		git("add", "f.txt");
+		git("commit", "-qm", "base");
+	},
 });
 
 let logs: string[] = [];
@@ -699,22 +760,7 @@ describe("the selection paths it notes (#1220)", () => {
 	});
 
 	it("notes the tracked files an rm, git rm or git mv names, and warns on and credits none (#1791)", () => {
-		const tracked = [
-			"scripts/gone.js",
-			"docs/gone.md",
-			"docs/old.md",
-			"scripts/lib/a.test.ts",
-			"scripts/old/x.js",
-			"scripts/old/y.js",
-		];
-		for (const f of tracked) {
-			fs.mkdirSync(path.dirname(path.join(sb.repo, f)), { recursive: true });
-			fs.writeFileSync(path.join(sb.repo, f), "");
-		}
-		const git = (...args: string[]) =>
-			spawnSync("git", ["-C", sb.repo, ...args], { encoding: "utf8" });
-		git("init", "-q");
-		git("add", "--", ...tracked);
+		hostRepo.instantiate(sb.repo, "deletions");
 		for (const [command, paths] of [
 			[
 				"rm -f scripts/gone.js docs/gone.md .claude/scratch.md",
@@ -739,13 +785,13 @@ describe("the selection paths it notes (#1220)", () => {
 	});
 
 	it("logs nothing where git lists the deletion's files (#1950)", () => {
-		spawnSync("git", ["-C", sb.repo, "init", "-q"]);
+		hostRepo.instantiate(sb.repo, "plain");
 		judgeSplit("rm -f docs/gone.md");
 		expect(logs).toEqual([]);
 	});
 
 	it("never reaches the judge for an rm of untracked scratch (#1791)", () => {
-		spawnSync("git", ["-C", sb.repo, "init", "-q"]);
+		hostRepo.instantiate(sb.repo, "plain");
 		expect(judgeSplit("rm -f .claude/scratch.md scripts/tmp.js")).toBe(null);
 	});
 
@@ -790,16 +836,7 @@ describe("the whole-file restore rule it hands over (#2028)", () => {
 	const rule = readRuleText("whole-file-restore");
 
 	function gitHost(dirty: boolean) {
-		const git = (...args: string[]) =>
-			spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
-				cwd: sb.repo,
-				encoding: "utf8",
-			});
-		git("init", "-q");
-		fs.writeFileSync(path.join(sb.repo, "f.txt"), "a\n");
-		fs.writeFileSync(path.join(sb.repo, "docs", "x.md"), "a\n");
-		git("add", "f.txt", "docs/x.md");
-		git("commit", "-qm", "base");
+		hostRepo.instantiate(sb.repo, "restorable");
 		if (dirty) {
 			fs.appendFileSync(path.join(sb.repo, "f.txt"), "b\n");
 			fs.appendFileSync(path.join(sb.repo, "docs", "x.md"), "b\n");
@@ -885,11 +922,7 @@ describe("cases a mutant must not survive", () => {
 	});
 
 	it("notes no tracked file for a command that deletes nothing", () => {
-		const git = (...args: string[]) =>
-			spawnSync("git", ["-C", sb.repo, ...args], { encoding: "utf8" });
-		fs.writeFileSync(path.join(sb.repo, "scripts", "a.js"), "");
-		git("init", "-q");
-		git("add", "--", "scripts/a.js");
+		hostRepo.instantiate(sb.repo, "scriptTracked");
 		expect(selectsOf(`node -e "w('docs/x.md')"`)).toEqual(["docs/x.md"]);
 	});
 
@@ -905,16 +938,7 @@ describe("cases a mutant must not survive", () => {
 
 	describe("the whole-file restore", () => {
 		function dirtyHost() {
-			const git = (...args: string[]) =>
-				spawnSync(
-					"git",
-					["-c", "user.email=t@t", "-c", "user.name=t", ...args],
-					{ cwd: sb.repo, encoding: "utf8" },
-				);
-			git("init", "-q");
-			fs.writeFileSync(path.join(sb.repo, "f.txt"), "a\n");
-			git("add", "f.txt");
-			git("commit", "-qm", "base");
+			hostRepo.instantiate(sb.repo, "fileBase");
 			fs.appendFileSync(path.join(sb.repo, "f.txt"), "b\n");
 		}
 

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const GUARD = path.resolve(__dirname, "guard-dispatch.js");
@@ -13,18 +14,24 @@ const BACKSTOP = path.resolve(__dirname, "concision-backstop.sh");
 const ME = "session-under-test";
 const OTHER = "parallel-session";
 
-const git = (...args: string[]) =>
-	execFileSync("git", args, { cwd: sb.repo, encoding: "utf8" });
+const gitIn = (cwd: string, ...args: string[]) =>
+	execFileSync("git", args, { cwd, encoding: "utf8" });
+const git = (...args: string[]) => gitIn(sb.repo, ...args);
+
+const repo = defineTemplate((dir) => {
+	gitIn(dir, "init", "-q", "-b", "main", ".");
+	gitIn(dir, "config", "user.email", "test@example.com");
+	gitIn(dir, "config", "user.name", "test");
+	gitIn(dir, "config", "branch.main.merge", "refs/heads/landing");
+	fs.writeFileSync(path.join(dir, "seed.md"), "seed\n");
+	gitIn(dir, "add", "seed.md");
+	gitIn(dir, "commit", "-qm", "init");
+});
 
 const sb = freshSandbox((fresh) => {
-	git("init", "-q", "-b", "main", ".");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
+	repo.instantiate(fresh.repo);
+	fs.mkdirSync(path.join(fresh.repo, "docs"), { recursive: true });
 	git("config", "core.hooksPath", path.join(fresh.dir, "no-hooks"));
-	git("config", "branch.main.merge", "refs/heads/landing");
-	fs.writeFileSync(path.join(fresh.repo, "seed.md"), "seed\n");
-	git("add", "seed.md");
-	git("commit", "-qm", "init");
 	fs.mkdirSync(path.join(fresh.repo, "scripts"), { recursive: true });
 });
 

@@ -30,6 +30,7 @@ import {
 	serveGhStub,
 	stubGhScript,
 } from "./lib/gh-stub";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcessAsync } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "link-sub-issue.sh");
@@ -152,16 +153,23 @@ const run = (
 		env: linkEnv(g, linkRepo),
 	});
 
+const repos = defineTemplate({
+	bare: emptyRepoTemplate,
+	origin: (at) => {
+		emptyRepoTemplate(at);
+		spawnSync("git", [
+			"-C",
+			at,
+			"remote",
+			"add",
+			"origin",
+			"https://github.com/owner/code.git",
+		]);
+	},
+});
+
 const hostRepo = (tracker?: string) => {
-	spawnSync("git", ["init", "-q", dir]);
-	spawnSync("git", [
-		"-C",
-		dir,
-		"remote",
-		"add",
-		"origin",
-		"https://github.com/owner/code.git",
-	]);
+	repos.instantiate(dir, "origin");
 	if (tracker === undefined) return;
 	fs.mkdirSync(path.join(dir, ".claude"));
 	fs.writeFileSync(
@@ -224,7 +232,7 @@ describe("the repo it links in (#3556)", () => {
 	});
 
 	it("refuses, POSTing nothing, where neither a tracker nor an origin remote resolves", async () => {
-		spawnSync("git", ["init", "-q", dir]);
+		repos.instantiate(dir, "bare");
 		const r = await run(["40", "63"], { children: ["63"] }, null);
 		expect(r.status).toBe(1);
 		expect(r.stderr).toBe(

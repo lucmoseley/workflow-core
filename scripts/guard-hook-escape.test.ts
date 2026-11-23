@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath } from "./guard-log-fixture";
-import { mkScratchDir } from "./lib/git-fixture";
+import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -16,6 +16,10 @@ const CORE = "guard-hook-escape";
 const { readRuleText } = require("./lib/rule-text") as {
 	readRuleText: (id: string) => string;
 };
+
+const mainRepo = defineTemplate((root) => {
+	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: root });
+});
 
 let dir: string;
 let config: string;
@@ -29,9 +33,8 @@ const emission = (command: string, env: NodeJS.ProcessEnv = {}) =>
 	});
 
 beforeEach(() => {
-	dir = mkScratchDir("guard-hook-escape-");
+	dir = mainRepo.instantiate(mkScratchDir("guard-hook-escape-"));
 	config = path.join(dir, "claude-config");
-	execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: dir });
 });
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));

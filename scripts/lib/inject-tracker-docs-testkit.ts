@@ -10,13 +10,13 @@ export const TIER_HOOK = path.join(__dirname, "..", "guard-dispatch.js");
 const CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "tier-port-"));
 
 export const tierPort =
-	(hook = TIER_HOOK): Ports["reviewTier"] =>
+	(hook = TIER_HOOK, env: Record<string, string> = {}): Ports["reviewTier"] =>
 	({ payload, cwd }) => {
 		if (!fs.existsSync(hook)) return "";
 		const r = runInProcess(hook, ["--only", "inject-review-tier"], {
 			stdin: payload,
 			cwd,
-			env: { ...process.env, CLAUDE_CONFIG_DIR: CONFIG_DIR },
+			env: { ...process.env, ...env, CLAUDE_CONFIG_DIR: CONFIG_DIR },
 		});
 		try {
 			return JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
@@ -24,6 +24,14 @@ export const tierPort =
 			return "";
 		}
 	};
+
+export function logPort() {
+	const lines: string[] = [];
+	const port: Ports["log"] = (what, detail) => {
+		lines.push(detail === undefined ? what : `${what}\t${detail}`);
+	};
+	return { port, read: () => lines.join("\n") };
+}
 
 export function takesPort(label: () => string) {
 	const calls: string[] = [];

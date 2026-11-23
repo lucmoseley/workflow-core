@@ -37,7 +37,8 @@ const CORE_RULES = path.join(__dirname, "..", "..", RULES_DIR);
 /** @type {{ dir: string, fallback: string | undefined } | null} */
 let pinned = null;
 
-const overrideDir = () => (pinned ? pinned.dir : process.env.WFC_RULES_DIR);
+/** @param {NodeJS.ProcessEnv} env */
+const overrideDir = (env) => (pinned ? pinned.dir : env.WFC_RULES_DIR);
 
 /**
  * @template T
@@ -76,28 +77,26 @@ function withHostRootSpelling(spelling, read) {
 	}
 }
 
-/** @param {string} [root] @returns {string} */
-function rulesDir(root) {
-	const override = overrideDir();
+/** @param {string} [root] @param {NodeJS.ProcessEnv} [env] @returns {string} */
+function rulesDir(root, env = process.env) {
+	const override = overrideDir(env);
 	if (override) return path.resolve(override);
-	const host = path.join(root ?? hostRoot(), RULES_DIR);
+	const host = path.join(root ?? hostRoot(undefined, { env }), RULES_DIR);
 	if (fs.statSync(host, { throwIfNoEntry: false })?.isDirectory()) return host;
 	return CORE_RULES;
 }
 
-/** @returns {string | null} */
-function coreLayer() {
-	if (!overrideDir()) return CORE_RULES;
-	const fallback = pinned
-		? pinned.fallback
-		: process.env.WFC_RULES_FALLBACK_DIR;
+/** @param {NodeJS.ProcessEnv} env @returns {string | null} */
+function coreLayer(env) {
+	if (!overrideDir(env)) return CORE_RULES;
+	const fallback = pinned ? pinned.fallback : env.WFC_RULES_FALLBACK_DIR;
 	return fallback ? path.resolve(fallback) : null;
 }
 
-/** @param {string} [root] @returns {string[]} */
-function rulesDirs(root) {
-	const primary = rulesDir(root);
-	const second = coreLayer();
+/** @param {string} [root] @param {NodeJS.ProcessEnv} [env] @returns {string[]} */
+function rulesDirs(root, env = process.env) {
+	const primary = rulesDir(root, env);
+	const second = coreLayer(env);
 	return !second || second === primary ? [primary] : [primary, second];
 }
 
@@ -119,11 +118,11 @@ function readStoreEntries(dir) {
 	}
 }
 
-/** @param {string} [root] @returns {string[]} */
-function readRuleIds(root) {
+/** @param {string} [root] @param {NodeJS.ProcessEnv} [env] @returns {string[]} */
+function readRuleIds(root, env = process.env) {
 	/** @type {Set<string>} */
 	const ids = new Set();
-	for (const dir of rulesDirs(root))
+	for (const dir of rulesDirs(root, env))
 		for (const e of readStoreEntries(dir))
 			if (e.isFile() && e.name.endsWith(FRAGMENT_EXT)) {
 				const id = e.name.slice(0, -FRAGMENT_EXT.length);
@@ -132,14 +131,14 @@ function readRuleIds(root) {
 	return [...ids].sort();
 }
 
-/** @param {string} bare @param {string} [root] @returns {string} */
-function fragmentPath(bare, root) {
+/** @param {string} bare @param {string} [root] @param {NodeJS.ProcessEnv} [env] @returns {string} */
+function fragmentPath(bare, root, env = process.env) {
 	const name = `${bare}${FRAGMENT_EXT}`;
-	for (const dir of rulesDirs(root)) {
+	for (const dir of rulesDirs(root, env)) {
 		const file = path.join(dir, name);
 		if (fs.existsSync(file)) return file;
 	}
-	return path.join(rulesDir(root), name);
+	return path.join(rulesDir(root, env), name);
 }
 
 class RuleMissing extends Error {
@@ -159,22 +158,23 @@ class RuleMissing extends Error {
 /**
  * @param {string} id
  * @param {string} host
+ * @param {NodeJS.ProcessEnv} env
  * @returns {{ file: string, body: string }}
  */
-function readFragment(id, host) {
+function readFragment(id, host, env) {
 	const bare = typeof id === "string" ? bareRuleId(id) : "";
 	if (!RULE_ID_RE.test(bare))
 		throw new Error(
 			`rule-text: "${id}" is not a rule id — ids are lowercase kebab-case ` +
 				`(${RULE_ID_RE.source}).`,
 		);
-	const file = fragmentPath(bare, host);
+	const file = fragmentPath(bare, host, env);
 	let text;
 	try {
 		text = fs.readFileSync(file, "utf8");
 	} catch (e) {
-		const known = readRuleIds(host);
-		const brief = `rule-text: no fragment for rule id "${bare}" (looked in ${rulesDirs(host).join(", ")}).`;
+		const known = readRuleIds(host, env);
+		const brief = `rule-text: no fragment for rule id "${bare}" (looked in ${rulesDirs(host, env).join(", ")}).`;
 		const held =
 			known.length > 0
 				? `Known ids: ${known.join(", ")}.`
@@ -190,10 +190,10 @@ function readFragment(id, host) {
 	return { file, body };
 }
 
-/** @param {string} body @param {string} host @returns {string} */
-function expandIncludes(body, host) {
+/** @param {string} body @param {string} host @param {NodeJS.ProcessEnv} env @returns {string} */
+function expandIncludes(body, host, env) {
 	return body.replace(RULE_INCLUDE, (_, inc) => {
-		const included = readFragment(inc, host).body;
+		const included = readFragment(inc, host, env).body;
 		if (included.includes("{rule:"))
 			throw new Error(
 				`rule-text: the fragment for rule id "${inc}" is included by another and holds an include of its own.`,
@@ -212,31 +212,34 @@ function expandIncludes(body, host) {
  * @param {string} id
  * @param {string} [root] as rulesDir takes it; every host read below is under
  *   it, so the root is resolved once a call
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {string}
  * @throws {Error} as readFragment and expandIncludes do
  */
-function readRuleText(id, root) {
-	const host = root ?? hostRoot();
-	const { file, body } = readFragment(id, host);
+function readRuleText(id, root, env = process.env) {
+	const host = root ?? hostRoot(undefined, { env });
+	const { file, body } = readFragment(id, host, env);
 	const resolved = expandPastePaths(
-		resolveScriptPaths(expandIncludes(body, host)),
+		resolveScriptPaths(expandIncludes(body, host, env), env),
 		pinnedHostRoot ?? host,
+		env,
 	);
 	return expandCommands(
-		!isCoreRepo() && path.dirname(file) === coreLayer()
+		!isCoreRepo(env) && path.dirname(file) === coreLayer(env)
 			? qualifyProse(resolved)
 			: resolved,
 		host,
+		env,
 	);
 }
 
-/** @param {string} text @param {string} root @returns {string} */
-function expandCommands(text, root) {
+/** @param {string} text @param {string} root @param {NodeJS.ProcessEnv} env @returns {string} */
+function expandCommands(text, root, env) {
 	if (!text.includes("{command:")) return text;
 	/** @type {Record<string, string|null>} */
 	let commands = {};
 	try {
-		commands = readConfig({ root, quiet: true }).commands;
+		commands = readConfig({ root, env, quiet: true }).commands;
 	} catch (e) {
 		process.stderr.write(
 			`WARN rule-text: ${caught(e).message} — every {command:} line dropped\n`,
@@ -274,14 +277,16 @@ function rulePointer(id) {
 	return `The full rule: \`${scriptPath("lib/rule-text.sh")} ${bareRuleId(id)}\`.`;
 }
 
-/** @param {string} root @returns {(id: string) => string} */
-const fragmentLookup = (root) => (id) => {
-	try {
-		return readRuleText(id, root);
-	} catch {
-		return "";
-	}
-};
+/** @param {string} root @param {NodeJS.ProcessEnv} [env] @returns {(id: string) => string} */
+const fragmentLookup =
+	(root, env = process.env) =>
+	(id) => {
+		try {
+			return readRuleText(id, root, env);
+		} catch {
+			return "";
+		}
+	};
 
 /**
  * readRuleText for a guard or checker that must not crash: where the fragment

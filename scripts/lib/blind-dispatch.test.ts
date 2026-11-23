@@ -6,21 +6,29 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
+import { defineTemplate } from "./git-fixture";
 import { runCore, splitCheckout } from "./guard-core-testkit";
 
 let dir: string;
 let project: string;
 let logs: string[];
 
-const git = (...args: string[]) => {
+const gitAt = (at: string, ...args: string[]) => {
 	const r = spawnSync(
 		"git",
-		["-C", project, "-c", "user.name=t", "-c", "user.email=t@t", ...args],
+		["-C", at, "-c", "user.name=t", "-c", "user.email=t@t", ...args],
 		{ encoding: "utf8" },
 	);
 	if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
 	return r.stdout.trim();
 };
+
+const git = (...args: string[]) => gitAt(project, ...args);
+
+const seededProject = defineTemplate((at) => {
+	gitAt(at, "init", "-q", "-b", "trunk");
+	gitAt(at, "commit", "-q", "--allow-empty", "-m", "Set C005 to a score of 1");
+});
 
 const commit = (subject: string) => {
 	git("commit", "-q", "--allow-empty", "-m", subject);
@@ -68,10 +76,7 @@ beforeEach(() => {
 	dir = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "blind-dispatch-")),
 	);
-	project = path.join(dir, "project");
-	fs.mkdirSync(project);
-	git("init", "-q", "-b", "trunk");
-	commit("Set C005 to a score of 1");
+	project = seededProject.instantiate(path.join(dir, "project"));
 	logs = [];
 });
 

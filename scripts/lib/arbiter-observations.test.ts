@@ -11,8 +11,13 @@ import {
 	readLockAt,
 	store,
 } from "./arbiter-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 
 const sb = freshSandbox();
+const sandboxRepo = defineTemplate((dir) => {
+	emptyRepoTemplate(dir);
+	fs.mkdirSync(path.join(dir, "docs"));
+});
 
 describe("a second writer's own content record on a detect-only path (mantahostels#363)", () => {
 	const rel = "scripts/evidence-audit.py";
@@ -42,7 +47,7 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 	};
 
 	beforeEach(() => {
-		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
+		sandboxRepo.instantiate(sb.repo);
 	});
 
 	const holder = (sessionId: string, text: string) => {
@@ -238,7 +243,7 @@ describe("readObservedBy reads its own records, not the whole store (mantahostel
 	const rel = "scripts/evidence-audit.py";
 
 	beforeEach(() => {
-		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
+		sandboxRepo.instantiate(sb.repo);
 		fs.mkdirSync(path.join(sb.repo, "scripts"), { recursive: true });
 		fs.writeFileSync(path.join(sb.repo, rel), "seeded\n");
 	});

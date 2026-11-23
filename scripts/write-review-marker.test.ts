@@ -12,6 +12,7 @@ import {
 } from "./lib/agents-stop-fake";
 import { ignoreFailure } from "./lib/caught.js";
 import { writeClaudeStub } from "./lib/claude-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "write-review-marker.js");
@@ -28,12 +29,20 @@ const git = (...args: string[]) =>
 		stdio: "pipe",
 	}).trim();
 
+const template = defineTemplate((dir) => {
+	execFileSync("git", ["init", "-q"], { cwd: dir });
+	fs.writeFileSync(path.join(dir, "a.js"), "one\n");
+	execFileSync("git", ["add", "-A"], { cwd: dir });
+	execFileSync(
+		"git",
+		["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "seed"],
+		{ cwd: dir },
+	);
+});
+
 beforeEach(() => {
 	repo = fs.mkdtempSync(path.join(os.tmpdir(), "review-marker-"));
-	git("init", "-q");
-	fs.writeFileSync(path.join(repo, "a.js"), "one\n");
-	git("add", "-A");
-	git("commit", "-qm", "seed");
+	template.instantiate(repo);
 	claudeEnv = {};
 });
 

@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { latchesAt, runCore, splitCheckout } from "./guard-core-testkit";
 import { readGuardErrorsLog } from "./guard-errors-log";
 import { kitContextFake } from "./kit-context-fake";
@@ -32,14 +33,17 @@ const SKILL_FILE = path.resolve(
 	"../../.claude/skills/wait-what/SKILL.md",
 );
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 let host: string;
 let config: string;
 let logs: string[];
 
 beforeEach(() => {
-	host = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "recur-")));
+	host = emptyRepo.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "recur-"))),
+	);
 	config = fs.mkdtempSync(path.join(os.tmpdir(), "recur-config-"));
-	execFileSync("git", ["init", "-q", host]);
 	logs = [];
 });
 

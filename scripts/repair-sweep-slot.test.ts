@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { slotKey } from "./lib/sweep-ledger.js";
@@ -18,15 +19,18 @@ let calls: string;
 let sweeps: string;
 let gh: string;
 
-beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "repair-sweep-slot-"));
-	repo = path.join(dir, "repo");
-	fs.mkdirSync(path.join(repo, ".github", "workflows"), { recursive: true });
+const sweepRepo = defineTemplate((at) => {
+	fs.mkdirSync(path.join(at, ".github", "workflows"), { recursive: true });
 	fs.writeFileSync(
-		path.join(repo, ".github", "workflows", "scheduled-checks.yml"),
+		path.join(at, ".github", "workflows", "scheduled-checks.yml"),
 		"",
 	);
-	execFileSync("git", ["init", "-q"], { cwd: repo });
+	execFileSync("git", ["init", "-q"], { cwd: at });
+});
+
+beforeEach(() => {
+	dir = fs.mkdtempSync(path.join(os.tmpdir(), "repair-sweep-slot-"));
+	repo = sweepRepo.instantiate(path.join(dir, "repo"));
 	calls = path.join(dir, "calls");
 	sweeps = path.join(dir, "sweeps.json");
 	fs.writeFileSync(calls, "");

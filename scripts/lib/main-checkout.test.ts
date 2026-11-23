@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkDirOutsideRepo } from "./git-fixture";
+import { defineTemplate, mkDirOutsideRepo } from "./git-fixture";
 
 const { checkoutOfCommonDir, mainCheckout } = require("./main-checkout.js");
 
@@ -19,9 +19,7 @@ afterEach(() => {
 	fs.rmSync(base, { recursive: true, force: true });
 });
 
-function checkout(name: string, ...initArgs: string[]) {
-	const at = path.join(base, name);
-	fs.mkdirSync(at);
+function seed(at: string, ...initArgs: string[]) {
 	git(at, "init", "-q", ...initArgs);
 	git(
 		at,
@@ -36,12 +34,13 @@ function checkout(name: string, ...initArgs: string[]) {
 		"-m",
 		"init",
 	);
-	return at;
 }
+
+const seeded = defineTemplate((dir) => seed(dir));
 
 describe("mainCheckout (#2563)", () => {
 	it("names the main checkout from itself and from a linked worktree", () => {
-		const main = checkout("main");
+		const main = seeded.instantiate(path.join(base, "main"));
 		const wt = path.join(main, ".claude", "worktrees", "wt");
 		git(main, "worktree", "add", "-q", wt);
 		expect(mainCheckout(main)).toBe(main);
@@ -49,11 +48,9 @@ describe("mainCheckout (#2563)", () => {
 	});
 
 	it("names no checkout where the common dir is a --separate-git-dir one", () => {
-		const at = checkout(
-			"separate",
-			"--separate-git-dir",
-			path.join(base, "store"),
-		);
+		const at = path.join(base, "separate");
+		fs.mkdirSync(at);
+		seed(at, "--separate-git-dir", path.join(base, "store"));
 		expect(mainCheckout(at)).toBeNull();
 	});
 

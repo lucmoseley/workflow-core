@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { NO_READS, watched } from "./pass-store-testkit";
 import { buildCoverageWarning, readUncovered } from "./push-coverage.js";
 
@@ -137,9 +138,7 @@ describe("over the real pass store", () => {
 		execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
 	const A = "scripts/a.test.ts";
 
-	function passed() {
-		const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pc-")));
-		dirs.push(dir);
+	const seeded = defineTemplate((dir) => {
 		git(dir, "init", "-q", "-b", "main");
 		git(dir, "config", "user.email", "t@example.com");
 		git(dir, "config", "user.name", "T");
@@ -158,6 +157,13 @@ describe("over the real pass store", () => {
 		fs.writeFileSync(path.join(dir, EDGES_FILE), JSON.stringify({ edges: {} }));
 		git(dir, "add", "-A");
 		git(dir, "commit", "-q", "-m", "base");
+	});
+
+	function passed() {
+		const dir = seeded.instantiate(
+			fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pc-"))),
+		);
+		dirs.push(dir);
 		record(
 			{
 				sha: git(dir, "rev-parse", "HEAD"),

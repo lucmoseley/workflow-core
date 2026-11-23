@@ -10,6 +10,7 @@ import {
 import { tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, identityRepoTemplate } from "./git-fixture";
 import { createRescuePorts } from "./rescue-ports-fake";
 import {
 	MODEL_LIMIT_LINE,
@@ -308,13 +309,9 @@ describe("the artefacts snapshot says survived", () => {
 
 describe("the commits snapshot says were attempted and landed", () => {
 	let repo: string;
+	const configured = defineTemplate(identityRepoTemplate);
 	beforeEach(() => {
-		repo = tempDir("rescue-git-");
-		execFileSync("git", ["init", "-q"], { cwd: repo });
-		execFileSync("git", ["config", "user.email", "a@example.com"], {
-			cwd: repo,
-		});
-		execFileSync("git", ["config", "user.name", "a"], { cwd: repo });
+		repo = configured.instantiate(tempDir("rescue-git-"));
 	});
 
 	const commit = (msg: string) =>

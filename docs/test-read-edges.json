@@ -576,6 +576,7 @@
 			"scripts/lib/morning-review-filing.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-shellcheck-gate.test.ts",
+			"scripts/report-new-shared-faults.test.ts",
 			"scripts/session-checkout.test.ts"
 		],
 		".github/actions/shellcheck/action.yml": [
@@ -21828,7 +21829,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/headless-sessions.test.ts",
 			"scripts/lib/inject-tracker-docs-host.contract.test.ts",
-			"scripts/lib/inject-tracker-docs.test.ts",
 			"scripts/lib/post-commit-steps.contract.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -30815,7 +30815,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/hook-deadline.test.ts",
 			"scripts/lib/inject-tracker-docs-host.contract.test.ts",
-			"scripts/lib/inject-tracker-docs.test.ts",
 			"scripts/lib/landing-stall.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/queue-issue.test.ts",
@@ -31258,16 +31257,6 @@
 		],
 		"scripts/lib/git-fixture.ts": [
 			"scripts/check-guard-errors.test.ts",
-			"scripts/check-guard-registry-carry.test.ts",
-			"scripts/check-guard-registry-dispatchers.test.ts",
-			"scripts/check-guard-registry-expiry-pathspec.test.ts",
-			"scripts/check-guard-registry-expiry.test.ts",
-			"scripts/check-guard-registry-implicit.test.ts",
-			"scripts/check-guard-registry-landing.test.ts",
-			"scripts/check-guard-registry-reads.test.ts",
-			"scripts/check-guard-registry-rule-text.test.ts",
-			"scripts/check-guard-registry-stale.test.ts",
-			"scripts/check-guard-registry.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
@@ -31278,7 +31267,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/git-long-options.js": [
@@ -36399,7 +36387,6 @@
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
-			"scripts/lib/inject-tracker-docs.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",

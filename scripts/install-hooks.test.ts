@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { OWN_LOOKUP } from "./lib/husky-shim.js";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -37,27 +38,25 @@ const env = () => {
 	return e;
 };
 
-beforeEach(() => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "install-hooks-"));
-	const remote = path.join(tmp, "remote.git");
-	shared = path.join(tmp, "shared");
-	wt = path.join(tmp, "wt");
-	git(tmp, "init", "-q", "--bare", remote);
-	git(tmp, "init", "-q", "-b", "main", shared);
-	git(shared, "config", "user.email", "t@t");
-	git(shared, "config", "user.name", "t");
-	git(shared, "remote", "add", "origin", remote);
+const seeded = defineTemplate((root) => {
+	const remote = path.join(root, "remote.git");
+	const work = path.join(root, "shared");
+	git(root, "init", "-q", "--bare", remote);
+	git(root, "init", "-q", "-b", "main", work);
+	git(work, "config", "user.email", "t@t");
+	git(work, "config", "user.name", "t");
+	git(work, "remote", "add", "origin", remote);
 
-	fs.mkdirSync(path.join(shared, ".husky"));
+	fs.mkdirSync(path.join(work, ".husky"));
 	fs.copyFileSync(
 		path.join(ROOT, ".husky", "pre-push"),
-		path.join(shared, ".husky", "pre-push"),
+		path.join(work, ".husky", "pre-push"),
 	);
 	fs.writeFileSync(
-		path.join(shared, ".husky", "pre-commit"),
+		path.join(work, ".husky", "pre-commit"),
 		'echo "own pre-commit" >&2\n',
 	);
-	const scripts = path.join(shared, "scripts");
+	const scripts = path.join(work, "scripts");
 	fs.mkdirSync(scripts);
 	fs.copyFileSync(
 		path.join(ROOT, "scripts", "landing-registry-gate.js"),
@@ -70,17 +69,24 @@ beforeEach(() => {
 	);
 	fs.copyFileSync(
 		path.join(ROOT, ".gitattributes"),
-		path.join(shared, ".gitattributes"),
+		path.join(work, ".gitattributes"),
 	);
 	for (const stub of STUBS)
 		fs.writeFileSync(path.join(scripts, stub), "process.exitCode = 0;\n");
 	writeChecker(
-		shared,
+		work,
 		'process.stderr.write("FAIL: worktree checker\\n");\nprocess.exitCode = 1;\n',
 	);
-	git(shared, "add", ".");
-	git(shared, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "seed");
-	git(shared, "push", "-q", "--no-verify", "origin", "main");
+	git(work, "add", ".");
+	git(work, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "seed");
+	git(work, "push", "-q", "--no-verify", "origin", "main");
+});
+
+beforeEach(() => {
+	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "install-hooks-"));
+	seeded.instantiate(tmp);
+	shared = path.join(tmp, "shared");
+	wt = path.join(tmp, "wt");
 
 	keptSpawn("boundary").execFileSync(process.execPath, [HUSKY], {
 		cwd: shared,

@@ -7,12 +7,10 @@ import {
 	AS_ROOT,
 	acquireSeeing,
 	buildLockRecord,
-	commitAll,
 	core,
 	DEAD,
 	durably,
 	freshSandbox,
-	gitRepo,
 	listedLocks,
 	live,
 	liveHolder,
@@ -23,11 +21,15 @@ import {
 	registerSession,
 	store,
 } from "./arbiter-testkit";
-import { cutWorktree } from "./git-fixture";
+import { cutWorktree, defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { noop } from "./noop.js";
 import { sleepSync } from "./sleep-sync.js";
 
 const sb = freshSandbox();
+const sandboxRepo = defineTemplate((dir) => {
+	emptyRepoTemplate(dir);
+	fs.mkdirSync(path.join(dir, "docs"));
+});
 
 const TORN_SETTLE_MS = 50;
 
@@ -958,7 +960,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 
 describe("release — the second exit from a claim", () => {
 	beforeEach(() => {
-		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
+		sandboxRepo.instantiate(sb.repo);
 	});
 
 	const held = (rel: string) => listedLocks().some((l) => l.path === rel);
@@ -1217,10 +1219,23 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 	const stage = () =>
 		execFileSync("git", ["add", "-A"], { cwd: sb.repo, encoding: "utf8" });
 
+	const committedDoc = defineTemplate((dir) => {
+		emptyRepoTemplate(dir);
+		fs.mkdirSync(path.join(dir, "docs"));
+		fs.writeFileSync(
+			path.join(dir, rel),
+			doc("B196 as committed.", "B197 as committed."),
+		);
+		execFileSync("git", ["add", "-A"], { cwd: dir });
+		execFileSync(
+			"git",
+			["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "seed"],
+			{ cwd: dir },
+		);
+	});
+
 	beforeEach(() => {
-		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
-		write(doc("B196 as committed.", "B197 as committed."));
-		commitAll(sb);
+		committedDoc.instantiate(sb.repo);
 	});
 
 	it("reads a region as clean while another region of the file is dirty", () => {
@@ -1368,11 +1383,26 @@ describe("a claim read in its holder's tree, not the reader's (#4457)", () => {
 		}
 	};
 
+	const withWorktree = defineTemplate((dir) => {
+		emptyRepoTemplate(dir);
+		fs.appendFileSync(
+			path.join(dir, ".git", "config"),
+			"[user]\n\temail = t@t\n\tname = t\n",
+		);
+		fs.mkdirSync(path.join(dir, "docs"));
+		writeIn(dir, "as committed\n");
+		execFileSync("git", ["add", "-A"], { cwd: dir });
+		execFileSync(
+			"git",
+			["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "seed"],
+			{ cwd: dir },
+		);
+		cutWorktree(dir);
+	});
+
 	beforeEach(() => {
-		gitRepo(sb);
-		writeIn(sb.repo, "as committed\n");
-		commitAll(sb);
-		wt = cutWorktree(sb.repo);
+		withWorktree.instantiate(sb.repo);
+		wt = fs.realpathSync(path.join(sb.repo, ".claude", "worktrees", "s1"));
 	});
 
 	const holdDirtyInWorktree = () => {

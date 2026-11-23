@@ -78,6 +78,10 @@ describe("check-arbiter-commands", () => {
 			`const m = buildArbiterCommand\`release ${DOLLAR}{shellQuote(rel)}\`;\n`,
 		],
 		[
+			"a word the env-taking tag would quote twice",
+			`const m = buildArbiterCommandIn(env)\`release ${DOLLAR}{shellQuote(rel)}\`;\n`,
+		],
+		[
 			"a literal path with a placeholder",
 			'const m = "node scripts/session-arbiter.js release --generator <path>";\n',
 		],

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
+import { defineTemplate } from "./lib/git-fixture";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const { runInProcess } = require("./lib/run-in-process.js");
@@ -15,8 +16,8 @@ let repo: string;
 let bin: string;
 let config: string;
 
-const git = (args: string[], at?: number) =>
-	execFileSync("git", ["-C", repo, ...args], {
+const gitAt = (cwd: string, args: string[], at?: number) =>
+	execFileSync("git", ["-C", cwd, ...args], {
 		encoding: "utf8",
 		env: {
 			...process.env,
@@ -27,6 +28,7 @@ const git = (args: string[], at?: number) =>
 			...(at === undefined ? {} : { GIT_COMMITTER_DATE: `@${at} +0000` }),
 		},
 	});
+const git = (args: string[], at?: number) => gitAt(repo, args, at);
 
 const hooksNaming = (script: string) =>
 	JSON.stringify({
@@ -45,10 +47,11 @@ const hooksNaming = (script: string) =>
 		},
 	});
 
-const write = (rel: string, text: string) => {
-	fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
-	fs.writeFileSync(path.join(repo, rel), text);
+const writeAt = (root: string, rel: string, text: string) => {
+	fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+	fs.writeFileSync(path.join(root, rel), text);
 };
+const write = (rel: string, text: string) => writeAt(repo, rel, text);
 
 function keep(startedAt: number, cwd = repo, ...args: string[]) {
 	fs.writeFileSync(
@@ -67,6 +70,19 @@ function keep(startedAt: number, cwd = repo, ...args: string[]) {
 	});
 }
 
+const portedRepo = defineTemplate((root) => {
+	gitAt(root, ["init", "-q", "-b", "main"]);
+	writeAt(root, "self-plugin/hooks/hooks.json", hooksNaming("guard-x.sh"));
+	writeAt(root, "scripts/guard-x.sh", "#!/usr/bin/env bash\nexit 2\n");
+	gitAt(root, ["add", "-A"]);
+	gitAt(root, ["commit", "-q", "-m", "old line"], 1000);
+	writeAt(root, "self-plugin/hooks/hooks.json", hooksNaming("guard-x.js"));
+	writeAt(root, "scripts/guard-x.js", "");
+	gitAt(root, ["rm", "-q", "scripts/guard-x.sh"]);
+	gitAt(root, ["add", "-A"]);
+	gitAt(root, ["commit", "-q", "-m", "port"], 2000);
+});
+
 const shim = () => path.join(repo, "scripts/guard-x.sh");
 
 beforeEach(() => {
@@ -76,16 +92,7 @@ beforeEach(() => {
 		fs.mkdtempSync(path.join(os.tmpdir(), "hook-shims-bin-")),
 		"claude",
 	);
-	git(["init", "-q", "-b", "main"]);
-	write("self-plugin/hooks/hooks.json", hooksNaming("guard-x.sh"));
-	write("scripts/guard-x.sh", "#!/usr/bin/env bash\nexit 2\n");
-	git(["add", "-A"]);
-	git(["commit", "-q", "-m", "old line"], 1000);
-	write("self-plugin/hooks/hooks.json", hooksNaming("guard-x.js"));
-	write("scripts/guard-x.js", "");
-	git(["rm", "-q", "scripts/guard-x.sh"]);
-	git(["add", "-A"]);
-	git(["commit", "-q", "-m", "port"], 2000);
+	portedRepo.instantiate(repo);
 });
 
 afterEach(() => {

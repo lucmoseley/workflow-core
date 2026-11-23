@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { coreFile } from "./lib/core-path-testkit";
+import { defineTemplate } from "./lib/git-fixture";
 import { writePsStub } from "./lib/ps-stub";
 import { coreRoot } from "./lib/script-path.js";
 
@@ -85,17 +86,22 @@ const heavyTreeRule = fs
 	)
 	.trim();
 
-const project = (): Setup => {
-	const repo = fs.realpathSync(fs.mkdtempSync(path.join(dir, "repo-")));
-	fs.mkdirSync(path.join(repo, "app"));
-	fs.writeFileSync(path.join(repo, "app", "a.ts"), "x\n");
-	fs.writeFileSync(path.join(repo, "CLAUDE.md"), "x\n");
+const stagedRepo = defineTemplate((root) => {
+	fs.mkdirSync(path.join(root, "app"));
+	fs.writeFileSync(path.join(root, "app", "a.ts"), "x\n");
+	fs.writeFileSync(path.join(root, "CLAUDE.md"), "x\n");
 	const git = (...args: string[]) =>
-		spawnSync("git", ["-C", repo, ...args], {
+		spawnSync("git", ["-C", root, ...args], {
 			env: { ...process.env, ...NO_GIT_ENV },
 		});
 	git("init", "-q");
 	git("add", "app/a.ts", "CLAUDE.md");
+});
+
+const project = (): Setup => {
+	const repo = stagedRepo.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(dir, "repo-"))),
+	);
 	return {
 		env: { CLAUDE_PROJECT_DIR: repo, ...NO_GIT_ENV },
 		payload: { cwd: repo },

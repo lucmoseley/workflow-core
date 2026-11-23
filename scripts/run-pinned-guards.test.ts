@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isLockoutText } from "./lib/core-fault.js";
 import { SELF_PLUGIN_DIR } from "./lib/core-hooks.js";
 import { MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { readHookLines } from "./lib/pretool-guard-testkit";
 
@@ -113,6 +114,7 @@ describe("the shim", () => {
 });
 
 describe("the hook line", () => {
+	const emptyRepo = defineTemplate(emptyRepoTemplate);
 	const [line] = readHookLines(HOOKS, "scripts/guard-dispatch.js");
 
 	it("runs the guards through the shim from the pinned code", () => {
@@ -123,12 +125,11 @@ describe("the hook line", () => {
 	});
 
 	it("leaves the guards working past a syntax error in the main checkout's shell-parse.js", () => {
-		const main = path.join(dir, "main");
+		const main = emptyRepo.instantiate(path.join(dir, "main"));
 		fs.cpSync(path.join(CHECKOUT, "scripts"), path.join(main, "scripts"), {
 			recursive: true,
 		});
 		fs.mkdirSync(path.join(main, SELF_PLUGIN_DIR));
-		execFileSync("git", ["init", "--quiet", main]);
 		fs.appendFileSync(path.join(main, "scripts/lib/shell-parse.js"), "}{\n");
 		fs.symlinkSync(CHECKOUT, link);
 		const payload = JSON.stringify({

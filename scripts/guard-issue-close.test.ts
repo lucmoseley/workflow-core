@@ -8,6 +8,7 @@ import { readFailOpenRecords } from "./guard-log-fixture";
 import { coreFile, seenFrom } from "./lib/core-path-testkit";
 import { asRecorded, GRAPHQL_FAKE } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
+import { committedRepoTemplate, defineTemplate } from "./lib/git-fixture";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -72,22 +73,27 @@ const writeRoadmap = (root: string, state: string) => {
 	);
 };
 
-const git = (...args: string[]) =>
+const gitIn = (cwd: string, ...args: string[]) =>
 	execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
-		cwd: dir,
+		cwd,
 		stdio: "ignore",
 	});
+const git = (...args: string[]) => gitIn(dir, ...args);
+
+const pushedRepo = defineTemplate((root) => {
+	committedRepoTemplate(root);
+	gitIn(root, "update-ref", "refs/remotes/origin/main", "HEAD");
+});
 
 beforeEach(() => {
 	({ dir, config } = guardDirs("issue-close-entry-"));
+	pushedRepo.instantiate(dir);
+	fs.mkdirSync(config, { recursive: true });
 	fs.mkdirSync(path.join(dir, ".claude"));
 	fs.writeFileSync(
 		path.join(dir, ".claude", "workflow-core.json"),
 		JSON.stringify({ contract: 1, tracker: "acme/tracker" }),
 	);
-	git("init", "-q");
-	git("commit", "-q", "--allow-empty", "-m", "seed");
-	git("update-ref", "refs/remotes/origin/main", "HEAD");
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 

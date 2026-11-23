@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-manual-freshness.js");
@@ -53,19 +54,26 @@ const checkUnder = (env: NodeJS.ProcessEnv | undefined, ...extra: string[]) => {
 const checkWith = (...extra: string[]) => checkUnder(undefined, ...extra);
 const check = checkWith;
 
-beforeEach(() => {
-	repo = fs.mkdtempSync(path.join(os.tmpdir(), "manual-fresh-test-"));
-	git("init", "-q", ".");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
-	fs.mkdirSync(path.join(repo, "docs"));
-	git("commit", "-q", "--allow-empty", "-m", "root");
+const rootAndRoadmap = defineTemplate((at) => {
+	const gitAt = (...args: string[]) =>
+		execFileSync("git", args, { cwd: at, encoding: "utf8" });
+	gitAt("init", "-q", ".");
+	gitAt("config", "user.email", "test@example.com");
+	gitAt("config", "user.name", "test");
+	fs.mkdirSync(path.join(at, "docs"));
+	gitAt("commit", "-q", "--allow-empty", "-m", "root");
 	fs.writeFileSync(
-		path.join(repo, ROADMAP),
+		path.join(at, ROADMAP),
 		"<p>v1.0 · updated 1 Jan 2026</p>\n",
 	);
-	git("add", ROADMAP);
-	git("commit", "-qm", "roadmap");
+	gitAt("add", ROADMAP);
+	gitAt("commit", "-qm", "roadmap");
+});
+
+beforeEach(() => {
+	repo = rootAndRoadmap.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "manual-fresh-test-")),
+	);
 	sha = git("rev-parse", "HEAD").trim();
 });
 afterEach(() => {

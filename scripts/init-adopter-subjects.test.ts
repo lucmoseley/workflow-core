@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { adoptWith } from "./init-adopter-fixture";
-import { mkScratchDir } from "./lib/git-fixture";
+import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const CORE = path.resolve(__dirname, "..");
@@ -27,8 +27,31 @@ const env = () => {
 	return e;
 };
 
-const git = (...args: string[]) =>
-	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+const gitIn = (cwd: string, ...args: string[]) =>
+	execFileSync("git", args, { cwd, encoding: "utf8" });
+const git = (...args: string[]) => gitIn(dir, ...args);
+
+const copiedRepo = defineTemplate((root) => {
+	gitIn(root, "init", "-q", "-b", "main", ".");
+	gitIn(root, "config", "user.email", "fixture@example.invalid");
+	gitIn(root, "config", "user.name", "Adopter Fixture");
+	for (const [file, body] of Object.entries(SUBJECTS)) {
+		fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+		fs.writeFileSync(path.join(root, file), body);
+	}
+	fs.copyFileSync(
+		path.join(__dirname, "templates/adopter/reference-roadmap.html"),
+		path.join(root, "docs/reference-roadmap.html"),
+	);
+	gitIn(
+		root,
+		"add",
+		"--",
+		...Object.keys(SUBJECTS),
+		"docs/reference-roadmap.html",
+	);
+	gitIn(root, "commit", "-qm", "copied", "--no-verify");
+});
 
 const init = (...args: string[]) =>
 	adoptWith(
@@ -58,20 +81,7 @@ const readModules = () =>
 	).modules;
 
 beforeEach(() => {
-	dir = mkScratchDir("init-subjects-");
-	git("init", "-q", "-b", "main", ".");
-	git("config", "user.email", "fixture@example.invalid");
-	git("config", "user.name", "Adopter Fixture");
-	for (const [file, body] of Object.entries(SUBJECTS)) {
-		fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
-		fs.writeFileSync(path.join(dir, file), body);
-	}
-	fs.copyFileSync(
-		path.join(__dirname, "templates/adopter/reference-roadmap.html"),
-		path.join(dir, "docs/reference-roadmap.html"),
-	);
-	git("add", "--", ...Object.keys(SUBJECTS), "docs/reference-roadmap.html");
-	git("commit", "-qm", "copied", "--no-verify");
+	dir = copiedRepo.instantiate(mkScratchDir("init-subjects-"));
 });
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });

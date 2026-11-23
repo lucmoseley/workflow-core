@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { coreFile } from "./lib/core-path-testkit";
+import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { escapeRe } from "./lib/regex-group.js";
 import {
 	readStopGuardBlockWithin,
@@ -681,6 +682,8 @@ it("reads a prose ask below a fence left unclosed (#2645)", () => {
 	).toContain("This turn's prose has the founder supply");
 });
 
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 const parsePermissionLine = (reason: string) => {
 	const m = reason.match(/^! (node \S+grant-permission\.js '[^']+')$/m);
 	if (!m) throw new Error(`no permission line in:\n${reason}`);
@@ -688,12 +691,7 @@ const parsePermissionLine = (reason: string) => {
 };
 
 describe("the permission line it prints", () => {
-	const host = () => {
-		const h = path.join(dir, "host");
-		fs.mkdirSync(h);
-		execFileSync("git", ["init", "-q"], { cwd: h });
-		return h;
-	};
+	const host = () => emptyRepo.instantiate(path.join(dir, "host"));
 	const readGranted = (h: string) =>
 		JSON.parse(
 			fs.readFileSync(path.join(h, ".claude", "settings.local.json"), "utf8"),
@@ -750,12 +748,7 @@ const parseCheckLine = (reason: string) => {
 };
 
 describe("the secret line it prints", () => {
-	const host = (name = "host") => {
-		const h = path.join(dir, name);
-		fs.mkdirSync(h);
-		execFileSync("git", ["init", "-q"], { cwd: h });
-		return h;
-	};
+	const host = (name = "host") => emptyRepo.instantiate(path.join(dir, name));
 	const shellEnv = () => ({
 		...process.env,
 		HOME: path.join(dir, "home"),
