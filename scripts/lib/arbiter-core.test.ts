@@ -6,13 +6,13 @@ import path from "node:path";
 import { assert, describe, expect, it, vi } from "vitest";
 import {
 	AS_ROOT,
+	buildLockRecord,
 	core,
 	DEAD,
 	durably,
 	freshSandbox,
 	listedLocks,
 	live,
-	lockRecord,
 	markers,
 	noSessions,
 	proc,
@@ -30,7 +30,10 @@ const record = (rel: string, sessionId: string) =>
 const put = (rel: string, fields: object) => {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 	const p = store.paths.lock(rel);
-	fs.writeFileSync(p, JSON.stringify(lockRecord({ path: rel, ...fields })));
+	fs.writeFileSync(
+		p,
+		JSON.stringify(buildLockRecord({ path: rel, ...fields })),
+	);
 	return p;
 };
 
@@ -606,7 +609,7 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 			const aside = `${store.paths.lock("docs/doc-map.md")}.stale-deadbeef`;
 			fs.writeFileSync(
 				aside,
-				JSON.stringify(lockRecord({ path: "docs/doc-map.md" })),
+				JSON.stringify(buildLockRecord({ path: "docs/doc-map.md" })),
 			);
 			const old = new Date(Date.now() - 3 * 60 * 60 * 1000);
 			fs.utimesSync(aside, old, old);

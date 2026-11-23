@@ -650,6 +650,49 @@ describe("§N7 export blocks", () => {
 			});
 		});
 
+		describe("a file loading the pre-commit gate table's scripts reaches each row's SPEC or PROGRAM (#5628)", () => {
+			const seed = (checker: string) => {
+				doc(docline);
+				track(
+					"scripts/lib/precommit-gates.js",
+					'const GATES = [{ kind: "checker", script: "scripts/check-x.js" }];\n',
+				);
+				track("scripts/check-x.js", checker);
+			};
+			const spec = "const SPEC = {};\n\nmodule.exports = { SPEC };\n";
+
+			it("counts the loader that requires each row's script by fromCoreRoot", () => {
+				seed(spec);
+				track(
+					"scripts/lib/loader.js",
+					'const { fromCoreRoot } = require("./precommit-gates.js");\nconst { SPEC } = require(fromCoreRoot(row.script));\n',
+				);
+				expect(run().out).not.toContain("DEAD-EXPORT");
+			});
+
+			it("vouches for no other export of the gate's script", () => {
+				seed(
+					"const SPEC = {};\nconst helper = () => {};\n\nmodule.exports = { SPEC, helper };\n",
+				);
+				track(
+					"scripts/lib/loader.js",
+					'const { fromCoreRoot } = require("./precommit-gates.js");\nconst { SPEC, helper } = require(fromCoreRoot(row.script));\n',
+				);
+				const out = run().out;
+				expect(out).toContain("DEAD-EXPORT  scripts/check-x.js  helper");
+				expect(out).not.toContain("scripts/check-x.js  SPEC");
+			});
+
+			it("counts no speller that only names the gate table", () => {
+				seed(spec);
+				track(
+					"scripts/lib/loader.js",
+					'require("./precommit-gates.js");\nconst { SPEC } = require(scriptPath);\n',
+				);
+				expect(run().out).toContain("DEAD-EXPORT  scripts/check-x.js  SPEC");
+			});
+		});
+
 		it("does not take a directory of the module's name as reaching it", () => {
 			doc(docline);
 			track("scripts/thing.js", review);

@@ -1116,6 +1116,20 @@ describe("attesting a sha by tree (#189)", () => {
 			},
 		);
 
+	const matches = (r: ReturnType<typeof attestationOf>) => {
+		const s = r.judged ? r.suites[0] : null;
+		return s?.attested ? s.members.map((member) => member.match) : null;
+	};
+
+	const attest = (m: Record<string, unknown>, io = scripted()) =>
+		matches(
+			attestationOf(
+				attestedSha,
+				[m as Parameters<typeof attestationOf>[1][number]],
+				{ root: "/repo", execFn: io.fn },
+			),
+		);
+
 	it("rule 1: a matching sha attests by sha, asking git nothing past the range", () => {
 		const io = scripted();
 		const r = attestationOf(attestedSha, [certificate({ sha: attestedSha })], {
@@ -1134,16 +1148,23 @@ describe("attesting a sha by tree (#189)", () => {
 		expect(at(certificate({ sha: other, treeAtEnd: treeSha }))).toBe(false);
 		expect(at(unscoped({ sha: other }))).toBe(false);
 		expect(at(full({ closure: 42 }))).toBe(false);
+		expect(attest(certificate({ sha: other, closure: "*" }))).toBeNull();
+		expect(attest(certificate({ sha: other, treeAtEnd: treeSha }))).toBeNull();
+		expect(attest(full({ closure: 42 }))).toBeNull();
 	});
 
 	it("rule 3, full run: tree equality attests, one rev-parse and no diff", () => {
 		const io = scripted({ tree: treeSha });
 		expect(at(full(), io)).toBe(true);
 		expect(io.calls).toEqual([["rev-parse", `${attestedSha}^{tree}`]]);
+		expect(attest(full())).toEqual([
+			{ by: "tree", tree: treeSha, closureSize: "*" },
+		]);
 	});
 
 	it("rule 3, full run: a differing tree refuses", () => {
 		expect(at(full(), scripted({ tree: "e".repeat(40) }))).toBe(false);
+		expect(attest(full(), scripted({ tree: "e".repeat(40) }))).toBeNull();
 	});
 
 	it("rule 3, narrowed: a closure the diff-tree leaves untouched attests, with the closure's size, asking nothing of the range (#814)", () => {
@@ -1154,12 +1175,24 @@ describe("attesting a sha by tree (#189)", () => {
 		expect(at(narrowedRun(), io)).toBe(true);
 		expect(io.calls.map((c) => c[0])).toEqual(["diff-tree"]);
 		expect(io.calls[0]).toContain("--no-renames");
+		expect(
+			attest(
+				narrowedRun(),
+				scripted({ touched: ["docs/other.md"], range: ["scripts/a.js"] }),
+			),
+		).toEqual([{ by: "tree", tree: treeSha, closureSize: 3 }]);
 	});
 
 	it("rule 3, narrowed: a touched closure path refuses, reading nothing past the diff-tree", () => {
 		const io = scripted({ touched: ["scripts/a.js"], range: ["scripts/a.js"] });
 		expect(at(narrowedRun(), io)).toBe(false);
 		expect(io.calls.map((c) => c[0])).toEqual(["diff-tree"]);
+		expect(
+			attest(
+				narrowedRun(),
+				scripted({ touched: ["scripts/a.js"], range: ["scripts/a.js"] }),
+			),
+		).toBeNull();
 	});
 
 	describe("re-reading the manifest at the sha (#799)", () => {
@@ -1182,6 +1215,19 @@ describe("attesting a sha by tree (#189)", () => {
 				`${attestedSha}:docs/test-read-edges.json`,
 			]);
 			expect(io.calls.map((c) => c[0])).toEqual(["show", "diff-tree"]);
+			expect(
+				attest(
+					selecting(),
+					scripted({
+						manifest: edges({
+							"docs/read-by-a.md": ["scripts/a.test.ts"],
+							"docs/read-by-z.md": ["scripts/z.test.ts"],
+						}),
+						touched: ["docs/test-read-edges.json", "docs/read-by-z.md"],
+						range: ["scripts/a.js"],
+					}),
+				),
+			).toEqual([{ by: "tree", tree: treeSha, closureSize: 4 }]);
 		});
 
 		it("refuses a new edge from a selected test onto a document that also changed", () => {
@@ -1193,6 +1239,18 @@ describe("attesting a sha by tree (#189)", () => {
 				range: ["scripts/a.js"],
 			});
 			expect(at(selecting(), io)).toBe(false);
+			expect(
+				attest(
+					selecting(),
+					scripted({
+						manifest: edges({
+							"docs/new.md": ["scripts/z.test.ts", "scripts/a.test.ts"],
+						}),
+						touched: ["docs/test-read-edges.json", "docs/new.md"],
+						range: ["scripts/a.js", "docs/new.md"],
+					}),
+				),
+			).toBeNull();
 		});
 
 		it("refuses where the manifest is absent, unparseable or malformed at the sha", () => {
@@ -1203,8 +1261,10 @@ describe("attesting a sha by tree (#189)", () => {
 				JSON.stringify({}),
 				JSON.stringify({ edges: [] }),
 				JSON.stringify({ edges: { "docs/x.md": "scripts/a.test.ts" } }),
-			])
+			]) {
 				expect(at(selecting(), scripted({ manifest }))).toBe(false);
+				expect(attest(selecting(), scripted({ manifest }))).toBeNull();
+			}
 		});
 
 		it("judges a pre-#799 certificate, the manifest in its closure, on that closure alone and never re-reads", () => {
@@ -1222,6 +1282,12 @@ describe("attesting a sha by tree (#189)", () => {
 			expect([...moved.calls, ...still.calls].map((c) => c[0])).not.toContain(
 				"show",
 			);
+			expect(
+				attest(old, scripted({ touched: ["docs/test-read-edges.json"] })),
+			).toBeNull();
+			expect(attest(old, scripted({ touched: ["docs/other.md"] }))).toEqual([
+				{ by: "tree", tree: treeSha, closureSize: 3 },
+			]);
 		});
 	});
 
@@ -1353,6 +1419,9 @@ describe("attesting a sha by tree (#189)", () => {
 			expect(sha).not.toBe(m.sha);
 			expect(holdsTestByTree(m, "", sha, { root: dir })).toBe(true);
 			const r = attestationOf(sha, [m], { root: dir });
+			expect(matches(r)).toEqual([
+				{ by: "tree", tree: m.treeAtEnd, closureSize: 3 },
+			]);
 			const s = r.judged ? r.suites[0] : null;
 			expect(s?.attested).toBe(true);
 			const text = attestedReading(
@@ -1371,9 +1440,9 @@ describe("attesting a sha by tree (#189)", () => {
 			const m = markerOver(dir);
 			fs.writeFileSync(path.join(dir, "lib.js"), "lib.js v2 — untested\n");
 			git(dir, "commit", "-q", "-m", "second edit", "--", "lib.js");
-			expect(
-				holdsTestByTree(m, "", git(dir, "rev-parse", "HEAD"), { root: dir }),
-			).toBe(false);
+			const sha = git(dir, "rev-parse", "HEAD");
+			expect(holdsTestByTree(m, "", sha, { root: dir })).toBe(false);
+			expect(matches(attestationOf(sha, [m], { root: dir }))).toBeNull();
 		});
 
 		it("leaves unattested a path in the commit's range the selection never saw, though the run still holds", () => {
@@ -1433,9 +1502,11 @@ describe("attesting a sha by tree (#189)", () => {
 				changedPaths: ["notes.md"],
 			};
 			git(dir, "commit", "-q", "-m", "docs only", "--", "notes.md");
-			expect(
-				holdsTestByTree(m, "", git(dir, "rev-parse", "HEAD"), { root: dir }),
-			).toBe(true);
+			const sha = git(dir, "rev-parse", "HEAD");
+			expect(holdsTestByTree(m, "", sha, { root: dir })).toBe(true);
+			expect(matches(attestationOf(sha, [m], { root: dir }))).toEqual([
+				{ by: "tree", tree: m.treeAtEnd, closureSize: 2 },
+			]);
 		});
 
 		function manifestRun(dir: string) {
@@ -1470,7 +1541,11 @@ describe("attesting a sha by tree (#189)", () => {
 			const dir = repo();
 			const { m, write } = manifestRun(dir);
 			write({ "notes.md": ["lib.test.ts"], "other.txt": ["z.test.ts"] });
-			expect(holdsTestByTree(m, "", commitAll(dir), { root: dir })).toBe(true);
+			const sha = commitAll(dir);
+			expect(holdsTestByTree(m, "", sha, { root: dir })).toBe(true);
+			expect(
+				matches(attestationOf(sha, [m], { root: dir, within: m.changedPaths })),
+			).toEqual([{ by: "tree", tree: m.treeAtEnd, closureSize: 4 }]);
 		});
 
 		it("refuses the commit whose manifest maps a selected test onto a document edited since the run (#799)", () => {
@@ -1478,14 +1553,22 @@ describe("attesting a sha by tree (#189)", () => {
 			const { m, write } = manifestRun(dir);
 			write({ "notes.md": ["lib.test.ts"], "other.txt": ["lib.test.ts"] });
 			fs.writeFileSync(path.join(dir, "other.txt"), "other.txt v2\n");
-			expect(holdsTestByTree(m, "", commitAll(dir), { root: dir })).toBe(false);
+			const sha = commitAll(dir);
+			expect(holdsTestByTree(m, "", sha, { root: dir })).toBe(false);
+			expect(
+				matches(attestationOf(sha, [m], { root: dir, within: m.changedPaths })),
+			).toBeNull();
 		});
 
 		it("refuses where the sha carries no manifest (#799)", () => {
 			const dir = repo();
 			const { m } = manifestRun(dir);
 			fs.rmSync(path.join(dir, "docs", "test-read-edges.json"));
-			expect(holdsTestByTree(m, "", commitAll(dir), { root: dir })).toBe(false);
+			const sha = commitAll(dir);
+			expect(holdsTestByTree(m, "", sha, { root: dir })).toBe(false);
+			expect(
+				matches(attestationOf(sha, [m], { root: dir, within: m.changedPaths })),
+			).toBeNull();
 		});
 
 		it("attests a still tree's full run on the commit that reproduces it exactly", () => {
@@ -1499,6 +1582,9 @@ describe("attesting a sha by tree (#189)", () => {
 			git(dir, "commit", "-q", "-m", "everything", "--", "lib.js");
 			const sha = git(dir, "rev-parse", "HEAD");
 			expect(holdsTestByTree(m, "", sha, { root: dir })).toBe(true);
+			expect(matches(attestationOf(sha, [m], { root: dir }))).toEqual([
+				{ by: "tree", tree: m.treeAtEnd, closureSize: "*" },
+			]);
 			git(dir, "commit", "-q", "--allow-empty", "-m", "moved sha, same tree");
 			expect(
 				holdsTestByTree(m, "", git(dir, "rev-parse", "HEAD"), { root: dir }),
