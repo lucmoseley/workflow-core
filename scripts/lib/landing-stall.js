@@ -1,9 +1,6 @@
-const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { holderAlive } = require("./arbiter-proc.js");
-const { writeFileAtomic } = require("./atomic-write.js");
-const { orFallback } = require("./caught.js");
+const { holderAlive, readCurrentBootId } = require("./arbiter-proc.js");
 const {
 	HEARTBEAT_MS,
 	queueLanderFiles,
@@ -20,6 +17,7 @@ const {
 const { INSTALL_TIMEOUT_MS } = require("./npm-ci-staging.js");
 const { queueBranch } = require("./landing-refs.js");
 const { readOwedDrops } = require("./lander-records.js");
+const { WAKE, recordWake, upSince } = require("./machine-clock.js");
 const { markersDir } = require("./marker-root.js");
 const { queueGit } = require("./queue-lander-adapters.js");
 const { oldestWaiting, queueGaugeOf } = require("./queue-gauge.js");
@@ -53,14 +51,12 @@ const HUNG_MS = 2 * LONGEST_CALL_MS;
  *   | {tag: "LANDER-LOG-UNREAD", line: string}} StallFinding
  * @typedef {{kind: "held", at: number, reason: string}
  *   | {kind: "none"} | {kind: "unread", fault: string}} HeldRead
- * @typedef {{from: number, to: number, frozen: number}} Wake
- * @typedef {{floor: number, wakes: Wake[]}} MachineClock
  * @typedef {object} QueueReading
  * @property {number} now
  * @property {string|null} main
  * @property {number|null} movedAt
  * @property {import("./queue-gauge.js").QueueGauge} gauge
- * @property {MachineClock} clock
+ * @property {import("./machine-clock.js").MachineClock} clock
  * @property {import("./lander-files.js").Heartbeat|null} heartbeat
  * @property {(beat: import("./lander-files.js").Heartbeat) => boolean} alive
  * @property {number} owed
@@ -81,7 +77,7 @@ function stallFindings(r) {
 	/** @type {StallFinding[]} */
 	const found = [];
 	const at = `${queueBranch(oldest.name)} ${short(oldest.sha)}`;
-	const stalled = stalledFinding(r, oldest, at);
+	const stalled = buildStalledFinding(r, oldest, at);
 	if (stalled) found.push(stalled);
 	if (r.held.kind === "held")
 		found.push({ tag: "LANDER-HELD", line: buildHeldLine(r.held) });
@@ -110,18 +106,18 @@ function stallFindings(r) {
  * @param {string} at
  * @returns {StallFinding|null}
  */
-function stalledFinding({ movedAt, clock, now }, oldest, at) {
+function buildStalledFinding({ movedAt, clock, now }, oldest, at) {
 	if (movedAt === null) return null;
 	const up = upSince(clock, Math.max(movedAt, oldest.since), now);
 	if (up.ms <= STALL_MS) return null;
-	const frozen =
+	const frozenNote =
 		up.frozen > 0
 			? ` of up time, not counting ${Math.round(up.frozen / 60_000)} min the machine was frozen`
 			: "";
 	return {
 		tag: "LANDING-STALLED",
 		movedAt,
-		line: `main has not moved since ${new Date(movedAt).toISOString()}, over ${STALL_MS / 60_000} min${frozen}, with ${at} waiting since ${new Date(oldest.since).toISOString()}`,
+		line: `main has not moved since ${new Date(movedAt).toISOString()}, over ${STALL_MS / 60_000} min${frozenNote}, with ${at} waiting since ${new Date(oldest.since).toISOString()}`,
 	};
 }
 
@@ -212,6 +208,7 @@ function readQueue(root, now) {
 		clock: recordWake(path.join(markersDir(root), WAKE), {
 			startedAt: now - Number(process.env.WFC_UPTIME_S ?? os.uptime()) * 1000,
 			now,
+			bootId: readCurrentBootId(),
 		}),
 		heartbeat: readHeartbeat(queueLanderFiles(root).heartbeat),
 		alive: holderAlive,
@@ -233,120 +230,11 @@ function committedAt(root, sha) {
 	return at;
 }
 
-const WAKE = ".machine-wake.json";
-// guess, #4055
-const WAKE_SLACK_MS = 5 * 60 * 1000;
-// guess, #5612
-const MAX_WAKES = 64;
-
-/**
- * @param {MachineClock} clock
- * @param {number} since
- * @param {number} now
- */
-function upSince(clock, since, now) {
-	const start = Math.max(since, clock.floor);
-	const frozen = clock.wakes.reduce(
-		(sum, w) =>
-			w.to <= start
-				? sum
-				: sum + (w.from >= start ? w.frozen : Math.min(w.frozen, w.to - start)),
-		0,
-	);
-	return { ms: Math.max(0, now - start - frozen), frozen };
-}
-
-/** @param {unknown} w */
-const isWake = (w) =>
-	typeof w === "object" &&
-	w !== null &&
-	["from", "to", "frozen"].every(
-		(k) => typeof (/** @type {Record<string, unknown>} */ (w)[k]) === "number",
-	);
-
-/**
- * @typedef {{startedAt: number, at: number, floor: number, wakes: Wake[]}}
- *   WakeMarker
- */
-
-/**
- * @param {string} file
- * @param {{startedAt: number, now: number}} at
- * @returns {MachineClock}
- */
-function recordWake(file, { startedAt, now }) {
-	/** @type {Record<string, unknown>|null} */
-	const rec = orFallback(() => JSON.parse(fs.readFileSync(file, "utf8")), null);
-	const next = isMarker(rec)
-		? nextMarker(rec, startedAt, now)
-		: fromLegacy(rec, startedAt, now);
-	try {
-		writeFileAtomic(file, `${JSON.stringify(next)}\n`, { mkdir: true });
-	} catch {
-		return { floor: startedAt, wakes: [] };
-	}
-	return { floor: next.floor, wakes: next.wakes };
-}
-
-/**
- * @param {Record<string, unknown>|null} rec
- * @returns {rec is WakeMarker}
- */
-const isMarker = (rec) =>
-	typeof rec?.startedAt === "number" &&
-	typeof rec.at === "number" &&
-	typeof rec.floor === "number" &&
-	Array.isArray(rec.wakes) &&
-	rec.wakes.every(isWake);
-
-/**
- * @param {WakeMarker} rec
- * @param {number} startedAt
- * @param {number} now
- * @returns {WakeMarker}
- */
-function nextMarker(rec, startedAt, now) {
-	if (startedAt - rec.startedAt <= WAKE_SLACK_MS) return { ...rec, at: now };
-	if (startedAt >= rec.at)
-		return { startedAt, at: now, floor: startedAt, wakes: [] };
-	const wakes = [
-		...rec.wakes,
-		{ from: rec.at, to: now, frozen: startedAt - rec.startedAt },
-	];
-	const dropped = wakes.splice(0, Math.max(0, wakes.length - MAX_WAKES));
-	return {
-		startedAt,
-		at: now,
-		floor: Math.max(rec.floor, ...dropped.map((w) => w.to)),
-		wakes,
-	};
-}
-
-/**
- * @param {Record<string, unknown>|null} rec
- * @param {number} startedAt
- * @param {number} now
- * @returns {WakeMarker}
- */
-function fromLegacy(rec, startedAt, now) {
-	const last = rec?.startedAt;
-	if (typeof last !== "number" || startedAt - last > WAKE_SLACK_MS)
-		return {
-			startedAt,
-			at: now,
-			floor: rec === null ? startedAt : now,
-			wakes: [],
-		};
-	const floor = typeof rec?.wokeAt === "number" ? rec.wokeAt : now;
-	return { startedAt: last, at: now, floor, wakes: [] };
-}
-
 module.exports = {
 	buildHeldLine,
 	buildUnreadLine,
 	readHeldExit,
 	readQueue,
-	recordWake,
 	stallFindings,
 	supervision,
 };

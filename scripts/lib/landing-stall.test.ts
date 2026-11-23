@@ -14,12 +14,8 @@ import {
 	LANDER_GIT_TIMEOUT_MS,
 	PUSH_TIMEOUT_MS,
 } from "./lander-git.js";
-import {
-	readHeldExit,
-	recordWake,
-	stallFindings,
-	supervision,
-} from "./landing-stall.js";
+import { readHeldExit, stallFindings, supervision } from "./landing-stall.js";
+import { recordWake } from "./machine-clock.js";
 import { INSTALL_TIMEOUT_MS } from "./npm-ci-staging.js";
 
 const NOW = Date.parse("2026-10-21T12:00:00Z");
@@ -128,7 +124,11 @@ describe("the stall clock counts up time across freezes (#5612)", () => {
 			wakes: [] as { from: number; to: number; frozen: number }[],
 		};
 		for (const [at, frozen] of rows)
-			clock = recordWake(file, { startedAt: Boot + frozen * MIN, now: at });
+			clock = recordWake(file, {
+				startedAt: Boot + frozen * MIN,
+				now: at,
+				bootId: "b1",
+			});
 		return clock;
 	};
 	const stalled = (since: number, clock: Reading["clock"], now = NOW) =>
@@ -190,17 +190,46 @@ describe("the stall clock counts up time across freezes (#5612)", () => {
 		const since = ago(5 * 60);
 		readAt([ago(6 * 60), 0], [ago(4 * 60), 0]);
 		const boot = ago(119);
-		const clock = recordWake(file, { startedAt: boot, now: NOW });
+		const next = { startedAt: boot, bootId: "b2" };
+		const clock = recordWake(file, { ...next, now: NOW });
 		expect(clock).toEqual({ floor: boot, wakes: [] });
 		expect(stalled(since, clock)).toEqual([]);
 		const later = NOW + 2 * MIN;
 		expect(
-			stalled(since, recordWake(file, { startedAt: boot, now: later }), later),
+			stalled(since, recordWake(file, { ...next, now: later }), later),
 		).toHaveLength(1);
 	});
 
+	it("reads a freeze longer than the boot's up time as a freeze, not a reboot, and floors it at the reading where no boot id reads", () => {
+		const boot = ago(421);
+		const since = boot + 120 * MIN;
+		const read = (now: number, frozen: number, bootId: string | null) =>
+			recordWake(file, { startedAt: boot + frozen * MIN, now, bootId });
+		read(boot + 180 * MIN, 0, "b1");
+		const clock = read(NOW, 240, "b1");
+		expect(clock.wakes).toEqual([
+			{ from: boot + 180 * MIN, to: NOW, frozen: 240 * MIN },
+		]);
+		expect(stalled(since, clock)).toEqual([]);
+		fs.rmSync(file);
+		read(boot + 180 * MIN, 0, null);
+		expect(read(NOW, 240, null)).toEqual({ floor: NOW, wakes: [] });
+	});
+
+	it("keeps the marker's wake history where the marker will not write", () => {
+		readAt([ago(200), 0], [ago(100), 30]);
+		fs.chmodSync(path.dirname(file), 0o555);
+		try {
+			expect(readAt([NOW, 30]).wakes).toEqual([
+				{ from: ago(200), to: ago(100), frozen: 30 * MIN },
+			]);
+		} finally {
+			fs.chmodSync(path.dirname(file), 0o755);
+		}
+	});
+
 	it("reads an old-shape, corrupt or absent marker without throwing, as the clock floored at the last wake", () => {
-		const at = { startedAt: Boot, now: NOW };
+		const at = { startedAt: Boot, now: NOW, bootId: "b1" };
 		expect(recordWake(file, at)).toEqual({ floor: Boot, wakes: [] });
 		fs.writeFileSync(file, "{not json");
 		expect(recordWake(file, at)).toEqual({ floor: Boot, wakes: [] });
