@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { chargeMb as launchChargeMb } from "./launch-charge";
 import { localTester, readLiveLanders, readWholeRuns } from "./local-tester.js";
 import { markersDir } from "./marker-root.js";
@@ -85,17 +86,28 @@ const recordingExec = () => {
 
 let passing: string;
 
-beforeEach(() => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "local-tester-"));
+const atRoot = (root: string) => {
+	tmp = root;
 	remote = path.join(tmp, "remote.git");
 	work = path.join(tmp, "work");
+};
+
+const seeded = defineTemplate((dir) => {
+	atRoot(dir);
 	git(tmp, "init", "-q", "--bare", "-b", "main", remote);
 	git(tmp, "clone", "-q", remote, work);
 	write("run.js", RUNNER);
 	write("a.check.js", "");
 	write(".gitignore", ".claude/worktrees/\n.claude/tmp/\nnode_modules/\n");
 	config();
-	passing = commit("passing");
+	commit("passing");
+});
+
+beforeEach(() => {
+	atRoot(
+		seeded.instantiate(fs.mkdtempSync(path.join(os.tmpdir(), "local-tester-"))),
+	);
+	passing = git(work, "rev-parse", "HEAD");
 });
 
 afterEach(() => {

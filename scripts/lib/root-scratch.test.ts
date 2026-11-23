@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
+import { defineTemplate } from "./git-fixture";
 import {
 	type CoreRun,
 	runCore,
@@ -325,6 +326,10 @@ describe("a write by another spelling the shared reader reads (#1827)", () => {
 });
 
 describe("what it stays silent on", () => {
+	const mainRepo = defineTemplate((d) => {
+		execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: d });
+	});
+
 	it.each([
 		[
 			"node scripts/x.js > .claude/tmp/i2340.out",
@@ -362,9 +367,7 @@ describe("what it stays silent on", () => {
 	);
 
 	it("stays silent on a dotfile at the root of a DIFFERENT repo", () => {
-		const other = path.join(dir, "other");
-		fs.mkdirSync(other);
-		execFileSync("git", ["init", "-q", "-b", "main", "."], { cwd: other });
+		const other = mainRepo.instantiate(path.join(dir, "other"));
 		expect(run("echo x > .i2340.out", other).refusal).toBeNull();
 	});
 

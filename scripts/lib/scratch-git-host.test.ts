@@ -4,9 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFaultyGit } from "./git-fault-fake";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { buildHostPorts } from "./scratch-git-host.js";
 
 describe("isTracked", () => {
+	const emptyRepo = defineTemplate(emptyRepoTemplate);
 	let dir: string;
 	const isTracked = (abs: string) => buildHostPorts().isTracked(abs);
 
@@ -18,7 +20,7 @@ describe("isTracked", () => {
 	});
 
 	it("answers true for a tracked script and false for an untracked one", () => {
-		execFileSync("git", ["init", "-q"], { cwd: dir });
+		emptyRepo.instantiate(dir);
 		fs.writeFileSync(path.join(dir, "a.sh"), "x\n");
 		fs.writeFileSync(path.join(dir, "b.sh"), "x\n");
 		execFileSync("git", ["add", "a.sh"], { cwd: dir });

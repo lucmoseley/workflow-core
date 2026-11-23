@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { runInProcess } from "./run-in-process";
 
 const { ownQueueRef, pushedRef, readUnpushedRef } =
@@ -25,10 +26,12 @@ afterEach(() => {
 const gitIn = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, stdio: "ignore" });
 
-function sessionWorktree(name: string) {
-	gitIn(root, "init", "-q", "-b", "main");
+const SESSION = "fix-it";
+
+const sessionTemplate = defineTemplate((dir) => {
+	gitIn(dir, "init", "-q", "-b", "main");
 	gitIn(
-		root,
+		dir,
 		"-c",
 		"user.name=t",
 		"-c",
@@ -39,26 +42,36 @@ function sessionWorktree(name: string) {
 		"-m",
 		"c",
 	);
-	const tree = path.join(root, ".claude", "worktrees", name);
-	gitIn(root, "worktree", "add", "-q", "--detach", tree);
-	return tree;
+	gitIn(
+		dir,
+		"worktree",
+		"add",
+		"-q",
+		"--detach",
+		path.join(dir, ".claude", "worktrees", SESSION),
+	);
+});
+
+function sessionWorktree() {
+	sessionTemplate.instantiate(root);
+	return path.join(root, ".claude", "worktrees", SESSION);
 }
 
 describe("pushedRef", () => {
 	it("is a session worktree's own queue ref once it stands", () => {
-		const tree = sessionWorktree("fix-it");
+		const tree = sessionWorktree();
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
 		expect(pushedRef({ tree })).toBe("origin/queue/fix-it");
 	});
 
 	it("is origin/main for a session worktree whose queue ref does not stand", () => {
-		const tree = sessionWorktree("fix-it");
+		const tree = sessionWorktree();
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/other", "HEAD");
 		expect(pushedRef({ tree })).toBe("origin/main");
 	});
 
 	it("names the queue ref a land pushes for a symlinked path to the worktree", () => {
-		sessionWorktree("fix-it");
+		sessionWorktree();
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
 		const link = `${root}-link`;
 		fs.symlinkSync(root, link);
@@ -110,7 +123,7 @@ describe("readUnpushedRef", () => {
 	});
 
 	it("is the pushed ref in a session worktree, its own queue ref", () => {
-		const tree = sessionWorktree("fix-it");
+		const tree = sessionWorktree();
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
 		expect(readUnpushedRef({ root, tree })).toBe("origin/queue/fix-it");
 	});
@@ -162,7 +175,7 @@ describe("the CLI", () => {
 	});
 
 	it("prints a linked worktree's own queue ref, pushed and unpushed (#4692)", () => {
-		const tree = sessionWorktree("fix-it");
+		const tree = sessionWorktree();
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
 		for (const [verb, out] of [
 			["pushed", "origin/queue/fix-it"],

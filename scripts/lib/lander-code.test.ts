@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 
 const { isCarried, levelUntilCarried, readRunCode, readSupersededFiles } =
 	createRequire(__filename)("./lander-code.js");
@@ -24,13 +25,17 @@ const commit = (file: string, text: string) => {
 	return git("rev-parse", "HEAD");
 };
 
-beforeEach(() => {
-	repo = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), "lander-code-")),
-	);
+const seeded = defineTemplate((dir) => {
+	repo = dir;
 	git("init", "-q");
 	commit(OWN, "module.exports = 1;\n");
 	commit("docs/notes.md", "v1\n");
+});
+
+beforeEach(() => {
+	repo = seeded.instantiate(
+		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "lander-code-"))),
+	);
 });
 afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
 

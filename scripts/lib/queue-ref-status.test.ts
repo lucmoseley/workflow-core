@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { redPathAtRest } from "./lander-records.js";
 import type { QueueEvent } from "./queue-log.js";
 import { buildQueueRefLine, readQueueRefStates } from "./queue-ref-status.js";
@@ -31,17 +32,26 @@ const commit = (name: string) => {
 const markers = () => path.join(root, ".claude", "tmp", "markers");
 const short = (sha: string) => sha.slice(0, 9);
 
-beforeEach(() => {
-	root = fs.mkdtempSync(path.join(os.tmpdir(), "queue-ref-status-"));
+const history = defineTemplate((dir) => {
+	root = dir;
 	git("init", "-q", "-b", "main");
 	git("config", "user.email", "t@t");
 	git("config", "user.name", "t");
-	seed = commit("seed");
-	member = commit("member");
-	later = commit("later");
-	git("checkout", "-q", "--detach", seed);
-	git("merge", "-q", "--no-ff", "--no-edit", member);
+	const base = commit("seed");
+	const side = commit("member");
+	commit("later");
+	git("checkout", "-q", "--detach", base);
+	git("merge", "-q", "--no-ff", "--no-edit", side);
+});
+
+beforeEach(() => {
+	root = history.instantiate(
+		fs.mkdtempSync(path.join(os.tmpdir(), "queue-ref-status-")),
+	);
 	merged = git("rev-parse", "HEAD");
+	seed = git("rev-parse", "HEAD^1");
+	member = git("rev-parse", "HEAD^2");
+	later = git("rev-parse", "main");
 	tree = path.join(root, ".claude", "worktrees", "alpha");
 	fs.mkdirSync(tree, { recursive: true });
 	fs.writeFileSync(path.join(tree, ".git"), "gitdir: elsewhere\n");

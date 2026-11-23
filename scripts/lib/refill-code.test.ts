@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { copyLibs, readProgramLibs } from "../lib-closure-fixture.js";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
 import { SHA_SHOWN } from "./pinned-code.js";
 import { makeProcRoot, writeCwd } from "./proc-fake";
@@ -79,12 +80,16 @@ function push(files: Record<string, string>) {
 	return git(dev, "rev-parse", "HEAD");
 }
 
-beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "refill-code-"));
+const atRoot = (root: string) => {
+	dir = root;
 	origin = path.join(dir, "origin.git");
 	checkout = path.join(dir, "checkout");
 	dev = path.join(dir, "dev");
 	codeDir = path.join(dir, "code");
+};
+
+const pushed = defineTemplate((root) => {
+	atRoot(root);
 	git(dir, "init", "-q", "--bare", "-b", "main", origin);
 	git(dir, "clone", "-q", origin, dev);
 	git(dev, "checkout", "-q", "-b", "main");
@@ -94,6 +99,22 @@ beforeEach(() => {
 		"docs/notes.md": "notes\n",
 	});
 	git(dir, "clone", "-q", origin, checkout);
+});
+
+const emptyRepo = defineTemplate(emptyRepoTemplate);
+
+const CLONE_REFLOGS = [
+	"logs/HEAD",
+	"logs/refs/heads/main",
+	"logs/refs/remotes/origin/HEAD",
+].map((log) => path.join("checkout", ".git", log));
+
+beforeEach(() => {
+	atRoot(
+		pushed.instantiate(fs.mkdtempSync(path.join(os.tmpdir(), "refill-code-")), {
+			extraPaths: CLONE_REFLOGS,
+		}),
+	);
 });
 
 afterEach(() => {
@@ -458,8 +479,7 @@ describe("the boot link (#3891)", () => {
 		expect(bootProgram({ scriptsDir: plugin, codeDir })).toEqual({
 			program: path.join(plugin, "refill-loop.js"),
 		});
-		const empty = path.join(dir, "empty");
-		git(dir, "init", "-q", empty);
+		const empty = emptyRepo.instantiate(path.join(dir, "empty"));
 		expect(bootProgram({ scriptsDir: empty, codeDir })).toEqual({
 			error: expect.stringMatching(/^no \S+ in /),
 		});

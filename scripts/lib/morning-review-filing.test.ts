@@ -8,6 +8,7 @@ import { answerReversals } from "../answer-review-reversals.js";
 import { freshSandbox } from "./arbiter-testkit";
 import { checkerFake, WSL_UNREAD_ENVELOPE } from "./checker-run-fake";
 import { fileIssueFake } from "./file-issue-fake";
+import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { localDate } from "./local-date.js";
 import { buildReviewTitle } from "./morning-review.js";
 import { fileMorningReview } from "./morning-review-filing.js";
@@ -561,6 +562,8 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 	});
 
 	describe("throughput (#5275)", () => {
+		const emptyRepo = defineTemplate(emptyRepoTemplate);
+
 		afterEach(() => vi.unstubAllEnvs());
 
 		const readFiledBody = async () => {
@@ -572,7 +575,7 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 			seed([]);
 			const served = path.join(sb.dir, "served", "dv");
 			fs.mkdirSync(served, { recursive: true });
-			execFileSync("git", ["init", "-q", served]);
+			emptyRepo.instantiate(served);
 			vi.stubEnv("WFC_REFILL_DIR", runEnv().WFC_REFILL_DIR);
 			fs.mkdirSync(path.dirname(refillFile("x")), { recursive: true });
 			fs.writeFileSync(
