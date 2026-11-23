@@ -61,6 +61,7 @@ interface Exit {
 	session?: string | null;
 	empty?: boolean;
 	skipped?: boolean;
+	joined?: { pid: number; session: string | null };
 }
 
 const exit = (e: Exit) => ({
@@ -193,6 +194,32 @@ describe("the window", () => {
 		expect(out).toContain("| 2026-10-17 | 1 | 0.5 |");
 		expect(out).toContain("| 2026-10-18 | 1 | 0.5 |");
 		expect(out).toContain("| 2026-10-19 | 0 | 0.0 |");
+	});
+});
+
+describe("a wait that joined a queued same-key `tsc` run (#5639)", () => {
+	beforeEach(() => {
+		log(
+			{ at: NOW - HOUR, waitS: 1800, kind: "tsc", session: "a" },
+			{
+				at: NOW - HOUR,
+				waitS: 900,
+				kind: "tsc",
+				session: "b",
+				joined: { pid: 1, session: "a" },
+			},
+		);
+	});
+
+	it("counts in the wait hours but not the queued runs, on a line of its own", () => {
+		const out = dryRun();
+		expect(out).toMatch(
+			/\*\*0\.8 h\*\* of suite queue wait .* over 1 queued run\(s\)\./,
+		);
+		expect(out).toContain(
+			"1 more wait(s) joined a queued same-key `tsc` run rather than queue their own, 0.3 h of that wait (#5639).",
+		);
+		expect(out).toContain("Dry run: 0.8 h of queue wait in the last 24 h");
 	});
 });
 

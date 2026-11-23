@@ -63,7 +63,8 @@ const HOST_TEXT = {
 
 /**
  * @typedef {{ at: string, waitS: number, reason: string, kind: string,
- *   session: string | null, empty: boolean, skipped?: boolean }} QueueExit
+ *   session: string | null, empty: boolean, skipped?: boolean,
+ *   joined?: { pid: number, session: string | null } }} QueueExit
  * @typedef {{ runs: number, waitS: number }} Tally
  */
 
@@ -181,9 +182,12 @@ function reading(logged, nowMs, unparsed, core) {
 		.slice(0, TOP_SESSIONS);
 	const empty = total(exits, from, nowMs, (e) => e.empty === true);
 	const killed = total(exits, from, nowMs, (e) => e.reason === "killed");
+	const joined = total(exits, from, nowMs, (e) => e.joined !== undefined);
 
 	const body = [
-		`**${hours(all.waitS)} h** of suite queue wait in the 24 h to ${minute(nowMs)}, over ${all.runs} queued run(s). The limit is ${LIMIT_H} h, fixed in hours: it changes only by ${host.ruling} (#1157 Q5, Q6).`,
+		`**${hours(all.waitS)} h** of suite queue wait in the 24 h to ${minute(nowMs)}, over ${all.runs - joined.runs} queued run(s). The limit is ${LIMIT_H} h, fixed in hours: it changes only by ${host.ruling} (#1157 Q5, Q6).`,
+		"",
+		`${joined.runs} more wait(s) joined a queued same-key \`tsc\` run rather than queue their own, ${hours(joined.waitS)} h of that wait (#5639).`,
 		"",
 		"Read from `.suite-queue-exits.jsonl` by `scripts/report-suite-queue-wait.js` (#1219), at most hourly at session start. While this issue is open, each reading at or over the limit refreshes this body; once it is closed, only a 24 h window starting after the close files it again.",
 		...(unparsed

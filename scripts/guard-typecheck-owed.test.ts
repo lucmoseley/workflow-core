@@ -34,6 +34,7 @@ interface Line {
 	session?: string;
 	noWait?: boolean;
 	limb?: string;
+	joined?: { pid: number; session: string };
 }
 
 const writeLog = (lines: Line[]) => {
@@ -89,6 +90,14 @@ describe("guard-typecheck-owed", () => {
 
 	it("passes once an own run opened", () => {
 		writeLog([HELD, OWN_RUN]);
+		expect(run()).toBeNull();
+	});
+
+	it("passes once a joined run opened (#5639)", () => {
+		writeLog([
+			HELD,
+			{ reason: "opened", waitS: 3, joined: { pid: 101, session: OTHER } },
+		]);
 		expect(run()).toBeNull();
 	});
 
