@@ -14,8 +14,14 @@ import {
 	LANDER_GIT_TIMEOUT_MS,
 	PUSH_TIMEOUT_MS,
 } from "./lander-git.js";
-import { readHeldExit, stallFindings, supervision } from "./landing-stall.js";
+import {
+	HUNG_MS,
+	readHeldExit,
+	stallFindings,
+	supervision,
+} from "./landing-stall.js";
 import { INSTALL_TIMEOUT_MS } from "./npm-ci-staging.js";
+import { HOOK_GRACE_MS } from "./run-budgeted.js";
 
 const NOW = Date.parse("2026-10-21T12:00:00Z");
 const Q = "b".repeat(40);
@@ -186,14 +192,18 @@ describe("stallFindings", () => {
 });
 
 describe("the lander's identity and hang (#5606)", () => {
-	const longestCall = Math.max(
-		PUSH_TIMEOUT_MS,
-		INSTALL_TIMEOUT_MS,
-		GATED_COMMIT_TIMEOUT_MS,
-		GH_TIMEOUT_MS,
-		LANDER_GIT_TIMEOUT_MS,
-	);
-	const hungMs = 2 * longestCall;
+	const hungMs = HUNG_MS;
+	it("reads a lander hung only past the longest gap its beats can leave (#5644)", () => {
+		const gaps = [
+			PUSH_TIMEOUT_MS,
+			INSTALL_TIMEOUT_MS,
+			GATED_COMMIT_TIMEOUT_MS + HOOK_GRACE_MS,
+			GATED_COMMIT_TIMEOUT_MS + 2 * LANDER_GIT_TIMEOUT_MS,
+			2 * GH_TIMEOUT_MS,
+			3 * LANDER_GIT_TIMEOUT_MS,
+		];
+		for (const gap of gaps) expect(HUNG_MS).toBeGreaterThan(gap);
+	});
 	const ago = (ms: number) => new Date(NOW - ms).toISOString();
 	const ownBeat = (over: object = {}, at = ago(STALE_MS + MIN)) => ({
 		pid: process.pid,
@@ -221,7 +231,7 @@ describe("the lander's identity and hang (#5606)", () => {
 	});
 
 	it("reads the lander's beat older than its longest bounded call, but under the hang threshold, as a lander inside a call", () => {
-		const r = readingOwnProc(ownBeat({}, ago(longestCall + MIN)));
+		const r = readingOwnProc(ownBeat({}, ago(PUSH_TIMEOUT_MS + MIN / 2)));
 		expect(stallFindings(r)).toEqual([]);
 		expect(supervision(r).start).toBe(false);
 	});

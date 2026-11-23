@@ -42,8 +42,7 @@ const LONGEST_CALL_MS = Math.max(
 	GH_TIMEOUT_MS,
 	LANDER_GIT_TIMEOUT_MS,
 );
-// guess, #5644
-const HUNG_MS = 2 * LONGEST_CALL_MS;
+const HUNG_MS = LONGEST_CALL_MS + HEARTBEAT_MS;
 
 /**
  * @typedef {{tag: "LANDING-STALLED", line: string, movedAt: number}
@@ -246,6 +245,7 @@ function recordWake(file, { startedAt, now }) {
 }
 
 module.exports = {
+	HUNG_MS,
 	buildHeldLine,
 	buildUnreadLine,
 	readHeldExit,
