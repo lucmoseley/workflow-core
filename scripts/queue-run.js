@@ -736,14 +736,19 @@ async function run(words, slot, options, err) {
 	const signals = signalsOf(options);
 	/** @type {import("node:child_process").ChildProcess | null} */
 	let child = null;
-	const seatAfter = (/** @type {number} */ waitedMs) =>
-		queueSeat({
+	const seatAfter = (/** @type {number} */ waitedMs) => {
+		const made = queueSeat({
 			queue,
 			join: unseated ? false : join,
 			waitedMs,
 			logExit: logged,
-			signals: { ...signals, onSignal: (signal) => passOn(child, signal) },
+			signals: {
+				...signals,
+				onSignal: (signal) => made === seat && passOn(child, signal),
+			},
 		});
+		return made;
+	};
 	let seat = seatAfter(0);
 	if (joining && !unseated) {
 		const joined = await joinOrSeat(
@@ -1017,8 +1022,11 @@ function spawnCommand(words, { handed, seat, options, err, finish, capture }) {
 		tee(running.stdout, [options.stdout ?? STDOUT, { write: capture.out }]);
 		tee(running.stderr, [err, { write: capture.err }]);
 	}
+	let ended = false;
 	/** @param {number} code */
 	const end = (code) => {
+		if (ended) return;
+		ended = true;
 		finish(code);
 		capture?.release();
 	};

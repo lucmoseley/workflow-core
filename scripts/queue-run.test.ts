@@ -1604,6 +1604,7 @@ describe("queue-run.js", () => {
 							reason: "opened",
 							kind: "tsc",
 							session: "s1",
+							at: new Date(5000).toISOString(),
 							waitS: 3,
 							chargeMb: TSC_PEAK_MB,
 							joined: { pid: 101, session: "s1" },
@@ -1687,6 +1688,41 @@ describe("queue-run.js", () => {
 				earlier.request(151);
 				await earlier.poll();
 				expect(earlier.f.spawned).toHaveLength(1);
+			});
+
+			it("never joins a run admitted and not yet stamped spawned", async () => {
+				const h = hub();
+				h.runMarker(241, 500, { admitted: true });
+				const b = h.request(242, { open: () => false });
+				await h.poll();
+				expect(h.f.readMarkers()).toEqual([
+					"wfc-suite-queue-241.json",
+					"wfc-suite-queue-242.json",
+				]);
+				expect(h.leftovers()).toEqual([]);
+				expect(b.err).toEqual([]);
+			});
+
+			it("polls again, never falling back, on a marker read mid-write", async () => {
+				const h = hub();
+				let open = false;
+				h.request(251, { open: () => open });
+				await tick();
+				h.clock.now = 2000;
+				const b = h.request(252);
+				await h.poll();
+				const marker = path.join(h.f.dir, "wfc-suite-queue-251.json");
+				const whole = fs.readFileSync(marker, "utf8");
+				fs.writeFileSync(marker, whole.slice(0, 10));
+				await h.poll(2);
+				expect(h.f.spawned).toEqual([]);
+				fs.writeFileSync(marker, whole);
+				open = true;
+				await h.poll();
+				finishRun(h.f.spawned[0].child, 0);
+				await h.poll();
+				expect(await b.code).toBe(0);
+				expect(h.f.spawned).toHaveLength(1);
 			});
 
 			it("never joins a run that a no-wait try made, nor joins as one", async () => {

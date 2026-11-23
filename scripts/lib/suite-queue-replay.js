@@ -817,10 +817,9 @@ function sessionSums(waiters, w, limbSession) {
 
 /** @param {[number, number][]} iv */
 function unionOf(iv) {
-	iv.sort((x, y) => x[0] - y[0]);
 	let union = 0;
 	let reach = Number.NEGATIVE_INFINITY;
-	for (const [a, b] of iv) {
+	for (const [a, b] of [...iv].sort((x, y) => x[0] - y[0])) {
 		union += Math.max(0, b - Math.max(a, reach)) / 1000;
 		reach = Math.max(reach, b);
 	}

@@ -1,5 +1,3 @@
-// #5640
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { ignoreFailure } = require("./caught.js");
@@ -84,7 +82,7 @@ function readJoinMarkers(dir, queueFs = fs) {
  * @param {JoinRecord} record
  * @param {RunId} run
  */
-const names = (record, run) =>
+const isJoinOf = (record, run) =>
 	record.run.pid === run.pid && record.run.start === run.start;
 
 /**
@@ -95,7 +93,7 @@ const names = (record, run) =>
  */
 function hasLiveJoiner(dir, run, { queueFs = fs, isStale }) {
 	return readJoinMarkers(dir, queueFs).some(
-		({ record }) => names(record, run) && !isStale(record),
+		({ record }) => isJoinOf(record, run) && !isStale(record),
 	);
 }
 
@@ -217,22 +215,17 @@ function sweepJoinFiles(dir, { queueFs = fs, isStale }) {
 		if (!match) continue;
 		const run = { pid: Number(match[1]), start: Number(match[2]) };
 		if (!isStale(run)) continue;
-		if (joiners.some(({ record }) => names(record, run))) continue;
+		if (joiners.some(({ record }) => isJoinOf(record, run))) continue;
 		ignoreFailure(() => queueFs.unlinkSync(path.join(dir, name)));
 	}
 }
 
 module.exports = {
-	JOIN_PREFIX,
-	RUN_PREFIX,
 	hasLiveJoiner,
-	joinMarkerPath,
 	openCapture,
 	readCaptured,
-	readJoinMarkers,
 	readResult,
 	removeRunFiles,
-	runFiles,
 	sweepJoinFiles,
 	writeJoinMarker,
 };

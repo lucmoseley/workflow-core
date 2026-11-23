@@ -1,5 +1,3 @@
-// #5640
-
 const fs = require("node:fs");
 const { gitTopLevel } = require("./host-root.js");
 const { deref } = require("./deref.js");
@@ -50,7 +48,7 @@ function readJoinKey(words, worktree) {
  * @param {object} record
  * @param {JoinKey} key
  */
-function sameKey(record, key) {
+function isSameKey(record, key) {
 	const r = /** @type {Partial<Record<keyof JoinKey, unknown>>} */ (record);
 	return (
 		r.toplevel === key.toplevel &&
@@ -84,9 +82,13 @@ function sameKey(record, key) {
  * }} Joining
  */
 
+/** @param {((pid: number) => boolean) | undefined} alive */
+const staleWith =
+	(alive) => (/** @type {{ pid: number, start?: number }} */ r) =>
+		isMarkerStale(r, alive ? { alive } : {});
+
 /** @param {Joining} j */
-const staleOf = (j) => (/** @type {{ pid: number, start?: number }} */ r) =>
-	isMarkerStale(r, j.alive ? { alive: j.alive } : {});
+const staleOf = (j) => staleWith(j.alive);
 
 /**
  * @param {Joining} j
@@ -101,8 +103,8 @@ function findJoinable(j) {
 			.filter(
 				({ record: r }) =>
 					r.pid !== j.pid &&
-					r.spawned !== true &&
-					sameKey(r, j.key) &&
+					!hasStarted(r) &&
+					isSameKey(r, j.key) &&
 					joinedBefore(r, mine) &&
 					!stale(r),
 			)
@@ -110,24 +112,32 @@ function findJoinable(j) {
 	);
 }
 
+/** @param {import("./suite-queue.js").QueueRecord} r */
+const hasStarted = (r) => r.spawned === true || r.admitted === true;
+
 /**
  * @param {Marker} target
  * @param {Joining} j
- * @returns {import("./suite-queue.js").QueueRecord | null}
+ * @returns {import("./suite-queue.js").QueueRecord | null | "torn"}
  */
 function readRun(target, j) {
+	let text;
 	try {
-		const record = JSON.parse(
-			String((j.queueFs ?? fs).readFileSync(target.file, "utf8")),
-		);
-		return record?.pid === target.record.pid &&
-			record?.start === target.record.start &&
-			!staleOf(j)(record)
-			? record
-			: null;
+		text = String((j.queueFs ?? fs).readFileSync(target.file, "utf8"));
 	} catch {
 		return null;
 	}
+	let record;
+	try {
+		record = JSON.parse(text);
+	} catch {
+		return "torn";
+	}
+	return record?.pid === target.record.pid &&
+		record?.start === target.record.start &&
+		!staleOf(j)(record)
+		? record
+		: null;
 }
 
 /**
@@ -159,7 +169,8 @@ function enterJoin(target, j) {
 	if (!marker) return "unwritten";
 	const dropMarker = () => (j.queueFs ?? fs).rmSync(marker, { force: true });
 	const confirmed = readRun(target, j);
-	if (confirmed && confirmed.spawned !== true) return dropMarker;
+	if (confirmed && confirmed !== "torn" && !hasStarted(confirmed))
+		return dropMarker;
 	dropMarker();
 	return "unconfirmed";
 }
@@ -204,6 +215,7 @@ async function follow(target, j, dropMarker) {
 	/** @returns {{ code: number } | { lost: true } | null} */
 	const step = () => {
 		const live = readRun(target, j);
+		if (live === "torn") return null;
 		const result = readResult(j.queueDir, run, j.queueFs);
 		if (result) return { code: take(result, target, j, end) };
 		if (!live) {
@@ -266,6 +278,7 @@ function take(result, target, j, end) {
 	j.stdout.write(stdout);
 	j.err.write(stderr);
 	j.logExit("opened", result.spawnedAt - j.asked.wall, {
+		at: new Date(result.spawnedAt).toISOString(),
 		joined: { pid: run.pid, session },
 	});
 	end();
@@ -322,12 +335,11 @@ function captureRun({ queueDir, queueFs, pid, alive }) {
 	return {
 		...capture,
 		release: () => {
-			const isStale = (/** @type {{ pid: number, start?: number }} */ r) =>
-				isMarkerStale(r, alive ? { alive } : {});
+			const isStale = staleWith(alive);
 			if (!hasLiveJoiner(queueDir, run, { queueFs, isStale }))
 				removeRunFiles(queueDir, run, queueFs);
 		},
 	};
 }
 
-module.exports = { captureRun, joinOrSeat, readJoinKey, sameKey };
+module.exports = { captureRun, joinOrSeat, readJoinKey };
