@@ -1,5 +1,5 @@
 diff --git a/scripts/check-instruction-surface.js b/scripts/check-instruction-surface.js
-index 62059b24cdaf3a36bf8c9d7526d507427e74c222..84f79c109df881159dcbc896ef8c4dd72c59ae3b 100644
+index 2b05ff109f7bc6e9c63bcbcbe6c154ca8232ca9c..afff5827e0c83e3d89270ea0734af7ed543da2e4 100644
 --- a/scripts/check-instruction-surface.js
 +++ b/scripts/check-instruction-surface.js
 @@ -13,6 +13,8 @@ const {

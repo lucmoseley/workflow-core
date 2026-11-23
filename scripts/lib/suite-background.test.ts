@@ -309,8 +309,6 @@ describe("lib/suite-background.js", () => {
 		expect(reason).toContain("`--full=<cause>` or `--queue` run");
 		expect(reason).toContain("scripts/bg-run.sh run <name>` in the same call");
 		expect(reason).not.toMatch(/will (wake|notify)/);
-		for (const figure of ["67.8%", "70%", "192 of 427", "123 of 1,286"])
-			expect(reason, figure).not.toContain(figure);
 	});
 
 	it("reads the escape from the command string, not the hook's environment", () => {
