@@ -1,5 +1,4 @@
 const fs = require("node:fs");
-const { ignoreFailure } = require("./caught.js");
 const { gitTopLevel } = require("./host-root.js");
 const { deref } = require("./deref.js");
 const { monotonicMs } = require("./clock.js");
@@ -83,12 +82,12 @@ function isSameKey(record, key) {
  *   signals: Parameters<typeof armSeatSignals>[0],
  * }} Joining
  *
- * @typedef {Joining & Required<Pick<Joining, "queueFs" | "monoClock" | "wallClock" | "timeoutMs" | "pollMs" | "sleepFn">>} Resolved
+ * @typedef {Joining & Required<Pick<Joining, "queueFs" | "monoClock" | "wallClock" | "timeoutMs" | "pollMs" | "sleepFn">>} JoiningWithDefaults
  */
 
 /**
  * @param {Joining} j
- * @returns {Resolved}
+ * @returns {JoiningWithDefaults}
  */
 const withJoiningDefaults = (j) => ({
 	...j,
@@ -108,11 +107,11 @@ const staleWith =
 	(alive) => (/** @type {{ pid: number, start?: number }} */ r) =>
 		isMarkerStale(r, alive ? { alive } : {});
 
-/** @param {Resolved} j */
+/** @param {JoiningWithDefaults} j */
 const staleOf = (j) => staleWith(j.alive);
 
 /**
- * @param {Resolved} j
+ * @param {JoiningWithDefaults} j
  * @param {boolean} fallingBack
  * @returns {Marker | null}
  */
@@ -145,7 +144,7 @@ const hasStarted = (r) => r.spawned === true || r.admitted === true;
 
 /**
  * @param {Marker} target
- * @param {Resolved} j
+ * @param {JoiningWithDefaults} j
  * @returns {import("./suite-queue.js").QueueRecord | null | "torn"}
  */
 function readRun(target, j) {
@@ -179,7 +178,7 @@ const runOf = (target) => ({
 
 /**
  * @param {Marker} target
- * @param {Resolved} j
+ * @param {JoiningWithDefaults} j
  * @returns {"unconfirmed" | "unwritten" | (() => void)}
  */
 function enterJoin(target, j) {
@@ -200,8 +199,15 @@ function enterJoin(target, j) {
 		);
 		return "unwritten";
 	}
-	const dropMarker = () =>
-		ignoreFailure(() => j.queueFs.rmSync(marker, { force: true }));
+	const dropMarker = () => {
+		try {
+			j.queueFs.rmSync(marker, { force: true });
+		} catch (error) {
+			j.out.write(
+				`${j.label}: could not remove its join marker ${marker} (${error instanceof Error ? error.message : error}) — the stale sweep removes it once this process exits (#5639).\n`,
+			);
+		}
+	};
 	const confirmed = readRun(target, j);
 	if (confirmed && confirmed !== "torn" && !hasStarted(confirmed))
 		return dropMarker;
@@ -211,7 +217,7 @@ function enterJoin(target, j) {
 
 /**
  * @param {Marker} target
- * @param {Resolved} j
+ * @param {JoiningWithDefaults} j
  * @param {() => void} dropMarker
  * @returns {Promise<{ code: number } | { lost: true }>}
  */
@@ -286,7 +292,7 @@ async function follow(target, j, dropMarker) {
 }
 
 /**
- * @param {Resolved} j
+ * @param {JoiningWithDefaults} j
  * @param {RunId} run
  * @param {number} waitMs
  * @param {{ pid: number, session: string | null }} joined
@@ -301,7 +307,7 @@ function refuseJoin(j, run, waitMs, joined) {
 /**
  * @param {RunResult} result
  * @param {Marker} target
- * @param {Resolved} j
+ * @param {JoiningWithDefaults} j
  * @param {() => void} end
  * @returns {number}
  */
@@ -325,7 +331,7 @@ function take(result, target, j, end) {
 
 /**
  * @param {Marker} target
- * @param {Resolved} j
+ * @param {JoiningWithDefaults} j
  */
 function removeOrphanedRunFiles(target, j) {
 	const run = runOf(target);
@@ -337,7 +343,7 @@ function removeOrphanedRunFiles(target, j) {
 }
 
 /**
- * @param {Resolved} j
+ * @param {JoiningWithDefaults} j
  * @param {() => void} leaveSeat
  * @param {boolean} fallingBack
  * @returns {Promise<number | { lost: true } | null>}
