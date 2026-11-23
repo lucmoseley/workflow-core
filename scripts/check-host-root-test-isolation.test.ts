@@ -183,7 +183,7 @@ describe("what it declines to flag", () => {
 		expect(run().status).toBe(0);
 	});
 
-	it("follows no require a comment shows as usage (#5659)", () => {
+	it("follows no require a comment shows as usage, against the marker-root indirection it does follow (#5659)", () => {
 		track("scripts/lib/marker-root.js", 'require("./host-root.js");\n');
 		track(
 			"scripts/thing.js",
