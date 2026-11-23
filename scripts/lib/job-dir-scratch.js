@@ -18,6 +18,15 @@ const JOB_DIR_STANDIN = "/CLAUDE_JOB_DIR";
 
 const RULE = "job-dir-scratch";
 
+const STANDS_ALONE_RE = /^[/$~]/;
+
+// #5600
+/** @param {string} lit @param {string} cwd */
+const landingOf = (lit, cwd) => {
+	if (STANDS_ALONE_RE.test(lit)) return lit;
+	return cwd ? path.posix.join(cwd, lit) : "";
+};
+
 /** @param {string | null} rel */
 function flatName(rel) {
 	if (rel === null || !rel.startsWith("tmp/")) return null;
@@ -58,9 +67,9 @@ function decide(subject, ctx) {
 		walkCommands(
 			parsed,
 			(cmd) => {
-				for (const t of writesFromEveryDir(cmd))
+				for (const { target, cwd } of writesFromEveryDir(cmd))
 					if (!found.flat)
-						considerTarget(t.target, t.path, {
+						considerTarget(target, cwd, {
 							spans: parsed.spans,
 							where: { pwd: ctx.fallbackCwd, jobDir },
 							classify,
@@ -100,20 +109,22 @@ function* writesFromEveryDir(cmd) {
 		const [first, ...rest] = run.dirs();
 		for (const cwd of [first, ...rest.filter(Boolean)])
 			for (const t of cmd.writeTargets(run.words, cwd))
-				if (t.mode === "write") yield t;
+				if (t.mode === "write") yield { target: t, cwd };
 	}
 }
 
 /**
- * @param {string} word
- * @param {string} resolved
+ * @param {import("./shell-parse.js").WriteTarget} target
+ * @param {string} cwd
  * @param {{ spans: string[], where: import("./job-dir.js").Where,
  *   classify: (shown: string, p: string, jobDir: string) => void }} at
  */
-function considerTarget(word, resolved, { spans, where, classify }) {
+function considerTarget({ target: word, path: resolved }, cwd, at) {
+	const { spans, where, classify } = at;
 	const lit = literal(word, spans).text;
 	if (!lit) return;
-	const p = resolved || lit;
+	const p = resolved || landingOf(lit, cwd);
+	if (!p) return;
 	if (!isJobDir(p, where)) return;
 	const landed = isUnder(p, [JOB_DIR_STANDIN])
 		? `$CLAUDE_JOB_DIR${p.slice(JOB_DIR_STANDIN.length)}`
