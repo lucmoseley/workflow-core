@@ -1,6 +1,7 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { ignoreFailure, orFallback } = require("./caught.js");
 const { gitOrNull } = require("./git.js");
 const { markersDir } = require("./marker-root.js");
 const { readJsonSafe } = require("./plugin-state.js");
@@ -8,6 +9,7 @@ const { buildCheckoutEnv } = require("./refill-repos.js");
 const { coreRoot } = require("./script-path.js");
 const { reportOwner } = require("./session-id.js");
 const { sleepSync } = require("./sleep-sync.js");
+const { MANAGER_TIMEOUT_MS } = require("./systemd-bins.js");
 const { probeUserScope, spawnOutliving } = require("./user-scope.js");
 
 /**
@@ -127,9 +129,51 @@ function runStartLander(
 	return { ok: true, line };
 }
 
+// guess, #5613
+const SCOPE_CONFIRM_MS = MANAGER_TIMEOUT_MS;
+const SCOPE_POLL_MS = 10;
+
+/**
+ * @param {number} pid
+ * @param {string} node
+ * @param {(ms: number) => void} pause
+ * @returns {{ up: true } | { up: false, why: string }}
+ */
+function confirmExec(pid, node, pause) {
+	for (let waited = 0; ; waited += SCOPE_POLL_MS) {
+		const stat = orFallback(
+			() => fs.readFileSync(`/proc/${pid}/stat`, "utf8"),
+			null,
+		);
+		if (stat === null) return { up: false, why: "it was gone" };
+		const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+		if (fields[0] === "Z") {
+			const status = Number(fields[49]);
+			return {
+				up: false,
+				why:
+					status & 0x7f
+						? `it ended on signal ${status & 0x7f}`
+						: `it ended ${status >> 8}`,
+			};
+		}
+		if (orFallback(() => fs.readlinkSync(`/proc/${pid}/exe`), null) === node)
+			return { up: true };
+		if (waited >= SCOPE_CONFIRM_MS) {
+			ignoreFailure(() => process.kill(pid, "SIGKILL"));
+			return {
+				up: false,
+				why: `it had not started the lander in ${SCOPE_CONFIRM_MS} ms`,
+			};
+		}
+		pause(SCOPE_POLL_MS);
+	}
+}
+
 /**
  * @param {{root: string, script: string, tester?: string, log: string,
- *   wrap?: string[]}} o
+ *   wrap?: string[], spawn?: typeof spawnOutliving,
+ *   pause?: (ms: number) => void}} o
  * @returns {number}
  */
 function spawnDetachedRun({
@@ -138,30 +182,42 @@ function spawnDetachedRun({
 	tester,
 	log,
 	wrap = probeUserScope(),
+	spawn = spawnOutliving,
+	pause = sleepSync,
 }) {
 	fs.mkdirSync(path.dirname(log), { recursive: true });
 	const fd = fs.openSync(log, "a");
-	try {
-		const run = [
-			script,
-			"run",
-			...(tester === undefined ? [] : ["--tester", tester]),
-		];
-		if (wrap.length === 0)
-			fs.writeSync(
-				fd,
-				`${new Date().toISOString()} no user scope: the lander shares its starter's cgroup (#2956)\n`,
-			);
-		const child = spawnOutliving(process.execPath, run, {
+	const note = (/** @type {string} */ line) =>
+		fs.writeSync(fd, `${new Date().toISOString()} ${line}\n`);
+	const run = [
+		script,
+		"run",
+		...(tester === undefined ? [] : ["--tester", tester]),
+	];
+	/** @param {string[]} words */
+	const start = (words) => {
+		if (words.length === 0)
+			note("no user scope: the lander shares its starter's cgroup (#2956)");
+		const child = spawn(process.execPath, run, {
 			cwd: root,
 			env: { ...buildCheckoutEnv(root), WFC_NOW: undefined },
 			stdio: ["ignore", fd, fd],
 			owner: null,
-			wrap,
+			wrap: words,
 		});
 		if (child.pid === undefined) throw new Error(`could not start ${script}`);
 		child.unref();
 		return child.pid;
+	};
+	try {
+		const pid = start(wrap);
+		if (wrap.length === 0) return pid;
+		const scoped = confirmExec(pid, fs.realpathSync(process.execPath), pause);
+		if (scoped.up) return pid;
+		note(
+			`the user scope was refused: ${path.basename(wrap[0] ?? "")} ${scoped.why} (#5613)`,
+		);
+		return start([]);
 	} finally {
 		fs.closeSync(fd);
 	}
