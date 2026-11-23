@@ -31,9 +31,7 @@ const readCommittedEdges = (/** @type {string} */ root) =>
 	JSON.parse(fs.readFileSync(path.join(root, EDGES_FILE), "utf8")).edges ?? {};
 
 const PACKAGE_JSON = "package.json";
-/* the suite-file-timings note (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/suite-file-timings.md)'s run-one wall clock (mantahostels#2031).
- * **Residual:** one run, not a mean — that document records a 3.7x spread —
- * and nothing watches it for drift as the suite grows. */
+// lucmoseley/mantahostels#2031 measured a 292 s run-one wall clock, one run
 const PACKAGE_JSON_FULL_SUITE_SECONDS = 292;
 
 const PACKAGE_JSON_SAFE_KEYS = new Set([

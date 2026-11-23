@@ -222,9 +222,6 @@ const isNumber = (next) => {
 };
 
 /**
- * Whether npm takes `next` as the value of `flag`, read as a `kind` option:
- * `value` for a config that needs one, `bool` for a Boolean, a `--no-` form or
- * a name npm does not know — nopt's look-ahead, in its order.
  * @param {"value" | "bool"} kind
  * @param {string} flag
  * @param {string} next

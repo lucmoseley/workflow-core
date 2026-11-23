@@ -96,10 +96,7 @@ function readVendoredFilesOnDisk(root) {
 
 /**
  * A port of `computeSkillFolderHash` in
- * https://github.com/vercel-labs/skills/blob/7533583f/src/local-lock.ts:
- * sha256 over every file in one skill folder, sorted by relative path with
- * `localeCompare`, each file's path then its bytes; `.git` and `node_modules`
- * skipped, hidden files kept, symlinks skipped.
+ * https://github.com/vercel-labs/skills/blob/7533583f/src/local-lock.ts
  *
  * @param {string} dir
  * @returns {string}

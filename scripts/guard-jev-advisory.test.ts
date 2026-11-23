@@ -325,12 +325,6 @@ describe("the vendor gate", () => {
 	});
 
 	it("skips with no throw where the SDK itself is unreachable", async () => {
-		/* THE WORKTREE CASE, which #204's first acceptance criterion names and
-		 * which cannot be staged in-process: `require.resolve` answers off the
-		 * worker's own module paths, where `ai` IS installed. So the guard and
-		 * its seams are copied under a root with no `node_modules` above it and
-		 * driven as a real subprocess — the resolve then walks up from /tmp and
-		 * fails, exactly as it does in a throwaway worktree. */
 		const bin = path.join(dir, "scripts");
 		copyLibs(path.join(bin, "lib"), readProgramLibs("guard-jev-advisory.js"));
 		fs.copyFileSync(GUARD, path.join(bin, "guard-jev-advisory.js"));

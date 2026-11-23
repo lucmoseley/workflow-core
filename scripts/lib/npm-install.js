@@ -1,89 +1,3 @@
-/*
- * npm-install.js — the guard-npm-install core (#2800, #3226): the npm install
- * boundary (mantahostels#1803, ruled at mantahostels#1767).
- *
- * The gate on a new dependency, and on any install through a shared
- * dependency store: four refusals on one hook, all of them denies
- * (mantahostels#103).
- *
- * FOUR CHECKS, in the order they run.
- *
- *   0. A STORE LINK. A command that writes `node_modules` — install, ci,
- *      uninstall, update, dedupe, prune, rebuild, link, `audit fix`, every
- *      spelling npm derefs — where the directory it installs into holds a
- *      `node_modules` linking under the host root's dependency stores
- *      (lib/worktree-dirs.js `STORES`). A session worktree's
- *      `node_modules` links a store every worktree on its lockfile shares
- *      (#4255), so a write through it lands under each neighbour. A
- *      `node_modules` linked anywhere else is not judged here.
- *      `--package-lock-only`, `--dry-run` and a global install write no
- *      project tree and pass.
- *      Residual: where the cwd does not resolve (`cd "$D" && npm ci`), check
- *      0 logs and allows; the frozen store then refuses the write with npm's
- *      raw EACCES (exit 243), leaving the store and the link unchanged
- *      (measured on #4267).
- *
- *   1. THE EXECUTION WINDOW. An install naming a package `package.json` does
- *      not already list must carry `--ignore-scripts`. Between `npm install`
- *      fetching a tarball and anything reading it, that tarball's `preinstall`
- *      runs as the founder. This runs FIRST because it is local and certain.
- *
- *      Per-invocation, deliberately (mantahostels#1767), never a repo-wide
- *      `.npmrc` `ignore-scripts=true`, which would disable husky's `prepare`
- *      bootstrap on a fresh clone. A plain `npm install` naming no package is
- *      untouched for the same reason.
- *
- *   2. NEW-PACKAGE LEGITIMACY. For each named package absent from
- *      `package.json`, three registry facts, keyless (`~/.claude/CLAUDE.md`
- *      §Reports and paid data):
- *
- *        - the name exists            `npm view <pkg> time.created --json`
- *        - it is at least MIN_AGE_DAYS old              (the same call)
- *        - last month's downloads clear MIN_DOWNLOADS
- *                                     `api.npmjs.org/downloads/point/last-month`
- *
- *   3. BARE `npx`. `npx <name>` where <name> is unscoped and not among
- *      `package.json`'s dependencies — check 2's failure with a name that
- *      resolves (mantahostels#1538), which is why it rides on this guard
- *      rather than its own.
- *
- * Its floors, budget, escape (`WFC_ALLOW_NEW_PACKAGE` in the hook's
- * environment, lib/npm-install-host.js) and legitimacy refusals are
- * lib/package-vetting.js's, shared with lib/pip-install.js.
- *
- * LIMITS
- *  - npm only. `pnpm add`, `yarn add` and `bun add` are not read; pip and uv
- *    are lib/pip-install.js's.
- *  - Only a registry spec is vetted. `npm i ./local`, `github:user/repo`, a
- *    tarball URL and a `file:` spec cannot be asked of the registry, so they
- *    are DENIED as unvettable rather than waved through.
- *  - A wrapper hides the install: `xargs npm install`, `env`, `sudo`, a
- *    script that installs on the session's behalf. Only a command's own first
- *    word is read.
- *  - Check 3 judges the PACKAGE name, not the bin name, so `npx tsc` is denied
- *    even though `typescript` is a dependency. That is intended: the refusal
- *    names the dependency whose installed `bin` carries it,
- *    `npx -p typescript tsc` (#1806). Only direct dependencies are read, and
- *    only from the session tree's `node_modules` (#4242): the tree the
- *    session's own `npx` resolves `node_modules/.bin` in.
- *  - `npm` and `npx` options are read as npm's parser (nopt) reads them —
- *    abbreviations, single-dash long forms and shorthands included (#563,
- *    #571) — by lib/npm-options.js, against npm 11.16.0's config list. A
- *    config a later npm adds is read as a name npm does not know. `npx` words
- *    are read with their quoted spans put back; `npm` words are not, so
- *    `npm i --reg"istry" <url> x` reads the URL as a spec, and refuses it as
- *    unvettable.
- *  - `npm exec` and `npm x` run a package the way `npx` does and are NOT read;
- *    check 3 covers the `npx` spelling alone.
- *  - A registry call the host cannot start (`npm` or `curl` missing) reads as
- *    an unreachable registry, so it DENIES, and is logged: a deliberate
- *    departure from mantahostels#103 §6, because an unreachable registry
- *    denies and the escape is a named env var, never silence
- *    (mantahostels#1767).
- *    An unreadable `package.json` is the one fault upstream of a verdict that
- *    allows, logged: every package would read as new.
- */
-
 const path = require("node:path");
 const {
 	boolExact,
@@ -604,10 +518,6 @@ function npxOption(word, args, out) {
 }
 
 /**
- * Whether npx hands the option `key`, written with no `=`, the word `next`:
- * never a switch, which it matches whole, so `--no-audit` takes the next word
- * (#1972); always one of its own value options; else a word that is no
- * option.
  * @param {string} key
  * @param {string} next
  */

@@ -213,10 +213,9 @@ const QUOTED = {
 };
 
 /**
- * The one Biome command `words` makes, mapped, or why it does not map.
  * @param {Word[]} words
- * @param {boolean} biome whether `package.json` declares `@biomejs/biome`
- * @param {boolean} inferred whether init reads the script, so can map a bare one
+ * @param {boolean} biome
+ * @param {boolean} inferred
  * @returns {MappedCommand | Unmapped}
  */
 function mapBiome(words, biome, inferred) {

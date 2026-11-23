@@ -385,8 +385,8 @@ session whose subagent died, so write the closing sum over what the store
 already holds rather than leaving wave 1 standing as the whole set.
 
 **While that watch runs, dispatch a first wave** (mantahostels#1486). The dispatching turn would
-otherwise sit waiting — ended outside a background job, held on a foreground
-wait inside one (`rule:job-holds-turn`) — so the work below costs nothing extra.
+otherwise sit waiting — ended outside a background job, held on its waits
+inside one (`rule:job-holds-turn`) — so the work below costs nothing extra.
 
 **Wave 1 is the candidates whose dispatch no size can change.** A candidate goes
 in wave 1 when all three hold:

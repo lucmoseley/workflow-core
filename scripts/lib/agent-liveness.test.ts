@@ -716,9 +716,6 @@ describe("listedSessionIds", () => {
 		expect([...answeredIds().finished]).toEqual(["done-1"]);
 	});
 
-	/* The reaper's gate 1 exactly (mantahostels#768; doc-map
-	 * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md). A `shell` session pairs `state: done` with `status: busy`, and must
-	 * still count here. */
 	it("reads kind and state alone, never status", () => {
 		fakeClaude([
 			buildListedRow({ sessionId: "me", kind: "session" }),

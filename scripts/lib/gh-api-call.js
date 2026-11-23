@@ -111,9 +111,8 @@ function longWord(call, tok, next) {
 }
 
 /**
- * pflag ends a shorthand bundle at its first value-taking letter, and drops a
- * `=` separator only when something follows it:
- * https://github.com/spf13/pflag/blob/master/flag.go
+ * pflag ends a shorthand bundle at its first value-taking letter, and drops `=`
+ * only when something follows it: https://github.com/spf13/pflag/blob/master/flag.go
  * @param {string} rest
  * @param {string} next
  * @returns {{ letter: string, value: string, step: number }}

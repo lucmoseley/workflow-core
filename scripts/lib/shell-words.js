@@ -496,9 +496,7 @@ function addToEnvWord(split, text) {
 }
 
 /**
- * Read the character `c`, `next` after it: how many characters it took, Infinity
- * where the string ends there.
- * @param {EnvSplit} split accumulator: its fields are written
+ * @param {EnvSplit} split
  * @param {string} c
  * @param {string} next
  * @returns {number}
