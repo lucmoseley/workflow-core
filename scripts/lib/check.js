@@ -612,6 +612,7 @@ function reread(dir, label, { stream, side, code, sink, env }, args) {
 				...process.env,
 				...env,
 				[SIDE_ENV]: side,
+				[SIDE_REV_ENV]: undefined,
 				...(stream && { [SAY_FD_ENV]: "2" }),
 			},
 		},

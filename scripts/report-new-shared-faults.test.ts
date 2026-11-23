@@ -378,11 +378,12 @@ process.stdout.write('{"findings":[]}');
 	});
 
 	it.each([
-		{ attrs: "vendor/*.sh linguist-vendored\n", reported: false },
-		{ attrs: "", reported: true },
+		{ attrs: "vendor/*.sh linguist-vendored\n", reported: false, hook: false },
+		{ attrs: "vendor/*.sh linguist-vendored\n", reported: false, hook: true },
+		{ attrs: "", reported: true, hook: false },
 	])(
-		"judges a restored vendor/loop.sh by the commit's .gitattributes ($attrs) through the real comment gate (#5650)",
-		({ attrs, reported }) => {
+		"judges a restored vendor/loop.sh by the commit's .gitattributes ($attrs, under a hook's index: $hook) through the real comment gate (#5650)",
+		({ attrs, reported, hook }) => {
 			const repo = newRepo("report-new-shared-faults-vendored-", temps);
 			fs.writeFileSync(path.join(repo.root, ".gitattributes"), attrs);
 			repo.git("add", "-A");
@@ -401,6 +402,12 @@ process.stdout.write('{"findings":[]}');
 					"comment-policy": path.join(__dirname, "check-comment-policy.js"),
 				},
 				cwd: repo.root,
+				env: hook
+					? {
+							GIT_DIR: path.join(repo.root, ".git"),
+							GIT_INDEX_FILE: path.join(repo.root, ".git", "index"),
+						}
+					: {},
 			});
 
 			expect(err).toEqual([]);

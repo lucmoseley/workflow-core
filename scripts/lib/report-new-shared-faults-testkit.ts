@@ -8,12 +8,21 @@ export const lines = (s: string) => (s ? s.replace(/\n$/, "").split("\n") : []);
 
 export function run(
 	ref: string,
-	{ checkers, cwd }: { checkers: Record<string, string>; cwd: string },
+	{
+		checkers,
+		cwd,
+		env,
+	}: {
+		checkers: Record<string, string>;
+		cwd: string;
+		env?: NodeJS.ProcessEnv;
+	},
 ) {
 	const r = runInProcess(SCRIPT, [ref], {
 		cwd,
 		env: {
 			...process.env,
+			...env,
 			CLAUDE_PROJECT_DIR: cwd,
 			[CHECKERS_ENV]: JSON.stringify(checkers),
 		},
