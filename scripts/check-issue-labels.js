@@ -10,6 +10,8 @@ const {
 	citedSays,
 	recomputedSays,
 	judgeOverrideOf,
+	overrideFingerprint,
+	overrideReviewOf,
 } = require("./lib/issue-gate");
 const { readBasisFaults, unreadNote } = require("./lib/basis-cited-read");
 const { parseRepoOfUrl } = require("./lib/issue-ref");
@@ -407,14 +409,18 @@ function checkGates(iss, raise, faults) {
  * @param {Raise} raise
  */
 function checkJudgeOverride(iss, raise) {
-	const reason = judgeOverrideOf(iss.body ?? "")?.reason;
-	if (reason)
-		raise(
-			"WARN",
-			"GATE-JUDGE-OVERRIDE",
-			`a session overrode the gate judge's model reading of this body — "${reason}"`,
-			"read the body against the reason: where the model was right, give the wait a `**Gate basis:**` that derives its window and delete the override line; where it was wrong, leave the line",
-		);
+	const body = iss.body ?? "";
+	const reason = judgeOverrideOf(body)?.reason;
+	if (!reason) return;
+	const fingerprint = overrideFingerprint(reason);
+	const reviewed = overrideReviewOf(body);
+	if (reviewed === fingerprint) return;
+	raise(
+		"WARN",
+		"GATE-JUDGE-OVERRIDE",
+		`a session overrode the gate judge's model reading of this body — "${reason}"${reviewed ? ` (its \`**Gate judge override reviewed:**\` line records ${reviewed}, a reason since edited)` : ""}`,
+		`read the body against the reason: where the model was right, give the wait a \`**Gate basis:**\` that derives its window and delete the override line and any reviewed line; where it was wrong, leave the override line and add or replace beneath it \`**Gate judge override reviewed:** ${fingerprint} — <date> — <the issue or comment that records the review>\``,
+	);
 }
 
 /** @param {any} iss @param {string[]} own @param {Raise} raise */

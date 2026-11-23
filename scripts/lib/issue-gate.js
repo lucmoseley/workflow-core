@@ -1,3 +1,4 @@
+const { createHash } = require("node:crypto");
 const { requiredGroup } = require("./regex-group.js");
 const { docPath } = require("./script-path");
 const { witaDay } = require("./wita");
@@ -175,6 +176,28 @@ const OVERRIDE_RE = new RegExp(
 function judgeOverrideOf(body) {
 	const m = firstLiveMatch(OVERRIDE_RE, String(body || ""));
 	return m ? { reason: requiredGroup(m, 1, OVERRIDE_RE).trim() } : null;
+}
+
+const OVERRIDE_REVIEWED_RE = new RegExp(
+	`${AT_LINE_HEAD}\\*\\*Gate judge override reviewed:\\*\\*${BLANKS}([0-9a-f]{8})\\b`,
+	"gim",
+);
+
+/** #5673 @param {string} reason */
+function overrideFingerprint(reason) {
+	return createHash("sha256")
+		.update(reason.replace(/\s+/g, " ").trim())
+		.digest("hex")
+		.slice(0, 8);
+}
+
+/**
+ * @param {string} body
+ * @returns {string|null}
+ */
+function overrideReviewOf(body) {
+	const m = firstLiveMatch(OVERRIDE_REVIEWED_RE, String(body || ""));
+	return m ? requiredGroup(m, 1, OVERRIDE_REVIEWED_RE).toLowerCase() : null;
 }
 
 const COUNT_WORDS = [
@@ -1094,6 +1117,8 @@ module.exports = {
 	basisRule,
 	gateFacts,
 	judgeOverrideOf,
+	overrideFingerprint,
+	overrideReviewOf,
 	otherIssueRefs,
 	gateRuleHandover,
 	citedKey,

@@ -22,6 +22,7 @@ import {
 	stubGhRoutes,
 	THERE,
 } from "./lib/gh-stub";
+import { overrideFingerprint } from "./lib/issue-gate";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-issue-labels.js");
@@ -1434,6 +1435,36 @@ describe("a gate judge override on the body (#4970)", () => {
 			"GATE-JUDGE-OVERRIDE",
 		);
 		expect(await report(`\`\`\`\n${line}\n\`\`\`\n`)).not.toContain(
+			"GATE-JUDGE-OVERRIDE",
+		);
+	});
+
+	it("names the reviewed line to add, keyed to the reason (#5673)", async () => {
+		const out = await report(`${line}\n`);
+		expect(out).toContain(
+			`**Gate judge override reviewed:** ${overrideFingerprint(OVERRIDE_REASON)} — <date>`,
+		);
+	});
+
+	it("raises none once a reviewed line records the reason's key (#5673)", async () => {
+		const reviewed = `**Gate judge override reviewed:** ${overrideFingerprint(OVERRIDE_REASON)} — 2026-11-23 — #251`;
+		expect(await report(`${line}\n${reviewed}\n`)).not.toContain(
+			"GATE-JUDGE-OVERRIDE",
+		);
+	});
+
+	it("warns again once the reason is edited after its review (#5673)", async () => {
+		const reviewed = `**Gate judge override reviewed:** ${overrideFingerprint(OVERRIDE_REASON)} — 2026-11-23 — #251`;
+		const out = await report(
+			`**Gate judge override:** ${OVERRIDE_REASON}, and more\n${reviewed}\n`,
+		);
+		expect(out).toContain("GATE-JUDGE-OVERRIDE");
+		expect(out).toContain("a reason since edited");
+	});
+
+	it("still warns where the reviewed line sits in a fence (#5673)", async () => {
+		const reviewed = `**Gate judge override reviewed:** ${overrideFingerprint(OVERRIDE_REASON)} — 2026-11-23 — #251`;
+		expect(await report(`${line}\n\`\`\`\n${reviewed}\n\`\`\`\n`)).toContain(
 			"GATE-JUDGE-OVERRIDE",
 		);
 	});
