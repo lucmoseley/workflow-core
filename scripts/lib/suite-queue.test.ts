@@ -28,10 +28,10 @@ const {
 	gateDenies,
 	heldSeat,
 	SEAT_ENV,
-	waitForGate,
 	queueSeat,
 	armSeatSignals,
 } = require("./suite-queue.js");
+const { waitForGate } = require("./gate-wait.js");
 const { yieldToWhole } = require("./cpu-yield.js");
 const { pidAlive } = require("./arbiter-proc.js");
 const { readLiveLanders } = require("./local-tester.js");
@@ -73,6 +73,17 @@ function qdir() {
 	dirs.push(d);
 	return d;
 }
+
+const seatWait = (
+	wait: object,
+	logExit: (...args: unknown[]) => unknown = noop,
+) =>
+	queueSeat({
+		queue: { queueDir: qdir(), alive: () => true },
+		join: false,
+		turn: () => true,
+		logExit,
+	}).wait(wait);
 
 const joined = (queueDir: string, pid: number, at: number, join: object = {}) =>
 	queueSeat({
@@ -2351,6 +2362,10 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 		expect(gate).not.toHaveBeenCalled();
 	});
 
+	it("refuses a wait with no gate, which would otherwise never hold", () => {
+		expect(() => waitForGate({ admit: noQueue })).toThrow(/`gate` is required/);
+	});
+
 	it("says so when it waited", async () => {
 		const lines: string[] = [];
 		let closed = 1;
@@ -2576,7 +2591,7 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 		gateWords?: string[],
 	) => {
 		const sleepFn = vi.fn(() => Promise.resolve());
-		await waitForGate({
+		await seatWait({
 			gateRead,
 			gateWords,
 			admit: noQueue,
@@ -2608,7 +2623,7 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 	it("hands the gate the weight the launch carries (#2931)", async () => {
 		const gateRead = vi.fn(() => null);
 		const gateWeight = weighed(40);
-		await waitForGate({
+		await seatWait({
 			gateRead,
 			gateWords: ["--changed"],
 			gateWeight,
@@ -2703,22 +2718,24 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 		const heard: unknown[] = [];
 		for (const admission of [peak, ladder]) {
 			const exits: unknown[][] = [];
-			await waitForGate({
-				gateRead: (
-					_command: string,
-					_weight: unknown,
-					_climb: number,
-					hear?: (a: unknown) => void,
-				) => {
-					hear?.(admission);
-					return null;
+			await seatWait(
+				{
+					gateRead: (
+						_command: string,
+						_weight: unknown,
+						_climb: number,
+						hear?: (a: unknown) => void,
+					) => {
+						hear?.(admission);
+						return null;
+					},
+					admit: noQueue,
+					sleepFn: () => Promise.resolve(),
+					out: { write: () => true },
+					onAdmission: (a: unknown) => heard.push(a),
 				},
-				admit: noQueue,
-				sleepFn: () => Promise.resolve(),
-				out: { write: () => true },
-				onAdmission: (a: unknown) => heard.push(a),
-				onExit: (...args: unknown[]) => exits.push(args),
-			});
+				(...args: unknown[]) => exits.push(args),
+			);
 			expect(exits).toEqual([["opened", expect.any(Number), { admission }]]);
 		}
 		expect(heard).toEqual([peak, ladder]);

@@ -12,11 +12,13 @@ const {
 	suiteRungMb,
 } = require("./suite-ladder");
 const {
-	PART_PASS_AGE_MS,
 	SESSION_PLACES,
 	WINDOWS_MAX_HOLD_MS,
-	splitPlaces,
 	isClimbKept,
+} = require("./gate-wait.js");
+const {
+	PART_PASS_AGE_MS,
+	splitPlaces,
 	partLaneOf,
 	turnOf,
 	waiterOf,
