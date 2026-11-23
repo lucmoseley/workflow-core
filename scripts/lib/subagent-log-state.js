@@ -1,8 +1,9 @@
 const fs = require("node:fs");
 const { caught, orFallback } = require("./caught.js");
 const { readLastJsonlRow } = require("./jsonl.js");
+const { readPendingTasks } = require("./pending-tasks.js");
 
-/** @typedef {{state: "in-flight" | "stopped"} | {state: "unread", why: string}} LogState */
+/** @typedef {{state: "in-flight" | "paused" | "stopped"} | {state: "unread", why: string}} LogState */
 
 const INTERRUPTED = "[Request interrupted by user";
 const HANDBACK = "SubagentHandback";
@@ -82,6 +83,28 @@ function isMarkedFinished(log) {
 	}
 }
 
+/** @type {Map<string, {stamp: string, live: boolean}>} */
+const liveByLog = new Map();
+
+/**
+ * #5554
+ * @param {string} log
+ */
+function hasLiveChildren(log) {
+	const stamp = orFallback(() => {
+		const { size, mtimeMs } = fs.statSync(log);
+		return `${size}:${mtimeMs}`;
+	}, "");
+	const known = liveByLog.get(log);
+	if (stamp && known?.stamp === stamp) return known.live;
+	const live = orFallback(
+		() => readPendingTasks(log, { sidechain: true }).pending.length > 0,
+		false,
+	);
+	liveByLog.set(log, { stamp, live });
+	return live;
+}
+
 /** @param {string} log @returns {LogState} */
 function readSubagentLogState(log) {
 	let row;
@@ -94,9 +117,9 @@ function readSubagentLogState(log) {
 	if (row === null) return { state: "unread", why: `${log} does not exist` };
 	if (row === undefined)
 		return { state: "unread", why: `${log} holds no turn record` };
-	if (isMarkedFinished(log) || isHandedBack(log, row))
-		return { state: "stopped" };
-	return { state: isCallOpen(row) ? "in-flight" : "stopped" };
+	if (isHandedBack(log, row)) return { state: "stopped" };
+	if (!isMarkedFinished(log) && isCallOpen(row)) return { state: "in-flight" };
+	return { state: hasLiveChildren(log) ? "paused" : "stopped" };
 }
 
 module.exports = { readSubagentLogState };

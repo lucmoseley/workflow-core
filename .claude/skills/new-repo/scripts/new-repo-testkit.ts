@@ -98,7 +98,7 @@ if (a[0] === "api") {
 		const rest = (i) => ({ id: 1000 + i.number, number: i.number, title: i.title, state: i.state.toLowerCase(), body: i.body, labels: i.labels.map((name) => ({ name })), parent_issue_url: i.parent ? "https://api.github.com/repos/" + is[1] + "/issues/" + i.parent : null });
 		const issue = find(Number(is[2]));
 		const kids = s.issues.filter((x) => x.parent === issue.number).map(rest);
-		const linkRead = answerLinkRead(a, { state: buildJqLines(rest(issue).state), id: buildJqLines(1000 + issue.number), children: buildJqLines(...kids.map((k) => k.number)) });
+		const linkRead = answerLinkRead(a, { state: buildJqLines(rest(issue).state), id: buildJqLines(1000 + issue.number), children: buildChildRows(is[1], ...kids.map((k) => k.number)) });
 		if (linkRead) serveHandlerAnswer(linkRead);
 		if (!is[3]) print(rest(issue));
 		if (flag("--method") === "POST") {
