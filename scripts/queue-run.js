@@ -383,6 +383,8 @@ function withJoining(plain, options, key) {
 					...queue,
 					pid,
 					queueDir: queue.queueDir ?? defaultTscQueueDir(),
+					out: options.out ?? process.stderr,
+					label: LABEL,
 				}),
 			}),
 		joining: {
@@ -392,6 +394,7 @@ function withJoining(plain, options, key) {
 			session,
 			key,
 			asked,
+			...(options.clock ? { wallClock: options.clock } : {}),
 			out: options.out ?? process.stderr,
 			stdout: options.stdout ?? STDOUT,
 			err: options.err ?? STDERR,
@@ -1037,7 +1040,7 @@ function spawnCommand(words, { handed, seat, options, err, finish, capture }) {
 		end(127);
 	});
 	running.once(capture ? "close" : "exit", (code, signal) => {
-		if (spawnedAt !== null)
+		if (spawnedAt !== null && code !== null)
 			capture?.settle({ code, signal, spawnedAt, endedAt: wall() });
 		end(exitStatus(code, signal));
 	});

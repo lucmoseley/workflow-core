@@ -61557,6 +61557,7 @@
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
+			"scripts/queue-run.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts"

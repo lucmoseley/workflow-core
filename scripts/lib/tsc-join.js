@@ -1,7 +1,9 @@
 const fs = require("node:fs");
+const { ignoreFailure } = require("./caught.js");
 const { gitTopLevel } = require("./host-root.js");
 const { deref } = require("./deref.js");
 const { monotonicMs } = require("./clock.js");
+const { noop } = require("./noop.js");
 const { QUEUE_POLL_MS } = require("./queue-poll.js");
 const {
 	QUEUE_TIMEOUT_MS,
@@ -68,6 +70,7 @@ function isSameKey(record, key) {
  *   key: JoinKey,
  *   asked: { wall: number, mono: number },
  *   monoClock?: () => number,
+ *   wallClock?: () => number,
  *   timeoutMs?: number,
  *   pollMs?: number,
  *   sleepFn?: (ms: number) => Promise<unknown>,
@@ -79,21 +82,40 @@ function isSameKey(record, key) {
  *   exitStatus: (code: number | null, signal: NodeJS.Signals | null) => number,
  *   signals: Parameters<typeof armSeatSignals>[0],
  * }} Joining
+ *
+ * @typedef {Joining & Required<Pick<Joining, "queueFs" | "monoClock" | "wallClock" | "timeoutMs" | "pollMs" | "sleepFn">>} Resolved
  */
+
+/**
+ * @param {Joining} j
+ * @returns {Resolved}
+ */
+const resolve = (j) => ({
+	...j,
+	queueFs: j.queueFs ?? fs,
+	monoClock: j.monoClock ?? monotonicMs,
+	wallClock: j.wallClock ?? Date.now,
+	timeoutMs: j.timeoutMs ?? QUEUE_TIMEOUT_MS,
+	pollMs: j.pollMs ?? QUEUE_POLL_MS,
+	sleepFn:
+		j.sleepFn ??
+		((/** @type {number} */ ms) => new Promise((done) => setTimeout(done, ms))),
+});
 
 /** @param {((pid: number) => boolean) | undefined} alive */
 const staleWith =
 	(alive) => (/** @type {{ pid: number, start?: number }} */ r) =>
 		isMarkerStale(r, alive ? { alive } : {});
 
-/** @param {Joining} j */
+/** @param {Resolved} j */
 const staleOf = (j) => staleWith(j.alive);
 
 /**
- * @param {Joining} j
+ * @param {Resolved} j
+ * @param {boolean} fallingBack
  * @returns {Marker | null}
  */
-function findJoinable(j) {
+function findJoinable(j, fallingBack) {
 	const mine = { pid: j.pid, at: j.asked.wall };
 	const stale = staleOf(j);
 	const { markers } = readMarkers(j.queueDir, j.queueFs);
@@ -104,7 +126,7 @@ function findJoinable(j) {
 					r.pid !== j.pid &&
 					!hasStarted(r) &&
 					isSameKey(r, j.key) &&
-					askedBefore(r, mine) &&
+					(fallingBack || askedBefore(r, mine)) &&
 					!stale(r),
 			)
 			.sort((a, b) => (askedBefore(a.record, b.record) ? -1 : 1))[0] ?? null
@@ -122,13 +144,13 @@ const hasStarted = (r) => r.spawned === true || r.admitted === true;
 
 /**
  * @param {Marker} target
- * @param {Joining} j
+ * @param {Resolved} j
  * @returns {import("./suite-queue.js").QueueRecord | null | "torn"}
  */
 function readRun(target, j) {
 	let text;
 	try {
-		text = String((j.queueFs ?? fs).readFileSync(target.file, "utf8"));
+		text = String(j.queueFs.readFileSync(target.file, "utf8"));
 	} catch {
 		return null;
 	}
@@ -156,7 +178,7 @@ const runOf = (target) => ({
 
 /**
  * @param {Marker} target
- * @param {Joining} j
+ * @param {Resolved} j
  * @returns {"unconfirmed" | "unwritten" | (() => void)}
  */
 function enterJoin(target, j) {
@@ -171,8 +193,14 @@ function enterJoin(target, j) {
 		},
 		j.queueFs,
 	);
-	if (!marker) return "unwritten";
-	const dropMarker = () => (j.queueFs ?? fs).rmSync(marker, { force: true });
+	if (marker instanceof Error) {
+		j.out.write(
+			`${j.label}: could not write a join marker in ${j.queueDir} (${marker.message}) — queueing a type-check of its own instead (#5639).\n`,
+		);
+		return "unwritten";
+	}
+	const dropMarker = () =>
+		ignoreFailure(() => j.queueFs.rmSync(marker, { force: true }));
 	const confirmed = readRun(target, j);
 	if (confirmed && confirmed !== "torn" && !hasStarted(confirmed))
 		return dropMarker;
@@ -182,13 +210,13 @@ function enterJoin(target, j) {
 
 /**
  * @param {Marker} target
- * @param {Joining} j
+ * @param {Resolved} j
  * @param {() => void} dropMarker
  * @returns {Promise<{ code: number } | { lost: true }>}
  */
 async function follow(target, j, dropMarker) {
 	const run = runOf(target);
-	const clock = j.monoClock ?? monotonicMs;
+	const clock = j.monoClock;
 	const joined = { pid: run.pid, session: target.record.session ?? null };
 	/** @type {number | null} */
 	let spawnedMono = null;
@@ -218,10 +246,6 @@ async function follow(target, j, dropMarker) {
 		host.seats.delete(entry);
 		dropMarker();
 	};
-	const sleep =
-		j.sleepFn ??
-		((/** @type {number} */ ms) =>
-			new Promise((resolve) => setTimeout(resolve, ms)));
 	/** @returns {{ code: number } | { lost: true } | null} */
 	const step = () => {
 		const live = readRun(target, j);
@@ -230,12 +254,13 @@ async function follow(target, j, dropMarker) {
 		if (result) return { code: take(result, target, j, end) };
 		if (!live) {
 			end();
+			removeOrphanedRunFiles(target, j);
 			return { lost: true };
 		}
 		if (live.spawned === true) {
 			spawnedMono ??= clock();
-			spawnedWall ??= Date.now();
-		} else if (clock() - j.asked.mono >= (j.timeoutMs ?? QUEUE_TIMEOUT_MS)) {
+			spawnedWall ??= j.wallClock();
+		} else if (clock() - j.asked.mono >= j.timeoutMs) {
 			following = false;
 			refuseJoin(j, run, clock() - j.asked.mono, joined);
 			end();
@@ -247,7 +272,7 @@ async function follow(target, j, dropMarker) {
 		for (;;) {
 			const outcome = step();
 			if (outcome) return outcome;
-			await sleep(j.pollMs ?? QUEUE_POLL_MS);
+			await j.sleepFn(j.pollMs);
 			if (!following) {
 				host.seats.delete(entry);
 				return { code: 1 };
@@ -260,15 +285,14 @@ async function follow(target, j, dropMarker) {
 }
 
 /**
- * @param {Joining} j
+ * @param {Resolved} j
  * @param {RunId} run
  * @param {number} waitMs
  * @param {{ pid: number, session: string | null }} joined
  */
 function refuseJoin(j, run, waitMs, joined) {
-	const timeoutMs = j.timeoutMs ?? QUEUE_TIMEOUT_MS;
 	j.out.write(
-		`${j.label}: the type-check pid ${run.pid} this request joined had not started after ${Math.round(waitMs / 1000)}s, the queue's ${Math.round(timeoutMs / 60_000)}-minute wait bound — refused, not run: one \`tsc\` runs at a time (#3163).\n`,
+		`${j.label}: the type-check pid ${run.pid} this request joined had not started after ${Math.round(waitMs / 1000)}s, the queue's ${Math.round(j.timeoutMs / 60_000)}-minute wait bound — refused, not run: one \`tsc\` runs at a time (#3163).\n`,
 	);
 	j.logExit("timeout", waitMs, { joined });
 }
@@ -276,7 +300,7 @@ function refuseJoin(j, run, waitMs, joined) {
 /**
  * @param {RunResult} result
  * @param {Marker} target
- * @param {Joining} j
+ * @param {Resolved} j
  * @param {() => void} end
  * @returns {number}
  */
@@ -294,23 +318,32 @@ function take(result, target, j, end) {
 		joined: { pid: run.pid, session },
 	});
 	end();
-	const isStale = staleOf(j);
-	if (
-		!readRun(target, j) &&
-		!hasLiveJoiner(j.queueDir, run, { queueFs: j.queueFs, isStale })
-	)
-		removeRunFiles(j.queueDir, run, j.queueFs);
+	removeOrphanedRunFiles(target, j);
 	return j.exitStatus(result.code, result.signal);
 }
 
 /**
- * @param {Joining} j
+ * @param {Marker} target
+ * @param {Resolved} j
+ */
+function removeOrphanedRunFiles(target, j) {
+	const run = runOf(target);
+	if (
+		!readRun(target, j) &&
+		!hasLiveJoiner(j.queueDir, run, { queueFs: j.queueFs, isStale: staleOf(j) })
+	)
+		removeRunFiles(j.queueDir, run, j.queueFs);
+}
+
+/**
+ * @param {Resolved} j
  * @param {() => void} leaveSeat
+ * @param {boolean} fallingBack
  * @returns {Promise<number | { lost: true } | null>}
  */
-async function tryJoin(j, leaveSeat) {
+async function tryJoin(j, leaveSeat, fallingBack) {
 	for (;;) {
-		const target = findJoinable(j);
+		const target = findJoinable(j, fallingBack);
 		if (!target) return null;
 		const entered = enterJoin(target, j);
 		if (entered === "unwritten") return null;
@@ -323,27 +356,30 @@ async function tryJoin(j, leaveSeat) {
 
 /**
  * @template {{ leave: () => void }} S
- * @param {Joining} j
+ * @param {Joining} joining
  * @param {S} seat
  * @param {(waitedMs: number) => S} reseat
  * @returns {Promise<{ code: number } | { seat: S }>}
  */
-async function joinOrSeat(j, seat, reseat) {
+async function joinOrSeat(joining, seat, reseat) {
+	const j = resolve(joining);
+	/** @type {S | null} */
 	let current = seat;
 	for (;;) {
-		const joined = await tryJoin(j, current.leave);
-		if (joined === null) return { seat: current };
+		const joined = await tryJoin(j, current?.leave ?? noop, current === null);
 		if (typeof joined === "number") return { code: joined };
-		current = reseat((j.monoClock ?? monotonicMs)() - j.asked.mono);
+		if (joined !== null) current = null;
+		else if (current) return { seat: current };
+		else current = reseat(j.monoClock() - j.asked.mono);
 	}
 }
 
 /**
- * @param {{ queueDir: string, queueFs?: typeof fs, pid: number, alive?: (pid: number) => boolean }} where
+ * @param {{ queueDir: string, queueFs?: typeof fs, pid: number, alive?: (pid: number) => boolean, out: Out, label: string }} where
  */
-function captureRun({ queueDir, queueFs, pid, alive }) {
+function captureRun({ queueDir, queueFs, pid, alive, out, label }) {
 	const run = { pid, start: readStartTimeOf(pid) };
-	const capture = openCapture(queueDir, run, queueFs);
+	const capture = openCapture(queueDir, run, { queueFs, say: out, label });
 	return {
 		...capture,
 		release: () => {

@@ -65,7 +65,7 @@ const HOST_TEXT = {
  * @typedef {{ at: string, waitS: number, reason: string, kind: string,
  *   session: string | null, empty: boolean, skipped?: boolean,
  *   joined?: { pid: number, session: string | null } }} QueueExit
- * @typedef {{ runs: number, waitS: number }} Tally
+ * @typedef {{ runs: number, waits: number, waitS: number }} Tally
  */
 
 /**
@@ -120,8 +120,9 @@ function tally(exits, from, to, groupOf) {
 		const end = Date.parse(e.at);
 		if (end < from || end - e.waitS * 1000 >= to) continue;
 		const s = waitWithin(e, from, to);
-		const g = groups.get(groupOf(e)) ?? { runs: 0, waitS: 0 };
-		g.runs++;
+		const g = groups.get(groupOf(e)) ?? { runs: 0, waits: 0, waitS: 0 };
+		g.waits++;
+		if (e.joined === undefined) g.runs++;
 		g.waitS += s;
 		groups.set(groupOf(e), g);
 	}
@@ -138,6 +139,7 @@ function tally(exits, from, to, groupOf) {
 const total = (exits, from, to, keep = () => true) =>
 	tally(exits.filter(keep), from, to, () => "").get("") ?? {
 		runs: 0,
+		waits: 0,
 		waitS: 0,
 	};
 
@@ -185,9 +187,9 @@ function reading(logged, nowMs, unparsed, core) {
 	const joined = total(exits, from, nowMs, (e) => e.joined !== undefined);
 
 	const body = [
-		`**${hours(all.waitS)} h** of suite queue wait in the 24 h to ${minute(nowMs)}, over ${all.runs - joined.runs} queued run(s). The limit is ${LIMIT_H} h, fixed in hours: it changes only by ${host.ruling} (#1157 Q5, Q6).`,
+		`**${hours(all.waitS)} h** of suite queue wait in the 24 h to ${minute(nowMs)}, over ${all.runs} queued run(s). The limit is ${LIMIT_H} h, fixed in hours: it changes only by ${host.ruling} (#1157 Q5, Q6).`,
 		"",
-		`${joined.runs} more wait(s) joined a queued same-key \`tsc\` run rather than queue their own, ${hours(joined.waitS)} h of that wait (#5639).`,
+		`${joined.waits} more wait(s) joined a queued same-key \`tsc\` run rather than queue their own, ${hours(joined.waitS)} h of that wait (#5639).`,
 		"",
 		"Read from `.suite-queue-exits.jsonl` by `scripts/report-suite-queue-wait.js` (#1219), at most hourly at session start. While this issue is open, each reading at or over the limit refreshes this body; once it is closed, only a 24 h window starting after the close files it again.",
 		...(unparsed
@@ -229,7 +231,7 @@ function reading(logged, nowMs, unparsed, core) {
 		"",
 		"## Killed waits, last 24 h",
 		"",
-		`${killed.runs} wait(s) ended by a signal, after ${hours(killed.waitS)} h of wait.`,
+		`${killed.waits} wait(s) ended by a signal, after ${hours(killed.waitS)} h of wait.`,
 		"",
 		"## Candidate questions",
 		"",

@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { ignoreFailure } = require("./caught.js");
+const { escapeRe, requiredGroup } = require("./regex-group.js");
 
 const JOIN_PREFIX = "wfc-tsc-join-";
 const RUN_PREFIX = "wfc-tsc-run-";
@@ -9,7 +10,7 @@ const RUN_PREFIX = "wfc-tsc-run-";
  * @typedef {{ toplevel: string, cwd: string, command: string[], session: string | null }} TscHolder
  * @typedef {{ pid: number, start: number }} RunId
  * @typedef {{ pid: number, start: number, at: number, session: string | null, run: RunId }} JoinRecord
- * @typedef {{ code: number | null, signal: NodeJS.Signals | null, spawnedAt: number, endedAt: number }} RunResult
+ * @typedef {{ code: number, signal: NodeJS.Signals | null, spawnedAt: number, endedAt: number }} RunResult
  */
 
 /**
@@ -36,7 +37,7 @@ const joinMarkerPath = (dir, pid) =>
  * @param {string} dir
  * @param {JoinRecord} record
  * @param {typeof fs} [queueFs]
- * @returns {string}
+ * @returns {string | Error}
  */
 function writeJoinMarker(dir, record, queueFs = fs) {
 	const file = joinMarkerPath(dir, record.pid);
@@ -44,8 +45,8 @@ function writeJoinMarker(dir, record, queueFs = fs) {
 		queueFs.mkdirSync(dir, { recursive: true });
 		queueFs.writeFileSync(file, JSON.stringify(record));
 		return file;
-	} catch {
-		return "";
+	} catch (error) {
+		return error instanceof Error ? error : new Error(String(error));
 	}
 }
 
@@ -100,9 +101,9 @@ function hasLiveJoiner(dir, run, { queueFs = fs, isStale }) {
 /**
  * @param {string} dir
  * @param {RunId} run
- * @param {typeof fs} [queueFs]
+ * @param {{ queueFs?: typeof fs, say: { write: (s: string) => unknown }, label: string }} options
  */
-function openCapture(dir, run, queueFs = fs) {
+function openCapture(dir, run, { queueFs = fs, say, label }) {
 	const files = runFiles(dir, run);
 	/** @type {{ out: number, err: number } | null} */
 	let fds = null;
@@ -112,8 +113,11 @@ function openCapture(dir, run, queueFs = fs) {
 			out: queueFs.openSync(files.out, "w"),
 			err: queueFs.openSync(files.err, "w"),
 		};
-	} catch {
+	} catch (error) {
 		removeRunFiles(dir, run, queueFs);
+		say.write(
+			`${label}: could not open this type-check's capture files in ${dir} (${error instanceof Error ? error.message : error}) — it runs, but a request that joined it falls back to a run of its own (#5639).\n`,
+		);
 	}
 	/** @param {"out" | "err"} stream */
 	const into = (stream) => (/** @type {string} */ text) => {
@@ -192,7 +196,7 @@ function removeRunFiles(dir, run, queueFs = fs) {
 		ignoreFailure(() => queueFs.rmSync(file, { force: true }));
 }
 
-const RUN_FILE = new RegExp(`^${RUN_PREFIX}(\\d+)-(\\d+)\\.`);
+const RUN_FILE = new RegExp(`^${escapeRe(RUN_PREFIX)}(\\d+)-(\\d+)\\.`);
 
 /**
  * @param {string} dir
@@ -213,7 +217,10 @@ function sweepJoinFiles(dir, { queueFs = fs, isStale }) {
 	for (const name of entries) {
 		const match = RUN_FILE.exec(name);
 		if (!match) continue;
-		const run = { pid: Number(match[1]), start: Number(match[2]) };
+		const run = {
+			pid: Number(requiredGroup(match, 1, RUN_FILE)),
+			start: Number(requiredGroup(match, 2, RUN_FILE)),
+		};
 		if (!isStale(run)) continue;
 		if (joiners.some(({ record }) => isJoinOf(record, run))) continue;
 		ignoreFailure(() => queueFs.unlinkSync(path.join(dir, name)));
