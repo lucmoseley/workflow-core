@@ -2034,6 +2034,60 @@ describe("queue-run.js", () => {
 				]);
 			});
 
+			it("says so, and still takes the verdict, when its join marker will not remove", async () => {
+				const h = hub();
+				let open = false;
+				const a = h.request(281, { open: () => open });
+				await tick();
+				const queueFs = {
+					...fs,
+					rmSync: (file: string, opts: object) => {
+						if (path.basename(file).startsWith("wfc-tsc-join-"))
+							throw new Error("EBUSY");
+						return fs.rmSync(file, opts);
+					},
+				};
+				h.clock.now = 2000;
+				const b = h.request(282, { queueFs });
+				await h.poll();
+				open = true;
+				await h.poll();
+				finishRun(h.f.spawned[0].child, 0);
+				expect(await a.code).toBe(0);
+				await h.poll();
+				expect(await b.code).toBe(0);
+				expect(b.out.join("")).toMatch(
+					/could not remove its join marker .*\(EBUSY\) — the stale sweep removes it once this process exits/,
+				);
+			});
+
+			it("on fallback joins a later same-key run even past another key's waiter, as the spec's Fallback decision rules", async () => {
+				const h = hub();
+				h.request(291, { open: () => false, timeoutMs: 5000 });
+				await tick();
+				h.clock.now = 2000;
+				h.request(292, { open: () => false });
+				await h.poll();
+				fs.writeFileSync(
+					path.join(h.f.dir, "wfc-suite-queue-293.json"),
+					JSON.stringify({
+						pid: 293,
+						at: 2500,
+						start: 0,
+						toplevel: "/other",
+						cwd: "/other",
+						command: typecheck.slice(2),
+						session: "s8",
+					}),
+				);
+				h.runMarker(295, 3000);
+				h.clock.mono = 6000;
+				await h.poll(2);
+				expect(h.f.readMarkers()).not.toContain("wfc-suite-queue-292.json");
+				expect(h.leftovers()).toContain("wfc-tsc-join-292.json");
+				expect(h.f.spawned).toEqual([]);
+			});
+
 			it("leaves no capture behind a run nobody joined", async () => {
 				const h = hub();
 				const a = h.request(231);

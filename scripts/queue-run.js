@@ -368,6 +368,13 @@ function withJoining(plain, options, key) {
 		wall: (options.clock ?? Date.now)(),
 		mono: (options.monoClock ?? monotonicMs)(),
 	};
+	const where = {
+		...queue,
+		pid,
+		queueDir: queue.queueDir ?? defaultTscQueueDir(),
+		out: options.out ?? process.stderr,
+		label: LABEL,
+	};
 	return {
 		...plain,
 		join: {
@@ -379,26 +386,16 @@ function withJoining(plain, options, key) {
 			spawnCommand(startWords, {
 				handed: TSC_SLOT_ENV,
 				...launch,
-				capture: captureRun({
-					...queue,
-					pid,
-					queueDir: queue.queueDir ?? defaultTscQueueDir(),
-					out: options.out ?? process.stderr,
-					label: LABEL,
-				}),
+				capture: captureRun(where),
 			}),
 		joining: {
-			...queue,
-			queueDir: queue.queueDir ?? defaultTscQueueDir(),
-			pid,
+			...where,
 			session,
 			key,
 			asked,
 			...(options.clock ? { wallClock: options.clock } : {}),
-			out: options.out ?? process.stderr,
 			stdout: options.stdout ?? STDOUT,
 			err: options.err ?? STDERR,
-			label: LABEL,
 			exitStatus,
 		},
 	};
