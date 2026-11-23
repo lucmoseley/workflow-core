@@ -257,7 +257,6 @@ module.exports = {
 	PRINTING_FIX,
 	REPAIR_STATES,
 	addedCheckVerdict,
-	classifyExit,
 	runCheckCommand,
 	unwrap,
 };

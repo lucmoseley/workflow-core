@@ -619,17 +619,11 @@ function liveClaimElsewhereOnFile(rel, exceptClaimId) {
 
 module.exports = {
 	acquire,
-	breakStale,
 	listLocks,
 	listLocksJudged,
 	liveClaimElsewhereOnFile,
-	newLock,
 	readHeldClean,
 	release,
-	repointLock,
 	subjectDirtyWhereHeld,
-	sweepDebris,
-	takeLock,
 	takeSubjectLock,
-	whoHolds,
 };

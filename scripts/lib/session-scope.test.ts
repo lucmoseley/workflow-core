@@ -12,7 +12,7 @@ import {
 	outlivesMark,
 	releaseUnitArgs,
 	straysOf,
-	WATCH,
+	watcherArgv,
 } from "./session-scope.js";
 import { systemctlCalls, writeSystemctl } from "./systemctl-fake";
 
@@ -346,8 +346,13 @@ describe("the watcher", () => {
 		return { proc, dir, env, read, kills };
 	}
 
-	const watch = (env: NodeJS.ProcessEnv, leader: string, start: string) =>
-		spawnSync("sh", ["-c", WATCH, "sh", leader, start, "u.scope"], {
+	const watchArgs = (leader: number, start: number) => [
+		...watcherArgv(leader, start).slice(1, -1),
+		"u.scope",
+	];
+
+	const watch = (env: NodeJS.ProcessEnv, leader: number, start: number) =>
+		spawnSync("sh", watchArgs(leader, start), {
 			encoding: "utf8",
 			env,
 		});
@@ -357,7 +362,7 @@ describe("the watcher", () => {
 			4242: "sleep\x00900\x00",
 			4243: "/home/u/.local/bin/claude\x00daemon\x00run\x00",
 		});
-		const r = watch(m.env, "4000", "0");
+		const r = watch(m.env, 4000, 0);
 		expect(r.status).toBe(0);
 		expect(m.read("busctl.log")).toMatch(
 			/StartTransientUnit .* wfc-claude-4243\.scope fail 2 PIDs au 1 4243 /,
@@ -379,7 +384,7 @@ describe("the watcher", () => {
 			path.join(m.dir, "memory.events"),
 			"low 0\nhigh 0\nmax 4\noom 2\noom_kill 2\noom_group_kill 0\n",
 		);
-		const r = watch(m.env, "4000", "0");
+		const r = watch(m.env, 4000, 0);
 		expect(r.stdout).toBe("u.scope peaked at 3072 MiB, oom_kill 2\n");
 	});
 
@@ -390,7 +395,7 @@ describe("the watcher", () => {
 		fs.writeFileSync(stat, `4000 (a) S ${"0 ".repeat(18)}555 0\n`);
 		fs.writeFileSync(path.join(m.dir, "memory.peak"), "1073741824\n");
 		fs.writeFileSync(path.join(m.dir, "memory.events"), "oom_kill 1\n");
-		const watcher = spawn("sh", ["-c", WATCH, "sh", "4000", "555", "u.scope"], {
+		const watcher = spawn("sh", watchArgs(4000, 555), {
 			env: m.env,
 		});
 		cleanups.push(() => watcher.kill("SIGKILL"));
@@ -411,7 +416,7 @@ describe("the watcher", () => {
 
 	it("says the peak was unreadable where the scope held none", () => {
 		const m = fakeMachine({});
-		const r = watch(m.env, "4000", "0");
+		const r = watch(m.env, 4000, 0);
 		expect(r.stdout).toMatch(/^u\.scope peak unreadable at .*\/scope$/m);
 	});
 
@@ -422,7 +427,7 @@ describe("the watcher", () => {
 			path.join(m.proc, "4000", "stat"),
 			`4000 (a) b) S ${"0 ".repeat(18)}777 0\n`,
 		);
-		const r = watch(m.env, "4000", "555");
+		const r = watch(m.env, 4000, 555);
 		expect(r.stdout).toMatch(/session 4000 ended/);
 	});
 
@@ -431,7 +436,7 @@ describe("the watcher", () => {
 		fs.mkdirSync(path.join(m.proc, "4000"), { recursive: true });
 		const stat = path.join(m.proc, "4000", "stat");
 		fs.writeFileSync(stat, `4000 (a) S ${"0 ".repeat(18)}555 0\n`);
-		const watcher = spawn("sh", ["-c", WATCH, "sh", "4000", "555", "u.scope"], {
+		const watcher = spawn("sh", watchArgs(4000, 555), {
 			env: m.env,
 		});
 		cleanups.push(() => watcher.kill("SIGKILL"));

@@ -1,24 +1,20 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { freshSandbox, locks, proc } from "./arbiter-testkit";
+import { freshSandbox, live, lockRecord, proc, store } from "./arbiter-testkit";
 
-freshSandbox();
+const sb = freshSandbox();
 
-describe("the record factories — where a record's fields are written down", () => {
-	it("defaults a lock to the not-observed values, so a bare one is breakable", () => {
-		const lock = locks.newLock({
-			path: "docs/doc-map.md",
-			sessionId: "ancient",
-		});
-		expect(lock.pid).toBeNull();
-		expect(lock.procStart).toBeNull();
+describe("a lock record — where its fields are written down", () => {
+	it("reads a lock with no observed process as dead, so a bare one is breakable", () => {
+		const lock = lockRecord({ path: "docs/doc-map.md", sessionId: "ancient" });
 		expect(proc.holderAlive(lock)).toBe(false);
 	});
 
-	it("stamps a lock with a claim id and this boot, so two locks never collide", () => {
-		const a = locks.newLock({ path: "docs/a.md" });
-		const b = locks.newLock({ path: "docs/a.md" });
-		expect(a.claimId).not.toBe(b.claimId);
-		expect(a.bootId).toBe(proc.readCurrentBootId() || undefined);
+	it("stamps each claim with a claim id and this boot, so two locks never collide", () => {
+		const me = live(sb, "alice");
+		const a = store.acquire("docs/a.md", me).lock;
+		const b = store.acquire("docs/b.md", me).lock;
+		expect(a?.claimId).not.toBe(b?.claimId);
+		expect(a?.bootId).toBe(proc.readCurrentBootId());
 	});
 });

@@ -464,7 +464,7 @@ function consumersOf(paths, blocks) {
 /** @returns {string[]} */
 function gatedModules() {
 	const table = readText(GATE_TABLE);
-	if (table === undefined) return [];
+	if (table === null) return [];
 	return [...firstGroups(GATE_SCRIPT_RE, table)].map((rel) =>
 		path.basename(rel).replace(SCRIPT_EXT, ""),
 	);

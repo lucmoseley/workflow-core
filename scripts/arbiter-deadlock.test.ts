@@ -8,7 +8,7 @@ import {
 	breaks,
 	freshSandbox,
 	live,
-	locks,
+	lockRecord,
 	registerSession,
 	store,
 } from "./lib/arbiter-testkit";
@@ -156,7 +156,7 @@ describe("claim-all keeps the notices claim gives (mantahostels#1195's review)",
 		live(sb, "mine");
 		breaks.recordBreak(
 			"docs/a.md",
-			locks.newLock({
+			lockRecord({
 				path: "docs/a.md",
 				sessionId: "mine",
 				claimId: "lost-claim",

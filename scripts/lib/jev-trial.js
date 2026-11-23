@@ -276,8 +276,6 @@ module.exports = {
 	sessionsInTrial,
 	limb2WindowSessions,
 	limb1WindowSessions,
-	TRIAL_START,
-	OUTAGE_START,
 	inOutageVoid,
 	WRONG_IN,
 	OUTAGE_IN,

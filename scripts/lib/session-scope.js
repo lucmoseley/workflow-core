@@ -324,7 +324,6 @@ function parseWatcherArgv(argv) {
 
 module.exports = {
 	MEMORY_BOUND,
-	WATCH,
 	watcherArgv,
 	parseWatcherArgv,
 	unitOf,

@@ -322,7 +322,6 @@ module.exports = {
 	LANDER_GIT_TIMEOUT_MS,
 	isAncestor,
 	parseRefusal,
-	REFUSAL_TAIL_LINES,
 	parseGateRefusal,
 	PUSH_TIMEOUT_MS,
 	pushRemote,

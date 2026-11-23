@@ -13,7 +13,7 @@ import {
 	listedLocks,
 	live,
 	lockFiles,
-	locks,
+	lockRecord,
 	noSessions,
 	registerSession,
 	store,
@@ -43,7 +43,7 @@ describe("content identity — what the file held when its claimant last touched
 	const readLock = () => core.readRecord(store.paths.lock(rel));
 
 	it("records the blob on the claim, and an unrecorded claim reads as unknown", () => {
-		const unrecorded = locks.newLock({ path: rel });
+		const unrecorded = lockRecord({ path: rel });
 		expect(unrecorded.blob).toBeNull();
 		expect(store.contentState(rel, unrecorded).state).toBe("unknown");
 
@@ -402,7 +402,7 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 	it("caps the chain, so forty refreshes do not grow the record without limit", () => {
 		const me = claiming("alice");
 		for (let i = 2; i <= 40; i++) revise(me, `v${i}\n`);
-		expect(readLock().priorBlobs.length).toBe(content.PRIOR_BLOBS_MAX);
+		expect(readLock().priorBlobs.length).toBe(10);
 		expect(
 			execFileSync("git", ["cat-file", "-p", readLock().priorBlobs[0].sha], {
 				cwd: sb.repo,

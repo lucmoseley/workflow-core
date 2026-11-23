@@ -11,7 +11,7 @@ import {
 	ledger,
 	live,
 	lockFiles,
-	locks as locksMod,
+	lockRecord,
 	store,
 } from "./arbiter-testkit";
 import { warnings } from "./claim-warning.js";
@@ -134,7 +134,7 @@ describe("what must stay silent", () => {
 
 	it("a claim whose holder has stopped running", () => {
 		finished(sb, "gone-session");
-		const lock = locksMod.newLock({
+		const lock = lockRecord({
 			path: "docs/doc-map.md",
 			sessionId: "gone-session",
 			pid: process.pid,
@@ -514,7 +514,7 @@ describe("crediting a Bash-route code write to the ledger (mantahostels#2778)", 
 
 	it("credits again once the holder has stopped running", () => {
 		finished(sb, "credit-gone-holder");
-		const lock = locksMod.newLock({
+		const lock = lockRecord({
 			path: "scripts/released.js",
 			sessionId: "credit-gone-holder",
 			pid: process.pid,

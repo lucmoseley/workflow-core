@@ -4,13 +4,13 @@ import path from "node:path";
 import { afterAll, beforeAll, vi } from "vitest";
 import type { freshSandbox } from "./arbiter-testkit";
 import { ghAnswerHandler, RECORDED_SHAPES } from "./gh-fake";
+import { buildHandlerPort } from "./gh-server-stub.js";
 import {
 	type GhStubServer,
 	serveGhStub,
 	stubGhHandler,
 	stubGhScript,
 } from "./gh-stub";
-import { buildHandlerPort } from "./gh-stub-server.js";
 import {
 	buildEarlyoomReadingLine,
 	buildEarlyoomSignalLine,

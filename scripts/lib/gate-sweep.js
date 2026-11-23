@@ -290,7 +290,6 @@ function gateSweeper({ file, runRoot, log, cadenceMs }) {
 
 module.exports = {
 	GATE_SWEEP_MS,
-	JUDGE_EVERY_MS,
 	dropTried,
 	gateSweeper,
 	readGateStore,

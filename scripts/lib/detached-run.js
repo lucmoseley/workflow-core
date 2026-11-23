@@ -27,7 +27,6 @@ const runPath = () => path.join(configDir(), RUN_FILE);
  *   lastFinishedAt?: string,
  *   ok?: boolean,
  *   error?: string,
- *   counts?: Record<string, number>,
  * }} RunRecord
  */
 
@@ -104,7 +103,7 @@ function openRun(job, now = Date.now()) {
 
 /**
  * @param {RunRecord} record
- * @param {{ ok: boolean, error?: string, counts?: Record<string, number> }} outcome
+ * @param {{ ok: boolean, error?: string }} outcome
  */
 function closeRun(record, outcome) {
 	/** @type {RunRecord} */
@@ -114,7 +113,6 @@ function closeRun(record, outcome) {
 		ok: outcome.ok,
 	};
 	if (outcome.error) closed.error = outcome.error;
-	if (outcome.counts) closed.counts = outcome.counts;
 	writeRuns(closed);
 }
 
@@ -142,7 +140,6 @@ module.exports = {
 	JOB_PRUNE_MARKERS,
 	JOB_RETIRE_STALE_CONTAINERS,
 	RUN_FILE,
-	closeRun,
 	deathCount,
 	openRun,
 	recordRun,

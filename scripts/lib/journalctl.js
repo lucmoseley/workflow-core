@@ -81,7 +81,6 @@ function readBoots() {
 const bootKey = (/** @type {string} */ id) => id.replace(/-/g, "");
 
 module.exports = {
-	READ_TIMEOUT_MS,
 	bootKey,
 	readBoots,
 	runBoundedRead,

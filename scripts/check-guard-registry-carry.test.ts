@@ -17,15 +17,12 @@ import {
 	SELF_PLUGIN_HOOKS,
 	templateOf,
 } from "./lib/guard-registry-testkit";
-import { parseGateRefusal, REFUSAL_TAIL_LINES } from "./lib/lander-git.js";
+import { parseGateRefusal } from "./lib/lander-git.js";
 
 afterEach(removeTemps);
 
 const GUARD = "scripts/guard-pair.sh";
-const REMEDY = Array.from(
-	{ length: REFUSAL_TAIL_LINES + 1 },
-	(_, i) => `remedy ${i}`,
-);
+const REMEDY = Array.from({ length: 100 }, (_, i) => `remedy ${i}`);
 const LIB_A = "scripts/lib/a.sh";
 const LIB_B = "scripts/lib/b.sh";
 const ADDED = "scripts/guard-solo.sh";
@@ -187,6 +184,7 @@ describe("a merge carries a row whose sides changed different files of its closu
 		expect(r.stderr).toContain(`STALE-PROSE  ${GUARD}`);
 		expect(JSON.parse(git("show", `:${ANCHORS}`))[GUARD]).toBe(before);
 		const kept = parseGateRefusal([r.stderr, ...REMEDY].join("\n"));
+		expect(kept).not.toMatch(/^remedy 0$/m);
 		expect(kept).toContain(
 			`not carried ${GUARD} — both sides changed ${LIB_A}`,
 		);

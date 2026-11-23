@@ -12,7 +12,7 @@ import {
 	DEAD,
 	freshSandbox,
 	gitRepo,
-	locks,
+	lockRecord,
 	proc,
 	putLock,
 	registerSession,
@@ -178,7 +178,7 @@ describe("check-orphaned-edits", () => {
 		it("by a live claim", async () => {
 			dirty("docs/b.md", 30);
 			fs.mkdirSync(store.paths.locksDir(), { recursive: true });
-			const rec = locks.newLock({
+			const rec = lockRecord({
 				path: "docs/b.md",
 				sessionId: "holder",
 				pid: process.pid,

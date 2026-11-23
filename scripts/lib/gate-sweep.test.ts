@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const {
 	GATE_SWEEP_MS,
-	JUDGE_EVERY_MS,
 	dropTried,
 	gateSweeper,
 	readGateStore,
@@ -132,7 +131,7 @@ describe("which readings queue a judgement", () => {
 			dropTried(file, [{ root: WFC, issues: [3223] }], throwOnLog);
 			const next = await sweepOnce(
 				envelope([row(3223, reading, state)]),
-				NOW + JUDGE_EVERY_MS + GATE_SWEEP_MS,
+				NOW + 24 * 60 * 60 * 1000,
 			);
 			expect(next.store.pending).toEqual([]);
 		},
