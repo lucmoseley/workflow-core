@@ -8,6 +8,9 @@ const SWEEP_WORKFLOW = "scheduled-checks.yml";
 
 const SWEEP_BRANCH = "main";
 
+// guess: a per-call gh cap in a sweep, lucmoseley/mantahostels#2134
+const SWEEP_GH_TIMEOUT_MS = 8000;
+
 // guess: four runs a day plus repairs, well past 24 h, #4447
 const LEDGER_RUN_LIMIT = 50;
 
@@ -130,6 +133,7 @@ function readLedgerRuns(timeout) {
 
 module.exports = {
 	SLOT_INPUT,
+	SWEEP_GH_TIMEOUT_MS,
 	SWEEP_WORKFLOW,
 	readLedgerRuns,
 	slotKey,

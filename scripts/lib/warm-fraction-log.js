@@ -423,8 +423,7 @@ function windowOf(usable) {
  *      high: number}} BoundVerdict
  */
 
-// guess, lucmoseley/mantahostels#1054
-const MIN_PROVISIONAL_RUNS = 10;
+const MIN_PROVISIONAL_RUNS = MIN_RUNS;
 
 /** @param {Run|null|undefined} r */
 const isPostPrewarming = (r) => !!r && "provisional" in r;

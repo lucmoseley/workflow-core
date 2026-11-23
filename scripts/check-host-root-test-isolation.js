@@ -8,6 +8,7 @@ const { runCheck, errMessage } = require("./lib/check.js");
 const { exemptHint, exemptMarker } = require("./lib/exempt-markers.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
+const { stripComments } = require("./lib/strip-comments.js");
 
 const EXEMPT = exemptMarker("isolation");
 
@@ -40,13 +41,14 @@ function rootsThroughHostRoot(root, rel, cache, seen = new Set()) {
 		return false;
 	}
 	const shell = rel.endsWith(".sh");
+	const code = shell ? text : stripComments(text);
 	let answer = shell
-		? callsGrRoot(text)
-		: /require\(["'][^"']*\/host-root(?:\.js)?["']\)/.test(text) ||
-			/require\(["'][^"']*\/marker-root(?:\.js)?["']\)/.test(text);
+		? callsGrRoot(code)
+		: /require\(["'][^"']*\/host-root(?:\.js)?["']\)/.test(code) ||
+			/require\(["'][^"']*\/marker-root(?:\.js)?["']\)/.test(code);
 	if (!answer)
 		answer = (
-			shell ? sourcedLibTargets(text) : relativeRequireTargets(rel, text)
+			shell ? sourcedLibTargets(code) : relativeRequireTargets(rel, code)
 		).some(
 			(target) =>
 				target !== GR_SEAM &&

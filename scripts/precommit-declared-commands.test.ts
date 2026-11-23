@@ -7,7 +7,10 @@ import { describe, expect, it } from "vitest";
 import { BIOME_STAGED_COMMAND } from "./lib/biome-allowlist.js";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import { HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
-import { copyRequireClosure, launchedScripts } from "./lib/require-closure";
+import {
+	copyRequireClosure,
+	launchedScripts,
+} from "./lib/require-closure-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { takeRed } from "./lib/typecheck-red-host.js";
 

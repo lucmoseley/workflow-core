@@ -7,7 +7,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeFaultyGit } from "./git-fault-fake";
 import { initGitRepo, mkScratchDir } from "./git-fixture";
-import { requireClosure } from "./require-closure";
+import { requireClosure } from "./require-closure-testkit";
 import { runInProcess } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
 

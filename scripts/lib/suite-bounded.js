@@ -1,5 +1,6 @@
 const { JS_TEST_FILE } = require("./test-kind.js");
 
+// measured 230 s median suite at W=5, #2772
 const WHOLE_SUITE_WORKERS = 5;
 // guess: a quarter of the 485-file suite the ladder was measured on, #2931
 const WHOLE_SLOT_FILES = 121;
