@@ -1943,6 +1943,31 @@ describe("queue-run.js", () => {
 				expect(h.leftovers()).toEqual([]);
 			});
 
+			it("closes every capture file it opened when its child ends on a signal", async () => {
+				const h = hub();
+				const open = new Set<number>();
+				const queueFs = {
+					...fs,
+					openSync: (file: string, flags: string) => {
+						const fd = fs.openSync(file, flags);
+						if (path.basename(file).startsWith("wfc-tsc-run-")) open.add(fd);
+						return fd;
+					},
+					closeSync: (fd: number) => {
+						open.delete(fd);
+						return fs.closeSync(fd);
+					},
+				};
+				const a = h.request(271, { queueFs });
+				await tick();
+				expect(open.size).toBe(2);
+				h.f.spawned[0].child.emit("spawn");
+				h.f.spawned[0].child.emit("exit", null, "SIGTERM");
+				expect(await a.code).toBe(143);
+				expect(open.size).toBe(0);
+				expect(h.leftovers()).toEqual([]);
+			});
+
 			it("stamps a joiner killed after its run spawned at the injected wall clock", async () => {
 				const h = hub();
 				let open = false;
@@ -1981,7 +2006,7 @@ describe("queue-run.js", () => {
 				expect(await a.code).toBe(0);
 				expect(a.stdout.join("")).toBe("src/a.ts(1,1): error TS2322\n");
 				expect(a.out.join("")).toMatch(
-					/could not open this type-check's capture files .*\(EACCES\) — it runs, but a request that joined it falls back to a run of its own/,
+					/could not open this type-check's capture files .*\(EACCES\) — it runs, but a request that joined it joins another queued run or runs its own/,
 				);
 			});
 
