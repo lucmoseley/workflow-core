@@ -54,7 +54,8 @@ function recordRun({
 	clock = now,
 	warn = (s) => writeFd(2, s),
 }) {
-	const file = path.join(queueDir, `${RUN_PREFIX}${pid}.json`);
+	const start = readStartTimeOf(pid);
+	const file = path.join(queueDir, `${RUN_PREFIX}${pid}-${start}.json`);
 	try {
 		fs.mkdirSync(queueDir, { recursive: true });
 		fs.writeFileSync(
@@ -62,7 +63,7 @@ function recordRun({
 			JSON.stringify({
 				pid,
 				at: clock(),
-				start: readStartTimeOf(pid),
+				start,
 				session,
 				args,
 			}),
@@ -92,6 +93,33 @@ function readRunRecord(file) {
 }
 
 /**
+ * @param {RunRecord} record
+ * @param {Required<Pick<InFlightOptions, "alive" | "startTime">>} probes
+ * @returns {boolean}
+ */
+function isGone(record, { alive, startTime }) {
+	if (!alive(record.pid)) return true;
+	const current = startTime(record.pid);
+	return (
+		current > 0 && typeof record.start === "number" && current !== record.start
+	);
+}
+
+/**
+ * @param {string} file
+ * @param {Required<Pick<InFlightOptions, "alive" | "startTime">>} probes
+ * @returns {RunRecord | null}
+ */
+function liveRecord(file, probes) {
+	const record = readRunRecord(file);
+	if (!record) return null;
+	if (!isMarkerStale(record, probes)) return record;
+	if (isGone(record, probes))
+		ignoreFailure(() => fs.rmSync(file, { force: true }));
+	return null;
+}
+
+/**
  * @param {string} session
  * @param {InFlightOptions} [options]
  * @returns {InFlightRun[] | null}
@@ -116,14 +144,8 @@ function readInFlightRuns(
 	const runs = [];
 	for (const name of names) {
 		if (!name.startsWith(RUN_PREFIX)) continue;
-		const file = path.join(queueDir, name);
-		const record = readRunRecord(file);
-		if (!record) continue;
-		if (isMarkerStale(record, { alive, startTime })) {
-			ignoreFailure(() => fs.rmSync(file, { force: true }));
-			continue;
-		}
-		if (record.session !== session) continue;
+		const record = liveRecord(path.join(queueDir, name), { alive, startTime });
+		if (!record || record.session !== session) continue;
 		const args = Array.isArray(record.args) ? record.args.map(String) : [];
 		runs.push({
 			pid: record.pid,

@@ -129,6 +129,19 @@ describe("the session's in-flight test runs, read from the launcher's run record
 		expect(fs.readdirSync(dir)).toEqual([]);
 	});
 
+	it("keeps a live run's record whose start time will not read, counting it for nothing", () => {
+		const dir = queueDir();
+		join(dir, process.pid);
+		expect(
+			readInFlightRuns(S, {
+				queueDir: dir,
+				alive: () => true,
+				startTime: () => 0,
+			}),
+		).toEqual([]);
+		expect(fs.readdirSync(dir)).toHaveLength(1);
+	});
+
 	it("drops a run's record when the run ends", () => {
 		const dir = queueDir();
 		const drop = join(dir, 11);

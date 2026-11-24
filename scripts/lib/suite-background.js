@@ -148,11 +148,11 @@ const fixOpener = (snapshot) =>
  * @param {string[]} words
  */
 const isSnapshotRun = (launch, words) => {
-	const { QUEUE_FLAG, readsSnapshot } = require("./launch-route.js");
+	const { QUEUE_FLAG, isSnapshotArgv } = require("./launch-route.js");
 	return (
 		(launch.kind === "wrapper" || launch.kind === "npm-vitest") &&
 		!words.includes(QUEUE_FLAG) &&
-		readsSnapshot(words)
+		isSnapshotArgv(words)
 	);
 };
 

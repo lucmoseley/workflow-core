@@ -95,7 +95,7 @@ function launchRoute(argv, sessionId) {
 	const frozen = shared ? "shared" : "worktree";
 	/** @type {Tree} */
 	const settled = full || isolated ? frozen : "shared";
-	const snapshot = readsSnapshot(argv) && session !== null;
+	const snapshot = isSnapshotArgv(argv) && session !== null;
 	return {
 		rest,
 		kind,
@@ -110,7 +110,7 @@ function launchRoute(argv, sessionId) {
  * @param {string[]} argv
  * @returns {boolean}
  */
-const readsSnapshot = (argv) =>
+const isSnapshotArgv = (argv) =>
 	!argv.includes(SHARED_FLAG) &&
 	!argv.includes(ISOLATED_FLAG) &&
 	fullFlagWord(argv) === null;
@@ -225,7 +225,7 @@ module.exports = {
 	stripWrapperFlags,
 	isFullRunArgv,
 	launchRoute,
-	readsSnapshot,
+	isSnapshotArgv,
 	isTouchedRun,
 	noCacheRefusal,
 	npmSwallowedRefusal,
