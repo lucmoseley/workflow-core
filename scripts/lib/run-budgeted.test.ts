@@ -102,7 +102,7 @@ it("kills a group that ignores the signal, and dies by it, when told to stop (#2
 			"1000",
 			"sh",
 			"-c",
-			"echo $$; trap '' TERM; sleep 30 & wait",
+			"trap '' TERM; echo $$; sleep 30 & wait",
 		],
 		{ stdio: ["ignore", "pipe", "ignore"] },
 	);
@@ -124,7 +124,11 @@ const SECOND_SIGNAL_BOUND_MS = SIGNALLED_GRACE_MS / 2;
 // guess, #5188
 const SIGNAL_GAP_MS = 200;
 
-async function signalled(script: string, signals: NodeJS.Signals[]) {
+async function signalled(
+	trap: string,
+	body: string,
+	signals: NodeJS.Signals[],
+) {
 	const child = keptSpawn("signal").spawn(
 		process.execPath,
 		[
@@ -133,7 +137,7 @@ async function signalled(script: string, signals: NodeJS.Signals[]) {
 			String(SIGNALLED_GRACE_MS),
 			"sh",
 			"-c",
-			`echo $$; ${script}`,
+			`${trap}; echo $$; ${body}`,
 		],
 		{ stdio: ["ignore", "pipe", "ignore"] },
 	);
@@ -157,7 +161,8 @@ describe("a signal to the runner (#5188)", () => {
 		const mark = path.join(dir, "cleaned");
 		try {
 			const r = await signalled(
-				`trap 'touch ${mark}; exit 130' INT; sleep 30 & wait`,
+				`trap 'touch ${mark}; exit 130' INT`,
+				"sleep 30 & wait",
 				["SIGINT"],
 			);
 			expect(r.signal).toBe("SIGINT");
@@ -169,7 +174,7 @@ describe("a signal to the runner (#5188)", () => {
 	});
 
 	it("kills the group at once on a second signal, not after kill-after-ms", async () => {
-		const r = await signalled("trap '' TERM; sleep 30 & wait", [
+		const r = await signalled("trap '' TERM", "sleep 30 & wait", [
 			"SIGTERM",
 			"SIGTERM",
 		]);
