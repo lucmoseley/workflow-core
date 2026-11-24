@@ -1066,13 +1066,16 @@ describe("aggregate session draw (#2221)", () => {
 		);
 	});
 
-	it("charges only two of five listed sessions with no pid (#5283)", () => {
+	it("charges only two of five listed sessions with no pid, and says how many it charged (#5283, #5706)", () => {
 		const machine = {
 			mb: 6000,
 			sessions: [SELF, "a", "b", "c", "d", "e"],
 			pss: {},
 		};
-		expect(run(machine).json.drawNeedMb).toBe(1666);
+		expect(run(machine).json).toMatchObject({
+			drawNeedMb: 1666,
+			noProcessCharged: 2,
+		});
 		expect(run({ ...machine, json: false }).stdout).toMatch(
 			/^live draw +5 live session\(s\): mean 1200 MB \+ 1\.645 × σ 283 MB − 0 MB they already hold; 2 with no process, charged in full, 3 more charged nothing until they wake$/m,
 		);

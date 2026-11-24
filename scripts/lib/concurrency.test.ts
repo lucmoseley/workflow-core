@@ -581,7 +581,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 		});
 	});
 
-	it("carries the Windows reading, the guest's free memory and the type-check reserve it judged on (#4956)", () => {
+	it("carries the Windows reading, the guest's free memory, the type-check reserve and the no-process sessions charged it judged on (#4956, #5706)", () => {
 		const windows = { state: "fresh", mb: 1100, ageS: 40, pagesIn: 2000 };
 		const r = record({
 			input: input(),
@@ -593,6 +593,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 				typecheckReserveMb: 615,
 				testsHeld: 0,
 				guestFreeMb: 1300,
+				noProcessCharged: 2,
 				windows,
 			}),
 		});
@@ -603,6 +604,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 		expect(r.memory).toMatchObject({
 			windows,
 			guestFreeMb: 1300,
+			noProcessCharged: 2,
 			windowsChargeMb: 1200,
 			typecheckReserveMb: 615,
 			testsHeld: 0,

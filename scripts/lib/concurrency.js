@@ -273,6 +273,7 @@ function buildTickMemory(a) {
 		windowsChargeMb: a.windowsChargeMb,
 		testsHeld: a.testsHeld,
 		guestFreeMb: a.guestFreeMb,
+		noProcessCharged: a.noProcessCharged,
 		windows: a.windows,
 		floorMb: a.floorMb,
 		marginMb: a.marginMb,
