@@ -88,6 +88,7 @@ class TransientFault extends Error {}
  *     readonly sha: string}
  *   | {readonly kind: "retake-member", readonly member: Member,
  *     readonly was: string}
+ *   | {readonly kind: "take-waiting", readonly members: readonly Member[]}
  *   | {readonly kind: "drop-member", readonly drop: Drop}
  *   | {readonly kind: "file-fix-ticket", readonly drop: Drop,
  *     readonly held: readonly DroppedRef[]}
@@ -340,7 +341,7 @@ function unmergedAction(members, s, u, main) {
 	const m = members.find((x) => x.name === name);
 	if (!m)
 		return exit(`${queueBranch(name)} did not merge, but is no batch member`);
-	if (u.result.kind === "stale-base") return staleBaseExit(u.result, main);
+	if (u.result.kind === "stale-base") return staleBaseAction(s, u.result, main);
 	if (members[0] === m && u.onto === main)
 		return dropAction(m, main, u.result, s);
 	const alone = aloneAt(s, name, main);
@@ -355,6 +356,26 @@ function unmergedAction(members, s, u, main) {
  * @returns {r is Extract<MergeResult, {kind: "merged" | "stale-base"}>}
  */
 const mergedAlone = (r) => r.kind === "merged" || r.kind === "stale-base";
+
+/**
+ * #5681
+ * @param {QueueState} s
+ * @param {Extract<MergeResult, {kind: "stale-base"}>} result
+ * @param {string} main
+ * @returns {QueueAction}
+ */
+function staleBaseAction(s, result, main) {
+	const { waiting } = waitingOf(s, liveOf(s));
+	if (waiting.length === 0) return staleBaseExit(result, main);
+	return {
+		kind: "take-waiting",
+		members: waiting.map(({ name, sha, pushedAt }) => ({
+			name,
+			sha,
+			pushedAt,
+		})),
+	};
+}
 
 /**
  * @param {Extract<MergeResult, {kind: "stale-base"}>} result
@@ -2284,6 +2305,17 @@ async function act(deps, action, run) {
 			deps.logQueue("take", member);
 			return { ...run, acting: batch, unmerged: null, alone: null };
 		}
+		case "take-waiting": {
+			const b = batchOf(run);
+			const batch = {
+				...b,
+				members: [...b.members, ...action.members].sort(byPushOrder),
+				integration: null,
+			};
+			record.write(batch);
+			for (const m of action.members) deps.logQueue("take", m);
+			return { ...run, acting: batch, unmerged: null, alone: null };
+		}
 		case "defer-member": {
 			const { name, sha, onto, main } = action;
 			const batch = leaveOut(batchOf(run), name, "deferred");
@@ -2782,6 +2814,8 @@ function buildQueueActionLine(a) {
 			return `defer-member ${queueBranch(a.name)}`;
 		case "retake-member":
 			return `retake-member ${queueBranch(a.member.name)}@${short(a.member.sha)}: moved past its snapshot ${short(a.was)} before its batch merged`;
+		case "take-waiting":
+			return `take-waiting ${a.members.map((m) => `${queueBranch(m.name)}@${short(m.sha)}`).join(", ")}: the batch's base is stale, and a waiting ref may carry the re-anchor`;
 		case "leave-withdrawn":
 			return `leave-withdrawn ${queueBranch(a.name)}@${short(a.sha)}: ${goneReason(1)}`;
 		case "drop-member":
