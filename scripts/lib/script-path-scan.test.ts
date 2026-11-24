@@ -83,16 +83,18 @@ describe("messages a shipped script prints", () => {
 			)
 		);
 	};
+	const resolvesItsText = (
+		file: string,
+		text = fs.readFileSync(file, "utf8"),
+	) => resolvesWholeText.test(text) || resolvedByEmitter(file);
 
 	it("name no script by a bare command-shaped path", () => {
 		const files = [
 			...guardFiles,
-			...libNames.map((f) => path.join(__dirname, f)),
-		].filter(
-			(f) =>
-				!resolvesWholeText.test(fs.readFileSync(f, "utf8")) &&
-				!resolvedByEmitter(f),
-		);
+			...libNames
+				.map((f) => path.join(__dirname, f))
+				.filter((f) => !resolvesItsText(f)),
+		];
 		expect(
 			files.flatMap((f) => readBareLines(f, (l) => COMMAND_SHAPED.test(l))),
 		).toEqual([]);
@@ -181,7 +183,7 @@ describe("messages a shipped script prints", () => {
 		const found: string[] = [];
 		for (const file of hookFiles) {
 			const text = fs.readFileSync(file, "utf8");
-			const resolves = resolvesWholeText.test(text) || resolvedByEmitter(file);
+			const resolves = resolvesItsText(file, text);
 			text.split("\n").forEach((line, i) => {
 				if (COMMENT_LINE.test(line)) return;
 				const skill = /\.claude\/skills\/[\w-]+\/SKILL\.md/.test(line);
