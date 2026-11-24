@@ -43,7 +43,7 @@ const rootedRepo = defineTemplate((dir) => {
 		["config", "user.name", "t"],
 		["commit", "-q", "--allow-empty", "-m", "root"],
 	])
-		spawnSync("git", args, { cwd: dir });
+		execFileSync("git", args, { cwd: dir, stdio: "ignore" });
 });
 
 function repo(at?: string) {
@@ -225,7 +225,7 @@ describe("a bare run", () => {
 			["add", "."],
 			["commit", "-qm", "files"],
 		])
-			spawnSync("git", args, { cwd: root });
+			execFileSync("git", args, { cwd: root, stdio: "ignore" });
 		return root;
 	}
 
