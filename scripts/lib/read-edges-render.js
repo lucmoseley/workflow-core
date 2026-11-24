@@ -116,11 +116,13 @@ function blobTree(root, oidByPath, disk = new Set()) {
 		read: (/** @type {string} */ p) => {
 			if (disk.has(p)) return fs.readFileSync(path.join(root, p), "utf8");
 			blobs ??= load();
-			const text = blobs?.get(p);
+			const text = blobs.get(p);
 			if (text !== undefined) return text;
 			const o = oidByPath.get(p);
 			if (!o) throw new Error(`${p}: not in the tree`);
-			return gitOut(root, ["cat-file", "blob", o]).toString("utf8");
+			const fetched = gitOut(root, ["cat-file", "blob", o]).toString("utf8");
+			blobs.set(p, fetched);
+			return fetched;
 		},
 	};
 }
