@@ -31,10 +31,15 @@ const { seedCoreCost, COST_TABLE } = require("./core-context-cost.js");
 const { ledgerPath } = require("./dispatch-ledger.js");
 const { MARKERS_REL } = require("./marker-root.js");
 const { CORE_DOCS } = require("./core-docs.js");
-const { CI_WORKFLOW, renderCiWorkflow, isCoreCi } = require("./adopter-ci.js");
+const {
+	CI_WORKFLOW,
+	renderCiWorkflow,
+	isCoreWorkflow,
+} = require("./adopter-ci.js");
 const {
 	LANDER_NAMED_WORKFLOW,
 	LANDER_SUITE_WORKFLOW,
+	LANDER_CONFIG_KEYS,
 	renderLanderWorkflows,
 } = require("./lander-workflows.js");
 const { SESSION_COST_TABLE, readCostTableIn } = require("./session-spend.js");
@@ -187,7 +192,7 @@ function bringCoreDocs(ctx) {
 }
 
 /**
- * @typedef {object} Workflows
+ * @typedef {object} WorkflowBring
  * @property {string[]} paths
  * @property {string[]} faultKeys
  * @property {(cfg: import("./workflow-core-config.js").Config) => {write: {rel: string, body: string}[]} | {remove: string} | "leave"} want
@@ -195,7 +200,7 @@ function bringCoreDocs(ctx) {
 
 /**
  * @param {Context} ctx
- * @param {Workflows} workflows
+ * @param {WorkflowBring} bring
  * @returns {string[]}
  */
 function bringWorkflows(ctx, { paths, faultKeys, want }) {
@@ -217,7 +222,7 @@ function bringWorkflows(ctx, { paths, faultKeys, want }) {
 	/** @param {string} rel @returns {string|null|false} */
 	const coreCopy = (rel) => {
 		const existing = readIfPresent(path.join(root, rel));
-		if (existing === null || isCoreCi(existing)) return existing;
+		if (existing === null || isCoreWorkflow(existing)) return existing;
 		out(
 			`skipped ${rel} — it does not open on the CORE-OWNED marker, so the core did not write it`,
 		);
@@ -255,15 +260,7 @@ const bringCi = (ctx) =>
 const bringLanderWorkflows = (ctx) =>
 	bringWorkflows(ctx, {
 		paths: [LANDER_SUITE_WORKFLOW, LANDER_NAMED_WORKFLOW],
-		faultKeys: [
-			"landingTester",
-			"fullTestShards",
-			"ci",
-			"ciSetup",
-			"commands",
-			"commands.full_test",
-			"commands.test",
-		],
+		faultKeys: ["landingTester", ...LANDER_CONFIG_KEYS],
 		want: (cfg) => {
 			const { landingTester } = cfg;
 			if (landingTester === "auto")
