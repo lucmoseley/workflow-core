@@ -609,6 +609,12 @@ function settle(v) {
 }
 
 /**
+ * @param {string} reason
+ * @returns {AskVerdict}
+ */
+const offActions = (reason) => ({ kind: "unknown", reason, offActions: true });
+
+/**
  * @param {string} sha
  * @param {number} after
  * @param {On} suite
@@ -629,27 +635,17 @@ async function suiteVerdict(
 	);
 	if (v.kind === "jobless") {
 		if (repushed)
-			return {
-				kind: "unknown",
-				reason: `${v.reason}, after ${suite.branch} was pushed again`,
-				offActions: true,
-			};
+			return offActions(`${v.reason}, after ${suite.branch} was pushed again`);
 		const next = await repushedVerdict(sha, suite, v.run);
 		return next.kind === "red" && next.noRun
-			? {
-					kind: "unknown",
-					reason: `${v.reason}, and no run followed ${suite.branch} pushed again`,
-					offActions: true,
-				}
+			? offActions(
+					`${v.reason}, and no run followed ${suite.branch} pushed again`,
+				)
 			: next;
 	}
 	if (v.kind !== "runner") return settle(v);
 	if (reruns >= RUNNER_RERUNS)
-		return {
-			kind: "unknown",
-			reason: `${v.reason}, on ${reruns + 1} attempts`,
-			offActions: true,
-		};
+		return offActions(`${v.reason}, on ${reruns + 1} attempts`);
 	try {
 		reads.rerun(v.run);
 	} catch (err) {
@@ -687,7 +683,7 @@ function namedRunVerdict(sha, title, reads) {
 	const failed = readFailed(sha, stripLogPrefix(raw), reads);
 	return failed.files.length > 0
 		? { kind: "red", ...failed, run: id }
-		: { kind: "unknown", reason: unjudgedReason(id, raw), offActions: true };
+		: offActions(unjudgedReason(id, raw));
 }
 
 /**
@@ -765,11 +761,7 @@ async function namedVerdict(
 	}
 	if (present.length === 0) return { kind: "green" };
 	if (!isolation && readDispatchesToday(record, now()) >= NAMED_DAILY_CAP)
-		return {
-			kind: "unknown",
-			reason: `${workflow}'s ${NAMED_DAILY_CAP}-a-day cap is spent`,
-			offActions: true,
-		};
+		return offActions(`${workflow}'s ${NAMED_DAILY_CAP}-a-day cap is spent`);
 	const nonce = crypto.randomUUID();
 	try {
 		reads.dispatch({ sha, files: present, nonce });
@@ -793,11 +785,7 @@ async function namedVerdict(
 	);
 	if (v.kind !== "pending") return v;
 	return v.run === null
-		? {
-				kind: "unknown",
-				reason: `${workflow} listed no run titled ${title}`,
-				offActions: true,
-			}
+		? offActions(`${workflow} listed no run titled ${title}`)
 		: unknown(`run ${v.run} unfinished after ${RUN_BOUND_MS / 60_000} min`);
 }
 

@@ -27,8 +27,10 @@ const ISO1 = { kind: "iso", k: 1 } as const;
 const BASE = { kind: "iso", k: "base" } as const;
 
 let tmp: string | null = null;
+const namedRoots: string[] = [];
 afterEach(() => {
-	if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+	for (const dir of [tmp, ...namedRoots.splice(0)])
+		if (dir) fs.rmSync(dir, { recursive: true, force: true });
 	tmp = null;
 });
 
@@ -624,8 +626,9 @@ const fakeNamedReads = (
 };
 
 const namedRoot = () => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "named-rerun-"));
-	return tmp;
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "named-rerun-"));
+	namedRoots.push(dir);
+	return dir;
 };
 
 const askNamed = (
@@ -1740,7 +1743,7 @@ it('tests locally a whole run where one shard ran no suite though another names 
 	expect(a.recorded).toEqual([]);
 });
 
-it('tests locally a named run that names no failing file on an adopter; paired with "keeps an adopter\'s red on the code a red" (#5700)', async () => {
+it('tests locally a named run that names no failing file on an adopter; paired with "reads a failed named run as red on the tree\'s failing files" (#5700)', async () => {
 	const r = queueReads([() => []], { named: "failure" });
 	r.failedLogOf = () => "Named files\tNamed files\tMISSING chromium";
 	r.jobsOf = () => [{ name: "Named files", conclusion: "failure", steps: [] }];

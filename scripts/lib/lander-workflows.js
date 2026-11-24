@@ -1,5 +1,5 @@
 const {
-	CI_MARKER,
+	CORE_MARKER,
 	renderJobEnv,
 	renderSetupSteps,
 } = require("./adopter-ci.js");
@@ -49,7 +49,7 @@ const renderJobHead = ({ ci }) => `    runs-on: ${ci?.runner ?? DEFAULT_RUNNER}
 /** @param {string} what */
 const header = (
 	what,
-) => `${CI_MARKER} Written by workflow-core's upgrade, where the queue lander may test
+) => `${CORE_MARKER} Written by workflow-core's upgrade, where the queue lander may test
 # on Actions by run length ("landingTester" absent or "auto" in
 # .claude/workflow-core.json), and REWRITTEN on every bump. ${what}
 # Change the config, not this file. What it runs: the plugin's
