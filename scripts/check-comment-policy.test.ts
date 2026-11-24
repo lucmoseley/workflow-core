@@ -95,6 +95,22 @@ describe("check-comment-policy", () => {
 		expect(r.out).toContain("3 comment breach(es) in 2 of 3 code file(s)");
 	});
 
+	it("reads a line opening on a commentMarkers entry in the judged tree's config as code (#5709)", () => {
+		const stamped =
+			"/*\n * @encodes docs/a.md § B :: 7c89\n */\nconst a = 1;\n";
+		write("scripts/c.js", stamped);
+		git("add", "-A");
+		expect(run().status).toBe(1);
+		write(
+			".claude/workflow-core.json",
+			JSON.stringify({ contract: 1, commentMarkers: ["@encodes"] }),
+		);
+		git("add", "-A");
+		const r = run("--root", ".", "--all");
+		expect(r.out).not.toContain("scripts/c.js");
+		expect(r.status).toBe(0);
+	});
+
 	it("--all prints the count per file, most first, in place of each breach", () => {
 		write("scripts/c.js", "const a = 1;\n// one\nconst b = 1;\n// two\n");
 		write("scripts/b.py", "x = 1\n# a stray note\n");

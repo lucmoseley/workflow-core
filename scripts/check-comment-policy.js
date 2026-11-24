@@ -12,6 +12,7 @@ const {
 	langOf,
 } = require("./lib/comment-policy.js");
 const { readText } = require("./lib/file-read.js");
+const { readConfig } = require("./lib/workflow-core-config.js");
 const STYLE_ONLY = require("./lib/style-only-rules.json").rules;
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
@@ -130,6 +131,7 @@ function readTreeFacts(root) {
 		adrs,
 		deps: depsPattern(readManifestDeps(root)),
 		checkJs: /"checkJs"\s*:\s*true/.test(readOr(root, "tsconfig.json") ?? ""),
+		markers: readConfig({ root, quiet: true }).commentMarkers ?? [],
 	};
 }
 
@@ -379,6 +381,7 @@ const factsFor = (tree, rel, lang) => ({
 	adrs: tree.adrs,
 	deps: tree.deps,
 	styleOnly: STYLE_ONLY,
+	markers: tree.markers,
 });
 
 /**

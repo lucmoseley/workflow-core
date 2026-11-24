@@ -103,6 +103,7 @@ const KNOWN_KEYS = [
 	"roadmapMajorPin",
 	"ruffExclude",
 	"pythonRoutes",
+	"commentMarkers",
 	"sessionMeanMb",
 	"sessionSigmaMb",
 	"gateSeatMb",
@@ -170,6 +171,7 @@ const unsetCommands = () =>
  * @property {number} [roadmapMajorPin]
  * @property {string[]} [ruffExclude]
  * @property {Record<string, PythonKind>} [pythonRoutes]
+ * @property {string[]} [commentMarkers]
  * @property {number} [sessionMeanMb]
  * @property {number} [sessionSigmaMb]
  * @property {number} [gateSeatMb]
@@ -258,6 +260,10 @@ const isCommandList = (v) =>
 	Array.isArray(v) &&
 	v.length > 0 &&
 	v.every((x) => typeof x === "string" && x.trim() !== "" && !x.includes("\n"));
+
+/** @param {unknown} v @returns {v is string[]} */
+const isTokenList = (v) =>
+	Array.isArray(v) && v.every((x) => typeof x === "string" && /^\S+$/.test(x));
 
 /** @param {unknown} v @returns {v is boolean} */
 const isBoolean = (v) => typeof v === "boolean";
@@ -900,6 +906,12 @@ function readConfig({
 		isPythonRoutes,
 		`an object of globs to one of ${PYTHON_KINDS.join(", ")}`,
 	);
+	const commentMarkers = readKey(
+		cfg,
+		"commentMarkers",
+		isTokenList,
+		"an array of markers, each one word with no whitespace",
+	);
 	const suiteRunners = stringArray("suiteRunners");
 	const worktreeLinks = readKey(
 		cfg,
@@ -940,6 +952,7 @@ function readConfig({
 		roadmapMajorPin,
 		ruffExclude,
 		pythonRoutes,
+		commentMarkers,
 		sessionMeanMb,
 		sessionSigmaMb,
 		gateSeatMb,

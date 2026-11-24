@@ -18,6 +18,7 @@ const facts = (lang: Lang, over: Record<string, unknown> = {}) => ({
 		biome: ["format", "lint/style"],
 		ruff: ["E5", "PLR09"],
 	} as Record<string, string[]>,
+	markers: [] as string[],
 	...over,
 });
 
@@ -461,6 +462,40 @@ describe("what is not a comment", () => {
 		]);
 		expect(
 			tags("// cli-args-exempt: a pass-through\nconst a = 1;\n", "js"),
+		).toEqual(["COMMENT@1"]);
+	});
+
+	it("reads a line opening on an adopter's declared marker as code (#5709)", () => {
+		const stamps = { markers: ["@encodes"] };
+		expect(
+			tags(
+				"/*\n * @encodes docs/a.md § 7. The band :: e8d10a0f\n * @encodes docs/a.md § B :: 7c89\n */\nconst a = 1;\n",
+				"js",
+				stamps,
+			),
+		).toEqual([]);
+		expect(
+			tags("# @encodes docs/a.md § B :: 7c89\nx=1\n", "sh", stamps),
+		).toEqual([]);
+		expect(
+			tags(
+				"/*\n * The band.\n *\n * @encodes docs/a.md § B :: 7c89\n */\n",
+				"js",
+				stamps,
+			),
+		).toEqual(["COMMENT@1"]);
+	});
+
+	it("refuses a declared marker only as the line's first word", () => {
+		const stamps = { markers: ["@encodes"] };
+		expect(
+			tags("// @encodesx docs/a.md\nconst a = 1;\n", "js", stamps),
+		).toEqual(["COMMENT@1"]);
+		expect(
+			tags("// see @encodes docs/a.md\nconst a = 1;\n", "js", stamps),
+		).toEqual(["COMMENT@1"]);
+		expect(
+			tags("// @encodes docs/a.md § B :: 7c89\nconst a = 1;\n", "js"),
 		).toEqual(["COMMENT@1"]);
 	});
 
