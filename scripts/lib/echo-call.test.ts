@@ -264,7 +264,7 @@ describe("what counts as the same call", () => {
 			}
 	});
 
-	it("still refuses the third identical call that only reads the wait script", () => {
+	it("still refuses the third identical call that runs the wait script with no verb, or only reads it", () => {
 		for (const command of [
 			"node scripts/in-flight-runs.js",
 			"cat scripts/in-flight-runs.js",

@@ -11,9 +11,14 @@ const EC_CLEARED = "-";
 
 const VOLATILE = /duration|elapsed|timestamp|startTime|endTime|_ms$|Millis/i;
 
+/** @param {string} base */
+const scriptPath = (base) =>
+	`(?:'(?:[^'\\n]*/)?${base}'|"(?:[^"\\n$\`]*/)?${base}"|(?:[^\\s;&|<>\`$()'"]*/)?${base})`;
+
 // #5726
-const WAIT =
-	/^[ \t\n\v\f\r]*(?:timeout[ \t]+[0-9]+[smhd]?[ \t]+)?(?:(?:node|bash|sh)[ \t]+)?(?:[^\s;&|<>`$()]*\/)?(?:in-flight-runs\.js[ \t]+wait|bg-run\.sh[ \t]+wait|watch-artefact\.js)(?:[ \t][^\n;&|<>`$()]*)?\n*$/;
+const WAIT = new RegExp(
+	`^[ \\t\\n\\v\\f\\r]*(?:timeout[ \\t]+[0-9]+[smhd]?[ \\t]+)?(?:(?:node|bash|sh)[ \\t]+)?(?:${scriptPath("in-flight-runs\\.js")}[ \\t]+wait|${scriptPath("bg-run\\.sh")}[ \\t]+wait|${scriptPath("watch-artefact\\.js")})(?:[ \\t][^\\n;&|<>\`$()]*)?\\n*$`,
+);
 
 /**
  * @param {string | undefined} tool
