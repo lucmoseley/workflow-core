@@ -44,6 +44,7 @@ const { REFUSAL_NAMED_MAX } = require("./lib/dirty-tree.js");
 const { dirPath } = require("./lib/test-log.js");
 const { main } = require("./run-vitest.js");
 const { launchEnv, readLaunch } = require("./lib/suite-handoff.js");
+const { keptSpawn } = require("./lib/kept-spawn.js");
 const { START_MARK_ENV } = require("./lib/tree-drift.js");
 const { MEMORY_ENV } = require("./lib/run-memory.js");
 const { DEADLINE_ENV, sweepAtStart } = require("./lib/suite-ceiling.js");
@@ -5374,11 +5375,16 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 			it("reads its snapshot through a write to the live tree mid-run, so the tree it attests is the one it launched on", async () => {
 				const dir = dirtyCheckout({ linked: true });
-				const seen = { before: "", after: "", content: "" };
+				const seen = { before: "", after: "", content: "", isolated: false };
 				const { code } = await runSeeing(dir, [], {
 					pid: 5422,
 					sessionId: "mine",
-					spawnFn: (_bin: string, _a: string[], opts: { cwd: string }) => {
+					spawnFn: (
+						_bin: string,
+						_a: string[],
+						opts: { cwd: string; env: Record<string, string> },
+					) => {
+						seen.isolated = readLaunch(opts.env).isolated;
 						seen.before = endOfRunTreeIdentity(opts.cwd) ?? "";
 						fs.writeFileSync(path.join(dir, "mine.txt"), "written mid-run\n");
 						fs.writeFileSync(path.join(dir, "later.test.ts"), "//\n");
@@ -5394,6 +5400,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(seen.before).not.toBe("");
 				expect(seen.after).toBe(seen.before);
 				expect(seen.content).toBe("mine\n");
+				expect(seen.isolated).toBe(true);
 			});
 
 			it("hands vitest an absolute named path inside the tree as its path inside the snapshot", async () => {
@@ -5620,7 +5627,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			it("tears its worktree down when the wrapper is SIGTERMed mid-run", async () => {
 				const wt = dirtyCheckout({ linked: true });
 				const ready = path.join(path.dirname(wt), "spawned");
-				const wrapper = require("node:child_process").spawn(
+				const wrapper = keptSpawn("signal").spawn(
 					process.execPath,
 					[
 						"-e",

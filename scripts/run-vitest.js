@@ -1381,7 +1381,7 @@ function runSnapshot(route, options) {
 		err.write(`${label}: ${why} — reading the working tree instead.\n`);
 		return null;
 	};
-	const snapshot = readSnapshot(root, options);
+	const snapshot = buildSnapshot(root, options);
 	if (snapshot.error !== null) return fallback(snapshot.error);
 	const made = openWorktree({ ...options, tree: snapshot.tree });
 	if (made.error !== null) return fallback(made.error);
@@ -1426,7 +1426,7 @@ const inSnapshot = (words, root) =>
  * @param {RouteOptions & { ledger?: Ledger }} options
  * @returns {{ tree: string, carried: number, atHead: string[], error: null }|{ error: string }}
  */
-function readSnapshot(root, options) {
+function buildSnapshot(root, options) {
 	const {
 		execFn = execFileSync,
 		worktreeFs = fs,
