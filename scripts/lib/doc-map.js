@@ -12,6 +12,7 @@ const { byCodeUnit } = require("./by-code-unit.js");
 const { caught, orFallback } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
 const { execGit, gitOrNull } = require("./git.js");
+const { parseIndexEntries } = require("./git-objects.js");
 const { readMergeHeadLines } = require("./merge-heads.js");
 const { readCommitOrBroken } = require("./commit-sha.js");
 const { brokenError } = require("./outcome-error.js");
@@ -1296,19 +1297,15 @@ function childRel(rel, name) {
 
 /**
  * @param {{ quiet: boolean }} how
- * @returns {{ stage: string, path: string }[]}
+ * @returns {import("./git-objects.js").IndexEntry[]}
  */
 function readIndexEntries({ quiet }) {
-	return execGit(["ls-files", "--stage", "-z"], {
-		encoding: "utf8",
-		...(quiet ? { stdio: ["ignore", "pipe", "ignore"] } : {}),
-	})
-		.split("\0")
-		.filter(Boolean)
-		.map((line) => {
-			const tab = line.indexOf("\t");
-			return { stage: line.slice(tab - 1, tab), path: line.slice(tab + 1) };
-		});
+	return parseIndexEntries(
+		execGit(["ls-files", "--stage", "-z"], {
+			encoding: "utf8",
+			...(quiet ? { stdio: ["ignore", "pipe", "ignore"] } : {}),
+		}),
+	);
 }
 
 /** @param {string | null} [root] */

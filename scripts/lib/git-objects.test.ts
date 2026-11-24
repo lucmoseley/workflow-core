@@ -222,3 +222,31 @@ describe("readFileAt — one file's text at a revision or in the index (#3139)",
 		expect((thrown as Error).message).toBe("dir at HEAD is not a file");
 	});
 });
+
+describe("parseIndexEntries — one git ls-files --stage line each (#5737)", () => {
+	const { parseIndexEntries } = createRequire(__filename)(
+		"./git-objects.js",
+	) as typeof import("./git-objects.js");
+	const { isOutcomeError } = createRequire(__filename)("./outcome-error.js");
+	const oid = "a".repeat(40);
+
+	it("reads mode, oid, stage and a path holding a tab or a newline", () => {
+		expect(
+			parseIndexEntries(`100644 ${oid} 0\ta\tb\u0000120000 ${oid} 2\tc\nd\0`),
+		).toEqual([
+			{ mode: "100644", oid, stage: "0", path: "a\tb" },
+			{ mode: "120000", oid, stage: "2", path: "c\nd" },
+		]);
+	});
+
+	it("refuses a line it cannot parse, naming the line", () => {
+		let thrown: unknown;
+		try {
+			parseIndexEntries(`100644 ${oid}\tno-stage\0`);
+		} catch (e) {
+			thrown = e;
+		}
+		expect(isOutcomeError(thrown)).toBe(true);
+		expect(String(thrown)).toContain("no-stage");
+	});
+});

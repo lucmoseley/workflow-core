@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { worktreeRoot } = require("./lib/host-root.js");
 const { spawnGitSync } = require("./lib/git.js");
-const { listTree } = require("./lib/git-objects.js");
+const { listTree, parseIndexEntries } = require("./lib/git-objects.js");
 const { readAttributeExcluded } = require("./lib/git-attributes.js");
 const {
 	CODE_FILE,
@@ -243,10 +243,9 @@ function readTrackedPaths(ctx, root, env) {
 		...(env ? { env } : {}),
 	});
 	if (r.status !== 0) ctx.broken(`git ls-files failed: ${r.stderr}`);
-	return r.stdout
-		.split("\0")
-		.filter((e) => /^100(?:644|755) /.test(e))
-		.map((e) => e.slice(e.indexOf("\t") + 1));
+	return parseIndexEntries(r.stdout)
+		.filter((e) => /^100(?:644|755)$/.test(e.mode))
+		.map((e) => e.path);
 }
 
 const withoutGitRedirects = () =>

@@ -2,6 +2,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
+const { parseIndexEntries } = require("./git-objects.js");
+const { caught } = require("./caught.js");
 const { githeadShas, readMergeHeadLines } = require("./merge-heads.js");
 const { buildAnchorsText, parseRows } = require("./registry-anchors-file.js");
 
@@ -169,15 +171,22 @@ function writeCarried(root, rel, carried) {
 		"--literal-pathspecs",
 		"ls-files",
 		"-s",
+		"-z",
 		"--",
 		rel,
 	]);
 	if (listed.error) return `git ls-files failed (${listed.error})`;
-	const entries = listed.out.split("\n").filter(Boolean);
-	const m = /^(\d+) ([0-9a-f]+) 0\t/.exec(entries[0] ?? "");
-	if (entries.length !== 1 || !m?.[1] || !m[2])
+	/** @type {import("./git-objects.js").IndexEntry[]} */
+	let entries;
+	try {
+		entries = parseIndexEntries(listed.out);
+	} catch (e) {
+		return caught(e).message;
+	}
+	const [entry] = entries;
+	if (entries.length !== 1 || entry?.stage !== "0")
 		return `${rel} is not one merged entry in the index`;
-	const [, mode, blob] = m;
+	const { mode, oid: blob } = entry;
 	const staged = git(root, ["cat-file", "blob", blob]);
 	if (staged.error) return `git cat-file failed (${staged.error})`;
 	const patch = (/** @type {string} */ text) => {
