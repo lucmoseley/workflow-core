@@ -24,6 +24,7 @@ import { parseJob, type Workflow } from "./workflow-yaml-testkit";
 
 const SCRIPT = path.resolve(__dirname, "..", "lander-ci.js");
 const PATHS = [LANDER_SUITE_WORKFLOW, LANDER_NAMED_WORKFLOW];
+const REPO_SETUP_STEP = "Repo setup";
 const expr = (e: string) => `\${{ ${e} }}`;
 
 const repoTemplate = defineTemplate(emptyRepoTemplate);
@@ -169,8 +170,6 @@ describe("the upgrade's lander workflows", () => {
 		}
 	});
 
-	const RepoSetupStep = "Repo setup";
-
 	it("runs the ciSetup key's commands, in order, after the lockfile install in every job of both workflows and the CI job; none without the key (#5700)", () => {
 		const setup = [
 			"python3 -m pip install -r plugin/requirements.txt",
@@ -187,7 +186,7 @@ describe("the upgrade's lander workflows", () => {
 					const names = (j.steps ?? []).map(
 						(s) => (s as { name?: string }).name,
 					);
-					const at = names.indexOf(RepoSetupStep);
+					const at = names.indexOf(REPO_SETUP_STEP);
 					expect(at).toBe(names.indexOf("Install dependencies") + 1);
 					return (j.steps ?? [])[at]?.run;
 				});
@@ -201,7 +200,7 @@ describe("the upgrade's lander workflows", () => {
 		config({ ci: { runner: "ubuntu-24.04-arm" } });
 		run();
 		for (const rel of [...PATHS, CI_WORKFLOW])
-			expect(read(rel)).not.toContain(RepoSetupStep);
+			expect(read(rel)).not.toContain(REPO_SETUP_STEP);
 	});
 
 	it.each([[[]], [["pip install x\nrm -rf y"]]])(

@@ -175,7 +175,8 @@ const hasStartedStep = (job) =>
  * @param {number} after
  * @returns {SuiteRunVerdict}
  */
-function runVerdict(sha, { reads, fallsBack, suiteStep }, after) {
+function runVerdict(sha, on, after) {
+	const { reads, fallsBack, suiteStep } = on;
 	const run = newestRun(sha, reads.runs());
 	if (run === undefined) return { kind: "pending", run: null };
 	if (run.attempt <= after || !run.conclusion)
@@ -224,7 +225,7 @@ function runVerdict(sha, { reads, fallsBack, suiteStep }, after) {
 			attempt: run.attempt,
 			reason: `run ${id}'s ${fault}, which judges no code`,
 		};
-	return judgeRed(sha, { id, jobs, failed }, { reads, fallsBack, suiteStep });
+	return judgeRed(sha, { id, jobs, failed }, on);
 }
 
 /**
