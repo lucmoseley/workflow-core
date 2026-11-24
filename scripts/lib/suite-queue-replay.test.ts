@@ -146,7 +146,7 @@ describe("the passes the waiters recorded (#3115)", () => {
 		expect(r.rungHeldPart).toBe(2);
 		expect(r.pastBoundS).toEqual([(10 * MIN - PART_PASS_AGE_MS) / 1000]);
 		expect(render(r, window())).toContain(
-			`What the bound protects (#5679): 1 of the 2 opened part waits the rung (memory or climb) held were still rung-held at PART_PASS_AGE_MS (${PART_PASS_AGE_MS / 1000} s) of age, 50.0%; their rung-held time past it p50 180 s, p90 180 s.`,
+			`What the bound protects: 1 of the 2 opened part waits the rung (memory or climb) held were still rung-held at PART_PASS_AGE_MS (${PART_PASS_AGE_MS / 1000} s) of age, 50.0%; their rung-held time past it p50 180 s, p90 180 s.`,
 		);
 	});
 

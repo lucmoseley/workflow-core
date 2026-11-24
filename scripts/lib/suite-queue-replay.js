@@ -1183,7 +1183,7 @@ function render(r, w) {
 		"",
 		r.passes.counted > 0
 			? `Recorded passes: ${r.passes.passing} of the ${r.passes.counted} waits whose exit line counts its passes opened their turn past ${r.passes.passed} older part waiter(s) the memory rung held (#3115).`
-			: "Recorded passes: no exit line in the window counts its passes (none logged before #3115 does); the fifo-part limb above is the replay's model alone.",
+			: "Recorded passes: no exit line in the window counts its passes; the fifo-part limb above is the replay's model alone.",
 		"",
 		.../** @type {const} */ (["tsc", "suite"]).map((k) => {
 			const p = r.peers[k];
@@ -1194,8 +1194,8 @@ function render(r, w) {
 			return `Recorded session-cap holds, ${k} waits: ${p.held} held behind their own session's ${SESSION_PLACES} places, ${hours(p.heldS)} h, ${p.atBound} refused at the queue's wait bound (#5595).`;
 		}),
 		"",
-		`The part-pass bound's cost (#5679): with PART_PASS_AGE_MS lifted, ${hours(r.boundCostS)} h of fifo-part and touched-claim time goes, ${percentOf(r.boundCostS, r.waitS)} of the window's ${hours(r.waitS)} h summed wait. Labels only, so an upper limit: a waiter freed this way would take memory a held head needs.`,
-		`What the bound protects (#5679): ${past.length} of the ${r.rungHeldPart} opened part waits the rung (memory or climb) held were still rung-held at PART_PASS_AGE_MS (${PART_PASS_AGE_MS / 1000} s) of age, ${percentOf(past.length, r.rungHeldPart)}; their rung-held time past it p50 ${quantileOf(past, 0.5)} s, p90 ${quantileOf(past, 0.9)} s.`,
+		`The part-pass bound's cost (#5679): with PART_PASS_AGE_MS lifted, ${hours(r.boundCostS)} h of fifo-part and touched-claim time goes, ${percentOf(r.boundCostS, r.waitS)} of the window's ${hours(r.waitS)} h summed wait. Labels only, so an upper limit.`,
+		`What the bound protects: ${past.length} of the ${r.rungHeldPart} opened part waits the rung (memory or climb) held were still rung-held at PART_PASS_AGE_MS (${PART_PASS_AGE_MS / 1000} s) of age, ${percentOf(past.length, r.rungHeldPart)}; their rung-held time past it p50 ${quantileOf(past, 0.5)} s, p90 ${quantileOf(past, 0.9)} s.`,
 		"",
 		"## Whole slot",
 		"",
