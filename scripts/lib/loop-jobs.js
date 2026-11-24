@@ -66,7 +66,11 @@ function recordJobs(before, after, { now, log }) {
 				? {}
 				: { endedAt: new Date(endedAt).toISOString() }),
 		};
-		if (!appendRetained(loopJobsPath(), row, BREAKER_RETAIN_MS))
+		if (
+			!appendRetained(loopJobsPath(), row, BREAKER_RETAIN_MS, {
+				now: () => now,
+			})
+		)
 			log(`loop-job record would not take job ${l.jobId} in ${l.root}`);
 	}
 }

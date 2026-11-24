@@ -29,7 +29,6 @@ const BASE = { kind: "iso", k: "base" } as const;
 let tmp: string | null = null;
 const namedRoots: string[] = [];
 afterEach(() => {
-	vi.useRealTimers();
 	for (const dir of [tmp, ...namedRoots.splice(0)])
 		if (dir) fs.rmSync(dir, { recursive: true, force: true });
 	tmp = null;
@@ -781,9 +780,6 @@ it("stops dispatching at the cap for a UTC day, and a new day has its own (#3764
 	const root = namedRoot();
 	const r = fakeNamedReads({ conclusion: "success" });
 	const DayOne = Date.parse("2026-11-01T23:00:00Z");
-	// #5722
-	vi.useFakeTimers({ toFake: ["Date"] });
-	vi.setSystemTime(DayOne);
 	const ask = (nowMs: number) =>
 		askNamed(r, { root, start: nowMs, place: BATCH0 });
 	for (let i = 0; i < 12; i++) {

@@ -775,7 +775,7 @@ async function namedVerdict(
 		nonce,
 		...(isolation ? { isolation } : {}),
 	};
-	if (!appendRetained(record, entry, NAMED_RECORD_RETAIN_MS))
+	if (!appendRetained(record, entry, NAMED_RECORD_RETAIN_MS, { now }))
 		writeFd(2, `lander: named-run record unwritten: ${record}\n`);
 	const title = `named-rerun ${sha} ${nonce}`;
 	const v = await pollRun(

@@ -131,9 +131,8 @@ describe("the ledger beside the marker stores (#2824)", () => {
 	});
 
 	it("drops lines past 30 days once the oldest is a day beyond", () => {
-		const now = NOW;
 		const root = sandbox();
-		const ago = (days: number) => new Date(now - days * DAY_MS).toISOString();
+		const ago = (days: number) => new Date(NOW - days * DAY_MS).toISOString();
 		fs.mkdirSync(path.dirname(ledgerOf(root)), { recursive: true });
 		fs.writeFileSync(
 			ledgerOf(root),

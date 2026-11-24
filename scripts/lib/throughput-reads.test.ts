@@ -30,11 +30,6 @@ const tickRead = (root: string, since = 0) =>
 const HOUR = 3_600_000;
 const HI = Date.parse("2026-11-16T07:00:00Z");
 const LO = HI - 24 * HOUR;
-// #5722
-const pinClockToHi = () => {
-	vi.useFakeTimers({ toFake: ["Date"] });
-	vi.setSystemTime(HI);
-};
 
 function writeJob(
 	seat: string,
@@ -338,8 +333,6 @@ describe("a breaker trial's landing reads (#5300)", () => {
 });
 
 describe("a checkout's loop sessions (#5289)", () => {
-	beforeEach(pinClockToHi);
-
 	const windowOf = (launches: SeatedLaunch[] = []) =>
 		readThroughputWindow({ roots: ["/srv/dv"], launches, lo: LO, hi: HI })[0];
 	const hoursOf = (launches: SeatedLaunch[] = []) =>
@@ -489,18 +482,19 @@ describe("a checkout's loop sessions (#5289)", () => {
 });
 
 describe("readThroughputWindow", () => {
-	beforeEach(pinClockToHi);
+	// #5722
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(HI + HOUR);
+	});
 
 	it("reads a served checkout's window: its sessions' hours, its breaker at the end, the window's events", () => {
-		const Hour = 3_600_000;
-		const hi = HI;
-		const lo = hi - 24 * Hour;
 		const seat = path.join(tmp, "seat");
 		const row = (at: number) =>
 			JSON.stringify({ at: new Date(at).toISOString(), state: "working" });
 		for (const [id, start] of [
-			["in", hi - 2 * Hour],
-			["before", lo - 3 * Hour],
+			["in", HI - 2 * HOUR],
+			["before", LO - 3 * HOUR],
 		] as const) {
 			fs.mkdirSync(path.join(seat, "jobs", id), { recursive: true });
 			fs.writeFileSync(
@@ -514,7 +508,7 @@ describe("readThroughputWindow", () => {
 			jobId,
 			sessionId: jobId,
 			launchedAt,
-			finishedAt: launchedAt + Hour,
+			finishedAt: launchedAt + HOUR,
 			seat,
 		});
 		const ev = (at: number, event: "open" | "reopen", repo = "/srv/dv") => ({
@@ -526,21 +520,21 @@ describe("readThroughputWindow", () => {
 		});
 		appendBreakerEvents(
 			[
-				ev(lo - Hour, "open"),
-				ev(hi - Hour, "reopen"),
-				ev(hi - Hour, "open", "/srv/other"),
+				ev(LO - HOUR, "open"),
+				ev(HI - HOUR, "reopen"),
+				ev(HI - HOUR, "open", "/srv/other"),
 			],
 			() => undefined,
 		);
 		const [dv] = readThroughputWindow({
 			roots: ["/srv/dv"],
 			launches: [
-				launch("in", hi - 2 * Hour),
-				launch("before", lo - 3 * Hour),
-				launch("in", hi - 2 * Hour, "/srv/other"),
+				launch("in", HI - 2 * HOUR),
+				launch("before", LO - 3 * HOUR),
+				launch("in", HI - 2 * HOUR, "/srv/other"),
 			],
-			lo,
-			hi,
+			lo: LO,
+			hi: HI,
 		});
 		expect(dv).toEqual({
 			checkout: "dv",
@@ -549,8 +543,8 @@ describe("readThroughputWindow", () => {
 			jobsRead: true,
 			timelinesUnread: [],
 			gateRuns: null,
-			state: { state: "open", since: hi - Hour },
-			events: [ev(hi - Hour, "reopen")],
+			state: { state: "open", since: HI - HOUR },
+			events: [ev(HI - HOUR, "reopen")],
 		});
 	});
 });
