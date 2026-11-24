@@ -3,6 +3,7 @@ const { ruleOrFallback } = require("./guard-verdict.js");
 const { segment } = require("./review-suffix.js");
 const {
 	PARENT_WAIT,
+	SNAPSHOT_RUN_TIMEOUT_MS,
 	SUBAGENT_WAIT,
 	WAIT_SLOT,
 	withWait,
@@ -34,7 +35,7 @@ const WATCH =
 	"node scripts/watch-artefact.js <artefact> 120 --log <output_file>";
 
 const NOOP_REASON = `Ending a turn is not a tool call. A no-op command like \`true\` re-invokes this session — which is why the loop it is meant to break keeps going. End the turn by emitting your final text with NO tool call at all, and stop: ${WAIT_SLOT}, so each no-op is a full-context turn spent learning nothing.`;
-const READ_REASON = `Instead: a subagent, one backgrounded \`${WATCH}\`; your next suite, in the foreground with \`timeout: 30000\`; a bg-run.sh job, \`scripts/bg-run.sh wait <name>\`. Then end the turn (a job: \`rule:job-holds-turn\`).
+const READ_REASON = `Instead: a subagent, one backgrounded \`${WATCH}\`; a touched suite, in the foreground with \`timeout: ${SNAPSHOT_RUN_TIMEOUT_MS}\`; a bg-run.sh job, \`scripts/bg-run.sh wait <name>\`. Then end the turn (a job: \`rule:job-holds-turn\`).
 Re-reading a background job's output file is a wait loop: ${WAIT_SLOT}, so each re-read is a full-context turn spent for nothing.`;
 const AGENTS_REASON = `Instead: one backgrounded \`${WATCH}\`, then end the turn (a job: \`rule:job-holds-turn\`).
 Polling ListAgents. ${capital(spelt(ALLOWANCE.agents))} calls already in the last ${WINDOW_TEXT} is the shape of a wait loop: ${WAIT_SLOT}, so each poll is a full-context turn spent for nothing. Never narrate "waiting". The elapsed-time column is stale, so the poll does not read true either.`;

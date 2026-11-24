@@ -28,6 +28,7 @@ import {
 	storePath,
 	suiteOf,
 } from "./test-pass-marker.js";
+import { launchSnapshotTree } from "./tree-drift.js";
 
 const dirs: string[] = [];
 
@@ -1451,6 +1452,27 @@ describe("attesting a sha by tree (#189)", () => {
 			const sha = git(dir, "rev-parse", "HEAD");
 			expect(holdsTestByTree(m, "", sha, { root: dir })).toBe(false);
 			expect(matches(attestationOf(sha, [m], { root: dir }))).toBeNull();
+		});
+
+		it("holds a launch-snapshot certificate for a commit outside its closure and refuses one inside it (#5717)", () => {
+			const dir = repo();
+			fs.writeFileSync(path.join(dir, "lib.js"), "lib.js v1\n");
+			const m = {
+				...markerOver(dir),
+				treeAtEnd: launchSnapshotTree(dir),
+				isolated: true,
+			};
+			git(dir, "commit", "-q", "-am", "own edit");
+			fs.writeFileSync(path.join(dir, "other.txt"), "outside the closure\n");
+			git(dir, "commit", "-q", "-am", "outside");
+			expect(
+				holdsTestByTree(m, "", git(dir, "rev-parse", "HEAD"), { root: dir }),
+			).toBe(true);
+			fs.writeFileSync(path.join(dir, "lib.js"), "lib.js v2 — untested\n");
+			git(dir, "commit", "-q", "-am", "inside");
+			expect(
+				holdsTestByTree(m, "", git(dir, "rev-parse", "HEAD"), { root: dir }),
+			).toBe(false);
 		});
 
 		it("leaves unattested a path in the commit's range the selection never saw, though the run still holds", () => {

@@ -91,4 +91,4 @@ if (require.main === module)
 		},
 	);
 
-module.exports = { EXIT, main };
+module.exports = { main };

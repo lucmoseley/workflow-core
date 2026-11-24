@@ -429,7 +429,7 @@ describe("lib/suite-background.js", () => {
 		).toBe(`${SNAPSHOT_OPENER}WFC_SUITE_DETACH=1 npm run test &`);
 	});
 
-	it("names `timeout: 30000` for a touched or named run, and `timeout: 600000` for a full, queued or test:py run (#5717)", () => {
+	it("names `timeout: 30000` for a touched or named run, and `timeout: 600000` for a full, queued, shared, isolated or test:py run (#5717)", () => {
 		for (const [command, opener] of [
 			["npm run test &", SNAPSHOT_OPENER],
 			["npm run test -- scripts/a.test.ts &", SNAPSHOT_OPENER],
@@ -437,6 +437,8 @@ describe("lib/suite-background.js", () => {
 			["npm run test -- --full=coverage &", HELD_OPENER],
 			["npm run test -- --queue &", HELD_OPENER],
 			["npm run test:py &", HELD_OPENER],
+			["npm run test -- --shared &", HELD_OPENER],
+			["npm run test -- --isolated &", HELD_OPENER],
 			["npm run test & npm run test:py", HELD_OPENER],
 		])
 			expect(

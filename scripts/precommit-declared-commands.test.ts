@@ -293,7 +293,7 @@ describe("the test gate beside the committing session's own in-flight touched ru
 			CLAUDE_CODE_SESSION_ID: Own,
 			TMPDIR: queued(Own, Touched),
 		});
-		expect(code).toBe(1);
+		expect(code).toBe(3);
 		expect(ran("test")).toBe(false);
 		expect(out).toContain(
 			`pre-commit: this session's own touched test run is still in flight — PID ${process.pid}, started 2026-11-24T10:00:00.000Z, \`npm run test\` — so this commit is refused before '${declared.test}' runs beside it (#5716).\n  Commit again once that run ends: its notification brings its verdict.\n`,

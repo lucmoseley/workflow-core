@@ -12,6 +12,9 @@ const {
 } = require("./suite-launch.js");
 const { launchTestFileCount } = require("./suite-bounded.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
+const { SNAPSHOT_RUN_TIMEOUT_MS } = require("./wait-text.js");
+
+const ANY_SESSION = "hook";
 
 /**
  * @typedef {object} BackgroundPorts
@@ -140,17 +143,17 @@ function keptWrappers(wrappers) {
 
 /** @param {boolean} snapshot */
 const fixOpener = (snapshot) =>
-	`Run instead, in the foreground with the Bash tool's \`timeout: ${snapshot ? "30000" : "600000"}\`: `;
+	`Run instead, in the foreground with the Bash tool's \`timeout: ${snapshot ? SNAPSHOT_RUN_TIMEOUT_MS : 600_000}\`: `;
 
 /**
  * @param {import("./suite-launch.js").Launch} launch
  * @param {string[]} words
  */
-const readsSnapshot = (launch, words) =>
+const isSnapshotRun = (launch, words) =>
 	(launch.kind === "wrapper" || launch.kind === "npm-vitest") &&
-	!words.some(
-		(w) => w === "--queue" || w === "--full" || w.startsWith("--full="),
-	);
+	!words.includes("--queue") &&
+	require("./launch-route.js").launchRoute(words, ANY_SESSION).tree ===
+		"snapshot";
 
 const DETACHED_TEXT =
 	"This suite is DETACHED INSIDE THE SHELL — `&`, `nohup`, `setsid` or `disown` — so the call registers no job for the run and nothing will ever tell you it ended. `run_in_background` with a detachment does not help: the job is then the wrapper shell, which exits at once. An overrun is moved to the background and notifies: then end the turn with NO tool call — a notification arriving mid-call is almost never delivered. A `--full=<cause>` or `--queue` run may overrun, so wrap it in `scripts/bg-run.sh run <name>` in the same call: a `killed` notification often lies, so before relaunching read `scripts/bg-run.sh check <name>`, which tells KILLED from DONE. If guard-suite-concurrency refuses the re-issue, no job exists: take its corrected command rather than reporting `waiting:`. Genuinely need the detachment? Prefix the command with `WFC_SUITE_DETACH=1`.";
@@ -190,7 +193,7 @@ function decide(command, ctx) {
 		const launch = suiteLaunchKind(words.map(typed), launchPorts);
 		if (!launch) return null;
 		if (carriesVar("WFC_SUITE_DETACH", leading, wrapperWords)) escaped = true;
-		if (!readsSnapshot(launch, words.map(typed))) snapshot = false;
+		if (!isSnapshotRun(launch, words.map(typed))) snapshot = false;
 		foundSuite = true;
 		return launch;
 	};

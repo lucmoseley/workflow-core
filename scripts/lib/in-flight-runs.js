@@ -1,8 +1,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
-const { ignoreFailure } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { noop } = require("./noop.js");
+const { durationClock, now } = require("./clock.js");
+const { writeFd } = require("./write-fd.js");
 const { launchRoute } = require("./launch-route.js");
 const { shellQuote } = require("./sh-quote.js");
 const {
@@ -17,7 +19,7 @@ const RUN_PREFIX = "run-";
  * @typedef {"touched" | "named" | "changed" | "full" | "shared"} RunLane
  * @typedef {{ pid: number, startedAt: number, command: string, lane: RunLane }} InFlightRun
  * @typedef {{ pid: number, at: number, start?: number, session?: string, args?: string[] }} RunRecord
- * @typedef {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean, startTime?: (pid: number) => number }} InFlightOptions
+ * @typedef {{ queueDir?: string, alive?: (pid: number) => boolean, startTime?: (pid: number) => number }} InFlightOptions
  */
 
 /**
@@ -40,21 +42,21 @@ const commandOf = (args) =>
 	].join(" ");
 
 /**
- * @param {{ session: string, args: string[], queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number }} run
+ * @param {{ session: string, args: string[], queueDir?: string, pid?: number, clock?: () => number, warn?: (s: string) => void }} run
  * @returns {() => void}
  */
 function recordRun({
 	session,
 	args,
 	queueDir = defaultQueueDir(),
-	queueFs = fs,
 	pid = process.pid,
-	clock = Date.now,
+	clock = now,
+	warn = (s) => writeFd(2, s),
 }) {
 	const file = path.join(queueDir, `${RUN_PREFIX}${pid}.json`);
 	try {
-		queueFs.mkdirSync(queueDir, { recursive: true });
-		queueFs.writeFileSync(
+		fs.mkdirSync(queueDir, { recursive: true });
+		fs.writeFileSync(
 			file,
 			JSON.stringify({
 				pid,
@@ -64,20 +66,22 @@ function recordRun({
 				args,
 			}),
 		);
-	} catch {
+	} catch (e) {
+		warn(
+			`run-vitest: could not write this run's record (${caught(e).message}), so a rerun or commit meanwhile is not refused, nor waited on (#5716).\n`,
+		);
 		return noop;
 	}
-	return () => ignoreFailure(() => queueFs.rmSync(file, { force: true }));
+	return () => ignoreFailure(() => fs.rmSync(file, { force: true }));
 }
 
 /**
  * @param {string} file
- * @param {typeof fs} queueFs
  * @returns {RunRecord | null}
  */
-function readRunRecord(file, queueFs) {
+function readRunRecord(file) {
 	try {
-		const record = JSON.parse(String(queueFs.readFileSync(file, "utf8")));
+		const record = JSON.parse(String(fs.readFileSync(file, "utf8")));
 		return typeof record?.pid === "number" && typeof record?.at === "number"
 			? record
 			: null;
@@ -95,7 +99,6 @@ function readInFlightRuns(
 	session,
 	{
 		queueDir = defaultQueueDir(),
-		queueFs = fs,
 		alive = pidAlive,
 		startTime = readStartTimeOf,
 	} = {},
@@ -103,7 +106,7 @@ function readInFlightRuns(
 	/** @type {string[]} */
 	let names;
 	try {
-		names = queueFs.readdirSync(queueDir).map(String);
+		names = fs.readdirSync(queueDir).map(String);
 	} catch (error) {
 		if (/** @type {{ code?: string }} */ (error)?.code === "ENOENT") return [];
 		return null;
@@ -112,7 +115,7 @@ function readInFlightRuns(
 	const runs = [];
 	for (const name of names) {
 		if (!name.startsWith(RUN_PREFIX)) continue;
-		const record = readRunRecord(path.join(queueDir, name), queueFs);
+		const record = readRunRecord(path.join(queueDir, name));
 		if (!record || record.session !== session) continue;
 		if (isMarkerStale(record, { alive, startTime })) continue;
 		const args = Array.isArray(record.args) ? record.args.map(String) : [];
@@ -143,13 +146,17 @@ const runList = (runs) =>
 		)
 		.join("; ");
 
+/** @param {InFlightRun[]} runs */
+const stillInFlight = (runs) =>
+	`this session's own touched test run${runs.length === 1 ? " is" : "s are"} still in flight — ${runList(runs)}`;
+
 /**
  * @param {InFlightRun[]} runs
  * @returns {string}
  */
 function rerunRefusal(runs) {
 	const one = runs.length === 1;
-	return `Not run: this session's own touched test run${one ? " is" : "s are"} still in flight — ${runList(runs)}. A second bare \`npm run test\` reads the same files and repeats ${one ? "it" : "them"}. Wait for ${one ? "that run's notification" : "each run's notification"}, which brings its verdict, and act on that (#5716).`;
+	return `Not run: ${stillInFlight(runs)}. A second bare \`npm run test\` reads the same files and repeats ${one ? "it" : "them"}. Wait for ${one ? "that run's notification" : "each run's notification"}, which brings its verdict, and act on that (#5716).`;
 }
 
 /**
@@ -159,7 +166,7 @@ function rerunRefusal(runs) {
  */
 function commitRefusal(runs, command) {
 	const one = runs.length === 1;
-	return `pre-commit: this session's own touched test run${one ? " is" : "s are"} still in flight — ${runList(runs)} — so this commit is refused before '${command}' runs beside ${one ? "it" : "them"} (#5716).\n  Commit again once ${one ? "that run ends" : "they end"}: its notification brings its verdict.\n`;
+	return `pre-commit: ${stillInFlight(runs)} — so this commit is refused before '${command}' runs beside ${one ? "it" : "them"} (#5716).\n  Commit again once ${one ? "that run ends" : "they end"}: its notification brings its verdict.\n`;
 }
 
 // guess, #5716: copied from rule:job-holds-turn's 540 s waits
@@ -181,7 +188,7 @@ async function waitForRuns(
 	{
 		ceilingS = WAIT_CEILING_S,
 		pollMs = WAIT_POLL_MS,
-		clock = Date.now,
+		clock = durationClock(),
 		sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 	} = {},
 ) {

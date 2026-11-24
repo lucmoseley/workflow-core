@@ -61,6 +61,25 @@ const read = (dir: string, session = S) =>
 afterEach(() => dead.clear());
 
 describe("the session's in-flight test runs, read from the launcher's run records (#5717)", () => {
+	it("says so on stderr where its record will not write, and records nothing", () => {
+		const dir = queueDir();
+		fs.mkdirSync(path.dirname(dir), { recursive: true });
+		fs.writeFileSync(dir, "a file where the queue directory goes");
+		const warned: string[] = [];
+		const drop = recordRun({
+			session: S,
+			args: [],
+			queueDir: dir,
+			pid: 11,
+			warn: (t: string) => warned.push(t),
+		});
+		drop();
+		expect(warned.join("")).toMatch(
+			/^run-vitest: could not write this run's record \(.+\), so a rerun or commit meanwhile is not refused, nor waited on \(#5716\)\.\n$/,
+		);
+		expect(read(dir)).toBeNull();
+	});
+
 	it("returns each live run with its pid, start time, command and lane, oldest first", () => {
 		const dir = queueDir();
 		join(dir, 12, { args: ["--queue", "a.test.ts"], at: AT + 1000 });
@@ -210,6 +229,11 @@ describe("the background-job wait (#5716)", () => {
 		const s = said();
 		expect(await main(["wait"], { env, read: () => null, ...s.io })).toBe(4);
 		expect(s.err.join("")).toMatch(/^UNREAD: the run records would not read/);
+	});
+
+	it("exits 2 on an unknown command, naming the usage", async () => {
+		const s = said();
+		expect(await main(["bogus"], { env, read: () => [], ...s.io })).toBe(2);
 	});
 
 	it("exits 2 with no session id", async () => {

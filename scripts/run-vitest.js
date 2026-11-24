@@ -1235,17 +1235,33 @@ function sweepAndAttribute(
 		alive,
 	},
 ) {
-	sweepIsolated(root, { execFn, worktreeFs, err, ...(alive ? { alive } : {}) });
-	const status = readTrackedStatus(root, execFn);
+	const { status, untracked } = sweptStatus(root, {
+		execFn,
+		worktreeFs,
+		err,
+		alive,
+	});
 	if (status === null) return null;
 	return attributeDirty(status.dirty, {
 		...(sessionId ? { sessionId } : {}),
 		...(ledger ? { ledger } : {}),
-		untracked: readUntrackedFiles(root, execFn) ?? [],
+		untracked: untracked ?? [],
 		renames: status.renames,
 		tree: root,
 		ownTree: isLinkedWorktree(root, execFn),
 	});
+}
+
+/**
+ * @param {string} root
+ * @param {{ execFn: ExecFn, worktreeFs: WorktreeFs, err: { write: (s: string) => unknown }, alive?: (pid: number) => boolean }} options
+ */
+function sweptStatus(root, { execFn, worktreeFs, err, alive }) {
+	sweepIsolated(root, { execFn, worktreeFs, err, ...(alive ? { alive } : {}) });
+	return {
+		status: readTrackedStatus(root, execFn),
+		untracked: readUntrackedFiles(root, execFn),
+	};
 }
 
 /**
@@ -1416,14 +1432,12 @@ function readSnapshot(root, options) {
 		worktreeFs = fs,
 		err = process.stderr,
 	} = options;
-	sweepIsolated(root, {
+	const { status, untracked } = sweptStatus(root, {
 		execFn,
 		worktreeFs,
 		err,
 		...(options.alive ? { alive: options.alive } : {}),
 	});
-	const status = readTrackedStatus(root, execFn);
-	const untracked = readUntrackedFiles(root, execFn);
 	if (status === null || untracked === null)
 		return { error: "git would not say which files are uncommitted" };
 	const uncommitted = new Set([...status.dirty, ...untracked]);

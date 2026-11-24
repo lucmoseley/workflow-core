@@ -298,7 +298,6 @@ function ownDefaultWork(root, sessionId, seams) {
 
 module.exports = {
 	attributeDirty,
-	lastCommitAt,
 	ownDefaultWork,
 	ownSelection,
 };

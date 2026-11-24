@@ -6,7 +6,16 @@ const SUBAGENT_WAIT =
 
 const WAIT_SLOT = "@WAIT@";
 
+// guess, #5712: one notification turn's tokens against the seconds a session sits blocked
+const SNAPSHOT_RUN_TIMEOUT_MS = 30_000;
+
 /** @param {string} template @param {string} wait */
 const withWait = (template, wait) => template.replace(WAIT_SLOT, () => wait);
 
-module.exports = { PARENT_WAIT, SUBAGENT_WAIT, WAIT_SLOT, withWait };
+module.exports = {
+	PARENT_WAIT,
+	SNAPSHOT_RUN_TIMEOUT_MS,
+	SUBAGENT_WAIT,
+	WAIT_SLOT,
+	withWait,
+};

@@ -227,7 +227,7 @@ if ! lander_batch && ! lander_tested && declared_cmd node "${WFC_PLUGIN_ROOT:-.}
   if ! tg_why="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/commit-key.js stand-down test "$tg_stamp" 2>&1)"; then
     tg_rc=0
     node "${WFC_PLUGIN_ROOT:-.}"/scripts/in-flight-runs.js commit "$tg_cmd" || tg_rc=$?
-    [ "$tg_rc" -ne 3 ] || exit 1
+    [ "$tg_rc" -ne 3 ] || exit "$tg_rc"
     echo "pre-commit: running '$tg_cmd' in the lock — no pre-lock green stands it down: $tg_why." >&2
     tg_rc=0
     tg_inplace=0
