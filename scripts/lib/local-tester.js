@@ -4,17 +4,16 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { noop } = require("./noop.js");
-const {
-	TREE_PEAK_SAMPLE_MS,
-	readPsRows,
-	readTreePssKb,
-	sampleTreePeak,
-} = require("./admission.js");
+const { readPsRows, readTreePssKb, sampleTreePeak } = require("./admission.js");
 const { caught } = require("./caught.js");
 const { readBytes, readText } = require("./file-read.js");
-const { readJsonl } = require("./jsonl.js");
 const { MARKERS_REL, markersDir } = require("./marker-root.js");
-const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
+const { appendRetained } = require("./retained-jsonl.js");
+const {
+	RUN_RECORD_RETAIN_MS,
+	localSeconds,
+	recordRun,
+} = require("./lander-run-record.js");
 const { writeFd } = require("./write-fd.js");
 const { CEILING_LINE } = require("./suite-ceiling.js");
 const {
@@ -47,9 +46,6 @@ const rootlessEnv = () => {
 
 // guess, #2403
 const CHECKOUT_TIMEOUT_MS = 120 * 1000;
-const RUN_RECORD = ".lander-runs.jsonl";
-// guess, #3323
-const RUN_RECORD_RETAIN_MS = 90 * DAY_MS;
 const HOLDER_RECORD = ".lander-memory-holders.jsonl";
 // guess, #3764
 const HOLDERS_KEPT = 10;
@@ -428,54 +424,6 @@ async function runInSlot(
 }
 
 /**
- * @typedef {{sha: string, kind: "whole" | "named", files: number,
- *   shards: number, peakMb?: number, samples?: number,
- *   verdict: Verdict["kind"], tester: "local" | "actions",
- *   suiteSeconds: number}} RunLine
- */
-
-/**
- * @param {string} root
- * @param {RunLine} run
- */
-function recordRun(root, run) {
-	const file = path.join(markersDir(root), RUN_RECORD);
-	const landed = appendRetained(
-		file,
-		{ at: new Date().toISOString(), ...run },
-		RUN_RECORD_RETAIN_MS,
-	);
-	if (!landed) process.stderr.write(`lander: run record unwritten: ${file}\n`);
-}
-
-/** @param {number} samples */
-const localSeconds = (samples) => (samples * TREE_PEAK_SAMPLE_MS) / 1000;
-
-/**
- * @param {string} root
- * @returns {{tester: "local" | "actions", suiteSeconds: number}[]}
- */
-function readWholeRuns(root) {
-	/** @type {Record<string, unknown>[]} */
-	const rows = readJsonl(path.join(root, MARKERS_REL, RUN_RECORD))?.rows ?? [];
-	return rows
-		.filter(
-			(r) =>
-				r.kind === "whole" && (r.verdict === "green" || r.verdict === "red"),
-		)
-		.map((r) => ({
-			tester: /** @type {"local" | "actions"} */ (
-				r.tester === "actions" ? "actions" : "local"
-			),
-			suiteSeconds:
-				typeof r.suiteSeconds === "number"
-					? r.suiteSeconds
-					: localSeconds(Number(r.samples) || 0),
-		}))
-		.reverse();
-}
-
-/**
  * @param {string} root
  * @param {string} sha
  * @param {import("./admission.js").PsRead} ps
@@ -641,6 +589,4 @@ module.exports = {
 	readLiveLanders,
 	localTester,
 	readRunsAt,
-	readWholeRuns,
-	recordRun,
 };

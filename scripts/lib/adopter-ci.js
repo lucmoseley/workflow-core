@@ -113,8 +113,7 @@ function renderCiWorkflow(
 ) {
 	return `${CI_MARKER} Written by workflow-core's upgrade from the \`ci\` key in
 # .claude/workflow-core.json, and REWRITTEN on every bump. Change the key, not
-# this file. What it runs: the plugin's scripts/lib/adopter-ci.js. Why:
-# lucmoseley/workflow-core-tracker#5343 and lucmoseley/workflow-core-tracker#5347.
+# this file. What it runs: the plugin's scripts/lib/adopter-ci.js.
 name: workflow-core CI
 
 on:
@@ -143,14 +142,13 @@ ${renderJobEnv()}${renderSetupSteps({ setup })}
 }
 
 /** @param {string} text */
-const isCoreCi = (text) => text.startsWith(CI_MARKER);
+const isCoreWorkflow = (text) => text.startsWith(CI_MARKER);
 
 module.exports = {
 	CI_MARKER,
 	CI_WORKFLOW,
-	DEFAULT_TIMEOUT_MINUTES,
 	renderCiWorkflow,
 	renderJobEnv,
 	renderSetupSteps,
-	isCoreCi,
+	isCoreWorkflow,
 };

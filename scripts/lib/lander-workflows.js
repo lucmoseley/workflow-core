@@ -1,6 +1,5 @@
 const {
 	CI_MARKER,
-	DEFAULT_TIMEOUT_MINUTES,
 	renderJobEnv,
 	renderSetupSteps,
 } = require("./adopter-ci.js");
@@ -22,6 +21,17 @@ const SHA_INPUT = expr("inputs.sha");
 
 /* #5464 */
 const DEFAULT_RUNNER = "ubuntu-24.04-arm";
+/* A guess, #5511. */
+const DEFAULT_TIMEOUT_MINUTES = 15;
+
+const LANDER_CONFIG_KEYS = [
+	"commands",
+	"commands.full_test",
+	"commands.test",
+	"fullTestShards",
+	"ci",
+	"ciSetup",
+];
 
 /**
  * @typedef {Pick<import("./workflow-core-config.js").Config,
@@ -43,7 +53,7 @@ const header = (
 # on Actions by run length ("landingTester" absent or "auto" in
 # .claude/workflow-core.json), and REWRITTEN on every bump. ${what}
 # Change the config, not this file. What it runs: the plugin's
-# scripts/lib/lander-workflows.js. Why: lucmoseley/workflow-core-tracker#5511.
+# scripts/lib/lander-workflows.js.
 `;
 
 /**
@@ -140,6 +150,7 @@ const renderLanderWorkflows = (config) => [
 ];
 
 module.exports = {
+	LANDER_CONFIG_KEYS,
 	LANDER_NAMED_WORKFLOW,
 	LANDER_SUITE_WORKFLOW,
 	renderLanderWorkflows,
