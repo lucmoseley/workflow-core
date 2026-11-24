@@ -133,6 +133,41 @@ describe("parseBreaches", () => {
 			"if a; then for f in b; do node scripts/c.js || exit 1; done; fi # why",
 			1,
 		],
+		[
+			"an if whose exit 1 has an else after it (#5686)",
+			"if a; then node scripts/c.js || exit 1; else true; fi",
+			1,
+		],
+		[
+			"an if whose exit 1 has an elif after it (#5686)",
+			"if a; then node scripts/c.js || exit 1; elif b; then true; fi",
+			1,
+		],
+		[
+			"a one-line group exiting 1 after another command (#5686)",
+			"node scripts/c.js || { echo bad; exit 1; }",
+			1,
+		],
+		[
+			"a one-line group exiting 1 after an expansion (#5686)",
+			`node scripts/c.js || { echo "\${x}"; exit 1; }`,
+			1,
+		],
+		[
+			"a loop redirected after its closer (#5686)",
+			"for f in a; do node scripts/c.js || exit 1; done >log",
+			1,
+		],
+		[
+			"a loop backgrounded after its closer (#5686)",
+			"for f in a; do node scripts/c.js || exit 1; done &",
+			1,
+		],
+		[
+			"a second checker on a line whose first runs an outside command (#5686)",
+			"git diff --quiet || exit 1; node scripts/c.js || exit 1",
+			1,
+		],
 	])("names %s exiting 1", (_, body, line) => {
 		expect(lines(`${body}\n`)).toEqual([line]);
 	});
@@ -150,6 +185,31 @@ describe("parseBreaches", () => {
 	it("passes a block exiting 1 only after its close", () => {
 		expect(lines("node scripts/d.js || {\n  echo x\n}\nexit 1\n")).toEqual([]);
 	});
+
+	it.each([
+		["an else", 'if a; then node scripts/c.js || exit "$?"; else true; fi'],
+		["a one-line group", 'node scripts/c.js || { echo bad; exit "$?"; }'],
+		[
+			"a one-line group saving the code first",
+			'node scripts/c.js || { rc=$?; echo bad; exit "$rc"; }',
+		],
+		["a redirect", 'for f in a; do node scripts/c.js || exit "$?"; done >log'],
+		[
+			"a background job",
+			'for f in a; do node scripts/c.js || exit "$?"; done &',
+		],
+		["an exit 10", "node scripts/c.js || exit 10"],
+		[
+			"an exit 1 in a quoted word",
+			'node scripts/c.js || { echo "a; exit 1"; }',
+		],
+		["a group exiting 1 in a subshell", "node scripts/c.js || { ( exit 1 ); }"],
+	])(
+		"passes %s passing the checker's code on, or never exiting 1 (#5686)",
+		(_, line) => {
+			expect(lines(`${line}\n`)).toEqual([]);
+		},
+	);
 
 	it.each([
 		[

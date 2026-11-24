@@ -1,9 +1,11 @@
 const { programSource } = require("./shell-words.js");
 
-const CLOSED_TAIL = String.raw`(?:\s*;;?\s*(?:fi|done|esac|\})|\s*\))*\s*(?:;;?\s*)?(?:#.*)?$`;
-const EXIT_ONE = new RegExp(String.raw`\|\|\s*exit\s+1${CLOSED_TAIL}`);
+const ENDS_COMMAND = String.raw`(?=\s*[;&|)}<>]|\s+#|\s*$)`;
+const EXIT_ONE = new RegExp(String.raw`^\s*exit\s+1${ENDS_COMMAND}`);
+const GROUP_EXIT_ONE = new RegExp(
+	String.raw`^\s*\{(?:(?:\$\{[^}]*\}|[^}])*?(?:;|&&|\|\||\b(?:then|do|else)))?\s*exit\s+1${ENDS_COMMAND}`,
+);
 const OPENS_BLOCK = /\|\|\s*\{\s*(?:#.*)?$/;
-const EXIT_ONE_LINE = new RegExp(String.raw`^exit\s+1${CLOSED_TAIL}`);
 const CASE_ARM = /^(?:case\s.*?\sin\s+)?\(?[^()\s]*\)\s+/;
 const SUBSTITUTION = /^[A-Za-z_][A-Za-z0-9_]*="?\$\((.*)\)"?$/;
 const FALLBACK = /^([A-Za-z_][A-Za-z0-9_]*)=\S*$/;
@@ -59,6 +61,26 @@ function isCheckerCommand(command) {
 }
 
 /**
+ * @param {string} trimmed
+ * @returns {boolean}
+ */
+function hasInlineExitOne(trimmed) {
+	for (
+		let at = trimmed.indexOf("||");
+		at >= 0;
+		at = trimmed.indexOf("||", at + 2)
+	) {
+		const after = trimmed.slice(at + 2);
+		if (
+			(EXIT_ONE.test(after) || GROUP_EXIT_ONE.test(after)) &&
+			isCheckerCommand(trimmed.slice(0, at))
+		)
+			return true;
+	}
+	return false;
+}
+
+/**
  * @param {string[]} raw
  * @param {number} last
  * @param {string} trimmed
@@ -68,7 +90,7 @@ function hasBlockExitOne(raw, last, trimmed) {
 	for (const line of raw.slice(last + 1)) {
 		const body = line.trim();
 		if (body.startsWith("}")) return false;
-		if (EXIT_ONE_LINE.test(body)) return true;
+		if (EXIT_ONE.test(body)) return true;
 	}
 	return false;
 }
@@ -96,7 +118,7 @@ function caseCatchAllExitsOne(lines) {
 	if (from < 0) return false;
 	for (const line of own.slice(from)) {
 		const code = line.startsWith("*)") ? line.slice(2).trim() : line;
-		if (EXIT_ONE_LINE.test(code)) return true;
+		if (EXIT_ONE.test(code)) return true;
 		if (ARM_END.test(code)) return false;
 	}
 	return false;
@@ -135,18 +157,16 @@ function parseBreaches(text) {
 			logical = `${logical.slice(0, -1)} ${raw[++i] ?? ""}`;
 		const trimmed = logical.trim();
 		if (trimmed.startsWith("#")) continue;
+		const operator = trimmed.lastIndexOf("||");
 		if (
-			!EXIT_ONE.test(trimmed) &&
-			!hasBlockExitOne(raw, i, trimmed) &&
-			!hasCatchAllExitOne(
-				raw,
-				i,
-				trimmed.slice(trimmed.lastIndexOf("||") + 2).trim(),
+			!hasInlineExitOne(trimmed) &&
+			!(
+				(hasBlockExitOne(raw, i, trimmed) ||
+					hasCatchAllExitOne(raw, i, trimmed.slice(operator + 2).trim())) &&
+				isCheckerCommand(trimmed.slice(0, operator))
 			)
 		)
 			continue;
-		const command = trimmed.slice(0, trimmed.lastIndexOf("||"));
-		if (!isCheckerCommand(command)) continue;
 		found.push({ line: first + 1, text: trimmed.replace(/\s+/g, " ") });
 	}
 	return found;
