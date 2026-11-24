@@ -5,6 +5,7 @@ describe("exemptMarker", () => {
 	it.each([
 		"cli-args-exempt: #4820",
 		"// cli-args-exempt: lucmoseley/mantahostels#12",
+		"// cli-args-exempt: workflow-core#12",
 		"/* cli-args-exempt: ADR-0007 */",
 		"# cli-args-exempt: RFC9110",
 	])("reads %s", (line) => {
@@ -16,6 +17,7 @@ describe("exemptMarker", () => {
 		"cli-args-exempt: #",
 		"cli-args-exempt: a pass-through wrapper",
 		"cli-args-exempt: #12abc",
+		"cli-args-exempt: repo#12",
 	])("refuses %s", (line) => {
 		expect(exemptMarker("cli-args").test(line)).toBe(false);
 	});

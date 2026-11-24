@@ -167,6 +167,12 @@ describe("the permitted shapes", () => {
 				"js",
 			),
 		).toEqual(["COMMENT@1", "COMMENT@4"]);
+		expect(
+			tags(
+				"// WHY THIS EXISTS: history.\n// See [workflow-core#1297](https://github.com/o/r/issues/1297).\nconst a = 1;\n",
+				"js",
+			),
+		).toEqual(["COMMENT@1"]);
 	});
 
 	it("refuses a dependency's name used as a word, unquoted or bare of its scope (#5492)", () => {
