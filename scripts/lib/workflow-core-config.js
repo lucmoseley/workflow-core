@@ -262,8 +262,7 @@ const isCommandList = (v) =>
 	v.every((x) => typeof x === "string" && x.trim() !== "" && !x.includes("\n"));
 
 /** @param {unknown} v @returns {v is string[]} */
-const isTokenList = (v) =>
-	Array.isArray(v) && v.every((x) => typeof x === "string" && /^\S+$/.test(x));
+const isTokenList = (v) => isStringArray(v) && v.every((x) => /^\S+$/.test(x));
 
 /** @param {unknown} v @returns {v is boolean} */
 const isBoolean = (v) => typeof v === "boolean";
