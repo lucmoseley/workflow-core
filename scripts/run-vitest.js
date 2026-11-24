@@ -127,18 +127,15 @@ const {
 	buildPragmaRefusal,
 	writeCachedHandoff,
 } = require("./lib/pass-store.js");
-const {
-	attributeDirty,
-	lastCommitAt,
-	ownDefaultWork,
-	ownSelection,
-} = require("./lib/own-selection.js");
+const { attributeDirty, ownDefaultWork } = require("./lib/own-selection.js");
 const {
 	createIsolated,
-	overlayFiles,
 	removeIsolated,
 	sweepIsolated,
 } = require("./lib/isolated-worktree.js");
+const { launchSnapshotTree } = require("./lib/tree-drift.js");
+const { readClaimedElsewhere } = require("./lib/neighbour-dirt.js");
+const { recordRun: recordInFlight } = require("./lib/in-flight-runs.js");
 const {
 	REFUSAL_NAMED_MAX,
 	isLinkedWorktree,
@@ -1072,13 +1069,13 @@ function refuseNarrowing(options, cause) {
 
 /**
  * @param {LaunchRoute} route
- * @param {{ overlay: () => Promise<number>|null, worktree: () => Promise<number>, shared: () => Promise<number> }} runs
+ * @param {{ snapshot: () => Promise<number>|null, worktree: () => Promise<number>, shared: () => Promise<number> }} runs
  * @returns {Promise<number>}
  */
 async function onTree(route, runs) {
-	if (route.tree === "overlay") {
-		const overlaid = runs.overlay();
-		if (overlaid !== null) return overlaid;
+	if (route.tree === "snapshot") {
+		const snapped = runs.snapshot();
+		if (snapped !== null) return snapped;
 	}
 	return route.fallback === "worktree" ? runs.worktree() : runs.shared();
 }
@@ -1121,7 +1118,7 @@ function runTouched(route, options) {
 		planTouched(route.rest, o.root ?? options.root ?? TREE_ROOT, opts);
 	const opts = withRenderCheck({ ...withSession(route, options), expand });
 	return onTree(route, {
-		overlay: () => runChangedOverlaid(route, opts),
+		snapshot: () => runSnapshot(route, opts),
 		worktree: () => runIsolated(route.rest, opts),
 		shared: () => runOnce(route.rest, opts),
 	});
@@ -1224,7 +1221,7 @@ function isolatedArgvRefusal(argv, root) {
 
 /**
  * @param {string} root
- * @param {{ execFn?: ExecFn, worktreeFs?: WorktreeFs, err?: { write: (s: string) => unknown }, sessionId?: string, ledger?: Ledger, alive?: (pid: number) => boolean, withQuotes?: boolean }} options
+ * @param {{ execFn?: ExecFn, worktreeFs?: WorktreeFs, err?: { write: (s: string) => unknown }, sessionId?: string, ledger?: Ledger, alive?: (pid: number) => boolean }} options
  * @returns {{ mine: string[], theirs: string[], quoted: string[] }|null}
  */
 function sweepAndAttribute(
@@ -1236,7 +1233,6 @@ function sweepAndAttribute(
 		sessionId,
 		ledger,
 		alive,
-		withQuotes = false,
 	},
 ) {
 	sweepIsolated(root, { execFn, worktreeFs, err, ...(alive ? { alive } : {}) });
@@ -1249,12 +1245,11 @@ function sweepAndAttribute(
 		renames: status.renames,
 		tree: root,
 		ownTree: isLinkedWorktree(root, execFn),
-		...(withQuotes ? { committedAt: lastCommitAt(root, execFn) } : {}),
 	});
 }
 
 /**
- * @param {{ root?: string, execFn?: ExecFn, worktreeFs?: WorktreeFs, err?: { write: (s: string) => unknown }, pid?: number }} options
+ * @param {{ root?: string, execFn?: ExecFn, worktreeFs?: WorktreeFs, err?: { write: (s: string) => unknown }, pid?: number, tree?: string }} options
  * @returns {{ dir: string, teardown: () => void, error: null }|{ dir: null, teardown: null, error: string }}
  */
 function openWorktree({
@@ -1263,8 +1258,15 @@ function openWorktree({
 	worktreeFs = fs,
 	err = process.stderr,
 	pid = process.pid,
+	tree,
 }) {
-	const made = createIsolated(root, { execFn, worktreeFs, pid, err });
+	const made = createIsolated(root, {
+		execFn,
+		worktreeFs,
+		pid,
+		err,
+		...(tree === undefined ? {} : { tree }),
+	});
 	if (made.error !== null)
 		return { dir: null, teardown: null, error: made.error };
 	const dir = made.dir;
@@ -1355,76 +1357,104 @@ function runThenTeardown(run, teardown) {
  * @param {RouteOptions} options
  * @returns {Promise<number>|null}
  */
-function runChangedOverlaid(route, options) {
-	const label = overlayLabel(route);
-	return withOverlay(route, options, label, (dir, teardown) =>
-		runThenTeardown(
-			() =>
-				runOnce(route.rest, {
-					...withLaunch(options, { isolated: true }),
-					root: dir,
-				}),
-			teardown,
-		),
+function runSnapshot(route, options) {
+	const { root = TREE_ROOT, err = process.stderr } = options;
+	const label = snapshotLabel(route);
+	/** @param {string} why */
+	const fallback = (why) => {
+		err.write(`${label}: ${why} — reading the working tree instead.\n`);
+		return null;
+	};
+	const snapshot = readSnapshot(root, options);
+	if (snapshot.error !== null) return fallback(snapshot.error);
+	const made = openWorktree({ ...options, tree: snapshot.tree });
+	if (made.error !== null) return fallback(made.error);
+	const { dir, teardown } = made;
+	const out = options.out ?? process.stdout;
+	out.write(
+		`${label}: running in a detached worktree at ${path.relative(root, dir)}, at ${readHeadSha(dir)}, reading a launch snapshot of this tree that carries ${String(snapshot.carried)} uncommitted file(s).\n`,
+	);
+	if (snapshot.atHead.length > 0)
+		err.write(
+			`${label}: ${String(snapshot.atHead.length)} uncommitted file(s) another live session holds are read at HEAD's version, not theirs: ${namedList(snapshot.atHead)}\n`,
+		);
+	freshenSnapshot(dir, root, options);
+	return runThenTeardown(
+		() =>
+			runOnce(inSnapshot(route.rest, root), {
+				...withLaunch(options, { isolated: true }),
+				root: dir,
+			}),
+		teardown,
 	);
 }
 
 /** @param {LaunchRoute} route */
-function overlayLabel(route) {
+function snapshotLabel(route) {
 	if (route.kind === "touched") return "touched tests";
-	return route.source === "retest" ? "--retest" : "test:changed";
+	if (route.source === "retest") return "--retest";
+	return route.kind === "changed" ? "test:changed" : "named tests";
 }
 
 /**
- * @param {LaunchRoute} route
- * @param {RouteOptions} options
- * @param {string} label
- * @param {(dir: string, teardown: () => void) => Promise<number>} run
- * @returns {Promise<number>|null}
+ * @param {string[]} words
+ * @param {string} root
  */
-function withOverlay(route, options, label, run) {
-	const {
-		root = TREE_ROOT,
-		err = process.stderr,
-		out = process.stdout,
-	} = options;
-	const instead =
-		route.fallback === "worktree"
-			? "running in a frozen worktree instead"
-			: "reading the working tree instead";
-	/** @param {string} why */
-	const fallback = (why) => {
-		err.write(`${label}: ${why} — ${instead} (#812).\n`);
-		return null;
-	};
-
-	const attributed = sweepAndAttribute(root, { ...options, withQuotes: true });
-	if (attributed === null)
-		return fallback("git would not say which files are uncommitted");
-	const { mine, theirs, quoted } = attributed;
-
-	const made = openWorktree(options);
-	if (made.error !== null) return fallback(made.error);
-	const { dir, teardown } = made;
-	const overlayError = overlayFiles(root, dir, mine, options);
-	if (overlayError) {
-		teardown();
-		return fallback(overlayError);
-	}
-
-	out.write(
-		`${label}: running in a detached worktree at ${path.relative(root, dir)}, at ${readHeadSha(dir)}, carrying ${String(mine.length)} uncommitted file(s) of this session's own (#812).\n`,
+const inSnapshot = (words, root) =>
+	words.map((word) =>
+		path.isAbsolute(word) ? (relativeUnder(root, word) ?? word) : word,
 	);
-	if (quoted.length > 0)
-		out.write(
-			`${label}: ${String(quoted.length)} of them only because an inline python/node program quoted them (#1220): ${quoted.join(" ")}\n`,
-		);
-	if (theirs.length > 0)
-		err.write(
-			`${label}: ${String(theirs.length)} uncommitted tracked file(s) not attributable to this session are read at HEAD's version, not theirs: ${namedList(theirs)}\n`,
-		);
-	freshenOverlay(dir, root, options);
-	return run(dir, teardown);
+
+/**
+ * @param {string} root
+ * @param {RouteOptions & { ledger?: Ledger }} options
+ * @returns {{ tree: string, carried: number, atHead: string[], error: null }|{ error: string }}
+ */
+function readSnapshot(root, options) {
+	const {
+		execFn = execFileSync,
+		worktreeFs = fs,
+		err = process.stderr,
+	} = options;
+	sweepIsolated(root, {
+		execFn,
+		worktreeFs,
+		err,
+		...(options.alive ? { alive: options.alive } : {}),
+	});
+	const status = readTrackedStatus(root, execFn);
+	const untracked = readUntrackedFiles(root, execFn);
+	if (status === null || untracked === null)
+		return { error: "git would not say which files are uncommitted" };
+	const uncommitted = new Set([...status.dirty, ...untracked]);
+	const atHead = neighbourHeld(root, uncommitted, options);
+	try {
+		return {
+			tree: launchSnapshotTree(root, { atHead }),
+			carried: uncommitted.size - atHead.length,
+			atHead,
+			error: null,
+		};
+	} catch (error) {
+		return { error: `could not write the launch snapshot: ${error}` };
+	}
+}
+
+/**
+ * @param {string} root
+ * @param {Set<string>} uncommitted
+ * @param {RouteOptions & { ledger?: Ledger }} options
+ * @returns {string[]}
+ */
+function neighbourHeld(root, uncommitted, options) {
+	const sessionId = options.sessionId || idSeam.fromEnv();
+	if (!sessionId || uncommitted.size === 0) return [];
+	if (isLinkedWorktree(root, options.execFn ?? execFileSync)) return [];
+	const held = readClaimedElsewhere(sessionId, {
+		tree: root,
+		...(options.ledger ? { source: options.ledger } : {}),
+	});
+	return [...held].filter((p) => uncommitted.has(p)).sort();
 }
 
 /** @param {string[]} paths */
@@ -1441,7 +1471,7 @@ function namedList(paths) {
  * @param {string} home
  * @param {RouteOptions} options
  */
-function freshenOverlay(dir, home, options) {
+function freshenSnapshot(dir, home, options) {
 	freshenManifest(options.renderEdges ?? (() => liveEdges(dir)), {
 		root: dir,
 		home,
@@ -1464,23 +1494,11 @@ function freshenOverlay(dir, home, options) {
 function ownProbeSet(route, options) {
 	const { root = TREE_ROOT, err = process.stderr } = options;
 	if (route.source !== "own") return null;
-	const isDefault = route.kind === "touched";
-	if (isDefault && options.launch?.touchedBase === "head") return null;
+	if (options.launch?.touchedBase === "head") return null;
 	const sessionId = /** @type {string} */ (route.sessionId);
-	if (isDefault) {
-		const set = ownDefaultWork(root, sessionId, options);
-		if (set)
-			return { ...set, label: `this session's own work since ${set.base}` };
-	} else {
-		const paths = ownSelection(root, sessionId, options)?.uncommitted;
-		if (paths)
-			return {
-				paths,
-				dropped: [],
-				carriesUntracked: true,
-				label: "this session's own uncommitted work",
-			};
-	}
+	const set = ownDefaultWork(root, sessionId, options);
+	if (set)
+		return { ...set, label: `this session's own work since ${set.base}` };
 	err.write(
 		"--queue: this session's own work could not be read, so the probe reads the working tree's diff instead (#1221).\n",
 	);
@@ -1735,7 +1753,7 @@ function runByRoute(route, opts) {
 		withCommittedNote(route, withChangedBase(route, opts)),
 	);
 	return onTree(route, {
-		overlay: () => runChangedOverlaid(route, withSession(route, noted)),
+		snapshot: () => runSnapshot(route, withSession(route, noted)),
 		worktree: () => runIsolated(route.rest, noted),
 		shared: () => runOnce(route.rest, noted),
 	});
@@ -2071,6 +2089,16 @@ function main(argv = process.argv.slice(2), options = {}) {
 	});
 }
 
+/**
+ * @param {string[]} argv
+ * @returns {() => void}
+ */
+function openRunRecord(argv) {
+	const session = idSeam.fromEnv();
+	if (!session || idSeam.isLanderRun()) return noop;
+	return recordInFlight({ session, args: argv });
+}
+
 if (require.main === module) {
 	const argv = process.argv.slice(2);
 	const refusal =
@@ -2085,6 +2113,8 @@ if (require.main === module) {
 		sweepDeadRunRoots("vitest");
 		readAudit.sweep(os.tmpdir());
 		openWrapperMemory(argv);
+		const dropRunRecord = openRunRecord(argv);
+		process.once("exit", dropRunRecord);
 		holdForLoad()
 			.then((go) =>
 				go

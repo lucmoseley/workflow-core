@@ -30,12 +30,18 @@ const run = (command: string, background?: boolean) =>
 	).output;
 
 const FIX_OPENER =
+	/^Run instead, in the foreground with the Bash tool's `timeout: (30000|600000)`: /;
+
+const SNAPSHOT_OPENER =
+	"Run instead, in the foreground with the Bash tool's `timeout: 30000`: ";
+const HELD_OPENER =
 	"Run instead, in the foreground with the Bash tool's `timeout: 600000`: ";
 
 const expectFixFirst = (command: string, reason: string) => {
 	const first = reason.split("\n")[0];
-	expect(first.startsWith(FIX_OPENER), `first line for: ${command}`).toBe(true);
-	const fix = first.slice(FIX_OPENER.length);
+	const opener = FIX_OPENER.exec(first);
+	expect(opener, `first line for: ${command}`).not.toBe(null);
+	const fix = first.slice(opener?.[0].length);
 	expect(fix, `fix for: ${command}`).toMatch(
 		/npm|run-vitest\.js|pytest|node --test/,
 	);
@@ -263,9 +269,10 @@ describe("lib/suite-background.js", () => {
 				"npm run test -- scripts/nohup-helper.test.ts",
 			],
 		])
-			expect(readDenyReason(command).split("\n")[0], command).toBe(
-				`${FIX_OPENER}${fix}`,
-			);
+			expect(
+				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
+				command,
+			).toBe(fix);
 	});
 
 	it("reads no detachment in a heredoc, and re-issues its body unchanged", () => {
@@ -295,7 +302,7 @@ describe("lib/suite-background.js", () => {
 		]) {
 			const reason = readDenyReason(command);
 			expect(reason.split("\nThis suite is ")[0], command).toBe(
-				`${FIX_OPENER}${fix}`,
+				`${SNAPSHOT_OPENER}${fix}`,
 			);
 		}
 	});
@@ -419,7 +426,23 @@ describe("lib/suite-background.js", () => {
 			readDenyReason("WFC_SUITE_DETACH=1 timeout 590 npm run test &").split(
 				"\n",
 			)[0],
-		).toBe(`${FIX_OPENER}WFC_SUITE_DETACH=1 npm run test &`);
+		).toBe(`${SNAPSHOT_OPENER}WFC_SUITE_DETACH=1 npm run test &`);
+	});
+
+	it("names `timeout: 30000` for a touched or named run, and `timeout: 600000` for a full, queued or test:py run (#5717)", () => {
+		for (const [command, opener] of [
+			["npm run test &", SNAPSHOT_OPENER],
+			["npm run test -- scripts/a.test.ts &", SNAPSHOT_OPENER],
+			["node scripts/run-vitest.js &", SNAPSHOT_OPENER],
+			["npm run test -- --full=coverage &", HELD_OPENER],
+			["npm run test -- --queue &", HELD_OPENER],
+			["npm run test:py &", HELD_OPENER],
+			["npm run test & npm run test:py", HELD_OPENER],
+		])
+			expect(
+				readDenyReason(command).split("\n")[0].startsWith(opener),
+				command,
+			).toBe(true);
 	});
 
 	it("opens with the command less its timeout, and adds no --queue", () => {
@@ -445,9 +468,10 @@ describe("lib/suite-background.js", () => {
 			["timeout 590 npm run test &", "npm run test"],
 			["timeout 590 env -S 'npm run test'", "env -S 'npm run test'"],
 		])
-			expect(readDenyReason(command).split("\n")[0], command).toBe(
-				`${FIX_OPENER}${fix}`,
-			);
+			expect(
+				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
+				command,
+			).toBe(fix);
 	});
 
 	it("says why the shell timeout is refused and names its escape", () => {
@@ -538,7 +562,7 @@ describe("its deliberate limits", () => {
 		const command = "npm run test -- -t 'a & b'";
 		expect(run(command)?.permissionDecision).toBe("deny");
 		expect(readDenyReason(command).split("\n")[0]).toBe(
-			`${FIX_OPENER}npm run test -- -t 'a ; b'`,
+			`${SNAPSHOT_OPENER}npm run test -- -t 'a ; b'`,
 		);
 	});
 
@@ -604,7 +628,7 @@ describe("its deliberate limits", () => {
 
 	it("re-joins a timed segment's words on single spaces", () => {
 		expect(readDenyReason("timeout 590 npm  run   test").split("\n")[0]).toBe(
-			`${FIX_OPENER}npm run test`,
+			`${SNAPSHOT_OPENER}npm run test`,
 		);
 	});
 });

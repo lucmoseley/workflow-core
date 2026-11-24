@@ -798,7 +798,6 @@ module.exports = {
 	SelectionFailed,
 	adoptFlag,
 	retestFlag,
-	isRetestOnlyArgv,
 	selectionFlagClash,
 	changedFlag,
 	readChangedPaths,

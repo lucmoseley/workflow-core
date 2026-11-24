@@ -252,57 +252,6 @@ function linkArtefacts(root, dir, worktreeFs = fs) {
 	return null;
 }
 
-/**
- * @param {string} root
- * @param {string} dir
- * @param {string[]} paths
- * @param {{ execFn?: ExecFn, worktreeFs?: WorktreeFs }} [options]
- * @returns {string|null}
- */
-function overlayFiles(
-	root,
-	dir,
-	paths,
-	{ execFn = execFileSync, worktreeFs = fs } = {},
-) {
-	for (const rel of paths) {
-		const from = path.join(root, rel);
-		const to = path.join(dir, rel);
-		try {
-			let stat = null;
-			try {
-				stat = worktreeFs.lstatSync(from);
-			} catch (error) {
-				if (caught(error).code !== "ENOENT") throw error;
-			}
-			worktreeFs.rmSync(to, { force: true });
-			if (!stat) continue;
-			worktreeFs.mkdirSync(path.dirname(to), { recursive: true });
-			if (stat.isSymbolicLink())
-				worktreeFs.symlinkSync(worktreeFs.readlinkSync(from), to);
-			else worktreeFs.copyFileSync(from, to);
-		} catch (error) {
-			return `could not copy ${rel} into ${dir}: ${error}`;
-		}
-	}
-	if (paths.length === 0) return null;
-	try {
-		execFn(
-			gitBinary(),
-			["add", "-A", "--", ...paths],
-			gitSpawnOptions({
-				cwd: dir,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-				timeout: GIT_TIMEOUT_MS,
-			}),
-		);
-	} catch (error) {
-		return `could not stage the overlay in ${dir}: ${error}`;
-	}
-	return null;
-}
-
 const QUEUE_RUN = path.join(__dirname, "..", "queue-run.js");
 
 const GIT_REDIRECTS = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"];
@@ -404,7 +353,6 @@ if (require.main === module) {
 module.exports = {
 	createIsolated,
 	linkArtefacts,
-	overlayFiles,
 	removeIsolated,
 	runInTree,
 	sweepIsolated,

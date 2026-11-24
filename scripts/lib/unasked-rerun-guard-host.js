@@ -9,6 +9,8 @@ function buildHostPorts({ root }) {
 				input,
 				require("./unasked-rerun-io.js").judgeIO(root, { tree }),
 			),
+		inFlight: (session) =>
+			require("./in-flight-runs.js").readInFlightRuns(session),
 	};
 }
 

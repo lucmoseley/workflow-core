@@ -138,8 +138,19 @@ function keptWrappers(wrappers) {
 	return kept;
 }
 
-const FIX_OPENER =
-	"Run instead, in the foreground with the Bash tool's `timeout: 600000`: ";
+/** @param {boolean} snapshot */
+const fixOpener = (snapshot) =>
+	`Run instead, in the foreground with the Bash tool's \`timeout: ${snapshot ? "30000" : "600000"}\`: `;
+
+/**
+ * @param {import("./suite-launch.js").Launch} launch
+ * @param {string[]} words
+ */
+const readsSnapshot = (launch, words) =>
+	(launch.kind === "wrapper" || launch.kind === "npm-vitest") &&
+	!words.some(
+		(w) => w === "--queue" || w === "--full" || w.startsWith("--full="),
+	);
 
 const DETACHED_TEXT =
 	"This suite is DETACHED INSIDE THE SHELL — `&`, `nohup`, `setsid` or `disown` — so the call registers no job for the run and nothing will ever tell you it ended. `run_in_background` with a detachment does not help: the job is then the wrapper shell, which exits at once. An overrun is moved to the background and notifies: then end the turn with NO tool call — a notification arriving mid-call is almost never delivered. A `--full=<cause>` or `--queue` run may overrun, so wrap it in `scripts/bg-run.sh run <name>` in the same call: a `killed` notification often lies, so before relaunching read `scripts/bg-run.sh check <name>`, which tells KILLED from DONE. If guard-suite-concurrency refuses the re-issue, no job exists: take its corrected command rather than reporting `waiting:`. Genuinely need the detachment? Prefix the command with `WFC_SUITE_DETACH=1`.";
@@ -168,6 +179,7 @@ function decide(command, ctx) {
 	};
 	let foundSuite = false;
 	let escaped = false;
+	let snapshot = true;
 	/** @type {{ from: string, to: string }[]} */
 	const timed = [];
 	/**
@@ -178,6 +190,7 @@ function decide(command, ctx) {
 		const launch = suiteLaunchKind(words.map(typed), launchPorts);
 		if (!launch) return null;
 		if (carriesVar("WFC_SUITE_DETACH", leading, wrapperWords)) escaped = true;
+		if (!readsSnapshot(launch, words.map(typed))) snapshot = false;
 		foundSuite = true;
 		return launch;
 	};
@@ -225,7 +238,7 @@ function decide(command, ctx) {
 		);
 		fix = command;
 	}
-	let reason = `${FIX_OPENER}${fix}`;
+	let reason = `${fixOpener(snapshot)}${fix}`;
 	if (detached) reason += `\n${DETACHED_TEXT}`;
 	if (timed.length > 0) reason += `\n${TIMED_TEXT}`;
 	return { deny: ctx.corePaths(reason.replace(/\n$/, "")) };

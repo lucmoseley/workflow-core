@@ -11,6 +11,7 @@ const LAUNCH_PORTS = { runners: () => [], isWrapperScript: () => true };
  * @typedef {({ deny?: string, note?: string, why?: string, unread?: string })} Verdict
  * @typedef {object} UnaskedPorts
  * @property {(input: { sessionId: string, cwd: string, command: string }, tree: string) => Verdict} judge
+ * @property {(session: string) => import("./in-flight-runs.js").InFlightRun[] | null} inFlight
  * @typedef {import("./kit-context.js").KitContext & UnaskedPorts & { session: string }
  *   & Pick<import("./core-contract.js").CoreContext, "tree">} UnaskedContext
  */
@@ -57,6 +58,9 @@ function bareSegment(command, ports) {
 function decide(command, ctx) {
 	const bare = bareSegment(command, ctx);
 	if (!bare || !ctx.session) return null;
+	const held = inFlightOf(ctx);
+	if (held.length > 0)
+		return { deny: require("./in-flight-runs.js").rerunRefusal(held) };
 	const { root: tree } = ctx.tree();
 	/** @type {Verdict} */
 	let out;
@@ -91,6 +95,26 @@ function decide(command, ctx) {
 			out.note,
 		);
 	return { deny: `${out.deny}\n\n${unaskedRule(ctx)}` };
+}
+
+/**
+ * @param {UnaskedContext} ctx
+ * @returns {import("./in-flight-runs.js").InFlightRun[]}
+ */
+function inFlightOf(ctx) {
+	let why;
+	try {
+		const runs = ctx.inFlight(ctx.session);
+		if (runs) return require("./in-flight-runs.js").touchedRuns(runs);
+		why = "the run records would not read";
+	} catch (e) {
+		why = `the in-flight reader threw: ${caught(e).message}`;
+	}
+	ctx.log(
+		"could not read the session's in-flight test runs — a bare test run allowed without the in-flight check (#5716)",
+		why,
+	);
+	return [];
 }
 
 /** @param {UnaskedContext} ctx */

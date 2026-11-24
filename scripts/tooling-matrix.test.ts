@@ -740,6 +740,7 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"lib/always-loaded-pool",
 			"lib/isolated-worktree",
 			"queue-run",
+			"in-flight-runs",
 			"checker-new-faults",
 			"commit-paths",
 			"guard-hook-escape",

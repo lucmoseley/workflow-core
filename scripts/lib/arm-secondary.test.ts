@@ -335,6 +335,7 @@ const HOOK_CALLS: Record<string, (string | null)[]> = {
 	"scripts/lib/commit-key.js": [null, null],
 	"scripts/lib/isolated-worktree.js": ["test"],
 	"scripts/queue-run.js": ["test"],
+	"scripts/in-flight-runs.js": ["test"],
 	"scripts/lib/serialised.sh": ["shellcheck"],
 	"scripts/record-typecheck-red.js": [null],
 };

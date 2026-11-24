@@ -155,6 +155,7 @@ it("ends the live hook's early gates on one line directly above its test gate, b
 		below.join("\n").match(/\b(?:node|bash|sh) scripts\/\S+/g) ?? [],
 	);
 	expect([...runners].sort()).toEqual([
+		"node scripts/in-flight-runs.js",
 		"node scripts/lib/commit-key.js",
 		"node scripts/lib/isolated-worktree.js",
 		"node scripts/lib/test-gate.js",

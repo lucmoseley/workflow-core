@@ -27,7 +27,6 @@ import {
 import { stubGhScript } from "./lib/gh-stub";
 import {
 	defineTemplate,
-	emptyRepoTemplate,
 	initGitRepo,
 	mkDirOutsideRepo,
 	mkScratchDir,
@@ -73,8 +72,6 @@ const repoTemplate = defineTemplate((dir) => {
 	])
 		require("node:child_process").execFileSync("git", args, { cwd: dir });
 });
-
-const emptyRepo = defineTemplate(emptyRepoTemplate);
 
 function repo() {
 	const dir = mkDirOutsideRepo("runvitest-");
@@ -5193,9 +5190,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			});
 		});
 
-		describe("with a session id, in a worktree at HEAD carrying only the session's own files (#812)", () => {
+		describe("with a session id, in a worktree built from a launch snapshot of the session's tree (#5717)", () => {
 			const { endOfRunTreeIdentity } = require("./lib/tree-drift.js");
-			const { overlayFiles } = require("./lib/isolated-worktree.js");
 
 			const headText = "committed\n";
 			const sharedLinks = new Set(["node_modules"]);
@@ -5207,6 +5203,10 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					fs.writeFileSync(path.join(checkout, f), headText);
 				gitIn(checkout, ["add", ...files]);
 				gitIn(checkout, ["commit", "-q", "-m", "four files"]);
+				fs.appendFileSync(
+					path.join(checkout, ".git", "info", "exclude"),
+					"node_modules\n",
+				);
 				const dir = linked ? linkedWorktreeOf(checkout) : checkout;
 				fs.writeFileSync(path.join(dir, "mine.txt"), "mine\n");
 				fs.rmSync(path.join(dir, "gone.txt"));
@@ -5219,10 +5219,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			function linkedWorktreeOf(checkout: string) {
 				const wt = path.join(path.dirname(checkout), "session-wt");
 				gitIn(checkout, ["worktree", "add", "-q", "--detach", wt]);
-				fs.appendFileSync(
-					path.join(checkout, ".git", "info", "exclude"),
-					"node_modules\n",
-				);
 				fs.symlinkSync(
 					path.join(checkout, "node_modules"),
 					path.join(wt, "node_modules"),
@@ -5306,9 +5302,9 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				return { code, seen, out: out.text.join(""), err: err.text.join("") };
 			}
 
-			it("carries exactly the ledger-attributed files, and neither a neighbour's nor an orphan", async () => {
+			it("carries every uncommitted file but one a live neighbour holds, which it reads at HEAD's version, naming it", async () => {
 				const dir = dirtyCheckout();
-				const { code, seen, err } = await runSeeing(dir, [], {
+				const { code, seen, out, err } = await runSeeing(dir, [], {
 					pid: 5401,
 					sessionId: "mine",
 				});
@@ -5318,15 +5314,104 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					"brand-new.test.ts",
 					"gone.txt",
 					"mine.txt",
+					"orphan.txt",
 				]);
 				expect(seen.read("mine.txt")).toBe("mine\n");
 				expect(seen.read("gone.txt")).toBe(null);
 				expect(seen.read("held.txt")).toBe(headText);
-				expect(seen.read("orphan.txt")).toBe(headText);
-				expect(err).toContain("2 uncommitted tracked file(s) not attributable");
+				expect(seen.read("orphan.txt")).toBe("orphan\n");
+				expect(out).toContain(
+					"reading a launch snapshot of this tree that carries 4 uncommitted file(s)",
+				);
+				expect(err).toContain(
+					"1 uncommitted file(s) another live session holds are read at HEAD's version, not theirs: held.txt\n",
+				);
 				expect(fs.readFileSync(path.join(dir, "held.txt"), "utf8")).toBe(
 					"neighbour\n",
 				);
+			});
+
+			it("carries staged, unstaged and untracked content, and leaves an ignored file out", async () => {
+				const dir = dirtyCheckout({ linked: true });
+				fs.writeFileSync(path.join(dir, "mine.txt"), "staged\n");
+				gitIn(dir, ["add", "mine.txt"]);
+				fs.writeFileSync(path.join(dir, "orphan.txt"), "unstaged\n");
+				fs.writeFileSync(path.join(dir, "loose.txt"), "untracked\n");
+				fs.appendFileSync(
+					path.join(
+						gitIn(dir, ["rev-parse", "--git-common-dir"]).trim(),
+						"info",
+						"exclude",
+					),
+					"ignored.txt\n",
+				);
+				fs.writeFileSync(path.join(dir, "ignored.txt"), "ignored\n");
+				const seen: Record<string, string | null> = {};
+				const { code } = await runSeeing(dir, [], {
+					pid: 5421,
+					sessionId: "mine",
+					spawnFn: (_bin: string, _a: string[], opts: { cwd: string }) => {
+						for (const f of [
+							"mine.txt",
+							"orphan.txt",
+							"loose.txt",
+							"ignored.txt",
+						]) {
+							const p = path.join(opts.cwd, f);
+							seen[f] = fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null;
+						}
+						return fakeChild({ code: 0 });
+					},
+				});
+				expect(code).toBe(0);
+				expect(seen).toEqual({
+					"mine.txt": "staged\n",
+					"orphan.txt": "unstaged\n",
+					"loose.txt": "untracked\n",
+					"ignored.txt": null,
+				});
+			});
+
+			it("reads its snapshot through a write to the live tree mid-run, so the tree it attests is the one it launched on", async () => {
+				const dir = dirtyCheckout({ linked: true });
+				const seen = { before: "", after: "", content: "" };
+				const { code } = await runSeeing(dir, [], {
+					pid: 5422,
+					sessionId: "mine",
+					spawnFn: (_bin: string, _a: string[], opts: { cwd: string }) => {
+						seen.before = endOfRunTreeIdentity(opts.cwd) ?? "";
+						fs.writeFileSync(path.join(dir, "mine.txt"), "written mid-run\n");
+						fs.writeFileSync(path.join(dir, "later.test.ts"), "//\n");
+						seen.after = endOfRunTreeIdentity(opts.cwd) ?? "";
+						seen.content = fs.readFileSync(
+							path.join(opts.cwd, "mine.txt"),
+							"utf8",
+						);
+						return fakeChild({ code: 0 });
+					},
+				});
+				expect(code).toBe(0);
+				expect(seen.before).not.toBe("");
+				expect(seen.after).toBe(seen.before);
+				expect(seen.content).toBe("mine\n");
+			});
+
+			it("hands vitest an absolute named path inside the tree as its path inside the snapshot", async () => {
+				const dir = dirtyCheckout({ linked: true });
+				const argv: string[][] = [];
+				const outside = path.join(path.dirname(dir), "elsewhere.test.ts");
+				await runSeeing(dir, [path.join(dir, "brand-new.test.ts"), outside], {
+					pid: 5423,
+					sessionId: "mine",
+					spawnFn: (_bin: string, a: string[]) => {
+						argv.push(a);
+						return fakeChild({ code: 0 });
+					},
+				});
+				expect(argv).toHaveLength(1);
+				expect(argv[0]).toContain("brand-new.test.ts");
+				expect(argv[0]).toContain(outside);
+				expect(argv[0]).not.toContain(path.join(dir, "brand-new.test.ts"));
 			});
 
 			it("carries every dirty file of a linked worktree, Bash-route writes the ledger never saw included (#3786)", async () => {
@@ -5361,17 +5446,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(err).toContain("  orphan.txt\n");
 			});
 
-			it("names each dirty file it leaves out of a shared tree's overlay (#3786)", async () => {
-				const { err } = await runSeeing(dirtyCheckout(), [], {
-					pid: 5403,
-					sessionId: "mine",
-				});
-				expect(err).toContain(
-					"read at HEAD's version, not theirs: held.txt orphan.txt\n",
-				);
-			});
-
-			it("refuses a failed narrowing on the overlay route, spawning nothing and leaving no worktree (#2698)", async () => {
+			it("refuses a failed narrowing on the snapshot route, spawning nothing and leaving no worktree (#2698)", async () => {
 				const dir = dirtyCheckout();
 				const { code, seen, err } = await runSeeing(dir, ["--changed"], {
 					pid: 5402,
@@ -5425,7 +5500,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				);
 			});
 
-			it("leaves out a file the session renamed with git mv and then edited, or deleted with rm, but not a neighbour's deletion (#1791)", async () => {
+			it("carries a file the session renamed with git mv and then edited, or deleted with rm, and reads a deletion a neighbour holds at HEAD (#1791)", async () => {
 				const dir = dirtyCheckout();
 				const added = ["old.test.ts", "rm-gone.txt", "theirs-gone.txt"];
 				for (const f of added) fs.writeFileSync(path.join(dir, f), headText);
@@ -5440,12 +5515,19 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					root: dir,
 					pid: 5409,
 					sessionId: "mine",
-					ledger: {
-						...ledgerOf(["new.test.ts"]),
-						readSelectsBy: () => [
-							{ path: "rm-gone.txt", at: Date.now() + 1000 },
+					ledger: ledgerOf(
+						["new.test.ts"],
+						[
+							{
+								sessionId: "neighbour",
+								path: "theirs-gone.txt",
+								tree: dir,
+								pid: process.pid,
+								procStart: arbiterProc.readProcStartOf(process.pid),
+								bootId: arbiterProc.readCurrentBootId(),
+							},
 						],
-					},
+					),
 					execFn,
 					loadEdges: () => ({}),
 					renderEdges: () => ({}),
@@ -5467,7 +5549,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				});
 			});
 
-			it("records HEAD plus the session's own files, a new one included, as the tree it read", async () => {
+			it("records its launch snapshot, a new file included and a neighbour's held file left at HEAD, as the tree it read", async () => {
 				const dir = dirtyCheckout();
 				const { seen } = await runSeeing(dir, [], {
 					pid: 5402,
@@ -5483,7 +5565,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				])
 					.split("\n")
 					.filter(Boolean);
-				expect(differs).toEqual(["brand-new.test.ts", "gone.txt", "mine.txt"]);
+				expect(differs).toEqual([
+					"brand-new.test.ts",
+					"gone.txt",
+					"mine.txt",
+					"orphan.txt",
+				]);
 				expect(gitIn(dir, ["cat-file", "-p", `${seen.tree}:mine.txt`])).toBe(
 					"mine\n",
 				);
@@ -5530,6 +5617,45 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				}
 			});
 
+			it("tears its worktree down when the wrapper is SIGTERMed mid-run", async () => {
+				const wt = dirtyCheckout({ linked: true });
+				const ready = path.join(path.dirname(wt), "spawned");
+				const wrapper = require("node:child_process").spawn(
+					process.execPath,
+					[
+						"-e",
+						`require(${JSON.stringify(path.resolve("scripts/run-vitest.js"))}).main(
+							["brand-new.test.ts"],
+							{
+								root: ${JSON.stringify(wt)},
+								pid: 5424,
+								sessionId: "mine",
+								ledger: { readWritesBy: () => [], readLocks: () => [], subjectPath: (p) => p },
+								loadEdges: () => ({}),
+								renderEdges: () => ({}),
+								stall: 0,
+								out: { write: () => true },
+								err: { write: () => true },
+								spawnFn: (_bin, _a, opts) => {
+									require("node:fs").writeFileSync(${JSON.stringify(ready)}, "");
+									return require("node:child_process").spawn("sleep", ["30"], { ...opts, stdio: ["ignore", "pipe", "pipe"] });
+								},
+							},
+						);`,
+					],
+					{ stdio: "ignore" },
+				);
+				const by = Date.now() + 10_000;
+				while (!fs.existsSync(ready) && Date.now() < by)
+					await new Promise((r) => setTimeout(r, 50));
+				expect(fs.existsSync(worktreeOf(wt, 5424))).toBe(true);
+				await new Promise<void>((resolve) => {
+					wrapper.on("close", () => resolve());
+					wrapper.kill("SIGTERM");
+				});
+				expect(fs.existsSync(worktreeOf(wt, 5424))).toBe(false);
+			});
+
 			it("falls back to the shared tree, saying so, where the worktree cannot be built", async () => {
 				const dir = dirtyCheckout();
 				const { seen, err } = await runSeeing(dir, [], {
@@ -5547,38 +5673,26 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(fs.existsSync(worktreeOf(dir, 5409))).toBe(false);
 			});
 
-			it("names the frozen worktree as its fallback under a typed --isolated, and takes it", async () => {
-				const dir = dirtyCheckout();
-				const { code, seen, err } = await runSeeing(dir, ["--isolated"], {
-					pid: 5418,
-					sessionId: "mine",
-					worktreeFs: {
-						...fs,
-						symlinkSync: () => {
-							throw new Error("EPERM");
-						},
+			it("falls back to the shared tree, saying so, where the snapshot cannot be written", async () => {
+				const dir = dirtyCheckout({ linked: true });
+				const blob = gitIn(dir, ["rev-parse", "HEAD:mine.txt"]).trim();
+				require("node:child_process").execFileSync(
+					"git",
+					["update-index", "--index-info"],
+					{
+						cwd: dir,
+						input: `0 ${"0".repeat(40)}\tmine.txt\n100644 ${blob} 1\tmine.txt\n100644 ${blob} 2\tmine.txt\n`,
 					},
-				});
-				expect(err).toContain("touched tests: could not link ");
-				expect(err).toContain("running in a frozen worktree instead");
-				expect(code).toBe(1);
-				expect(seen.cwd).toBe("");
-			});
-
-			it("falls back to the shared tree, tearing the worktree down, where a file will not copy in", async () => {
-				const dir = dirtyCheckout();
+				);
 				const { seen, err } = await runSeeing(dir, [], {
 					pid: 5410,
 					sessionId: "mine",
-					worktreeFs: {
-						...fs,
-						copyFileSync: () => {
-							throw new Error("ENOSPC");
-						},
-					},
 				});
 				expect(seen.cwd).toBe(dir);
-				expect(err).toContain("could not copy");
+				expect(err).toContain(
+					"touched tests: could not write the launch snapshot",
+				);
+				expect(err).toContain("reading the working tree instead");
 				expect(fs.existsSync(worktreeOf(dir, 5410))).toBe(false);
 			});
 
@@ -5594,6 +5708,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				gitIn(dir, ["add", "-f", config]);
 				gitIn(dir, ["commit", "-qm", "links", "--", config]);
 				fs.writeFileSync(path.join(dir, ".env"), "canonical\n");
+				fs.appendFileSync(path.join(dir, ".git", "info", "exclude"), ".env\n");
 				const seen = { deps: true, declared: false, walk: "" };
 				const { code } = await runSeeing(dir, [], {
 					pid: 5412,
@@ -5626,26 +5741,14 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(seen.walk).toBe("");
 			});
 
-			it("copies a symlink in as a link, never its target", () => {
-				const root = mkScratchDir("runvitest-overlay-");
-				const dir = mkScratchDir("runvitest-overlay-wt-");
-				dirs.push(root, dir);
-				emptyRepo.instantiate(dir);
-				fs.symlinkSync("elsewhere.txt", path.join(root, "link.txt"));
-				expect(overlayFiles(root, dir, ["link.txt"])).toBe(null);
-				const copied = path.join(dir, "link.txt");
-				expect(fs.lstatSync(copied).isSymbolicLink()).toBe(true);
-				expect(fs.readlinkSync(copied)).toBe("elsewhere.txt");
-			});
-
-			describe("`npm run test:changed`, in the same overlay (#1217)", () => {
+			describe("`npm run test:changed`, in the same snapshot (#1217)", () => {
 				const readers = () => ({
 					"mine.txt": ["mine.test.ts"],
 					"held.txt": ["held.test.ts"],
 					"orphan.txt": ["orphan.test.ts"],
 				});
 
-				it("selects and reads only the session's own files, and stays admissible", async () => {
+				it("selects and reads every uncommitted file but a neighbour's held one, and stays admissible", async () => {
 					const dir = dirtyCheckout();
 					const { code, seen } = await runSeeing(dir, ["--changed"], {
 						pid: 5413,
@@ -5655,18 +5758,19 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					expect(code).toBe(0);
 					expect(seen.cwd).toBe(worktreeOf(dir, 5413));
 					expect(seen.read("held.txt")).toBe(headText);
-					expect(seen.read("orphan.txt")).toBe(headText);
+					expect(seen.read("orphan.txt")).toBe("orphan\n");
 					expect(readLaunch(seen.env).changedPaths.sort()).toEqual([
 						"brand-new.test.ts",
 						"gone.txt",
 						"mine.txt",
+						"orphan.txt",
 					]);
 					expect(readLaunch(seen.env).admissible).toBe(true);
 					expect(readLaunch(seen.env).viaChanged).toBe(true);
 					expect(fs.existsSync(worktreeOf(dir, 5413))).toBe(false);
 				});
 
-				it("re-queues whole a queued run whose overlay plan takes the whole slot (#2931)", async () => {
+				it("re-queues whole a queued run whose snapshot plan takes the whole slot (#2931)", async () => {
 					const dir = wholeRepo(dirtyCheckout());
 					const joined = vi.fn();
 					const gateRead = vi
@@ -5810,7 +5914,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					expect(got.admissible).toBe(true);
 				});
 
-				it("hands vitest the own readers, and no neighbour's", async () => {
+				it("hands vitest the snapshot's readers, and none of a neighbour's held file", async () => {
 					const dir = dirtyCheckout();
 					const argv: string[][] = [];
 					await runSeeing(dir, ["--changed"], {
@@ -5825,7 +5929,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					expect(argv).toHaveLength(1);
 					expect(argv[0]).toContain("mine.test.ts");
 					expect(argv[0]).not.toContain("held.test.ts");
-					expect(argv[0]).not.toContain("orphan.test.ts");
+					expect(argv[0]).toContain("orphan.test.ts");
 				});
 
 				it("keeps a typed --isolated's refusal of a bare --changed", async () => {
@@ -5858,34 +5962,10 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				});
 			});
 
-			describe("a file an inline python/node program quoted, as the session's own (#1220)", () => {
+			describe("a file an inline python/node program quoted (#1220)", () => {
 				const quoting = (dir: string, at: number) => ({
 					...ledger(dir),
 					readSelectsBy: () => [{ path: "orphan.txt", at }],
-				});
-
-				it("carries a path quoted since its last commit into the overlay, naming it", async () => {
-					const dir = dirtyCheckout();
-					const { seen, out } = await runSeeing(dir, ["--changed"], {
-						pid: 5418,
-						sessionId: "mine",
-						ledger: quoting(dir, Date.now() + 60_000),
-					});
-					expect(seen.read("orphan.txt")).toBe("orphan\n");
-					expect(out).toContain(
-						"1 of them only because an inline python/node program quoted them (#1220): orphan.txt",
-					);
-				});
-
-				it("reads a path quoted before its last commit at HEAD's version", async () => {
-					const dir = dirtyCheckout();
-					const { seen, out } = await runSeeing(dir, [], {
-						pid: 5419,
-						sessionId: "mine",
-						ledger: quoting(dir, 1),
-					});
-					expect(seen.read("orphan.txt")).toBe(headText);
-					expect(out).not.toContain("(#1220)");
 				});
 
 				it("never lets a quote make --isolated refuse", async () => {
@@ -6043,7 +6123,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		describe("a bare `--changed` that selects nothing names the run testing unpushed own commits (#2182)", () => {
 			const note = "UNPUSHED WORK NOT SELECTED";
 
-			it("in the overlay, counting the launcher's and the unledgered commit", async () => {
+			it("in the snapshot, counting the launcher's and the unledgered commit", async () => {
 				const dir = declaringCommands(repoWithDeps(), { test: "npm run test" });
 				const r = ownRange(dir);
 				const run = await runSeeing(dir, ["--changed"], {
@@ -6086,7 +6166,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			});
 		});
 
-		describe("the queue's probes, on the run's own set (#1221)", () => {
+		describe("the queue's probes, on the set the run reads (#1221)", () => {
 			function untestedOwnRange(dir: string) {
 				const commit = (f: string) => {
 					fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
@@ -6129,67 +6209,16 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				);
 			};
 
-			async function queuedLaunch(
-				dir: string,
-				argv: string[],
-				extra: Record<string, unknown>,
-			) {
-				const queueLog = path.join(qdir(), "exits.jsonl");
-				const joined = vi.fn();
-				const gate = vi.fn(() => true);
-				const run = await runSeeing(dir, ["--queue", ...argv], {
-					sessionId: "me",
-					ledger: ledgerOf([]),
-					queueDir: qdir(),
-					queueFs: { ...fs, writeFileSync: joined },
-					gate,
-					queueLog,
-					...extra,
-				});
-				expect(joined).not.toHaveBeenCalled();
-				expect(gate).not.toHaveBeenCalled();
-				expect(run.args).toContain(EMPTY_SELECTION_FILTER);
-				return { ...run, exits: readJsonl(queueLog) };
-			}
-
-			it("lets a test:changed with only a neighbour's files dirty skip the queue", async () => {
-				const dir = repoWithDeps();
-				const r = untestedOwnRange(dir);
-				fs.writeFileSync(path.join(dir, "theirs.js"), "half-written\n");
-				expect(await probe(dir, ["--changed"], { shared: true })).toBeNull();
-
-				const run = await queuedLaunch(dir, ["--changed"], {
-					commitLedger: commitLedgerOf({ me: [r.mine], them: [r.theirs] }),
-				});
-				expect(run.out).toContain(
-					"--queue: this session's own uncommitted work reaches no test file",
-				);
-				expect(run.out).toContain("UNPUSHED WORK NOT SELECTED");
-				expect(run.exits).toMatchObject([
-					{ reason: "left", kind: "changed", empty: true, skipped: true },
-				]);
-			});
-
-			it("says so where the own set will not read, and probes the shared tree's diff instead", async () => {
+			it("probes a bare --changed on the tree's diff, the set its snapshot reads, not the session's own set", async () => {
 				const dir = repoWithDeps();
 				untestedOwnRange(dir);
-				const err = sink();
-				expect(
-					await probe(dir, ["--changed"], {
-						err,
-						execFn: (file: string, args: string[], opts: { cwd: string }) => {
-							if (args[0] === "status") throw new Error("git status failed");
-							return execFn(file, args, opts);
-						},
-					}),
-				).toMatch(/^the diff against /);
-				expect(err.text.join("")).toContain(
-					"this session's own work could not be read",
-				);
+				fs.writeFileSync(path.join(dir, "theirs.js"), "half-written\n");
+				expect(await probe(dir, ["--changed"], { shared: true })).toBeNull();
+				expect(await probe(dir, ["--changed"])).toBeNull();
 			});
 		});
 
-		it.each([["a bare --changed's overlay", ["--changed"], 0]])(
+		it.each([["a bare --changed's snapshot", ["--changed"], 0]])(
 			"records the merge-base on %s, and no base on the HEAD fallback (#3660, #3678)",
 			async (_route, argv, failedAdds) => {
 				const based = async (pushed: boolean) => {
@@ -6560,23 +6589,23 @@ describe("`--retest`, the re-run of named tests (#1860)", () => {
 		expect(plan(["--retest", "a.test.ts"], renderFails).admissible).toBe(false);
 	});
 
-	it("is never a full run, and takes the session's overlay", () => {
+	it("is never a full run, and takes the session's launch snapshot", () => {
 		expect(isFullRunArgv(["--retest", "a.test.ts"])).toBe(false);
 		const route = launchRoute(["--retest", "a.test.ts"], "s");
-		expect(route).toMatchObject({ tree: "overlay", source: "retest" });
+		expect(route).toMatchObject({ tree: "snapshot", source: "retest" });
 	});
 });
 
-describe("the read-edge manifest an overlay run brings up to date first (#1860)", () => {
+describe("the read-edge manifest a snapshot run brings up to date first (#1860)", () => {
 	const { freshenManifest } = require("./lib/manifest-freshen.js");
 	const { EDGES_FILE } = require("./lib/test-pass-marker.js");
 
-	function trees(overlay: string | null, shared: string | null) {
-		const root = mkScratchDir("freshen-overlay-");
+	function trees(snapshot: string | null, shared: string | null) {
+		const root = mkScratchDir("freshen-snapshot-");
 		const home = mkScratchDir("freshen-home-");
 		dirs.push(root, home);
 		for (const [dir, text] of [
-			[root, overlay],
+			[root, snapshot],
 			[home, shared],
 		] as const) {
 			fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
@@ -6634,7 +6663,7 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 		fs.rmSync(tree, { recursive: true, force: true });
 	});
 
-	it("writes both copies under the session's claim where the shared copy holds what the overlay was given", () => {
+	it("writes both copies under the session's claim where the shared copy holds what the snapshot was given", () => {
 		const at = trees("stale", "stale");
 		const got = freshen(at);
 		expect(read(at.root)).toContain('"docs/a.md"');
@@ -6664,7 +6693,7 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 		const sb = freshSandbox();
 
 		it("writes the shared copy and passes on the warning where a live neighbour holds it too", () => {
-			const root = mkScratchDir("freshen-overlay-");
+			const root = mkScratchDir("freshen-snapshot-");
 			dirs.push(root);
 			for (const dir of [root, sb.repo]) {
 				fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
@@ -6693,7 +6722,7 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 		});
 	});
 
-	it("writes nothing and takes no claim where the overlay's copy is already current", () => {
+	it("writes nothing and takes no claim where the snapshot's copy is already current", () => {
 		const at = trees("stale", "stale");
 		freshen(at);
 		const again = freshen(at);

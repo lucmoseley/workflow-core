@@ -51,7 +51,10 @@ describe("a background job ending on `waiting:`", () => {
 			`timeout 540 node ${coreFile("scripts/watch-artefact.js")}`,
 		);
 		expect(reason).toContain(
-			"run each wait with `run_in_background` (its exit re-invokes\nyou) and keep working",
+			"run each wait with `run_in_background` (its exit wakes you) and\nkeep working",
+		);
+		expect(reason).toContain(
+			`a moved test run: \`node ${coreFile("scripts/in-flight-runs.js")} wait\``,
 		);
 		expect(reason).toContain(
 			`${coreFile("scripts/bg-run.sh")} wait <name> 540`,

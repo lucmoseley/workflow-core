@@ -225,6 +225,7 @@ describe("the core-owned rules file", () => {
 				"scripts/capture-drain.js",
 				"scripts/record-delegated-decision.js",
 				"scripts/landing-status.js",
+				"scripts/in-flight-runs.js",
 			]),
 		);
 		for (const rel of named)

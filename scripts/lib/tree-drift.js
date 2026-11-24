@@ -202,7 +202,7 @@ function endOfRunTreeIdentity(root) {
 		if (dirtyPaths(porcelain).length === 0)
 			return git(root, ["rev-parse", "HEAD^{tree}"]).trim();
 		if (git(root, ["ls-files", "--unmerged"]).trim()) return null;
-		return privateIndexTree(root);
+		return privateIndexTree(root, (env) => git(root, ["add", "-u"], env));
 	} catch {
 		return null;
 	}
@@ -210,9 +210,25 @@ function endOfRunTreeIdentity(root) {
 
 /**
  * @param {string} root
+ * @param {{ atHead?: string[] }} [opts]
  * @returns {string}
  */
-function privateIndexTree(root) {
+function launchSnapshotTree(root, { atHead = [] } = {}) {
+	if (git(root, ["ls-files", "--unmerged"]).trim())
+		throw new Error("the index holds unmerged paths");
+	return privateIndexTree(root, (env) => {
+		git(root, ["add", "-A"], env);
+		if (atHead.length > 0)
+			git(root, ["reset", "-q", "HEAD", "--", ...atHead], env);
+	});
+}
+
+/**
+ * @param {string} root
+ * @param {(env: { GIT_INDEX_FILE: string }) => void} stage
+ * @returns {string}
+ */
+function privateIndexTree(root, stage) {
 	const index = path.resolve(
 		root,
 		git(root, ["rev-parse", "--git-path", "index"]).trim(),
@@ -225,7 +241,7 @@ function privateIndexTree(root) {
 		const { atime, mtime } = nodeFs.statSync(index);
 		nodeFs.utimesSync(copy, atime, mtime);
 		const copyIndex = { GIT_INDEX_FILE: copy };
-		git(root, ["add", "-u"], copyIndex);
+		stage(copyIndex);
 		return git(root, ["write-tree"], copyIndex).trim();
 	} finally {
 		nodeFs.rmSync(dir, { recursive: true, force: true });
@@ -305,4 +321,5 @@ module.exports = {
 	format,
 	neighbourDirty,
 	endOfRunTreeIdentity,
+	launchSnapshotTree,
 };

@@ -7,8 +7,6 @@ const {
 	CHANGED_FLAG,
 	adoptFlag,
 	changedFlag,
-	isChangedOnlyArgv,
-	isRetestOnlyArgv,
 	retestFlag,
 } = require("./changed-selection.js");
 
@@ -66,7 +64,7 @@ function isFullRunArgv(argv) {
 	return true;
 }
 
-/** @typedef {"overlay"|"worktree"|"shared"} Tree */
+/** @typedef {"snapshot"|"worktree"|"shared"} Tree */
 
 /**
  * @typedef {object} LaunchRoute
@@ -92,23 +90,18 @@ function launchRoute(argv, sessionId) {
 	const changed = changedFlag(rest);
 	const session = sessionId || null;
 	const kind = routeKind(full, fullShaped, changed);
-	const overlaid =
-		!shared &&
-		session !== null &&
-		(kind === "touched" ||
-			(!isolated &&
-				((kind === "changed" && isChangedOnlyArgv(rest) && !changed?.ref) ||
-					isRetestOnlyArgv(rest))));
+	const own = !shared && session !== null && kind === "touched";
 	/** @type {Tree} */
 	const frozen = shared ? "shared" : "worktree";
 	/** @type {Tree} */
 	const settled = full || isolated ? frozen : "shared";
+	const snapshot = !shared && !isolated && !full && session !== null;
 	return {
 		rest,
 		kind,
-		tree: overlaid ? "overlay" : settled,
+		tree: snapshot ? "snapshot" : settled,
 		fallback: settled,
-		source: routeSource({ overlaid, fullShaped, full, changed, rest }),
+		source: routeSource({ own, fullShaped, full, changed, rest }),
 		sessionId: session,
 	};
 }
@@ -134,12 +127,12 @@ function routeKind(full, fullShaped, changed) {
 }
 
 /**
- * @param {{ overlaid: boolean, fullShaped: boolean, full: boolean, changed: ReturnType<typeof changedFlag>, rest: string[] }} route
+ * @param {{ own: boolean, fullShaped: boolean, full: boolean, changed: ReturnType<typeof changedFlag>, rest: string[] }} route
  * @returns {LaunchRoute["source"]}
  */
-function routeSource({ overlaid, fullShaped, full, changed, rest }) {
+function routeSource({ own, fullShaped, full, changed, rest }) {
 	if (retestFlag(rest)) return "retest";
-	if (overlaid) return "own";
+	if (own) return "own";
 	if (fullShaped) return full ? "full" : "diff";
 	if (changed) return "changed";
 	return adoptFlag(rest) ? "adopt" : "named";

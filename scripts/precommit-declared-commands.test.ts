@@ -2,6 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { BIOME_STAGED_COMMAND } from "./lib/biome-allowlist.js";
@@ -75,6 +76,7 @@ function run(
 	root: string,
 	gate: string,
 	searchPath = `${path.join(root, "bin")}:${process.env.PATH}`,
+	extra: NodeJS.ProcessEnv = {},
 ) {
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
@@ -82,6 +84,8 @@ function run(
 		RAN_DIR: root,
 	};
 	delete env.CLAUDE_PROJECT_DIR;
+	delete env.CLAUDE_CODE_SESSION_ID;
+	Object.assign(env, extra);
 	const r = spawnSync("sh", ["-ec", `{\n${LIB}\n${gate}\n:\n} 2>&1`], {
 		cwd: root,
 		env,
@@ -254,6 +258,97 @@ it("refuses the commit where the declared test command is red, printing its outp
 	expect(code).toBe(1);
 	expect(out).toContain("not ok 1 - contract");
 	expect(out).toContain("the declared test command is RED");
+});
+
+describe("the test gate beside the committing session's own in-flight touched run (#5716)", () => {
+	const Own = "sess-in-flight";
+	const scratch = () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "in-flight-tmp-"));
+		temps.push(dir);
+		return dir;
+	};
+	const queued = (session: string, args: string[]) => {
+		const tmp = scratch();
+		const queueDir = path.join(tmp, "wfc-suite-queue");
+		fs.mkdirSync(queueDir);
+		fs.writeFileSync(
+			path.join(queueDir, `run-${process.pid}.json`),
+			JSON.stringify({
+				pid: process.pid,
+				at: Date.parse("2026-11-24T10:00:00.000Z"),
+				session,
+				args,
+			}),
+		);
+		return tmp;
+	};
+	const Touched: string[] = [];
+	const gateRun = (extra: NodeJS.ProcessEnv) => {
+		const root = fixture({ commands: { test: declared.test } });
+		return run(root, GATES.test, undefined, extra);
+	};
+
+	it("refuses the commit, naming the run and saying to commit again once it ends, and runs nothing", () => {
+		const { code, out, ran } = gateRun({
+			CLAUDE_CODE_SESSION_ID: Own,
+			TMPDIR: queued(Own, Touched),
+		});
+		expect(code).toBe(1);
+		expect(ran("test")).toBe(false);
+		expect(out).toContain(
+			`pre-commit: this session's own touched test run is still in flight — PID ${process.pid}, started 2026-11-24T10:00:00.000Z, \`npm run test\` — so this commit is refused before '${declared.test}' runs beside it (#5716).\n  Commit again once that run ends: its notification brings its verdict.\n`,
+		);
+	});
+
+	it.each([
+		[
+			"another session's run",
+			{ CLAUDE_CODE_SESSION_ID: Own },
+			"sess-other",
+			Touched,
+		],
+		["no session id", {}, Own, Touched],
+		[
+			"a named run of its own",
+			{ CLAUDE_CODE_SESSION_ID: Own },
+			Own,
+			[...Touched, "a.test.ts"],
+		],
+	])("runs as today beside %s", (_name, env, session, argv) => {
+		const { code, out, ran } = gateRun({
+			...env,
+			TMPDIR: queued(session, argv),
+		});
+		expect(out).not.toContain("in flight");
+		expect(code).toBe(0);
+		expect(ran("test")).toBe(true);
+	});
+
+	it("runs as today where the queue will not read", () => {
+		const tmp = scratch();
+		fs.writeFileSync(path.join(tmp, "wfc-suite-queue"), "not a directory");
+		const { code, out, ran } = gateRun({
+			CLAUDE_CODE_SESSION_ID: Own,
+			TMPDIR: tmp,
+		});
+		expect(out).not.toContain("in flight");
+		expect(code).toBe(0);
+		expect(ran("test")).toBe(true);
+	});
+
+	it.each(["batch", "tested"])(
+		"leaves the lander's %s path untouched",
+		(gates) => {
+			const { code, out, ran } = gateRun({
+				CLAUDE_CODE_SESSION_ID: Own,
+				TMPDIR: queued(Own, Touched),
+				wfc_gates: gates,
+			});
+			expect(out).not.toContain("in flight");
+			expect(code).toBe(0);
+			expect(ran("test")).toBe(false);
+		},
+	);
 });
 
 const PROVEN =

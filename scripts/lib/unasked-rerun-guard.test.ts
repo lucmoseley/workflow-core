@@ -21,6 +21,12 @@ interface JudgeInput {
 	command: string;
 }
 type Decision = { deny: string } | null;
+interface InFlightRun {
+	pid: number;
+	startedAt: number;
+	command: string;
+	lane: "touched" | "named" | "changed" | "full" | "shared";
+}
 
 const docPath = (name: string) => `/core/docs/${name}`;
 const UNASKED_RULE_FALLBACK =
@@ -42,6 +48,7 @@ const RULE = readCheckoutRuleText("unasked-rerun");
 let calls: JudgeInput[];
 let trees: string[];
 let logged: [string, string | undefined][];
+let asked: string[];
 
 function run(
 	command: string,
@@ -50,7 +57,9 @@ function run(
 		sessionId = SID,
 		ruleText = readCheckoutRuleText,
 		vars = {},
+		inFlight = [],
 	}: {
+		inFlight?: InFlightRun[] | null | Error;
 		answer?: Verdict | Error;
 		sessionId?: string;
 		ruleText?: (id: string) => string;
@@ -69,6 +78,11 @@ function run(
 			ruleText,
 			docPath,
 			tree: () => ({ root: "/repo" }),
+			inFlight: (session: string) => {
+				asked.push(session);
+				if (inFlight instanceof Error) throw inFlight;
+				return inFlight;
+			},
 			judge: (input: JudgeInput, tree: string) => {
 				calls.push(input);
 				trees.push(tree);
@@ -85,6 +99,7 @@ beforeEach(() => {
 	calls = [];
 	trees = [];
 	logged = [];
+	asked = [];
 });
 
 describe("a bare test run is judged", () => {
@@ -166,6 +181,76 @@ describe("never judged", () => {
 		expect(run("npm run test", { sessionId: "" })).toBeNull();
 		expect(calls).toEqual([]);
 		expect(logged).toEqual([]);
+	});
+});
+
+describe("while the session's own touched run is still in flight (#5716)", () => {
+	const At = Date.parse("2026-11-24T10:00:00.000Z");
+	const touched = (pid: number, at = At): InFlightRun => ({
+		pid,
+		startedAt: at,
+		command: "npm run test -- --queue",
+		lane: "touched",
+	});
+
+	it("refuses a bare run before judging certificates, naming the run and saying to wait for its notification", () => {
+		expect(run("npm run test", { inFlight: [touched(4242)] })).toEqual({
+			deny: "Not run: this session's own touched test run is still in flight — PID 4242, started 2026-11-24T10:00:00.000Z, `npm run test -- --queue`. A second bare `npm run test` reads the same files and repeats it. Wait for that run's notification, which brings its verdict, and act on that (#5716).",
+		});
+		expect(asked).toEqual([SID]);
+		expect(calls).toEqual([]);
+	});
+
+	it("names every touched run the session holds", () => {
+		const out = run("npm run test", {
+			inFlight: [touched(11), touched(12, At + 60_000)],
+		});
+		expect(out?.deny).toContain(
+			"touched test runs are still in flight — PID 11, started 2026-11-24T10:00:00.000Z, `npm run test -- --queue`; PID 12, started 2026-11-24T10:01:00.000Z",
+		);
+		expect(out?.deny).toContain("Wait for each run's notification");
+	});
+
+	it.each([
+		["a named", "named"],
+		["a --full", "full"],
+		["a --shared", "shared"],
+		["a changed-selection", "changed"],
+	] as const)("judges as before beside %s run in flight", (_name, lane) => {
+		expect(
+			run("npm run test", { inFlight: [{ ...touched(7), lane }] }),
+		).toEqual(REFUSED);
+		expect(calls).toHaveLength(1);
+	});
+
+	it("judges as before where the reader finds no live run, a dead pid or another session's place among them", () => {
+		expect(run("npm run test", { inFlight: [] })).toEqual(REFUSED);
+		expect(calls).toHaveLength(1);
+		expect(logged).toEqual([]);
+	});
+
+	it.each([
+		[null, "the run records would not read"],
+		[new Error("EACCES"), "the in-flight reader threw: EACCES"],
+	])(
+		"allows past the in-flight check and logs where the queue cannot be read (%s)",
+		(inFlight, why) => {
+			expect(run("npm run test", { inFlight, answer: {} })).toBeNull();
+			expect(calls).toHaveLength(1);
+			expect(logged).toEqual([
+				[
+					"could not read the session's in-flight test runs — a bare test run allowed without the in-flight check (#5716)",
+					why,
+				],
+			]);
+		},
+	);
+
+	it("never reads the queue for a run that is not bare", () => {
+		expect(
+			run("npm run test -- a.test.ts", { inFlight: [touched(4242)] }),
+		).toBeNull();
+		expect(asked).toEqual([]);
 	});
 });
 
