@@ -175,7 +175,8 @@ const hasStartedStep = (job) =>
  * @param {number} after
  * @returns {SuiteRunVerdict}
  */
-function runVerdict(sha, { reads, fallsBack, suiteStep }, after) {
+function runVerdict(sha, on, after) {
+	const { reads, fallsBack, suiteStep } = on;
 	const run = newestRun(sha, reads.runs());
 	if (run === undefined) return { kind: "pending", run: null };
 	if (run.attempt <= after || !run.conclusion)
@@ -224,7 +225,69 @@ function runVerdict(sha, { reads, fallsBack, suiteStep }, after) {
 			attempt: run.attempt,
 			reason: `run ${id}'s ${fault}, which judges no code`,
 		};
-	return { ...readRed(sha, id, failed, reads), timed: timing(jobs, suiteStep) };
+	return judgeRed(sha, { id, jobs, failed }, on);
+}
+
+/**
+ * @typedef {{id: number, jobs: Job[], failed: Job[]}} Ran
+ */
+
+/**
+ * @param {string} sha
+ * @param {Ran} ran
+ * @param {Pick<On, "reads" | "fallsBack" | "suiteStep">} on
+ * @returns {SuiteRunVerdict}
+ */
+function judgeRed(sha, ran, { reads, fallsBack, suiteStep }) {
+	const raw = reads.failedLogOf(ran.id);
+	const red = readRed(sha, ran, raw, reads);
+	if (fallsBack && !red.typecheck) {
+		const shard = unjudgedShard(ran.failed, raw);
+		if (shard !== null || red.files.length === 0)
+			return { kind: "local", reason: unjudgedReason(ran.id, raw, shard) };
+	}
+	return { ...red, timed: timing(ran.jobs, suiteStep) };
+}
+
+/**
+ * @param {string} raw
+ * @param {string} job
+ */
+function jobLog(raw, job) {
+	const shard = job.match(SHARD_JOB)?.[0];
+	return raw
+		.split("\n")
+		.filter((l) => {
+			const name = l.split("\t")[0] ?? "";
+			return shard ? name.match(SHARD_JOB)?.[0] === shard : name === job;
+		})
+		.join("\n");
+}
+
+/**
+ * @param {readonly Job[]} failed
+ * @param {string} raw
+ * @returns {string|null}
+ */
+const unjudgedShard = (failed, raw) =>
+	failed.find(
+		(j) =>
+			SHARD_JOB.test(j.name) &&
+			parseFailingFiles(stripLogPrefix(jobLog(raw, j.name))).length === 0,
+	)?.name ?? null;
+
+/**
+ * @param {number} id
+ * @param {string} raw
+ * @param {string|null} [job]
+ */
+function unjudgedReason(id, raw, job = null) {
+	const said = stripLogPrefix(job === null ? raw : jobLog(raw, job))
+		.split("\n")
+		.map((l) => l.trim())
+		.filter((l) => l !== "" && !l.startsWith("##["))
+		.at(-1);
+	return `run ${id}${job === null ? "" : `'s ${job} job`} failed naming no failing test file in the tree${said ? `, its last line: ${said}` : ""}`;
 }
 
 /**
@@ -253,17 +316,16 @@ function stepSeconds(job, name) {
 
 /**
  * @param {string} sha
- * @param {number} id
- * @param {Job[]} failed
- * @param {Pick<Reads, "failedLogOf" | "presentAt">} reads
+ * @param {Pick<Ran, "id" | "failed">} ran
+ * @param {string} raw
+ * @param {Pick<Reads, "presentAt">} reads
  * @returns {Extract<SuiteRunVerdict, {kind: "red"}>}
  */
-function readRed(sha, id, failed, reads) {
+function readRed(sha, { id, failed }, raw, reads) {
 	const names = failed.map((j) => j.name);
 	const shards = failed.filter((j) => j.name !== SUITE_PASSED_JOB);
 	const atRetry =
 		shards.length > 0 && shards.every((j) => hasFailedStep(j, RETRY_STEP));
-	const raw = reads.failedLogOf(id);
 	const typed = failed
 		.filter((j) => hasFailedStep(j, TYPECHECK_STEP))
 		.map((j) => j.name);
@@ -613,13 +675,11 @@ function namedRunVerdict(sha, title, reads) {
 	}
 	if (run.conclusion !== "failure")
 		return { kind: "unknown", reason: `run ${id} ended ${run.conclusion}` };
-	const failed = readFailed(sha, stripLogPrefix(reads.failedLogOf(id)), reads);
+	const raw = reads.failedLogOf(id);
+	const failed = readFailed(sha, stripLogPrefix(raw), reads);
 	return failed.files.length > 0
 		? { kind: "red", ...failed, run: id }
-		: {
-				kind: "unknown",
-				reason: `run ${id} failed naming no failing file in the tree`,
-			};
+		: { kind: "unknown", reason: unjudgedReason(id, raw), offActions: true };
 }
 
 /**

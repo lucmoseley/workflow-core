@@ -19,11 +19,26 @@ const renderJobEnv = () => `    env:
       CLAUDE_PROJECT_DIR: \${{ github.workspace }}
 `;
 
+const REPO_SETUP_STEP = "Repo setup";
+
 /**
- * @param {{ref?: string}} [tree]
+ * @param {readonly string[]} [setup]
  * @returns {string}
  */
-function renderSetupSteps({ ref } = {}) {
+const renderRepoSetup = (setup) =>
+	setup?.length
+		? `
+      # From the "ciSetup" key: what the repo's commands need past its lockfile.
+      - name: ${REPO_SETUP_STEP}
+        run: |
+${setup.map((c) => `          ${c}\n`).join("")}`
+		: "";
+
+/**
+ * @param {{ref?: string, setup?: readonly string[]}} [tree]
+ * @returns {string}
+ */
+function renderSetupSteps({ ref, setup } = {}) {
 	return `    steps:
       # Full history: the doc-map checks read git log.
       - name: ${CHECKOUT_STEP}
@@ -85,17 +100,18 @@ ${ref ? `          ref: ${ref}\n` : ""}          fetch-depth: 0
         run: |
           if [ -f package-lock.json ]; then npm ci; fi
           if [ -f requirements-dev.txt ]; then python3 -m pip install --require-hashes --only-binary ":all:" -r requirements-dev.txt; fi
-`;
+${renderRepoSetup(setup)}`;
 }
 
 /**
  * @param {import("./workflow-core-config.js").Ci} ci
+ * @param {readonly string[]} [setup]
  * @returns {string}
  */
-function renderCiWorkflow({
-	runner,
-	timeoutMinutes = DEFAULT_TIMEOUT_MINUTES,
-}) {
+function renderCiWorkflow(
+	{ runner, timeoutMinutes = DEFAULT_TIMEOUT_MINUTES },
+	setup,
+) {
 	return `${CI_MARKER} Written by workflow-core's upgrade from the \`ci\` key in
 # .claude/workflow-core.json, and REWRITTEN on every bump. Change the key, not
 # this file. What it runs: the plugin's scripts/lib/adopter-ci.js. Why:
@@ -114,7 +130,7 @@ jobs:
     name: Tests and guards
     runs-on: ${runner}
     timeout-minutes: ${timeoutMinutes}
-${renderJobEnv()}${renderSetupSteps()}
+${renderJobEnv()}${renderSetupSteps({ setup })}
       - name: Commands and shipped checks
         run: node .workflow-core/scripts/adopter-ci.js
 
