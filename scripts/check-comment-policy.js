@@ -210,7 +210,7 @@ function readJudgedFiles(ctx, root) {
 			? withoutExcluded(ctx, files, { from: { rev: ctx.sideRev } })
 			: files;
 	const env = walked ? withoutGitRedirects() : undefined;
-	if (!inWorkTree(ctx, root, env)) return files;
+	if (!isInWorkTree(ctx, root, env)) return files;
 	const tracked = walked ? new Set(readTrackedPaths(ctx, root, env)) : null;
 	const judged = tracked ? files.filter((p) => tracked.has(p)) : files;
 	return withoutExcluded(ctx, judged, {
@@ -261,7 +261,7 @@ const withoutGitRedirects = () =>
  * @param {string} root
  * @param {NodeJS.ProcessEnv} [env]
  */
-function inWorkTree(ctx, root, env) {
+function isInWorkTree(ctx, root, env) {
 	const r = spawnGitSync(["rev-parse", "--is-inside-work-tree"], {
 		cwd: root,
 		encoding: "utf8",
