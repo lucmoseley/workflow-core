@@ -1100,9 +1100,9 @@ function replay(logs, w) {
 	};
 }
 
-/** @param {Map<Waiter, number>} held */
-function rungHeldOf(held) {
-	const opened = [...held].filter(
+/** @param {Map<Waiter, number>} pastS */
+function rungHeldOf(pastS) {
+	const opened = [...pastS].filter(
 		([e]) => e.reason === "opened" && e.waitS > 0,
 	);
 	return {
