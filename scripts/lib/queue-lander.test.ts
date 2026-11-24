@@ -2495,18 +2495,27 @@ describe("the red path", () => {
 		expect(remote.main).toBe("merge(m0;a1,b1)");
 	});
 
-	it("says on a member dropped for a file main fails differently that main fails it too, not that main passes it (#5727)", async () => {
+	it("says on a member dropped for a file main fails differently that main fails it too, and that main passes the rest (#5727)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
 			b: { sha: "b1", pushedAt: 2 },
 		});
 		const disk = freshDisk();
+		const [x, y] = ["scripts/x.test.ts", "scripts/y.test.ts"];
+		const batchRed: Verdict = {
+			kind: "red",
+			files: [x, y],
+			failures: [
+				{ file: x, test: "t", signature: "in the batch" },
+				{ file: y, test: "t", signature: "in the batch" },
+			],
+		};
 
 		await land(remote, disk, {
 			requiresRun: false,
 			verdict: (sha) => {
 				if (sha === "m0") return failing("on main");
-				return sha.includes("b1") ? failing("in the batch") : Green;
+				return sha.includes("b1") ? batchRed : Green;
 			},
 		});
 
@@ -2514,12 +2523,12 @@ describe("the red path", () => {
 		expect(filed?.drop.cause).toMatchObject({
 			kind: "red",
 			name: "b",
-			mainRed: ["scripts/x.test.ts"],
+			mainRed: [x],
 		});
 		const body = filed ? bodyOf(filed.drop, filed.held) : "";
-		expect(body).not.toContain("pass on `main` there");
+		expect(body).not.toContain("which pass on `main` there");
 		expect(body).toContain(
-			"`main` fails these files too, but the tester read different failures there:\n- `scripts/x.test.ts`",
+			`\`main\` fails these files too, but the tester read different failures there:\n- \`${x}\`\n\nThese pass on \`main\` there:\n- \`${y}\``,
 		);
 	});
 

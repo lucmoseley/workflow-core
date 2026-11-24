@@ -85,9 +85,21 @@ describe("a failure's signature (#3937)", () => {
 		["a moved line", "at lib/a.js:75", "at lib/a.js:79"],
 		["a sha", "red at 4fbccfa99", "red at 8caad354d"],
 		["a checkout's path", "/home/runner/w/lib/a.js", "/home/lucmo/lib/a.js"],
-		["a temp dir's path", "in /tmp/ledger-SfFJ91", "in /tmp/ledger-PU2kUQ"],
-		["a Python temp dir", "/tmp/tmpk3_x9qa1 gone", "/tmp/tmpz0abc_de gone"],
-		["a prefixed Python one", "named-rerun-ab12cd_e", "named-rerun-zz9y_xwv"],
+		[
+			"a temp dir's path (#5727)",
+			"in /tmp/ledger-SfFJ91",
+			"in /tmp/ledger-PU2kUQ",
+		],
+		[
+			"a Python temp dir (#5727)",
+			"/tmp/tmpk3_x9qa1 gone",
+			"/tmp/tmpz0abc_de gone",
+		],
+		[
+			"a prefixed Python one (#5727)",
+			"named-rerun-ab12cd_e",
+			"named-rerun-zz9y_xwv",
+		],
 	])("is one across a difference only in %s", (_, was, now) => {
 		expect(signed(was)).toBe(signed(now));
 	});
@@ -130,6 +142,23 @@ describe("a failure's signature (#3937)", () => {
 		it("is one where only the mkdtemp basename differs", () => {
 			expect(ledgerRed("ledger-SfFJ91", "2")).toBe(
 				ledgerRed("ledger-PU2kUQ", "2"),
+			);
+		});
+
+		it("is one where only the temp dir in a path differs", () => {
+			const at = (dir: string) =>
+				parseFailingTests(
+					[
+						" FAIL  scripts/a.test.ts > reads the ledger",
+						`Error: ENOENT: no such file or directory, open '/tmp/${dir}/ledger.jsonl'`,
+					].join("\n"),
+				)[0]?.signature;
+			expect(at("ledger-SfFJ91")).toBe(at("ledger-PU2kUQ"));
+		});
+
+		it("still tells apart words after a dash that no temp dir drew", () => {
+			expect(ledgerRed("run-ledger", "2")).not.toBe(
+				ledgerRed("run-update", "2"),
 			);
 		});
 

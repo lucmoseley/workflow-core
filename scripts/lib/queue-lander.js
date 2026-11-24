@@ -692,21 +692,29 @@ const ontoVerdictOf = (b, files) =>
  * @param {Batch} b
  * @param {QueueState} s
  * @param {readonly string[]} files
- * @returns {number|null}
+ * @returns {{mainRun: number|null, mainRed: readonly string[]}}
  */
-function mainRunOf(b, s, files) {
+function mainReadOf(b, s, files) {
 	const base = ontoVerdictOf(b, files);
-	if (base?.kind === "red")
-		return files.length > 0 && !files.some((f) => base.files.includes(f))
-			? (base.run ?? null)
-			: null;
+	if (base?.kind === "red") {
+		const mainRed =
+			base.files.length === 0
+				? files
+				: files.filter((f) => base.files.includes(f));
+		return {
+			mainRun:
+				files.length > 0 && mainRed.length === 0 ? (base.run ?? null) : null,
+			mainRed,
+		};
+	}
 	const checked = base?.run ?? base?.named;
-	if (checked !== undefined) return checked;
+	if (checked !== undefined) return { mainRun: checked, mainRed: [] };
 	for (const pass of [1, 2]) {
 		const whole = ledgered(s, { sha: b.onto, files: [], pass });
-		if (whole?.kind === "green" && whole.run !== undefined) return whole.run;
+		if (whole?.kind === "green" && whole.run !== undefined)
+			return { mainRun: whole.run, mainRed: [] };
 	}
-	return null;
+	return { mainRun: null, mainRed: [] };
 }
 
 /**
@@ -718,10 +726,9 @@ function mainRunOf(b, s, files) {
  */
 function redAloneCause(b, s, { name, iso, asked, v, first }) {
 	const files = v.files.length > 0 ? v.files : asked;
-	const mainRun = v.noRun ? null : mainRunOf(b, s, files);
-	const onto = v.noRun ? undefined : ontoVerdictOf(b, files);
-	const mainRed =
-		onto?.kind === "red" ? files.filter((f) => onto.files.includes(f)) : [];
+	const { mainRun, mainRed } = v.noRun
+		? { mainRun: null, mainRed: [] }
+		: mainReadOf(b, s, files);
 	return {
 		kind: "red",
 		name,
