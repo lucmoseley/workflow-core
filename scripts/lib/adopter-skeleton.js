@@ -481,6 +481,7 @@ const TOOLS = [
 ];
 
 const HELPERS = ["scripts/browse.py", "scripts/lib/resolve-core.js"];
+const HELD_COPIES = ["scripts/lib/resolve_core.py"];
 
 const IGNORE_BEGIN = "# workflow-core:begin";
 const IGNORE_END = "# workflow-core:end";
@@ -573,5 +574,6 @@ module.exports = {
 	LOCAL_HOOKS,
 	hookRootOf,
 	HELPERS,
+	HELD_COPIES,
 	TOOLS,
 };

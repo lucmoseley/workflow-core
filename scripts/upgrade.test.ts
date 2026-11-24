@@ -1226,6 +1226,27 @@ describe("turning the adopter's hooks into shims on every run (#104, #1839)", ()
 		).toBe("// the plugin's resolver\n");
 	});
 
+	it("rewrites an adopter's resolve_core.py from the plugin's copy (#5718)", () => {
+		write(pluginRoot, "scripts/lib/resolve_core.py", "# the plugin's\n");
+		write(root, "scripts/lib/resolve_core.py", "# a v3.0.0 copy\n");
+		const lines: string[] = [];
+		upgrade({ root, pluginRoot, out: (l) => lines.push(l) });
+		expect(
+			fs.readFileSync(path.join(root, "scripts/lib/resolve_core.py"), "utf8"),
+		).toBe("# the plugin's\n");
+		expect(lines).toContain(
+			"rewrote scripts/lib/resolve_core.py — it differed from the plugin's copy, so any local edit to it is gone",
+		);
+	});
+
+	it("gives no resolve_core.py to an adopter holding none (#5718)", () => {
+		write(pluginRoot, "scripts/lib/resolve_core.py", "# the plugin's\n");
+		upgrade({ root, pluginRoot });
+		expect(fs.existsSync(path.join(root, "scripts/lib/resolve_core.py"))).toBe(
+			false,
+		);
+	});
+
 	it("leaves a shim byte-identical across a bump, logging nothing", () => {
 		bump();
 		write(root, ".husky/pre-commit", renderHookShim("pre-commit"));

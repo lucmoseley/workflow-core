@@ -20,6 +20,7 @@ const {
 	HOOKS,
 	LOCAL_HOOKS,
 	HELPERS,
+	HELD_COPIES,
 } = require("./adopter-skeleton.js");
 const { isHookShim } = require("./hook-shim.js");
 const {
@@ -158,38 +159,38 @@ function bringHooks(ctx) {
 	});
 }
 
-/** @param {Context} ctx */
-function bringHelpers(ctx) {
-	return HELPERS.flatMap((rel) => {
-		const body = readIfPresent(path.join(ctx.pluginRoot, rel));
-		if (body === null) {
-			ctx.out(`MISSING ${rel} — the plugin root carries no copy`);
-			return [];
-		}
-		return bringFile(ctx, {
-			rel,
-			body,
-			mode: 0o755,
-			lost: "it differed from the plugin's copy, so any local edit to it is gone",
-		});
+/**
+ * @param {Context} ctx
+ * @param {string} rel
+ * @param {number} [mode]
+ */
+function bringPluginCopy(ctx, rel, mode) {
+	const body = readIfPresent(path.join(ctx.pluginRoot, rel));
+	if (body === null) {
+		ctx.out(`MISSING ${rel} — the plugin root carries no copy`);
+		return [];
+	}
+	return bringFile(ctx, {
+		rel,
+		body,
+		mode,
+		lost: "it differed from the plugin's copy, so any local edit to it is gone",
 	});
 }
 
 /** @param {Context} ctx */
-function bringCoreDocs(ctx) {
-	return CORE_DOCS.flatMap((rel) => {
-		const body = readIfPresent(path.join(ctx.pluginRoot, rel));
-		if (body === null) {
-			ctx.out(`MISSING ${rel} — the plugin root carries no copy`);
-			return [];
-		}
-		return bringFile(ctx, {
-			rel,
-			body,
-			lost: "it differed from the plugin's copy, so any local edit to it is gone",
-		});
-	});
-}
+const bringHelpers = (ctx) =>
+	HELPERS.flatMap((rel) => bringPluginCopy(ctx, rel, 0o755));
+
+/** @param {Context} ctx */
+const bringHeldCopies = (ctx) =>
+	HELD_COPIES.filter(
+		(rel) => readIfPresent(path.join(ctx.root, rel)) !== null,
+	).flatMap((rel) => bringPluginCopy(ctx, rel));
+
+/** @param {Context} ctx */
+const bringCoreDocs = (ctx) =>
+	CORE_DOCS.flatMap((rel) => bringPluginCopy(ctx, rel));
 
 /**
  * @typedef {object} WorkflowBring
@@ -589,6 +590,7 @@ const ghLabels = (root) => ({
 const ENTRIES = [
 	{ bring: bringHooks, paths: HOOKS.map((hook) => `.husky/${hook}`) },
 	{ bring: bringHelpers, paths: HELPERS },
+	{ bring: bringHeldCopies, paths: HELD_COPIES },
 	{ bring: bringRules, paths: [RULES_FILE, REFERENCE_FILE] },
 	{ bring: bringCoreDocs, paths: CORE_DOCS },
 	{ bring: bringCi, paths: [CI_WORKFLOW] },
