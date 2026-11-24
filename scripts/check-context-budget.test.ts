@@ -866,13 +866,13 @@ function gate(...args: string[]) {
 	return { ...r, json: () => JSON.parse(r.stdout) };
 }
 
-describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1834)", () => {
-	function git(...args: string[]) {
-		const r = spawnSync("git", args, { cwd: dir, encoding: "utf8" });
-		if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
-		return r.stdout;
-	}
+function git(...args: string[]) {
+	const r = spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+	if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+	return r.stdout;
+}
 
+describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1834)", () => {
 	const mainRepo = defineTemplate(identityRepoTemplate);
 
 	beforeEach(() => {
@@ -1364,14 +1364,8 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 });
 
 describe("an adopter's machine-mirrored rules (#5683)", () => {
-	function git(...args: string[]) {
-		const r = spawnSync("git", args, { cwd: dir, encoding: "utf8" });
-		if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
-		return r.stdout;
-	}
-
 	const mainRepo = defineTemplate(identityRepoTemplate);
-	const HeadPool =
+	const headPool =
 		CAP + 500 + 1000 + "## Ground truth\n\n\n\n## Machine\n\nlast\n".length;
 	const sections = MIRRORED_SECTIONS.map(
 		(h) => `## ${h}\n\n${"m".repeat(200)}\n\n`,
@@ -1419,7 +1413,7 @@ describe("an adopter's machine-mirrored rules (#5683)", () => {
 		const r = gate();
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain(
-			`HEAD had ${HeadPool} B, so this commit adds 1 B.`,
+			`HEAD had ${headPool} B, so this commit adds 1 B.`,
 		);
 	});
 
@@ -1427,7 +1421,7 @@ describe("an adopter's machine-mirrored rules (#5683)", () => {
 		writeRules(rules(1000));
 		const j = run("--json").json();
 		expect(j.mirrored.bytes).toBe(Buffer.byteLength(sections));
-		expect(j.total).toBe(HeadPool);
+		expect(j.total).toBe(headPool);
 		expect(run().stderr).toContain(
 			`MACHINE-MIRRORED RULES — ${Buffer.byteLength(sections)} B of ${MIRRORED_FILE}, outside the pool above. Uncapped.`,
 		);
@@ -1436,7 +1430,7 @@ describe("an adopter's machine-mirrored rules (#5683)", () => {
 	it("counts those headings whole in any other pool file", () => {
 		fs.appendFileSync(path.join(dir, "CLAUDE.md"), `\n${sections}`);
 		expect(run("--json").json().total).toBe(
-			HeadPool + 1 + Buffer.byteLength(sections),
+			headPool + 1 + Buffer.byteLength(sections),
 		);
 	});
 });

@@ -5,7 +5,8 @@ const { caught } = require("./caught.js");
 const { PRINTED_CHARS_SHOWN } = require("./commit-sha.js");
 const { execGit } = require("./git.js");
 const { brokenError } = require("./outcome-error.js");
-const { MIRRORED_FILE, mirroredBytes } = require("./machine-mirrored-rules.js");
+const { MIRRORED_FILE, pooledSize } = require("./machine-mirrored-rules.js");
+const { readObjectBatch } = require("./git-objects.js");
 
 const DEFAULT_POOL_FILES = ["CLAUDE.md", "AGENTS.md"];
 
@@ -82,34 +83,27 @@ function readPoolBytesIn(revs) {
 		const a = answers.get(spec);
 		return typeof a === "number" ? a : 0;
 	};
-	/** @param {string} spec */
-	const pooled = (spec) =>
-		spec.endsWith(`:${MIRRORED_FILE}`) && bytes(spec) > 0
-			? bytes(spec) - mirroredBytes(readBlob(spec))
-			: bytes(spec);
+	const fileOf = (/** @type {string} */ spec) =>
+		spec.slice(spec.indexOf(":") + 1);
+	const mirroredSpecs = specs.filter(
+		(spec) => fileOf(spec) === MIRRORED_FILE && bytes(spec) > 0,
+	);
+	const blobs = new Map(
+		readObjectBatch(mirroredSpecs, MIRRORED_FILE).map((o, i) => [
+			mirroredSpecs[i],
+			o?.body.toString("utf8") ?? "",
+		]),
+	);
 	return groups.map((g) =>
 		g.commit !== null && answers.get(g.commit) === "missing"
 			? null
-			: g.files.reduce((sum, spec) => sum + pooled(spec), 0),
+			: g.files.reduce(
+					(sum, spec) =>
+						sum +
+						pooledSize(fileOf(spec), bytes(spec), () => blobs.get(spec) ?? ""),
+					0,
+				),
 	);
-}
-
-/**
- * @param {string} spec
- * @returns {string}
- */
-function readBlob(spec) {
-	try {
-		return execGit(["cat-file", "blob", spec], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-	} catch (e) {
-		const { stderr, message } = caught(e);
-		throw brokenError(
-			`git would not read ${spec}: ${String(stderr ?? "").trim() || message}`,
-		);
-	}
 }
 
 /**

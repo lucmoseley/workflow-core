@@ -84,7 +84,9 @@ const {
 	MIRRORED_FILE,
 	MIRRORED_SECTIONS,
 	mirroredBytes,
+	pooledSize,
 } = require("./lib/machine-mirrored-rules.js");
+const { readText } = require("./lib/file-read.js");
 
 const STYLE_NOT_POOLED = "STYLE-NOT-POOLED";
 
@@ -752,17 +754,13 @@ function readImports(ctx, root) {
 /**
  * @param {Ctx} ctx
  * @param {string} root
- * @returns {number}
+ * @returns {string}
  */
-function readMirroredBytes(ctx, root) {
-	try {
-		return mirroredBytes(
-			fs.readFileSync(path.join(root, MIRRORED_FILE), "utf8"),
-		);
-	} catch (e) {
-		if (caught(e).code === "ENOENT") return 0;
-		return ctx.broken(`cannot read ${MIRRORED_FILE}: ${errMessage(e)}`);
-	}
+function readMirroredText(ctx, root) {
+	const r = readText(path.join(root, MIRRORED_FILE));
+	if (r.state === "read") return r.data;
+	if (r.state === "absent") return "";
+	return ctx.broken(`cannot read ${MIRRORED_FILE}: ${r.message}`);
 }
 
 /**
@@ -772,13 +770,16 @@ function readMirroredBytes(ctx, root) {
  * @returns {{ pool: FileEntry[], mirrored: number }}
  */
 function readPoolEntries(ctx, root, { own, agents, doubleLoaded }) {
-	let mirrored = 0;
+	/** @type {string | undefined} */
+	let rules;
+	const readRules = () => {
+		rules ??= readMirroredText(ctx, root);
+		return rules;
+	};
 	/** @param {string} rel */
 	const readPooledSize = (rel) => {
 		const bytes = readPoolSize(ctx, root, rel);
-		if (bytes === null || rel !== MIRRORED_FILE) return bytes;
-		mirrored = readMirroredBytes(ctx, root);
-		return bytes - mirrored;
+		return bytes === null ? null : pooledSize(rel, bytes, readRules);
 	};
 	const pool = [
 		...getPoolFiles().flatMap((rel) => {
@@ -800,7 +801,10 @@ function readPoolEntries(ctx, root, { own, agents, doubleLoaded }) {
 			bytes: sum(agents, (a) => a.bytes),
 		},
 	];
-	return { pool, mirrored };
+	return {
+		pool,
+		mirrored: rules === undefined ? 0 : mirroredBytes(rules),
+	};
 }
 
 /**

@@ -17,7 +17,7 @@ const TEMPLATES = path.join(__dirname, "..", "templates", "adopter");
 
 /** @typedef {import("./workflow-core-config.js").Module} Module */
 
-const RULES_FILE = ".claude/workflow-core.md";
+const { MIRRORED_FILE: RULES_FILE } = require("./machine-mirrored-rules.js");
 const CORE_OWNED = "<!-- CORE-OWNED.";
 
 const REFERENCE_FILE = ".claude/workflow-core.reference.md";

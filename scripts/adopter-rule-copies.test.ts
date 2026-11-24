@@ -107,7 +107,7 @@ describe("the founder's working rules in the adopter session rules (#5344)", () 
 		"Reports and paid data": 2,
 	};
 
-	it("pins the sections the pool meter leaves out (#5683)", () => {
+	it("the pool meter leaves out exactly the sections the contract mirrors (#5683)", () => {
 		expect(Object.keys(lines)).toEqual(MIRRORED_SECTIONS);
 	});
 

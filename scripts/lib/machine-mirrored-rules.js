@@ -1,11 +1,12 @@
 const MIRRORED_FILE = ".claude/workflow-core.md";
 
-/* #5344, #5683 */
 const MIRRORED_SECTIONS = [
 	"Removal means gone",
 	"Leading practice",
 	"Reports and paid data",
 ];
+
+const HEADING = /^#{1,2} (.*)/s;
 
 /**
  * @param {string} text
@@ -15,11 +16,26 @@ function mirroredBytes(text) {
 	let bytes = 0;
 	let inside = false;
 	for (const line of text.split(/(?<=\n)/)) {
-		if (line.startsWith("## "))
-			inside = MIRRORED_SECTIONS.includes(line.slice(3).trimEnd());
+		const heading = line.match(HEADING);
+		if (heading)
+			inside = MIRRORED_SECTIONS.includes(heading[1]?.trimEnd() ?? "");
 		if (inside) bytes += Buffer.byteLength(line);
 	}
 	return bytes;
 }
 
-module.exports = { MIRRORED_FILE, MIRRORED_SECTIONS, mirroredBytes };
+/**
+ * @param {string} rel
+ * @param {number} size
+ * @param {() => string} read
+ * @returns {number}
+ */
+const pooledSize = (rel, size, read) =>
+	rel === MIRRORED_FILE && size > 0 ? size - mirroredBytes(read()) : size;
+
+module.exports = {
+	MIRRORED_FILE,
+	MIRRORED_SECTIONS,
+	mirroredBytes,
+	pooledSize,
+};

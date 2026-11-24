@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { MIRRORED_FILE, MIRRORED_SECTIONS } from "./machine-mirrored-rules.js";
 import { runInProcess } from "./run-in-process.js";
 
@@ -96,14 +97,24 @@ describe("stagedPoolDelta in an adopter (#5683)", () => {
 		return r.stdout.trim();
 	};
 
-	beforeEach(() => {
-		git("init", "-q");
-		writeConfig({ alwaysLoaded: ["CLAUDE.md", MIRRORED_FILE] });
-		write("CLAUDE.md", "c".repeat(100));
-		write(MIRRORED_FILE, "## Ground truth\n\ng\n");
-		git("add", "-A");
-		git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base");
+	const adopterRepo = defineTemplate((at) => {
+		const run = (...args: string[]) => {
+			const r = spawnSync("git", args, { cwd: at, encoding: "utf8" });
+			if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+		};
+		run("init", "-q");
+		fs.mkdirSync(path.join(at, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(at, ".claude", "workflow-core.json"),
+			JSON.stringify({ alwaysLoaded: ["CLAUDE.md", MIRRORED_FILE] }),
+		);
+		fs.writeFileSync(path.join(at, "CLAUDE.md"), "c".repeat(100));
+		fs.writeFileSync(path.join(at, MIRRORED_FILE), "## Ground truth\n\ng\n");
+		run("add", "-A");
+		run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base");
 	});
+
+	beforeEach(() => adopterRepo.instantiate(dir));
 
 	it("leaves the sections out of the bytes a commit adds", () => {
 		write(MIRRORED_FILE, `## Ground truth\n\ng\n\n${sections}`);

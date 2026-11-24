@@ -36,13 +36,9 @@ const COPIES = [
 	},
 ];
 
+const { MIRRORED_SECTIONS } = require("./lib/machine-mirrored-rules.js");
 const PLUGIN_ROOT = coreRoot();
 const CONTRACT = path.join("docs", "working-contract.md");
-const RULE_SECTIONS = [
-	"Removal means gone",
-	"Leading practice",
-	"Reports and paid data",
-];
 const SOURCED = [
 	{
 		live: ["hooks", "browser-profile-guard.sh"],
@@ -82,7 +78,7 @@ function sectionBody(text, heading) {
 
 const withoutRuleSections = (/** @type {string} */ text) =>
 	chunks(text)
-		.filter((c) => !RULE_SECTIONS.includes(headingOf(c) ?? ""))
+		.filter((c) => !MIRRORED_SECTIONS.includes(headingOf(c) ?? ""))
 		.join("");
 
 /** @param {unknown} v */
@@ -370,12 +366,12 @@ function compareRuleSections(ctx) {
 	if (liveText === null || contract === null)
 		return { note: ", working rules not compared", differences: [] };
 	const differences = [];
-	for (const heading of RULE_SECTIONS) {
+	for (const heading of MIRRORED_SECTIONS) {
 		const want = sectionBody(contract, heading);
 		const got = sectionBody(liveText, heading);
 		if (want === null)
 			ctx.broken(
-				`${CONTRACT} has no "## ${heading}" section, which RULE_SECTIONS names`,
+				`${CONTRACT} has no "## ${heading}" section, which MIRRORED_SECTIONS names`,
 			);
 		if (got === null)
 			differences.push(
@@ -456,7 +452,7 @@ const SPEC = {
 					"`modelSettings`, which the routing file owns (run scripts/burn-mode.sh for the\n" +
 					"current mode to re-apply them), and each file into its own block, from\n" +
 					`${COPIES.map((sc) => `~/.claude/${sc.live.join("/")}`).join(", ")} (CLAUDE.md less its\n` +
-					`${RULE_SECTIONS.map((h) => `"${h}"`).join(", ")} sections),\n` +
+					`${MIRRORED_SECTIONS.map((h) => `"${h}"`).join(", ")} sections),\n` +
 					"then re-date the snapshot line; never edit a block to change behaviour.\n" +
 					"For the shipped files and those sections the repo is the source: copy\n" +
 					`${SOURCED.map((sc) => `${sc.source} to ~/.claude/${sc.live.join("/")}`).join(", ")},\n` +
