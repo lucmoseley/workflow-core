@@ -1,6 +1,7 @@
 const { programSource } = require("./shell-words.js");
 
-const EXIT_ONE = /\|\|\s*exit\s+1\s*(?:;;\s*)?(?:#.*)?$/;
+const EXIT_ONE =
+	/\|\|\s*exit\s+1(?:(?:\s*;\s*|\s+)(?:fi|done|esac|\}))*\s*(?:;;?\s*)?(?:#.*)?$/;
 const OPENS_BLOCK = /\|\|\s*\{\s*(?:#.*)?$/;
 const EXIT_ONE_LINE = /^exit\s+1\s*(?:;;?\s*)?(?:#.*)?$/;
 const SUBSTITUTION = /^[A-Za-z_][A-Za-z0-9_]*="?\$\((.*)\)"?$/;

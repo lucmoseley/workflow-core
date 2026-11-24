@@ -36,6 +36,8 @@ describe("parseBreaches", () => {
 		expect(
 			lines(
 				'node scripts/check-a.js || exit "$?"',
+				'if armed x; then node scripts/check-a.js || exit "$?"; fi',
+				"node scripts/check-a.js || exit 10; fi",
 				"gitleaks protect --staged || exit 1",
 				'node -e "process.exit(1)" || exit 1',
 				'sh -c "$_declared_command" || exit 1',
@@ -108,6 +110,27 @@ describe("parseBreaches", () => {
 		["a case arm's terminator", "node scripts/c.js || exit 1 ;; # why", 1],
 		["a variable assignment", "X=1 node scripts/c.js || exit 1", 1],
 		["a bash script run under errexit", "bash -e scripts/gate.sh || exit 1", 1],
+		[
+			"a one-line if (#5684)",
+			"if armed x; then node scripts/c.js --staged || exit 1; fi",
+			1,
+		],
+		[
+			"a one-line loop (#5684)",
+			"for f in a b; do node scripts/c.js || exit 1; done",
+			1,
+		],
+		["a one-line group (#5684)", "{ node scripts/c.js || exit 1; }", 1],
+		[
+			"a group closed without a semicolon (#5684)",
+			"{ node scripts/c.js || exit 1 }",
+			1,
+		],
+		[
+			"nested one-line blocks (#5684)",
+			"if a; then for f in b; do node scripts/c.js || exit 1; done; fi # why",
+			1,
+		],
 	])("names %s exiting 1", (_, body, line) => {
 		expect(lines(`${body}\n`)).toEqual([line]);
 	});
