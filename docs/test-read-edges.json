@@ -3792,6 +3792,9 @@
 		"migrations/v3.1.0.md": [
 			"scripts/lib/migration-note.test.ts"
 		],
+		"migrations/v3.2.0.md": [
+			"scripts/lib/migration-note.test.ts"
+		],
 		"package-lock.json": [
 			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
