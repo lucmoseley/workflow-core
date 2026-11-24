@@ -15,13 +15,8 @@ const { isShipped } = require("./plugin-tree") as {
 
 describe("messages a shipped script prints", () => {
 	const exempt = [
-		/^\t\t"Every issue-body edit goes through node scripts\/issue-body\.js",$/,
-		/: "node scripts\/check-ci-status\.js";$/,
 		/^\t"`node scripts\/session-arbiter\.js list`\.";$/,
 		/^\tconst overflow = `\\n {2}… and \$\{dropped\} more — node scripts\/session-arbiter\.js list`;$/,
-		/^const DETACHED_TEXT = `This suite is DETACHED INSIDE THE SHELL — .*\\`scripts\/bg-run\.sh run <name>\\`/,
-		/^\t"node scripts\/watch-artefact\.js <artefact> 120 --log <output_file>";$/,
-		/^const READ_REASON = `Instead: a subagent, one backgrounded \\`\$\{WATCH\}\\`;/,
 		/^const SUBAGENT_WAIT = `wait inside the turn — what you wait on in the foreground with \\`timeout: 600000\\`, a bg-run\.sh job with \\`scripts\/bg-run\.sh wait <name>\\`/,
 		/^\tbyHand: "`node scripts\/claim-issue\.js <n>` to claim an issue by hand",$/,
 		/^\t"node scripts\/lib\/resolve-core\.js scripts\/status-report\.js";$/,
@@ -92,10 +87,12 @@ describe("messages a shipped script prints", () => {
 	it("name no script by a bare command-shaped path", () => {
 		const files = [
 			...guardFiles,
-			...libNames
-				.map((f) => path.join(__dirname, f))
-				.filter((f) => !resolvedByEmitter(f)),
-		];
+			...libNames.map((f) => path.join(__dirname, f)),
+		].filter(
+			(f) =>
+				!resolvesWholeText.test(fs.readFileSync(f, "utf8")) &&
+				!resolvedByEmitter(f),
+		);
 		expect(
 			files.flatMap((f) => readBareLines(f, (l) => COMMAND_SHAPED.test(l))),
 		).toEqual([]);
