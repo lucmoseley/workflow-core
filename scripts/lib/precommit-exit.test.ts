@@ -168,6 +168,26 @@ describe("parseBreaches", () => {
 			"git diff --quiet || exit 1; node scripts/c.js || exit 1",
 			1,
 		],
+		[
+			"an exit 1 with a command after it (#5686)",
+			"node scripts/c.js || exit 1; echo done",
+			1,
+		],
+		[
+			"an exit 1 redirecting a descriptor (#5686)",
+			"node scripts/c.js || exit 1 2>/dev/null",
+			1,
+		],
+		[
+			"a group exiting 1 after a quoted brace (#5686)",
+			'node scripts/c.js || { echo "}"; exit 1; }',
+			1,
+		],
+		[
+			"a group exiting 1 from its own if (#5686)",
+			"node scripts/c.js || { if a; then exit 1; fi; }",
+			1,
+		],
 	])("names %s exiting 1", (_, body, line) => {
 		expect(lines(`${body}\n`)).toEqual([line]);
 	});
@@ -204,6 +224,17 @@ describe("parseBreaches", () => {
 			'node scripts/c.js || { echo "a; exit 1"; }',
 		],
 		["a group exiting 1 in a subshell", "node scripts/c.js || { ( exit 1 ); }"],
+		["an exit whose 1 is a redirect", "node scripts/c.js || exit 1>&2"],
+		["an exit 1 in a pipeline", "node scripts/c.js || exit 1 | cat"],
+		["an exit 1 in the background", "node scripts/c.js || exit 1 &"],
+		[
+			"an exit 1 quoted with its semicolon",
+			'node scripts/c.js || { echo "a; exit 1;"; }',
+		],
+		[
+			"an exit 1 that is an echo's word",
+			"node scripts/c.js || { echo then exit 1; }",
+		],
 	])(
 		"passes %s passing the checker's code on, or never exiting 1 (#5686)",
 		(_, line) => {

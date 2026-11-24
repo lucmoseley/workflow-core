@@ -1,9 +1,9 @@
 const { programSource } = require("./shell-words.js");
 
-const ENDS_COMMAND = String.raw`(?=\s*[;&|)}<>]|\s+#|\s*$)`;
+const ENDS_COMMAND = String.raw`(?=\s*(?:;|&&|\|\||[)}])|\s+\d*[<>]|\s+#|\s*$)`;
 const EXIT_ONE = new RegExp(String.raw`^\s*exit\s+1${ENDS_COMMAND}`);
 const GROUP_EXIT_ONE = new RegExp(
-	String.raw`^\s*\{(?:(?:\$\{[^}]*\}|[^}])*?(?:;|&&|\|\||\b(?:then|do|else)))?\s*exit\s+1${ENDS_COMMAND}`,
+	String.raw`^\s*\{(?:(?:"(?:[^"\\]|\\.)*"|'[^']*'|\$\{[^}]*\}|[^}"'])*?(?:;|&&|\|\|))?\s*(?:(?:then|do|else)\s+)?exit\s+1${ENDS_COMMAND}`,
 );
 const OPENS_BLOCK = /\|\|\s*\{\s*(?:#.*)?$/;
 const CASE_ARM = /^(?:case\s.*?\sin\s+)?\(?[^()\s]*\)\s+/;
@@ -157,13 +157,13 @@ function parseBreaches(text) {
 			logical = `${logical.slice(0, -1)} ${raw[++i] ?? ""}`;
 		const trimmed = logical.trim();
 		if (trimmed.startsWith("#")) continue;
-		const operator = trimmed.lastIndexOf("||");
+		const operatorAt = trimmed.lastIndexOf("||");
 		if (
 			!hasInlineExitOne(trimmed) &&
 			!(
 				(hasBlockExitOne(raw, i, trimmed) ||
-					hasCatchAllExitOne(raw, i, trimmed.slice(operator + 2).trim())) &&
-				isCheckerCommand(trimmed.slice(0, operator))
+					hasCatchAllExitOne(raw, i, trimmed.slice(operatorAt + 2).trim())) &&
+				isCheckerCommand(trimmed.slice(0, operatorAt))
 			)
 		)
 			continue;
