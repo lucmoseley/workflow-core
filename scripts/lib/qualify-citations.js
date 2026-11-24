@@ -1,4 +1,4 @@
-const { exemptMarker } = require("./exempt-markers.js");
+const { CITATION_REPO, exemptMarker } = require("./exempt-markers.js");
 const { requiredGroup } = require("./regex-group.js");
 
 const JS_COMMENT_LINE = /^\s*(\/\/|\/?\*)/;
@@ -18,7 +18,7 @@ const CITATION_CEILING = 10_000;
 /** @param {string} text */
 const qualifySpan = (text) =>
 	text.replace(BARE_CITATION, (whole, n) =>
-		Number(n) > CITATION_CEILING ? whole : `workflow-core#${n}`,
+		Number(n) > CITATION_CEILING ? whole : `${CITATION_REPO}#${n}`,
 	);
 
 const SYNTAX_PAREN_BEFORE = /[\w$=]/;
@@ -72,7 +72,7 @@ function qualifyCodeLine(line) {
 	let out = line;
 	for (const c of codeCitations(line).reverse()) {
 		if (c.bracketed) {
-			out = `${out.slice(0, c.index)}workflow-core${out.slice(c.index)}`;
+			out = `${out.slice(0, c.index)}${CITATION_REPO}${out.slice(c.index)}`;
 		}
 	}
 	return out;

@@ -14,7 +14,11 @@ const EXEMPT_MARKERS = /** @type {const} */ ([
 
 /** @typedef {typeof EXEMPT_MARKERS[number]} ExemptMarker */
 
-const POINTER_BODY = String.raw`(?:[\w.-]+\/[\w.-]+)?#\d+|ADR-\d{4}|RFC\d+(?:§[\d.]+)?|https?:\/\/(?:www\.rfc-editor\.org\/rfc\/|datatracker\.ietf\.org\/doc\/(?:html\/)?|tools\.ietf\.org\/html\/)rfc\d+(?:[#/?.]\S*)?`;
+const CITATION_REPO = "workflow-core";
+
+const ISSUE_REF = String.raw`(?:[\w.-]+\/[\w.-]+|${escapeRe(CITATION_REPO)})?#\d+`;
+
+const POINTER_BODY = String.raw`${ISSUE_REF}|ADR-\d{4}|RFC\d+(?:§[\d.]+)?|https?:\/\/(?:www\.rfc-editor\.org\/rfc\/|datatracker\.ietf\.org\/doc\/(?:html\/)?|tools\.ietf\.org\/html\/)rfc\d+(?:[#/?.]\S*)?`;
 
 const POINTER = new RegExp(`^(?:${POINTER_BODY})$`);
 
@@ -30,4 +34,11 @@ function exemptMarker(name) {
 /** @param {ExemptMarker} name */
 const exemptHint = (name) => `\`${name}-exempt: #N\``;
 
-module.exports = { EXEMPT_MARKERS, POINTER, exemptHint, exemptMarker };
+module.exports = {
+	CITATION_REPO,
+	EXEMPT_MARKERS,
+	ISSUE_REF,
+	POINTER,
+	exemptHint,
+	exemptMarker,
+};

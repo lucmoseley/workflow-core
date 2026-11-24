@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { depsPattern, judgeSource, langOf } from "./comment-policy.js";
+import { qualifyCitations } from "./qualify-citations.js";
 
 type Lang = "js" | "py" | "sh";
 
@@ -84,6 +85,24 @@ describe("the permitted shapes", () => {
 			"",
 		].join("\n");
 		expect(tags(src, "js")).toEqual([]);
+	});
+
+	it("passes the release's qualified pointer, and no other bare repo#N (#5694)", () => {
+		const src = [
+			"/**",
+			" * #1274, #5504",
+			" * @param {string} at",
+			" */",
+			"function readJson(at) {}",
+			"/* #4117 */",
+			"const a = 1;",
+			"// measured 3 s, #77",
+			"const b = 1;",
+			"",
+		].join("\n");
+		expect(tags(src, "js")).toEqual([]);
+		expect(tags(qualifyCitations(src, "scripts/lib/x.js"), "js")).toEqual([]);
+		expect(tags("/* repo#12 */\nconst a = 1;\n", "js")).toEqual(["COMMENT@1"]);
 	});
 
 	it("refuses a pointer with reasoning prose beside it", () => {
