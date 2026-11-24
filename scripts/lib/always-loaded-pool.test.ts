@@ -1,8 +1,10 @@
 // @vitest-environment node
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { MIRRORED_FILE, MIRRORED_SECTIONS } from "./machine-mirrored-rules.js";
 import { runInProcess } from "./run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "always-loaded-pool.js");
@@ -64,5 +66,48 @@ describe("the always-loaded pool's files", () => {
 		const r = pool();
 		expect(r.status).not.toBe(0);
 		expect(r.stderr).toMatch(/declares contract 99.*migration note/);
+	});
+});
+
+describe("stagedPoolDelta in an adopter (#5683)", () => {
+	const git = (...args: string[]) => {
+		const r = spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+		if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+	};
+	const write = (rel: string, text: string) => {
+		fs.mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
+		fs.writeFileSync(path.join(dir, rel), text);
+	};
+	const sections = MIRRORED_SECTIONS.map((h) => `## ${h}\n\nm\n\n`).join("");
+
+	const delta = () => {
+		const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_PROJECT_DIR: dir };
+		delete env.WFC_ALWAYS_LOADED;
+		const r = spawnSync(
+			"node",
+			[
+				"-e",
+				"const {stagedPoolDelta}=require(process.argv[1]);" +
+					'console.log(JSON.stringify(stagedPoolDelta(["HEAD"])));',
+				SCRIPT,
+			],
+			{ cwd: dir, encoding: "utf8", env },
+		);
+		return r.stdout.trim();
+	};
+
+	beforeEach(() => {
+		git("init", "-q");
+		writeConfig({ alwaysLoaded: ["CLAUDE.md", MIRRORED_FILE] });
+		write("CLAUDE.md", "c".repeat(100));
+		write(MIRRORED_FILE, "## Ground truth\n\ng\n");
+		git("add", "-A");
+		git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base");
+	});
+
+	it("leaves the sections out of the bytes a commit adds", () => {
+		write(MIRRORED_FILE, `## Ground truth\n\ng\n\n${sections}`);
+		git("add", "-A");
+		expect(delta()).toBe("1");
 	});
 });

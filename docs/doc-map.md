@@ -1,6 +1,6 @@
 # workflow-core document map
 
-v1.21 · 23 November 2026
+v1.22 · 24 November 2026
 
 > Three things live here. **Section A** says what each document is and who may edit it, rendered from `docs/doc-map-classes.json` by `npm run gen:doc-map-section-a`. **Section B** is the figure registry: a number or claim restated in more than one place, with its owner. **Section C** routes a question to the document that answers it. `scripts/check-doc-map.js` gates all three, and refuses a `docs/doc-map.md §<name>` reference that names no section here, outside binary assets and tests. **§The propagation pass** carries a settled fact to every copy of it; **§Capture and placement**, last, says where a settled fact goes and caps what every session loads.
 
@@ -475,10 +475,11 @@ That residual is capped at **22.5 KB** — **a shared pool, not a per-member bud
 - **Own skill and command frontmatter `description` values**, **except where the startup listing never delivers the description**. A skill carrying `disable-model-invocation: true` is absent from the listing (mantahostels#1757); a `"name-only"`, `"user-invocable-only"` or `"off"` entry in `.claude/settings.json`'s `skillOverrides` drops the description alone (mantahostels#1786) — and being a settings key it reaches vendored skills too, whose frontmatter edits the next pull reverts. An unsilenced file with no `description` key is listed under its body's first non-blank line, heading marker stripped and cut at 100 characters, and is charged that line (#2054). **The surface grows by skill count, never by inflating an existing description**, so a pool contribution is the instrument and a per-description length limit is not (mantahostels#1235).
 - **Agent definitions** (`.claude/agents/*.md`) — their **`name` and `description` only**, never their body.
 
-**Two adjacent surfaces are measured and uncapped — excluded from the cap, never from governance** (mantahostels#1235).
+**Three adjacent surfaces are measured and uncapped — excluded from the cap, never from governance** (mantahostels#1235).
 
 - **Vendored skill descriptions**, in **delivered bytes**: a silenced description counts 0 B. They fail the *deletable* limb at byte granularity — symlinked from `.agents/skills/`, so one can be dropped whole while an edit to one is reverted by the next pull unless declared in `.agents/vendored-skill-edits.json` (mantahostels#1826). No cap exists because **no candidate number exists**: the set is an outside vendor's, and today's total is a snapshot of it (mantahostels#1260). **Adopting a new vendored skill names its description bytes — delivered, so 0 B where it lands silenced — in the adopting commit's message.** **Unenforced** (mantahostels#1260): nothing prompts an adopting session to look. <!-- citation-exempt: #803 -->
 - **Plugins** — `claude plugin details <name>`'s Always-on token figure, quoted in the enabling commit message, read by `check-context-budget.js` from `.claude/plugin-context-cost.json`, which WARNs on an enabled plugin with no row rather than pricing it at zero (mantahostels#3116). No commit is refused on this surface: the plugin bytes live outside the repo.
+- **An adopter's machine-mirrored rules** — the sections of `.claude/workflow-core.md` that `scripts/lib/machine-mirrored-rules.js` names, measured at HEAD and in the index alike (#5683). Their text is governed upstream, in workflow-core's `docs/working-contract.md`, where workflow-core's own pool meters it.
 
 **The vendor / wrap / write-locally ladder governs what adds to either** (mantahostels#1172, extended to plugins at mantahostels#2971). Reach for the cheapest primitive that can carry a repo-specific rule: (1) a script or hook; (2) a rule line in the document that already owns the surface; (3) a local skill, whose description enters the pool; (4) a wrap of a vendored skill, only where the upstream body is worth more than the wrapper costs; (5) vendoring, only where the skill needs no repo-specific rule in its body. **A plugin is rung 5 with one more condition**: the repo needs none of it edited and pays its whole always-on cost, a subset being a fork. <!-- citation-exempt: #803 -->
 

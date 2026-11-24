@@ -134,6 +134,7 @@ describe("refill-loop.js status's per-call cost (#4821)", () => {
 			"lib/loop-jobs.js",
 			"lib/loop-prompts.js",
 			"lib/machine-marker.js",
+			"lib/machine-mirrored-rules.js",
 			"lib/machine-setting.js",
 			"lib/main-checkout.js",
 			"lib/marker-root.js",

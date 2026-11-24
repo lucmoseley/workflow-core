@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderSessionRules } from "./lib/adopter-skeleton.js";
+import { MIRRORED_SECTIONS } from "./lib/machine-mirrored-rules.js";
 import { readRuleText } from "./lib/rule-text";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -100,17 +101,26 @@ const contractSection = (heading: string) =>
 		.filter((l) => l.trim() && !l.startsWith("<!-- guard-registry"));
 
 describe("the founder's working rules in the adopter session rules (#5344)", () => {
-	it.each([
-		["Removal means gone", 1],
-		["Leading practice", 2],
-		["Reports and paid data", 2],
-	])("%s holds the contract's text, as it words it", (heading, lines) => {
-		const contract = contractSection(heading);
-		expect(contract).toHaveLength(lines);
-		expect(adopterSection(heading).filter((l) => l.trim())).toEqual(
-			contract.map(toAdopter),
-		);
+	const lines: Record<string, number> = {
+		"Removal means gone": 1,
+		"Leading practice": 2,
+		"Reports and paid data": 2,
+	};
+
+	it("pins the sections the pool meter leaves out (#5683)", () => {
+		expect(Object.keys(lines)).toEqual(MIRRORED_SECTIONS);
 	});
+
+	it.each(MIRRORED_SECTIONS)(
+		"%s holds the contract's text, as it words it",
+		(heading) => {
+			const contract = contractSection(heading);
+			expect(contract).toHaveLength(lines[heading] ?? -1);
+			expect(adopterSection(heading).filter((l) => l.trim())).toEqual(
+				contract.map(toAdopter),
+			);
+		},
+	);
 
 	it("the Leading practice text names no machine path", () => {
 		expect(contractSection("Leading practice").join("\n")).not.toMatch(/~\//);

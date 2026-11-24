@@ -11,6 +11,10 @@ import { liveCaps } from "./lib/context-budget-testkit";
 import { PROFILES } from "./lib/fault-profiles.js";
 import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
+import {
+	MIRRORED_FILE,
+	MIRRORED_SECTIONS,
+} from "./lib/machine-mirrored-rules.js";
 import { CORE_RULES } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process.js";
 import {
@@ -1356,6 +1360,84 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 		const r = gate("--json");
 		expect(r.status).toBe(0);
 		expect(r.json().added ?? []).toEqual([]);
+	});
+});
+
+describe("an adopter's machine-mirrored rules (#5683)", () => {
+	function git(...args: string[]) {
+		const r = spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+		if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+		return r.stdout;
+	}
+
+	const mainRepo = defineTemplate(identityRepoTemplate);
+	const HeadPool =
+		CAP + 500 + 1000 + "## Ground truth\n\n\n\n## Machine\n\nlast\n".length;
+	const sections = MIRRORED_SECTIONS.map(
+		(h) => `## ${h}\n\n${"m".repeat(200)}\n\n`,
+	).join("");
+	const rules = (own: number) =>
+		`## Ground truth\n\n${"g".repeat(own)}\n\n${sections}## Machine\n\nlast\n`;
+	const writeRules = (text: string) => {
+		fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+		fs.writeFileSync(path.join(dir, MIRRORED_FILE), text);
+	};
+
+	beforeEach(() => {
+		mainRepo.instantiate(dir);
+		vi.stubEnv(
+			"WFC_ALWAYS_LOADED",
+			[...getPoolFiles(), MIRRORED_FILE].join(","),
+		);
+		pool(CAP + 500);
+		writeRules(
+			`## Ground truth\n\n${"g".repeat(1000)}\n\n## Machine\n\nlast\n`,
+		);
+		git("add", "-A");
+		git("commit", "-q", "--no-verify", "-m", "baseline");
+	});
+
+	const stageWalk = (own: number) => {
+		writeRules(rules(own));
+		const claude = fs.statSync(path.join(dir, "CLAUDE.md")).size;
+		fs.writeFileSync(
+			path.join(dir, "CLAUDE.md"),
+			buildPoolText("CLAUDE.md", claude - 100),
+		);
+		git("add", "-A");
+	};
+
+	it("passes an over-cap walk that adds the sections and nets its other growth to zero", () => {
+		stageWalk(1100);
+		const r = gate("--json");
+		expect(r.json().added).toEqual([]);
+		expect(r.status).toBe(0);
+	});
+
+	it("refuses one byte more, quoting a delta that leaves the sections out", () => {
+		stageWalk(1101);
+		const r = gate();
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			`HEAD had ${HeadPool} B, so this commit adds 1 B.`,
+		);
+	});
+
+	it("prints the sections as their own uncapped row, out of the pool total", () => {
+		writeRules(rules(1000));
+		const j = run("--json").json();
+		expect(j.mirrored.bytes).toBe(Buffer.byteLength(sections));
+		expect(j.total).toBe(HeadPool);
+		expect(run().stderr).toContain(
+			`MACHINE-MIRRORED RULES — ${Buffer.byteLength(sections)} B of ${MIRRORED_FILE}, outside the pool above. Uncapped.`,
+		);
+	});
+
+	it("counts those headings whole in any other pool file", () => {
+		fs.appendFileSync(path.join(dir, "CLAUDE.md"), `\n${sections}`);
+		expect(run("--json").json().total).toBe(
+			HeadPool + 1 + Buffer.byteLength(sections),
+		);
 	});
 });
 

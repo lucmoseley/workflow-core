@@ -80,6 +80,12 @@ const {
 	admit,
 } = require("./lib/pool-admission.js");
 
+const {
+	MIRRORED_FILE,
+	MIRRORED_SECTIONS,
+	mirroredBytes,
+} = require("./lib/machine-mirrored-rules.js");
+
 const STYLE_NOT_POOLED = "STYLE-NOT-POOLED";
 
 /**
@@ -746,17 +752,41 @@ function readImports(ctx, root) {
 /**
  * @param {Ctx} ctx
  * @param {string} root
+ * @returns {number}
+ */
+function readMirroredBytes(ctx, root) {
+	try {
+		return mirroredBytes(
+			fs.readFileSync(path.join(root, MIRRORED_FILE), "utf8"),
+		);
+	} catch (e) {
+		if (caught(e).code === "ENOENT") return 0;
+		return ctx.broken(`cannot read ${MIRRORED_FILE}: ${errMessage(e)}`);
+	}
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string} root
  * @param {{ own: DescEntry[], agents: FileEntry[], doubleLoaded: Set<string> }} parts
- * @returns {FileEntry[]}
+ * @returns {{ pool: FileEntry[], mirrored: number }}
  */
 function readPoolEntries(ctx, root, { own, agents, doubleLoaded }) {
-	return [
+	let mirrored = 0;
+	/** @param {string} rel */
+	const readPooledSize = (rel) => {
+		const bytes = readPoolSize(ctx, root, rel);
+		if (bytes === null || rel !== MIRRORED_FILE) return bytes;
+		mirrored = readMirroredBytes(ctx, root);
+		return bytes - mirrored;
+	};
+	const pool = [
 		...getPoolFiles().flatMap((rel) => {
-			const bytes = readPoolSize(ctx, root, rel);
+			const bytes = readPooledSize(rel);
 			return bytes === null ? [] : poolRows(rel, bytes, doubleLoaded);
 		}),
 		...readImports(ctx, root).flatMap(({ path: rel, importedBy }) => {
-			const bytes = readPoolSize(ctx, root, rel);
+			const bytes = readPooledSize(rel);
 			return bytes === null
 				? []
 				: [{ path: rel, bytes, note: `imported by ${importedBy}` }];
@@ -770,6 +800,7 @@ function readPoolEntries(ctx, root, { own, agents, doubleLoaded }) {
 			bytes: sum(agents, (a) => a.bytes),
 		},
 	];
+	return { pool, mirrored };
 }
 
 /**
@@ -1088,19 +1119,27 @@ function buildRenderedLines(rendered) {
 	);
 }
 
+/** @param {number} mirrored */
+const buildMirroredLines = (mirrored) =>
+	mirrored === 0
+		? ""
+		: `\n\nMACHINE-MIRRORED RULES — ${mirrored} B of ${MIRRORED_FILE}, outside the pool above. Uncapped.\n` +
+			`  ${MIRRORED_SECTIONS.join(", ")}: workflow-core's own pool meters them (#5683).`;
+
 /**
  * @param {Ctx} ctx
- * @param {{ total: number, headroom: number, pool: FileEntry[], injTotal: number, injHeadroom: number, injected: FileEntry[], rendered: RenderedPayloads | null, own: DescEntry[], vendored: DescEntry[], plugins: PluginEntry[], enabledPlugins: PluginEntry[], pluginTokens: number, reachTools: [string, ReachGroup][], reach: Reach, ratchetTotal: number, ratchetHeadroom: number, directTotal: number, directUncounted: number }} t
+ * @param {{ mirrored: number, total: number, headroom: number, pool: FileEntry[], injTotal: number, injHeadroom: number, injected: FileEntry[], rendered: RenderedPayloads | null, own: DescEntry[], vendored: DescEntry[], plugins: PluginEntry[], enabledPlugins: PluginEntry[], pluginTokens: number, reachTools: [string, ReachGroup][], reach: Reach, ratchetTotal: number, ratchetHeadroom: number, directTotal: number, directUncounted: number }} t
  */
 function printTable(ctx, t) {
 	const { total, headroom, pool, injTotal, injHeadroom, injected, rendered } =
 		t;
 	const { own, vendored, plugins, enabledPlugins, pluginTokens } = t;
 	const { reachTools, reach, ratchetTotal, ratchetHeadroom } = t;
-	const { directTotal, directUncounted } = t;
+	const { directTotal, directUncounted, mirrored } = t;
 	ctx.say(
 		`ALWAYS-LOADED POOL — ${kb(total)} of ${kb(CAP_BYTES)}, ${headroom} B headroom (.claude/workflow-core.doc-map.md §Capture and placement).\n` +
 			rows(pool) +
+			buildMirroredLines(mirrored) +
 			`\n\nINJECTED TRACKER DOCS — ${kb(injTotal)} of ${kb(INJECTION_CAP_BYTES)}, ${injHeadroom} B headroom (~41% of sessions).\n` +
 			rows(injected) +
 			buildRenderedLines(rendered) +
@@ -1296,7 +1335,11 @@ const SPEC = {
 		warnUnpooledStyle(ctx, readDeclaredStyle());
 		const doubleLoaded = getDoubleLoadedFiles(root);
 
-		const pool = readPoolEntries(ctx, root, { own, agents, doubleLoaded });
+		const { pool, mirrored } = readPoolEntries(ctx, root, {
+			own,
+			agents,
+			doubleLoaded,
+		});
 		const total = sum(pool, (f) => f.bytes);
 		const headroom = CAP_BYTES - total;
 
@@ -1357,6 +1400,7 @@ const SPEC = {
 				ratchetHeadroom,
 				directTotal,
 				directUncounted,
+				mirrored,
 			});
 		if (!ctx.notify) ctx.say(afterCallSection(after));
 		if (!ctx.notify) ctx.say(admissionSection(admitted));
@@ -1372,6 +1416,7 @@ const SPEC = {
 				total,
 				headroom,
 				pool,
+				mirrored: { file: MIRRORED_FILE, bytes: mirrored },
 				injection: {
 					cap: INJECTION_CAP_BYTES,
 					total: injTotal,

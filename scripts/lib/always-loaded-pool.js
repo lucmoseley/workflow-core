@@ -5,6 +5,7 @@ const { caught } = require("./caught.js");
 const { PRINTED_CHARS_SHOWN } = require("./commit-sha.js");
 const { execGit } = require("./git.js");
 const { brokenError } = require("./outcome-error.js");
+const { MIRRORED_FILE, mirroredBytes } = require("./machine-mirrored-rules.js");
 
 const DEFAULT_POOL_FILES = ["CLAUDE.md", "AGENTS.md"];
 
@@ -81,11 +82,34 @@ function readPoolBytesIn(revs) {
 		const a = answers.get(spec);
 		return typeof a === "number" ? a : 0;
 	};
+	/** @param {string} spec */
+	const pooled = (spec) =>
+		spec.endsWith(`:${MIRRORED_FILE}`) && bytes(spec) > 0
+			? bytes(spec) - mirroredBytes(readBlob(spec))
+			: bytes(spec);
 	return groups.map((g) =>
 		g.commit !== null && answers.get(g.commit) === "missing"
 			? null
-			: g.files.reduce((sum, spec) => sum + bytes(spec), 0),
+			: g.files.reduce((sum, spec) => sum + pooled(spec), 0),
 	);
+}
+
+/**
+ * @param {string} spec
+ * @returns {string}
+ */
+function readBlob(spec) {
+	try {
+		return execGit(["cat-file", "blob", spec], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+	} catch (e) {
+		const { stderr, message } = caught(e);
+		throw brokenError(
+			`git would not read ${spec}: ${String(stderr ?? "").trim() || message}`,
+		);
+	}
 }
 
 /**
