@@ -40,7 +40,7 @@ const NO_LIVE_DRAW = {
 	varianceMb2: 0,
 	pssMb: 0,
 	unread: 0,
-	noProcess: 0,
+	noProcessCharged: 0,
 	noProcessUncharged: 0,
 	problems: [],
 };

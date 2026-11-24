@@ -1126,7 +1126,7 @@ describe("aggregate session draw (#2221)", () => {
 				varianceMb2: 10 * 200 ** 2,
 				pssMb: 3230,
 				unread: 0,
-				noProcess: 0,
+				noProcessCharged: 0,
 				noProcessUncharged: 0,
 				problems: [],
 			},

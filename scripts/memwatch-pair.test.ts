@@ -600,20 +600,28 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 		expect(new Set(minutes).size).toBe(minutes.length);
 	});
 
-	// #5706
+	// guess: outlives a pass by far, #5706
+	const CountedLifeS = 30;
+	// guess: room for the spawn to reach /proc, #5706
+	const CountedSettleMs = 300;
 	it.each([
 		["tsc", "a tsc through node_modules/.bin", "node_modules/.bin/tsc"],
 		["tsc", "TypeScript 6's tsc6", "node_modules/typescript/bin/tsc6"],
+		[
+			"tsc",
+			"TypeScript 7's node wrapper",
+			"node_modules/@typescript/native/bin/tsc",
+		],
 		["lander", "the queue lander", "scripts/queue-lander.js"],
-	])("counts %s for %s", async (field, _what, rel) => {
+	])("counts %s for %s (#5706)", async (field, _what, rel) => {
 		const dir = fs.mkdtempSync(path.join(tmp, "counted-"));
 		const file = path.join(dir, rel);
 		fs.mkdirSync(path.dirname(file), { recursive: true });
-		fs.writeFileSync(file, "setTimeout(() => {}, 30_000);\n");
+		fs.writeFileSync(file, `setTimeout(() => {}, ${CountedLifeS * 1000});\n`);
 		await expectCounted(field, path.basename(dir), process.execPath, [file]);
 	});
 
-	it("counts tsc for TypeScript 7's native compiler, which runs as no node", async () => {
+	it("counts tsc for TypeScript 7's native compiler, which runs as no node (#5706)", async () => {
 		const dir = fs.mkdtempSync(path.join(tmp, "counted-"));
 		const native = path.join(
 			dir,
@@ -625,7 +633,9 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 		}).trim();
 		fs.copyFileSync(sleep, native);
 		fs.chmodSync(native, 0o755);
-		await expectCounted("tsc", path.basename(dir), native, ["30"]);
+		await expectCounted("tsc", path.basename(dir), native, [
+			String(CountedLifeS),
+		]);
 	});
 
 	async function expectCounted(
@@ -638,7 +648,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 			stdio: "ignore",
 		});
 		try {
-			await setTimeout(300);
+			await setTimeout(CountedSettleMs);
 			const { lines } = await quietPass(`minute-${name}`);
 			expect(JSON.parse(lines[0])[field]).toBeGreaterThan(0);
 		} finally {
