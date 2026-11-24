@@ -46,6 +46,7 @@ const WHOLE_SHARE = 0.9;
 const PAD_MS = 3_600_000;
 // guess, #3060
 const TOP = 8;
+const BOUND_LIMBS = new Set(["fifo-part", "touched-claim"]);
 const LIMBS = [
 	"session-cap",
 	"count",
@@ -387,7 +388,12 @@ function holderOf(r) {
 	return "lander push gate";
 }
 
-/** @param {Map<string, number>} m @param {string} k @param {number} v */
+/**
+ * @template K
+ * @param {Map<K, number>} m
+ * @param {K} k
+ * @param {number} v
+ */
 const add = (m, k, v) => m.set(k, (m.get(k) ?? 0) + v);
 
 /** @param {Map<string, Map<string, number>>} m @param {string} k @param {string} limb */
@@ -651,8 +657,9 @@ function buildTallies() {
 		landerSlot: 0,
 		/** @type {Set<number>} */
 		memMinutes: new Set(),
-		/** @type {Set<Waiter>} */
-		memoryHeldPart: new Set(),
+		boundCostS: 0,
+		/** @type {Map<Waiter, number>} */
+		rungHeldPastS: new Map(),
 	};
 }
 
@@ -669,13 +676,35 @@ function tallyTick(tick, w, acc) {
 		const [first = "open", ...also] = limbsOf(e, tick, w);
 		for (const a of also) add(acc.limbAlso, `${first} / ${a}`, TICK_S);
 		add(acc.limb, first, TICK_S);
-		if (!e.whole && e.kind !== "tsc" && isRungHeld(e, tick, w))
-			acc.memoryHeldPart.add(e);
+		if (isBoundHold(e, first, tick, w)) acc.boundCostS += TICK_S;
+		tallyRungHeld(e, tick, w, acc.rungHeldPastS);
 		add(acc.limbClass, `${first} / ${e.cls}`, TICK_S);
 		addNested(acc.limbSession, e.session ?? "(no session)", first);
 		addNested(acc.limbEra, tick.era, first);
 		if (first === "count") shareSlot(tick.whole, acc.holder, acc.holderSession);
 	}
+}
+
+/**
+ * @param {Waiter} e
+ * @param {string} first
+ * @param {Tick} tick
+ * @param {Window} w
+ */
+const isBoundHold = (e, first, tick, w) =>
+	BOUND_LIMBS.has(first) &&
+	!BOUND_LIMBS.has(limbsOf(e, tick, w, { liftBound: true })[0] ?? "open");
+
+/**
+ * @param {Waiter} e
+ * @param {Tick} tick
+ * @param {Window} w
+ * @param {Map<Waiter, number>} pastS
+ */
+function tallyRungHeld(e, tick, w, pastS) {
+	if (e.whole || e.kind === "tsc" || !isRungHeld(e, tick, w)) return;
+	const pastBound = tick.t - queueTimeOf(e, tick) >= PART_PASS_AGE_MS;
+	add(pastS, e, pastBound ? TICK_S : 0);
 }
 
 /**
@@ -765,8 +794,9 @@ const isRungHeld = (e, tick, w) =>
  * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
+ * @param {{ liftBound?: boolean }} [opts]
  */
-function turnReasonsOf(e, tick, w) {
+function turnReasonsOf(e, tick, w, { liftBound = false } = {}) {
 	const tsc = e.kind === "tsc";
 	// #3163
 	const ahead = tick.waiting
@@ -813,7 +843,7 @@ function turnReasonsOf(e, tick, w) {
 			admissionOpen,
 			peerClimbHeld,
 			slots: WHOLE_SUITE_MAX,
-			now: tick.t,
+			now: liftBound ? Number.NEGATIVE_INFINITY : tick.t,
 		},
 		{
 			partPass: tick.t >= PART_PASS_FROM,
@@ -832,8 +862,9 @@ const laneOf = (e) => e.lane ?? partLaneOf(partKindOf(e.kind));
  * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
+ * @param {{ liftBound?: boolean }} [opts]
  */
-function limbsOf(e, tick, w) {
+function limbsOf(e, tick, w, opts) {
 	if (tick.capped.has(e)) return ["session-cap"];
 	const memory = isMemoryHeld(e, tick, w);
 	const climb = isClimbHeld(e, tick, w);
@@ -855,7 +886,7 @@ function limbsOf(e, tick, w) {
 					load:
 						w.loadCeiling !== null && (tick.mem?.load ?? 0) >= w.loadCeiling,
 				};
-	for (const reason of turnReasonsOf(e, tick, w)) held[reason] = true;
+	for (const reason of turnReasonsOf(e, tick, w, opts)) held[reason] = true;
 	const limbs = LIMBS.filter((l) => held[l]);
 	return limbs.length > 0 ? limbs : ["open"];
 }
@@ -1061,13 +1092,25 @@ function replay(logs, w) {
 			.filter((e) => e.run)
 			.map((e) => e.gap)
 			.sort((a, b) => a - b),
-		memoryHeldPart: [...acc.memoryHeldPart]
-			.filter((e) => e.reason === "opened" && e.waitS > 0)
-			.map((e) => e.waitS)
-			.sort((a, b) => a - b),
+		boundCostS: acc.boundCostS,
+		...rungHeldOf(acc.rungHeldPastS),
 		unread: logs.unread,
 		memMinutes: acc.memMinutes.size,
 		minutes: Math.ceil((w.until - w.since) / 60_000),
+	};
+}
+
+/** @param {Map<Waiter, number>} held */
+function rungHeldOf(held) {
+	const opened = [...held].filter(
+		([e]) => e.reason === "opened" && e.waitS > 0,
+	);
+	return {
+		rungHeldPart: opened.length,
+		pastBoundS: opened
+			.map(([, s]) => s)
+			.filter((s) => s > 0)
+			.sort((a, b) => a - b),
 	};
 }
 
@@ -1099,6 +1142,13 @@ const hours = (s) => (s / 3600).toFixed(2);
 const quantileOf = (sorted, p) =>
 	sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? 0;
 
+/**
+ * @param {number} part
+ * @param {number} whole
+ */
+const percentOf = (part, whole) =>
+	`${whole > 0 ? ((100 * part) / whole).toFixed(1) : "0.0"}%`;
+
 /** @param {Map<string, number>} m */
 const byValue = (m) => [...m].sort((a, b) => b[1] - a[1]);
 
@@ -1108,7 +1158,7 @@ const byValue = (m) => [...m].sort((a, b) => b[1] - a[1]);
  */
 function render(r, w) {
 	const total = [...r.limb.values()].reduce((s, v) => s + v, 0);
-	const held = r.memoryHeldPart;
+	const past = r.pastBoundS;
 	const lines = [
 		`# Suite queue wait replay, ${new Date(w.since).toISOString()} to ${new Date(w.until).toISOString()}`,
 		"",
@@ -1144,7 +1194,8 @@ function render(r, w) {
 			return `Recorded session-cap holds, ${k} waits: ${p.held} held behind their own session's ${SESSION_PLACES} places, ${hours(p.heldS)} h, ${p.atBound} refused at the queue's wait bound (#5595).`;
 		}),
 		"",
-		`Memory-held part waits, the sample PART_PASS_AGE_MS is derived from (#3361): ${held.length} opened part waits the memory limb held at some tick, wait p50 ${quantileOf(held, 0.5)} s, p90 ${quantileOf(held, 0.9)} s, max ${held.at(-1) ?? 0} s, against a bound of ${PART_PASS_AGE_MS / 1000} s now.`,
+		`The part-pass bound's cost (#5679): with PART_PASS_AGE_MS lifted, ${hours(r.boundCostS)} h of fifo-part and touched-claim time goes, ${percentOf(r.boundCostS, r.waitS)} of the window's ${hours(r.waitS)} h summed wait. Labels only, so an upper limit: a waiter freed this way would take memory a held head needs.`,
+		`What the bound protects (#5679): ${past.length} of the ${r.rungHeldPart} opened part waits the rung (memory or climb) held were still rung-held at PART_PASS_AGE_MS (${PART_PASS_AGE_MS / 1000} s) of age, ${percentOf(past.length, r.rungHeldPart)}; their rung-held time past it p50 ${quantileOf(past, 0.5)} s, p90 ${quantileOf(past, 0.9)} s.`,
 		"",
 		"## Whole slot",
 		"",
