@@ -136,7 +136,7 @@ function isGitlink(rev, file, cwd, timeout) {
 				`${String(staged.stderr ?? "").trim() || staged.error?.message}`,
 		);
 	return parseIndexEntries(staged.stdout).some(
-		(e) => e.mode === GIT_MODE.gitlink,
+		(e) => e.path === file && e.mode === GIT_MODE.gitlink,
 	);
 }
 

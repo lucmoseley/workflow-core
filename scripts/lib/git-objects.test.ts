@@ -239,7 +239,7 @@ describe("parseIndexEntries — one git ls-files --stage line each (#5737)", () 
 		]);
 	});
 
-	it("refuses a line it cannot parse", () => {
+	it("refuses a line it cannot parse, naming the line", () => {
 		let thrown: unknown;
 		try {
 			parseIndexEntries(`100644 ${oid}\tno-stage\0`);

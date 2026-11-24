@@ -12,6 +12,7 @@ const { byCodeUnit } = require("./by-code-unit.js");
 const { caught, orFallback } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
 const { execGit, gitOrNull } = require("./git.js");
+const { parseIndexEntries } = require("./git-objects.js");
 const { readMergeHeadLines } = require("./merge-heads.js");
 const { readCommitOrBroken } = require("./commit-sha.js");
 const { brokenError } = require("./outcome-error.js");
@@ -1321,13 +1322,12 @@ function readConflictedPaths() {
 	try {
 		return [
 			...new Set(
-				execGit(["ls-files", "--unmerged", "-z"], {
-					encoding: "utf8",
-					stdio: ["ignore", "pipe", "ignore"],
-				})
-					.split("\0")
-					.filter(Boolean)
-					.map((l) => l.slice(l.indexOf("\t") + 1)),
+				parseIndexEntries(
+					execGit(["ls-files", "--unmerged", "-z"], {
+						encoding: "utf8",
+						stdio: ["ignore", "pipe", "ignore"],
+					}),
+				).map((e) => e.path),
 			),
 		];
 	} catch {
