@@ -177,7 +177,7 @@ const ROWS: Row[] = [
 		setup: subagent,
 		quotes: [CORE],
 		marks: "Timed checks under two minutes apart",
-		measured: 541,
+		measured: 583,
 		ceiling: 591,
 	},
 	{
@@ -189,7 +189,7 @@ const ROWS: Row[] = [
 		setup: subagent,
 		quotes: [CORE],
 		marks: "KILLED or UNKNOWN twice",
-		measured: 715,
+		measured: 757,
 		ceiling: 765,
 	},
 	{
@@ -201,7 +201,7 @@ const ROWS: Row[] = [
 		setup: subagent,
 		quotes: [CORE],
 		marks: "A no-op like `true` waits on nothing",
-		measured: 545,
+		measured: 587,
 		ceiling: 595,
 	},
 	{
@@ -214,7 +214,7 @@ const ROWS: Row[] = [
 		setup: subagent,
 		quotes: [CORE],
 		marks: "Re-reading a background job's output file",
-		measured: 569,
+		measured: 611,
 		ceiling: 619,
 	},
 	{
@@ -227,7 +227,7 @@ const ROWS: Row[] = [
 		setup: subagent,
 		quotes: [CORE],
 		marks: "Polling ListAgents is a wait loop",
-		measured: 532,
+		measured: 574,
 		ceiling: 582,
 	},
 	{
@@ -241,6 +241,20 @@ const ROWS: Row[] = [
 		marks: "DETACHED INSIDE THE SHELL",
 		measured: 923,
 		ceiling: 945,
+	},
+	{
+		text: "the background core's detached-suite refusal, to a subagent (#5724)",
+		guard: "guard-dispatch.js",
+		only: "guard-suite-background",
+		decision: "deny",
+		input: { command: "npm run test &" },
+		setup: () => ({
+			payload: { hook_event_name: "PreToolUse", agent_id: "x1" },
+		}),
+		quotes: ["npm run test", CORE],
+		marks: "in-flight-runs.js wait",
+		measured: 1478,
+		ceiling: 1528,
 	},
 	{
 		text: "the concurrency refusal handing back a queued launch",

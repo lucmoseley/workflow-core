@@ -3,10 +3,10 @@
 import { describe, expect, it } from "vitest";
 import { SUBAGENT_WAIT } from "./wait-text.js";
 
-describe("SUBAGENT_WAIT", () => {
-	it("names the wait for a test run the 30 s timeout moved to the background (#5724)", () => {
+describe("a subagent's wait text (#5724)", () => {
+	it("names the wait for a test run the 30 s timeout moved to the background", () => {
 		expect(SUBAGENT_WAIT).toContain(
-			"a test run moved past `timeout: 30000` with `node scripts/in-flight-runs.js wait` re-run until `DONE`",
+			"a test run moved past `timeout: 30000` with `node scripts/in-flight-runs.js wait` in the foreground with `timeout: 600000`, re-run until `DONE`",
 		);
 	});
 
