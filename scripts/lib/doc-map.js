@@ -1295,11 +1295,14 @@ function childRel(rel, name) {
 }
 
 /**
- * @param {import("node:child_process").ExecFileSyncOptions} opts
+ * @param {{ quiet: boolean }} how
  * @returns {{ stage: string, path: string }[]}
  */
-function readIndexEntries(opts) {
-	return String(execGit(["ls-files", "--stage", "-z"], opts))
+function readIndexEntries({ quiet }) {
+	return execGit(["ls-files", "--stage", "-z"], {
+		encoding: "utf8",
+		...(quiet ? { stdio: ["ignore", "pipe", "ignore"] } : {}),
+	})
 		.split("\0")
 		.filter(Boolean)
 		.map((line) => {
@@ -1311,9 +1314,7 @@ function readIndexEntries(opts) {
 /** @param {string | null} [root] */
 function readTrackedFiles(root) {
 	if (root) return walkTracked(root);
-	return [
-		...new Set(readIndexEntries({ encoding: "utf8" }).map((e) => e.path)),
-	];
+	return [...new Set(readIndexEntries({ quiet: false }).map((e) => e.path))];
 }
 
 function readUntrackedFiles() {
@@ -1333,10 +1334,7 @@ function readConflictedPaths() {
 	try {
 		return [
 			...new Set(
-				readIndexEntries({
-					encoding: "utf8",
-					stdio: ["ignore", "pipe", "ignore"],
-				})
+				readIndexEntries({ quiet: true })
 					.filter((e) => e.stage !== "0")
 					.map((e) => e.path),
 			),
