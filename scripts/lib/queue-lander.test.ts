@@ -3920,6 +3920,85 @@ describe("a base holding gating guard-registry faults (#4807)", () => {
 		expect(remote.refs.size).toBe(0);
 	});
 
+	it("takes a ref waiting outside a stale-base batch into it, so the re-anchor that ref carries lands, where with none waiting it ends the run saying main is stale (#5681)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			fix: { sha: "f1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		seed(disk, {
+			...redPathAtRest(),
+			members: [{ name: "a", sha: "a1", pushedAt: 1 }],
+			deferred: [],
+			dropped: [],
+			onto: "m0",
+			integration: null,
+			phase: "merging",
+		});
+
+		const { end, actions } = await land(remote, disk, {
+			merge: staleUnlessFixed(remote),
+			verdict: () => ({ kind: "green", run: 1, cleared: [] }),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(
+			actions.flatMap((a) =>
+				a.kind === "take-waiting" ? [buildQueueActionLine(a)] : [],
+			),
+		).toEqual([
+			"take-waiting queue/fix@f1: the batch's base is stale, and a waiting ref may carry the re-anchor",
+		]);
+		expect(disk.drops).toEqual([]);
+		expect(remote.main).toContain("f1");
+		expect(remote.main).toContain("a1");
+		expect(remote.refs.size).toBe(0);
+	});
+
+	it("leaves a held search's members at their held tips out of a stale-base batch, so only a ref pushed since is taken (#5681)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			h: { sha: "h1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		const at = {
+			...redPathAtRest(),
+			deferred: [],
+			dropped: [],
+			onto: "m0",
+		};
+		disk.pipeline = {
+			line: [
+				{
+					...at,
+					slot: 0,
+					members: [{ name: "a", sha: "a1", pushedAt: 1 }],
+					integration: null,
+					phase: "merging",
+				},
+			],
+			search: {
+				...at,
+				slot: 1,
+				members: [{ name: "h", sha: "h1", pushedAt: 2 }],
+				integration: "merge(m0;h1)",
+				phase: "held",
+				hold: { kind: "base", main: "m0", files: [], ticket: 7 },
+			},
+			depth: 2,
+		};
+
+		const { end, actions } = await land(remote, disk, {
+			merge: staleUnlessFixed(remote),
+		});
+
+		expect(end.reason).toMatch(/^held: main is stale/);
+		expect(kinds(actions)).not.toContain("take-waiting");
+		expect(disk.pipeline?.line[0]?.members).toEqual([
+			{ name: "a", sha: "a1", pushedAt: 1 },
+		]);
+	});
+
 	it("lands the batch once a ref carrying the re-anchor waits beside the rest", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
