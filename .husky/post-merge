@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+
+set -e
+# shellcheck source=scripts/lib/hook-root.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
+# shellcheck source=scripts/lib/hook-bound.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
+
+toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+# shellcheck source=scripts/lib/relink-store.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/relink-store.sh" ] || . "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/relink-store.sh"
+! command -v wfc_relink_store >/dev/null 2>&1 || wfc_relink_store "$toplevel"
+
+script="${WFC_PLUGIN_ROOT:-$toplevel}/scripts/keep-hook-shims.js"
+[ -f "$script" ] || exit 0
+command -v node >/dev/null 2>&1 || exit 0
+
+(
+  unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
+  node "$script" --lazy
+)

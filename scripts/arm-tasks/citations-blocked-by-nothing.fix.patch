@@ -1,0 +1,112 @@
+diff --git a/scripts/check-issue-citations.js b/scripts/check-issue-citations.js
+index b48dc58d5b68003a4ddcc4f1e4c249d3e90da245..ca8a9bc136d90dd5d9533950280aa03d6e1bed43 100644
+--- a/scripts/check-issue-citations.js
++++ b/scripts/check-issue-citations.js
+@@ -15,6 +15,22 @@ const HEADING = /^\s{0,3}#{1,6}\s/;
+ const CITED = /#\d+\s*(?:\([^)]*\))?/g;
+ const REFERRING_PHRASE =
+ 	/\bthe\s+[\w'-]+(?:\s+[\w'-]+){0,3}\s+(ticket|decision|route|question|audit|check|clean|issue)\b/i;
++const NO_BLOCKER = new RegExp(
++	`${BLOCKER_LINE.source}(?:(?<!by)\\s+[^\\W_]+(?=[*_]*:))?[\\s:*_\`'"(\\[—–-]*` +
++		`(?:none|nothing|no blockers?)\\b[*_\`'")\\]]*\\s*(?:$|([.;:,(—–-]))`,
++	"i",
++);
++
++/** @param {string} line */
++function statesNoBlocker(line) {
++	const m = NO_BLOCKER.exec(line);
++	if (!m) return false;
++	if (!m[1] || m[1] === ".") return true;
++	const [sentence = ""] = line
++		.slice(m.index + m[0].length)
++		.split(/[.?!](?:\s|$)/);
++	return !REFERRING_PHRASE.test(sentence.replace(CITED, " "));
++}
+ 
+ /** @param {string} text */
+ function numberlessBlockers(text) {
+@@ -23,7 +39,7 @@ function numberlessBlockers(text) {
+ 		const line = raw.trim();
+ 		if (!line || HEADING.test(line)) continue;
+ 		if (!BLOCKER_LINE.test(line)) continue;
+-		if (/\bnone\b/i.test(line)) continue;
++		if (statesNoBlocker(line)) continue;
+ 		if (/#\d+/.test(line) && !REFERRING_PHRASE.test(line.replace(CITED, " ")))
+ 			continue;
+ 		found.push(line.slice(0, 120));
+diff --git a/scripts/check-issue-citations.test.ts b/scripts/check-issue-citations.test.ts
+index 67da706d42ffff8c18b7b82213cfc7acd2bb8687..8a3f5628442d9a3ecfdb71beff42f3aff62b9851 100644
+--- a/scripts/check-issue-citations.test.ts
++++ b/scripts/check-issue-citations.test.ts
+@@ -196,13 +196,58 @@ describe("number-less blockers", () => {
+ 		expect(r.out).toContain("OK:");
+ 	});
+ 
+-	it("ignores an explicit `Blocked by: None`", async () => {
+-		const stub = stubGh([
+-			{ number: 70, body: "Blocked by: None — can start immediately." },
+-		]);
+-		expect((await run([], stub)).status).toBe(0);
++	it.each([
++		"Blocked by: None — can start immediately.",
++		"Blocked by nothing.",
++		"Blocked by nothing: every row is on disk.",
++		"**Blocked by nothing**, but it must not land before the rewrite.",
++		"**Blocking question:** none.",
++		"Blocked by: none, can start",
++		"Blocked by none: the rule has landed.",
++		"Blocked by (none)",
++		"Blocked by `none`",
++		'Blocked by "none".',
++		"Blocked by [none]",
++		"Blocked by — none",
++		"Blocked by: **None**",
++		"Blocking: no blocker — can start now.",
++		"Blocked by: no blockers.",
++	])(
++		"ignores `%s`, which states there is no blocker (#1656, #2389)",
++		async (body) => {
++			const r = await run([], stubGh([{ number: 70, body }]));
++			expect(r.status).toBe(0);
++			expect(r.out).toContain("OK:");
++		},
++	);
++
++	it("still flags `Blocked by the scope ticket.`, whose blocker is real but unnumbered", async () => {
++		const stub = stubGh([{ number: 72, body: "Blocked by the scope ticket." }]);
++		const r = await run([], stub);
++		expect(r.status).toBe(1);
++		expect(r.out).toContain("NO-NUMBER");
++		expect(r.out).toContain("scope ticket");
+ 	});
+ 
++	it.each([
++		"Blocked by the scope ticket; nothing else.",
++		"Blocked by nothing but the audit ticket.",
++		"Blocked by the nav-layer ticket, none of the others.",
++		"Blocked by nothing, except the scope ticket.",
++		"Blocked by none, only the audit ticket.",
++		"Blocks: nothing, but the nav-layer ticket waits on it",
++		"Blocked by nothing: the scope ticket must land first.",
++		"Blocked by upstream: nothing.",
++	])(
++		"still flags `%s`, a described blocker beside `nothing` or `none` (#2389)",
++		async (body) => {
++			const r = await run([], stubGh([{ number: 73, body }]));
++			expect(r.status).toBe(1);
++			expect(r.out).toContain("NO-NUMBER");
++			expect(r.out).toContain(body);
++		},
++	);
++
+ 	it("flags a half-cited line as NO-NUMBER: one numbered blocker beside a described one", async () => {
+ 		const stub = stubGh([
+ 			{
+@@ -213,6 +258,7 @@ describe("number-less blockers", () => {
+ 		const r = await run([], stub);
+ 		expect(r.status).toBe(1);
+ 		expect(r.out).toContain("NO-NUMBER");
++		expect(r.out).toContain("nav-layer ticket");
+ 	});
+ 
+ 	it("accepts a fully numbered line that still contains ordinary prose", async () => {

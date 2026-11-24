@@ -1,0 +1,286 @@
+#!/usr/bin/env sh
+
+set -e
+# shellcheck source=scripts/lib/hook-root.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
+# shellcheck source=scripts/lib/hook-bound.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
+command -v hook_bound >/dev/null 2>&1 || hook_bound() { "$@"; }
+
+tg_stamp="${WFC_TEST_STAMP:-}"
+mh_stamp="${WFC_MUTATION_STAMP:-}"
+unset WFC_TEST_STAMP WFC_MUTATION_STAMP
+
+PATH="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/node_modules/.bin:$PATH"
+
+# shellcheck source=scripts/lib/precommit-gate.sh
+. "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/precommit-gate.sh
+# shellcheck source=scripts/lib/local-hook.sh
+. "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/local-hook.sh
+
+branch="$(git symbolic-ref --quiet --short HEAD || echo 'a detached HEAD')"
+if [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] &&
+  [ "$branch" != "main" ] &&
+  [ -z "${WFC_ALLOW_BRANCH:-}" ]; then
+  echo "pre-commit: the shared working tree is on '$branch', not main." >&2
+  echo "  The tree is repo-global: committing here lands your work on another session's branch (mantahostels#87)." >&2
+  echo "  Return it with 'git checkout main', and do branch work in a throwaway worktree." >&2
+  echo "  Deliberate? The escape is the founder's to set, never an agent's (workflow-core#916): an agent stops and asks. The founder runs, from their own terminal, WFC_ALLOW_BRANCH=1 git commit -m '…' -- <paths>  — never --no-verify, which also skips gitleaks." >&2
+  exit 1
+fi
+
+wfc_gates=all
+case "${1-}" in
+  --gates=merge | --gates=batch | --gates=tested) wfc_gates="${1#--gates=}" ;;
+esac
+
+node "${WFC_PLUGIN_ROOT:-.}"/scripts/precommit-dispatch.js "$@" || exit "$?"
+
+if [ "$wfc_gates" = merge ]; then
+  exit 0
+fi
+
+if ! lander_batch && declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command check_staged; then
+  blank=$(printf '\t\n_')
+  blank=${blank%_}
+  case "$_declared_command" in
+    'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js'*) ;;
+    *)
+      case " $_declared_command " in
+        *npm* | *yarn* | *bun* | *npx* | *biome* | *parallel* | *[\\\'\"$\`\{*?\[]* | \
+          *["$blank"\ /\;\&\|\(]sh["$blank"\ \;\&\|\)\<\>]* | *["$blank"\ /\;\&\|\(]?sh["$blank"\ \;\&\|\)\<\>]* | *["$blank"\ /\;\&\|\(]?ash["$blank"\ \;\&\|\)\<\>]*)
+          node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/infer-commands.js check-staged "$_declared_command" || exit "$?"
+          ;;
+      esac
+      ;;
+  esac
+  sh -c "$_declared_command" || exit 1
+fi
+
+hook_bound "${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1
+
+if armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md)$' &&
+  ! drops_module roadmap digest-version; then
+  staged_gate digest-version live status \
+    'docs/reference-roadmap.html docs/roadmap-digest.md' \
+    'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-digest-version.js "$sg_dir/reference-roadmap.html" "$sg_dir/roadmap-digest.md"' \
+    ""
+fi
+
+if armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md|\.claude/skills/roadmap-edit/scripts/gen-roadmap-digest\.js)$' &&
+  ! drops_module roadmap digest-render; then
+  dr_gen_rel=.claude/skills/roadmap-edit/scripts/gen-roadmap-digest.js
+  dr_paths='docs/reference-roadmap.html docs/roadmap-digest.md'
+  dr_gen='"$sg_dir/gen-roadmap-digest.js"'
+  dr_hint="$dr_gen_rel"
+  dr_plugin="$(cd "${WFC_PLUGIN_ROOT:-.}" 2>/dev/null && pwd -P)" || :
+  dr_canon="$(cd "$(dirname "$(git rev-parse --git-common-dir)")" && pwd -P)"
+  if [ -n "${WFC_PLUGIN_ROOT:-}" ] &&
+    [ "$dr_plugin" != "$(pwd -P)" ] && [ "$dr_plugin" != "$dr_canon" ]; then
+    dr_gen="\"\$WFC_PLUGIN_ROOT/$dr_gen_rel\""
+    dr_hint="\"$WFC_PLUGIN_ROOT/$dr_gen_rel\""
+  else
+    dr_paths="$dr_paths $dr_gen_rel"
+  fi
+  staged_gate digest-render hold status "$dr_paths" \
+    'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-digest-render.js "$sg_dir/reference-roadmap.html" "$sg_dir/roadmap-digest.md" '"$dr_gen" \
+    "  Those paths are staged copies. The digest is generated, never hand-edited:
+  node $dr_hint docs/reference-roadmap.html --out docs/roadmap-digest.md"
+fi
+
+if armed '^skills-lock\.json$'; then
+  staged_gate upstream-record live status \
+    "opt:skills-lock.json opt:.claude/skills/THIRD-PARTY-NOTICES.md opt:.agents/vendored-upstream-pass.json opt:.agents/vendored-skill-edits.json" \
+    'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-vendored-skills.js --covered "$sg_dir"' ""
+fi
+
+if armed '^(docs/doc-map\.md|docs/doc-map-superseded\.json)$'; then
+  staged_gate superseded-needle hold 1 \
+    'docs/doc-map.md opt:docs/doc-map-superseded.json' \
+    'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-superseded-values.js "$sg_dir/doc-map.md" --data-dir "$sg_dir" --broken-only' \
+    "  Those paths are staged copies of docs/doc-map.md and docs/doc-map-superseded.json.
+  Fix: give the entry a key in docs/doc-map-superseded.json whose needles are the
+  values it supersedes, and commit the JSON alongside the map."
+fi
+
+if ! lander_batch && armed '\.(js|ts|tsx|mts)$|^tsconfig\.json$'; then
+  if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command typecheck; then
+    tc_cmd="$_declared_command"
+    tc_status=0
+    tsc_out="$(WFC_TSC_NO_WAIT=1 sh -c "$tc_cmd" 2>&1)" || tc_status=$?
+    if [ "$tc_status" -eq 75 ]; then
+      echo "pre-commit: the type-check slot is held — $tc_cmd skipped, not waited for, as this commit holds .git/index.lock (workflow-core#3278). ci.yml's Typecheck step is the gate." >&2
+    elif [ "$tc_status" -ne 0 ]; then
+      echo "pre-commit: $tc_cmd is RED — reporting only, this commit is NOT blocked." >&2
+      printf '%s\n' "$tsc_out" >&2
+      echo "  tsc reads the whole working tree, so the error may be in an unsaved file this commit does not carry (mantahostels#273)." >&2
+      echo "  Re-run '$tc_cmd' before believing it. ci.yml's Typecheck step is the gate." >&2
+      printf '%s\n' "$tsc_out" | node "${WFC_PLUGIN_ROOT:-.}"/scripts/record-typecheck-red.js -- "$tc_cmd" || true
+    fi
+  fi
+fi
+
+if ! lander_batch && armed '^(app|lib)/.*\.(ts|tsx)$|^scripts/.*\.(js|mjs|cjs|ts)$'; then
+  eslint_paths="$(armed_live)"
+  if [ -n "$eslint_paths" ] &&
+    declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command lint; then
+    if ! command -v eslint >/dev/null 2>&1; then
+      echo "SKIP: commands.lint is declared, but eslint is not on PATH" >&2
+    else
+      with_lines "$eslint_paths" eslint --max-warnings 0 --no-warn-ignored --no-error-on-unmatched-pattern || {
+        echo "pre-commit: ESLint failed on this commit's own app/, lib/ or scripts/ paths." >&2
+        echo "  These are this commit's own staged files: the gate reads no others (mantahostels#1133)." >&2
+        exit 1
+      }
+    fi
+  fi
+fi
+
+if ! lander_batch && armed_shell; then
+  if tool_gate shellcheck "see CLAUDE.md §Gotchas for the aarch64 binary this machine uses."; then
+    with_lines "$tool_paths" hook_bound sh "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/serialised.sh pre-commit shellcheck shellcheck -x --severity=style --exclude=SC2016 || {
+      sc_rc=$?
+      echo "pre-commit: shellcheck failed on this commit's own shell paths." >&2
+      echo "  These are this commit's own staged files: the gate reads no others (mantahostels#1134)." >&2
+      echo "  A broken guard fails OPEN, so nothing else would have reported this before CI." >&2
+      exit "$sc_rc"
+    }
+  fi
+fi
+
+if ! lander_batch && armed '^\.github/workflows/.*\.ya?ml$'; then
+  if tool_gate actionlint "see package.json's comments[\"scripts.check:actions\"] for the release to fetch."; then
+    with_lines "$tool_paths" hook_bound actionlint || {
+      echo "pre-commit: actionlint failed on this commit's own workflow paths." >&2
+      echo "  These are this commit's own staged files: the gate reads no others (mantahostels#1137)." >&2
+      exit 1
+    }
+  fi
+fi
+
+if ! lander_batch && armed '\.py$' && [ -n "$(armed_live --index)" ]; then
+  if ! command -v "${WFC_RUFF:-ruff}" >/dev/null 2>&1; then
+    lint_probe="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/formatters.js lint-missing)" || lint_probe=""
+    case "$lint_probe" in
+      lint:skip) ;;
+      lint:refuse) exit 2 ;;
+      *)
+        echo "pre-commit: the ruff probe failed, so the ruff gate refused this commit." >&2
+        exit 2
+        ;;
+    esac
+  else
+    ruff_cfg="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/formatters.js ruff-config)"
+    node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-ruff-introduced.js ${ruff_cfg:+--config "$ruff_cfg"} || {
+      ri_rc=$?
+      if [ "$ri_rc" -ne 1 ]; then
+        echo "pre-commit: the ruff gate refused this commit, its checker unable to run." >&2
+        echo "  This is the tool, not your change: repair what the line above names, and commit again." >&2
+      else
+        echo "pre-commit: the ruff gate refused this commit's own Python paths." >&2
+        echo "  Only findings HEAD's copy lacks are charged; ones already on it are not (workflow-core#122)." >&2
+        echo "  Machine-fixable findings: ruff check --fix <path>. Rule set: ${ruff_cfg:-your own ruff config}." >&2
+        echo "  Fix the findings — never delete the code to pass (workflow-core#1022). Vendored or third-party code alone goes in \`ruffExclude\` in .claude/workflow-core.json: it is not this repo's code to fix, and editing it forks it from upstream (workflow-core#1463)." >&2
+      fi
+      exit "$ri_rc"
+    }
+  fi
+fi
+
+if ! lander_batch && armed '\.py$' && [ -n "$(armed_live --index)" ]; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-swallowed-errors.js || {
+    se_rc=$?
+    if [ "$se_rc" -ne 1 ]; then
+      echo "pre-commit: the swallowed-error gate refused this commit, its checker unable to run." >&2
+    else
+      echo "pre-commit: the swallowed-error gate refused this commit's own Python paths." >&2
+      echo "  Let the error raise or exit, or hand it to fail_open from scripts/lib/fail_open.py with a test pinning the fail-open (base §N5)." >&2
+    fi
+    exit "$se_rc"
+  }
+fi
+
+if ! lander_batch && armed "\.py\$|$GATE_SHELL_CANDIDATE" && [ -n "$(armed_live --index)" ]; then
+  fmt_probe="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/formatters.js skip-flags)" || fmt_probe=""
+  case "$fmt_probe" in
+    flags:*) fmt_skip="${fmt_probe#flags:}" ;;
+    *)
+      echo "pre-commit: the formatter probe failed, so the format gate refused this commit." >&2
+      exit 2
+      ;;
+  esac
+  with_lines "$fmt_skip" node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-format-staged.js || {
+    fs_rc=$?
+    if [ "$fs_rc" -ne 1 ]; then
+      echo "pre-commit: the format gate refused this commit, its checker unable to run." >&2
+    else
+      echo "pre-commit: the format gate refused this commit's own shell or Python paths." >&2
+    fi
+    exit "$fs_rc"
+  }
+fi
+
+: end of the gates commit-paths runs before its suite
+
+if ! lander_batch && ! lander_tested && declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-gate.js commit; then
+  tg_cmd="$_declared_command"
+  if ! tg_why="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/commit-key.js stand-down test "$tg_stamp" 2>&1)"; then
+    echo "pre-commit: running '$tg_cmd' in the lock — no pre-lock green stands it down: $tg_why." >&2
+    tg_rc=0
+    tg_inplace=0
+    tg_out="$(command node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/isolated-worktree.js run --gate "$tg_cmd")" || tg_rc=$?
+    case "$tg_rc" in
+      0 | 2 | 3) ;;
+      *)
+        printf '%s\n' "$tg_out" >&2
+        echo "pre-commit: scripts/lib/isolated-worktree.js failed (exit $tg_rc) before the suite gave a verdict, so this commit is refused." >&2
+        echo "  This is the runner, not your change: read its output above, and commit again once it runs." >&2
+        exit 2
+        ;;
+    esac
+    if [ "$tg_rc" -eq 2 ]; then
+      echo "pre-commit: no worktree holds this commit's tree alone, so '$tg_cmd' runs in this checkout." >&2
+      tg_rc=0
+      tg_inplace=1
+      if ! tg_tree="$(git write-tree)"; then
+        echo "pre-commit: git could not write this commit's tree to record the declared test command's run against, before the suite gave a verdict, so this commit is refused." >&2
+        echo "  Commit again once \`git write-tree\` runs in this checkout." >&2
+        exit 2
+      fi
+      tg_out="$(command node "${WFC_PLUGIN_ROOT:-.}"/scripts/queue-run.js --gate --tree "$tg_tree" -- "$tg_cmd" </dev/null)" || tg_rc=$?
+    fi
+    if [ "$tg_rc" -ne 0 ]; then
+      printf '%s\n' "$tg_out" >&2
+      echo "pre-commit: the declared test command is RED — '$tg_cmd' — so this commit is refused." >&2
+      if [ "$tg_inplace" -eq 1 ]; then
+        echo "  It ran in this checkout, so the red may be an unsaved edit this commit does not carry (mantahostels#273)." >&2
+        echo "  Fix the failing test, or save or set aside that edit, and commit again once it is green." >&2
+      else
+        echo "  It ran on HEAD plus this commit's own changes, so no unsaved edit outside them reached it (workflow-core#1766): the red is in HEAD, in this commit, or in a gitignored file the suite needs that its worktree lacks." >&2
+        echo "  Fix the failing test and commit again. Where the red is a gitignored file the worktree lacks, name it in \`worktreeLinks\` in .claude/workflow-core.json (workflow-core#1767)." >&2
+      fi
+      exit 1
+    fi
+  fi
+fi
+
+mh_why=""
+if [ -z "$mh_stamp" ] || ! mh_why="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/commit-key.js stand-down mutation "$mh_stamp" 2>&1)"; then
+  if [ -n "$mh_why" ]; then
+    echo "pre-commit: running the mutation hold in the lock — no pre-lock green stands it down: $mh_why." >&2
+  fi
+  command node "${WFC_PLUGIN_ROOT:-.}"/scripts/mutation-hold-gate.js || exit "$?"
+fi
+
+if [ -f .husky/pre-commit.local ]; then
+  wfc_local_hook_refuse_missing .husky/pre-commit.local \
+    "pre-commit: .husky/pre-commit.local calls a script this repo does not have:"
+  # shellcheck source=/dev/null
+  . ./.husky/pre-commit.local
+fi
+
+pc_stamp_dir="$(git rev-parse --absolute-git-dir 2>/dev/null || :)"
+if [ -n "$pc_stamp_dir" ]; then
+  git write-tree >"$pc_stamp_dir/wfc-precommit-stamp" 2>/dev/null ||
+    rm -f "$pc_stamp_dir/wfc-precommit-stamp"
+fi

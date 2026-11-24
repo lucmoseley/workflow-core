@@ -1,0 +1,3 @@
+A SUBAGENT TOLD TO "SEARCH THE REPO" SEARCHES FILES ONLY — NAME THE TRACKER IN ITS PROMPT.
+
+Tell the agent to run `gh issue list --repo <tracker> --state all --search "<term>"` for every tracker the `corpus` key of `.claude/workflow-core.json` lists, and to read the resolution comments on every hit (`docs/agents/issue-tracker.md` §Where decisions get written).

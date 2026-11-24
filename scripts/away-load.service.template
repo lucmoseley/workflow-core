@@ -1,0 +1,21 @@
+[Unit]
+Description=Away-only reset-precondition load, for the page-combining test (#5472)
+# recover's git fsck after a reset runs before the loop relaunches the sessions
+# the reset killed.
+Before=refill-loop-boot.service
+
+[Service]
+Type=simple
+ExecStartPre=@SHELL@ -lic "exec node @SCRIPT@ recover"
+ExecStart=@SHELL@ -lic "exec node @SCRIPT@ run"
+ExecStopPost=@SHELL@ -lic "exec node @SCRIPT@ sweep"
+WorkingDirectory=%h
+# recover's fsck of every repo under ~, each bounded at 30 minutes: 11 repos
+# on 21 Nov, so 5.5 h at worst. A start cut off re-runs it whole.
+TimeoutStartSec=6h
+Restart=on-failure
+# Untraced: past memwatch's minute, so a restart reads a fresh reading.
+RestartSec=60
+
+[Install]
+WantedBy=default.target

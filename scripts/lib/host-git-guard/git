@@ -1,0 +1,212 @@
+#!/bin/bash
+# #3399
+
+# guess, #3400
+max_depth=32
+depth=$((${WFC_HOST_GIT_GUARD_DEPTH:-0} + 1))
+((depth <= max_depth)) || {
+  echo "host-git-guard: entered $depth deep: a git on PATH calls this guard back (#3400)" >&2
+  exit 127
+}
+export WFC_HOST_GIT_GUARD_DEPTH=$depth
+
+# code-edges caller: real
+real=
+before=
+mine=
+IFS=: read -ra dirs <<<"$PATH"
+for d in "${dirs[@]}"; do
+  [[ -x "$d/git" ]] || continue
+  if [[ "$d/git" -ef "${BASH_SOURCE[0]}" ]]; then
+    mine=1
+  elif [[ "${d%/}" == */host-git-guard ]]; then
+    continue
+  elif [[ -n "$mine" ]]; then
+    real="$d/git"
+    break
+  else
+    before="${before:-$d/git}"
+  fi
+done
+[[ -n "$mine" ]] || real="$before"
+[[ -n "$real" || ! -x "$WFC_HOST_GIT_REAL" || "$WFC_HOST_GIT_REAL" -ef "${BASH_SOURCE[0]}" ]] ||
+  real=$WFC_HOST_GIT_REAL
+[[ -n "$real" ]] || {
+  echo "host-git-guard: no git on PATH after this one" >&2
+  exit 127
+}
+
+i=0
+sub=
+takes=
+for a in "$@"; do
+  i=$((i + 1))
+  if [[ -n "$takes" ]]; then
+    takes=
+    continue
+  fi
+  case "$a" in
+    -C | -c | --git-dir | --work-tree | --namespace | --config-env | --attr-source | --shallow-file) takes=1 ;;
+    -*) ;;
+    *)
+      sub="$a"
+      break
+      ;;
+  esac
+done
+args=("${@:i+1}")
+
+audit_log=
+log_call() {
+  printf '%s\0' "$(($# + 4 + ${#git_env[@]}))" "$steered" "$PWD" "$$" "$1" \
+    "${#git_env[@]}" "${git_env[@]}" "${@:2}" >>"$audit_log"
+}
+
+run() {
+  if [[ -z "$audit_log" ]] || ! type -P tee sha1sum >/dev/null; then
+    exec -a git "$real" "$@"
+  fi
+  local out="$audit_log.$$.out" status sum
+  (exec -a git "$real" "$@") | tee -- "$out"
+  status=("${PIPESTATUS[@]}")
+  if ((status[1] == 0)) && sum=$(sha1sum <"$out"); then
+    log_call "${status[0]}:${sum%% *}" "$@"
+  fi
+  : >"$out"
+  if ((status[0] > 128)); then
+    trap - "$((status[0] - 128))"
+    kill -s "$((status[0] - 128))" "$$"
+  fi
+  exit "${status[0]}"
+}
+
+if ((depth == 1)) && [[ -n "$WFC_READ_AUDIT" && -n "$WFC_READ_AUDIT_OWNER" && "$sub" != init && "$sub" != clone ]]; then
+  under=
+  [[ -n "$GIT_DIR$GIT_WORK_TREE$GIT_COMMON_DIR" ]] && under=1
+  for a in "${@:1:i-1}"; do [[ "$a" == -C || "$a" == --git-dir* || "$a" == --work-tree* ]] && under=1; done
+  host_dir="${WFC_HOST_GIT_DIR%/.git}"
+  for top in "$WFC_READ_AUDIT_ROOT" "$host_dir"; do
+    [[ -n "$top" && ("$PWD" == "$top" || "$PWD" == "$top"/*) ]] && under=1
+  done
+  if [[ -n "$under" ]]; then
+    common=$("$real" "${@:1:i-1}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+    host="${WFC_HOST_GIT_DIR:-$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
+      "$real" -C "${BASH_SOURCE[0]%/*}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)}"
+    if [[ -n "$common" && "$common" == "$host" ]]; then
+      audit_log="$WFC_READ_AUDIT/$WFC_READ_AUDIT_OWNER.git"
+      steered="${GIT_DIR:+1}${GIT_WORK_TREE:+1}${GIT_COMMON_DIR:+1}${GIT_INDEX_FILE:+1}"
+      git_env=()
+      for name in ${!GIT_*} ${!LC_*} HOME XDG_CONFIG_HOME TZ LANG LANGUAGE; do
+        [[ -v $name ]] && git_env+=("$name=${!name}")
+      done
+      log_call "" "$@"
+    fi
+  fi
+fi
+
+case "$sub" in
+  "" | clone | version | help | status | log | show | diff | diff-tree | \
+    diff-index | diff-files | rev-parse | rev-list | ls-files | ls-tree | \
+    ls-remote | cat-file | for-each-ref | show-ref | show-branch | merge-base | \
+    merge-tree | describe | blame | grep | name-rev | shortlog | check-ignore | \
+    check-attr | check-mailmap | check-ref-format | count-objects | var | \
+    whatchanged | cherry | range-diff | archive | hash-object | write-tree | \
+    mktree | commit-tree)
+    run "$@"
+    ;;
+  init) [[ " ${args[*]} " == *" --separate-git-dir"[\ =]* ]] || run "$@" ;;
+esac
+
+host="${WFC_HOST_GIT_DIR:-$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
+  "$real" -C "${BASH_SOURCE[0]%/*}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)}"
+[[ -n "$host" ]] || run "$@"
+if [[ "$sub" == init ]]; then
+  target=.
+  skip=
+  for w in "${args[@]}"; do
+    if [[ -n "$skip" ]]; then
+      skip=
+      continue
+    fi
+    case "$w" in
+      -b | --initial-branch | --template | --object-format | --ref-format | --separate-git-dir) skip=1 ;;
+      -*) ;;
+      *) target="$w" ;;
+    esac
+  done
+  mapfile -t at < <("$real" "${@:1:i-1}" -C "$target" rev-parse \
+    --path-format=absolute --git-common-dir --show-prefix 2>/dev/null)
+  [[ "${at[0]}" == "$host" && -z "${at[1]}" ]] || run "$@"
+else
+  common=$("$real" "${@:1:i-1}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+  [[ "$common" == "$host" ]] || run "$@"
+fi
+
+ambiguous_reads() {
+  local pos=() flags=() valued=() w skip=''
+  case "$sub" in
+    branch | tag) valued=(--format --sort --color --column) ;;
+    config) valued=(-f --file --blob --type --default --comment) ;;
+    reflog) valued=(-n --max-count --format --pretty) ;;
+  esac
+  for w in "$@"; do
+    if [[ -n "$skip" ]]; then
+      skip=
+    elif [[ "$w" == -* && ! ("$sub" == config && ${#pos[@]} -gt 0) ]]; then
+      flags+=("$w")
+      [[ " ${valued[*]} " == *" $w "* ]] && skip=1
+    else
+      pos+=("$w")
+    fi
+  done
+  has() {
+    local f p
+    for f in "${flags[@]}"; do
+      for p in "$@"; do [[ "$f" == "$p" || "$f" == "$p="* ]] && return 0; done
+    done
+    return 1
+  }
+  case "$sub" in
+    branch)
+      has -d -D -m -M -c -C -f -u --delete --move --copy --force \
+        --set-upstream-to --unset-upstream --edit-description && return 1
+      ((${#pos[@]} == 0)) || has -l --list --contains --no-contains --merged \
+        --no-merged --points-at
+      ;;
+    tag)
+      has -d -f -a -s -u -m -F --delete --force --annotate --sign \
+        --local-user --message --file && return 1
+      ((${#pos[@]} == 0)) || has -l --list --contains --no-contains --merged \
+        --no-merged --points-at
+      ;;
+    config)
+      has --get --get-all --get-regexp --get-urlmatch --get-color \
+        --get-colorbool -l --list && return 0
+      has --unset --unset-all --add --replace-all --rename-section \
+        --remove-section -e --edit && return 1
+      has --global --system -f --file && ! has --local --worktree && return 0
+      [[ "${pos[0]}" == get || "${pos[0]}" == list ]] || ((${#pos[@]} == 1))
+      ;;
+    worktree) [[ "${pos[0]}" == list ]] ;;
+    apply)
+      local f
+      for f in "${flags[@]}"; do
+        [[ "$f" == --a?* && --apply == "${f%%=*}"* ]] && return 1
+      done
+      has --check --stat --numstat --summary &&
+        ! has --no-check --no-stat --no-numstat --no-summary
+      ;;
+    stash) [[ "${pos[0]}" == list || "${pos[0]}" == show ]] ;;
+    reflog) [[ "${pos[0]}" != expire && "${pos[0]}" != delete ]] ;;
+    remote | notes | submodule)
+      [[ -z "${pos[0]}" || " show get-url list status summary " == *" ${pos[0]} "* ]]
+      ;;
+    symbolic-ref) ! has -d --delete && ((${#pos[@]} < 2)) ;;
+    *) return 1 ;;
+  esac
+}
+
+ambiguous_reads "${args[@]}" && run "$@"
+echo "host-git-guard: refused \`git $sub\` on the host repository ($host)." \
+  "A test writes only to a repository of its own (#3161)." >&2
+exit 128

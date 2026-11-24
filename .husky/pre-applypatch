@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+
+set -e
+# shellcheck source=scripts/lib/hook-root.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
+
+"${WFC_GITLEAKS:-gitleaks}" git --staged --redact && exit 0
+
+printer="${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/pre-applypatch-refusal.js"
+gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null || :)"
+[ -r "$printer" ] && command -v node >/dev/null 2>&1 &&
+  node "$printer" "$gitdir" >&2 2>/dev/null && exit 1
+echo "pre-applypatch: the secrets scan did not pass, so the apply is refused; its route could not be named ($printer would not run). Clear it with git am --abort, or git rebase --abort on a git rebase --apply." >&2
+exit 1

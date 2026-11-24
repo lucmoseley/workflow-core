@@ -1,0 +1,1 @@
+Before adding any package, verify it exists on its registry with real download history and active maintenance; never install one on your own say-so.

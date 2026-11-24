@@ -1,0 +1,349 @@
+const { blankComments } = require("./strip-comments.js");
+const { escapeRe, requiredGroup } = require("./regex-group.js");
+const { cutAt } = require("./cut-at.js");
+const { exemptHint, exemptMarker } = require("./exempt-markers.js");
+const { isTestKind } = require("./test-kind.js");
+
+/**
+ * @typedef {"SECOND-VAR" | "NODE-COPY" | "SHELL-BARE" | "PATH-STUB"} Shape
+ * @typedef {{
+ *   bin: string,
+ *   envVar: string,
+ *   primitive: string,
+ *   reader: string,
+ *   fix: Record<Shape, string>,
+ *   secondVar: RegExp,
+ *   exempt: RegExp,
+ *   envRead: RegExp,
+ *   literalSpawn: RegExp,
+ *   shellRun: RegExp,
+ *   shellProbe: RegExp,
+ *   joinBin: RegExp,
+ *   unroutedRunners: { name: RegExp, caller: string }[],
+ * }} Route
+ */
+
+/**
+ * @param {{
+ *   bin: "gh" | "claude",
+ *   envVar: string,
+ *   primitive: string,
+ *   reader?: string,
+ *   secondVar: RegExp,
+ *   calls: string,
+ *   exemplar: string,
+ *   shellExemplar: string,
+ *   unroutedRunners?: [string, string][],
+ * }} spec
+ * @returns {Route}
+ */
+function buildRoute({
+	bin,
+	envVar,
+	primitive,
+	reader = primitive,
+	secondVar,
+	calls,
+	exemplar,
+	shellExemplar,
+	unroutedRunners = [],
+}) {
+	const binRe = escapeRe(bin);
+	return {
+		bin,
+		envVar,
+		primitive,
+		reader,
+		fix: {
+			"SECOND-VAR": `name the binary through ${envVar}, the one var ${reader} reads, as ${exemplar} and ${shellExemplar} do.`,
+			"NODE-COPY": `call ${calls} from ${primitive}, as ${exemplar} does.`,
+			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${reader} reads, as ${shellExemplar} does; or mark it ${exemptHint(/** @type {const} */ (`${bin}-route`))} where \`${bin}\` is only text.`,
+			"PATH-STUB": `point ${envVar} at the stub executable, never PATH.`,
+		},
+		secondVar,
+		exempt: exemptMarker(/** @type {const} */ (`${bin}-route`)),
+		envRead: new RegExp(
+			`\\bprocess\\.env\\.${escapeRe(envVar)}\\b(?!\\s*=[^=])`,
+		),
+		literalSpawn: new RegExp(
+			`\\b(?:execFileSync|execFile|spawnSync|spawn)\\s*\\(\\s*(["'\`])${binRe}\\1`,
+		),
+		shellRun: new RegExp(
+			`(?:^|\\$\\(|(?<!\\\\)\`|[;&|!]|\\b(?:then|do|else|elif|if|while|until|exec|time|command|timeout\\s+\\S+))\\s*${binRe}\\s`,
+		),
+		shellProbe: new RegExp(
+			`\\b(?:command\\s+-v|type\\s+-P|which)\\s+${binRe}\\b`,
+		),
+		joinBin: new RegExp(
+			`path\\.join\\(\\s*([^()]*?)\\s*,\\s*(["'\`])${binRe}\\2\\s*\\)`,
+			"g",
+		),
+		unroutedRunners: unroutedRunners.map(([name, caller]) => ({
+			name: new RegExp(
+				`(?<!\\w|(?<!\\[)["'\`])${escapeRe(name)}(?!\\w|["'\`](?!\\]))`,
+			),
+			caller,
+		})),
+	};
+}
+
+const ROUTES = [
+	buildRoute({
+		bin: "gh",
+		envVar: "WFC_GH",
+		primitive: "scripts/lib/gh.js",
+		reader: "scripts/lib/gh-binary.js",
+		secondVar: /\bWFC_\w+_GH\b/,
+		calls: "`gh`, `ghJson` or their kin",
+		exemplar: "scripts/check-issue-orphans.js",
+		shellExemplar: "scripts/park-blocked.sh",
+		unroutedRunners: [
+			["ghUnrouted", "scripts/lib/gh.js"],
+			["readGhLogin", "scripts/lib/workflow-core-config.js"],
+		],
+	}),
+	buildRoute({
+		bin: "claude",
+		envVar: "WFC_CLAUDE_BIN",
+		primitive: "scripts/lib/claude-bin.js",
+		secondVar: /\bWFC_\w+_CLAUDE(?:_BIN)?\b/,
+		calls: "`claudeBin()`",
+		exemplar: "scripts/run-mod-tests.js",
+		shellExemplar: "scripts/start-session.sh",
+	}),
+];
+
+const HELPER =
+	/(?:\bfunction\s+(\w+)\s*|\b(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\s*)?)(?:<[^<>]*>\s*)?\(((?:[^()]|\([^()]*\))*)\)/g;
+
+/** @param {string} text */
+function splitTopLevel(text) {
+	/** @type {string[]} */
+	const parts = [""];
+	let depth = 0;
+	for (const ch of text) {
+		if ("([{".includes(ch)) depth++;
+		else if (")]}".includes(ch)) depth--;
+		if (ch === "," && depth === 0) parts.push("");
+		else parts[parts.length - 1] += ch;
+	}
+	return parts;
+}
+
+/**
+ * @param {string} code
+ * @param {number} from
+ */
+function findBodyEnd(code, from) {
+	let depth = 0;
+	for (let i = from; i < code.length; i++) {
+		const ch = code.charAt(i);
+		if ("([{".includes(ch)) depth++;
+		else if (")]}".includes(ch)) {
+			depth--;
+			if (depth < 0 || (depth === 0 && ch === "}")) return i;
+		} else if (depth === 0 && (ch === ";" || ch === ",")) return i;
+	}
+	return code.length;
+}
+
+/**
+ * @param {string} param
+ * @returns {string}
+ */
+function paramName(param) {
+	if (!param.includes(":")) return param;
+	const [head] = cutAt(param, ":");
+	return head.endsWith("?") ? head.slice(0, -1) : head;
+}
+
+/**
+ * @param {string} bin
+ * @param {string} code
+ * @returns {string[]}
+ */
+function parseHelperDirs(bin, code) {
+	return [...code.matchAll(HELPER)].flatMap((h) => {
+		const name = h[1] ?? h[2];
+		if (name === undefined)
+			throw new Error(`HELPER matched no name in ${JSON.stringify(h[0])}`);
+		const params = splitTopLevel(requiredGroup(h, 3, HELPER)).map((p) => {
+			const at = p.indexOf("=");
+			const id = at < 0 ? p : p.slice(0, at);
+			return {
+				id: paramName(id).trim(),
+				fallback: at < 0 ? "" : p.slice(at + 1).trim(),
+			};
+		});
+		const first = params[0]?.id ?? "";
+		if (!/^[$\w]+$/.test(first)) return [];
+		const called = new RegExp(
+			`\\b${escapeRe(name)}\\s*\\(\\s*(["'\`])${escapeRe(bin)}\\1`,
+		);
+		if (!called.test(code)) return [];
+		const start = (h.index ?? 0) + h[0].length;
+		const body = code.slice(start, findBodyEnd(code, start));
+		const join = new RegExp(
+			`path\\.join\\(\\s*([^()]*?)\\s*,\\s*${first.replace(/\$/g, "\\$")}\\s*\\)`,
+			"g",
+		);
+		return [...body.matchAll(join)].map((m) => {
+			const dir = requiredGroup(m, 1, join);
+			return params.find((p) => p.id === dir)?.fallback || dir;
+		});
+	});
+}
+
+const PATH_PREPEND =
+	/`\$\{([^}]+)\}(?:\$\{path\.delimiter\}|:)\$\{process\.env\.PATH\b/g;
+
+const TS_FILE = /\.[cm]?tsx?$/;
+
+/** @param {string} expr */
+const normaliseDirExpr = (expr) =>
+	expr.replace(/^path\.join\((.*)\)$/s, "$1").replace(/\s+/g, "");
+
+/**
+ * @param {string} rel
+ * @param {Set<string>} shell
+ * @returns {"node" | "test" | "shell" | null}
+ */
+function kindOf(rel, shell) {
+	if (shell.has(rel)) return "shell";
+	if (!/\.[cm]?[jt]sx?$/.test(rel)) return null;
+	return isTestKind(rel) ? "test" : "node";
+}
+
+/**
+ * @param {{ r: Route, rel: string, kind: "node" | "test" | "shell", binDirs: Set<string> }} at
+ * @param {string} line
+ * @returns {Shape | null}
+ */
+function shapeOf({ r, rel, kind, binDirs }, line) {
+	if (r.secondVar.test(line)) return "SECOND-VAR";
+	if (kind === "shell")
+		return r.shellRun.test(line) || r.shellProbe.test(line)
+			? "SHELL-BARE"
+			: null;
+	if (
+		kind === "node" &&
+		(r.literalSpawn.test(line) ||
+			(rel !== r.reader &&
+				(r.envRead.test(line) ||
+					r.unroutedRunners.some(
+						(u) => rel !== u.caller && u.name.test(line),
+					))))
+	)
+		return "NODE-COPY";
+	for (const m of line.matchAll(PATH_PREPEND))
+		if (binDirs.has(normaliseDirExpr(requiredGroup(m, 1, PATH_PREPEND))))
+			return "PATH-STUB";
+	return null;
+}
+
+const MARKABLE = new Set(["SHELL-BARE", "PATH-STUB"]);
+
+/** @typedef {{ r: Route, shape: Shape, line: number, text: string }} Found */
+
+/**
+ * @param {Route} r
+ * @param {string} rel
+ * @param {"node" | "test" | "shell"} kind
+ * @param {{ raw: string[], code: string[] }} lines
+ * @returns {Found[]}
+ */
+function routeFindings(r, rel, kind, { raw, code }) {
+	/** @type {Set<string>} */
+	const binDirs = new Set();
+	if (kind === "test" || TS_FILE.test(rel)) {
+		const text = code.join("\n");
+		for (const m of text.matchAll(r.joinBin))
+			binDirs.add(normaliseDirExpr(requiredGroup(m, 1, r.joinBin)));
+		for (const dir of parseHelperDirs(r.bin, text))
+			binDirs.add(normaliseDirExpr(dir));
+	}
+	const at = { r, rel, kind, binDirs };
+	/** @type {Found[]} */
+	const found = [];
+	for (const [i, line] of code.entries()) {
+		const shape = shapeOf(at, line);
+		if (!shape) continue;
+		const marked = raw
+			.slice(Math.max(0, i - 1), i + 1)
+			.some((l) => r.exempt.test(l));
+		if (marked && MARKABLE.has(shape)) continue;
+		found.push({
+			r,
+			shape,
+			line: i + 1,
+			text: line.trim().replace(/\s+/g, " "),
+		});
+	}
+	return found;
+}
+
+/**
+ * @param {string} rel
+ * @param {"node" | "test" | "shell"} kind
+ * @param {string} source
+ * @returns {Found[]}
+ */
+function findingsIn(rel, kind, source) {
+	const raw = source.split("\n");
+	const code =
+		kind === "shell"
+			? raw.map((l) => (/^\s*#/.test(l) ? "" : l))
+			: blankComments(source).split("\n");
+	return ROUTES.flatMap((r) => routeFindings(r, rel, kind, { raw, code })).sort(
+		(a, b) => a.line - b.line,
+	);
+}
+
+/**
+ * @param {string} rel
+ * @param {"node" | "test" | "shell"} kind
+ * @param {string} source
+ * @returns {{ tag: Shape, message: string, line: number, match: string,
+ *   bin: string, fixLine: string }[]}
+ */
+function judgeFile(rel, kind, source) {
+	/** @type {Map<string, number>} */
+	const seen = new Map();
+	return findingsIn(rel, kind, source).map(({ r, shape, line, text }) => {
+		const n = (seen.get(text) ?? 0) + 1;
+		seen.set(text, n);
+		return {
+			tag: shape,
+			message: `${rel}:${line} reaches \`${r.bin}\` off its one route (${shape}). Fix: ${r.fix[shape]}`,
+			line,
+			match: `${text} #${n}`,
+			bin: r.bin,
+			fixLine: `${r.bin} ${shape} Fix: ${r.fix[shape]}`,
+		};
+	});
+}
+
+/**
+ * @param {string[]} files
+ * @param {Set<string>} shell
+ * @param {(rel: string) => string} read
+ */
+function judgeTree(files, shell, read) {
+	let scanned = 0;
+	/** @type {(ReturnType<typeof judgeFile>[number] & { file: string })[]} */
+	const findings = [];
+	for (const rel of files) {
+		const kind = kindOf(rel, shell);
+		if (!kind) continue;
+		scanned++;
+		for (const f of judgeFile(rel, kind, read(rel)))
+			findings.push({ ...f, file: rel });
+	}
+	return {
+		scanned,
+		findings,
+		fixes: [...new Set(findings.map((f) => f.fixLine))],
+	};
+}
+
+module.exports = { judgeFile, judgeTree, kindOf };
