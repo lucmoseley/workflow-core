@@ -638,11 +638,19 @@ describe("its deliberate limits", () => {
 			expect(lines[1]).toContain("re-run on `CEILING`");
 		});
 
-		it("leaves the parent's text as it was", () => {
-			const reason = reasonFor("npm run test &");
-			expect(reason.split("\n")[0]).toBe(`${SNAPSHOT_OPENER}npm run test`);
-			expect(reason).not.toContain("in-flight-runs.js");
-		});
+		it.each([
+			["npm run test &", ". A "],
+			["timeout 300 npm run test", ". If "],
+		])(
+			"tells the parent's snapshot run `%s` to keep working, not to end its turn",
+			(command, next) => {
+				const reason = reasonFor(command);
+				expect(reason.split("\n")[0]).toBe(`${SNAPSHOT_OPENER}npm run test`);
+				expect(reason).toContain(
+					`keep working on independent work; with none left, end the turn with NO tool call, or in a background job hold it on \`node scripts/in-flight-runs.js wait\` in the foreground with \`timeout: 600000\`${next}`,
+				);
+			},
+		);
 
 		it("tells a subagent's held 600000 run to wait inside the turn", () => {
 			const reason = reasonFor("npm run test -- --full=x &", "sub");
@@ -651,6 +659,7 @@ describe("its deliberate limits", () => {
 			);
 			expect(reason).not.toContain("Past 30 s");
 			expect(reason).toContain("and notifies: then wait inside the turn — ");
+			expect(reason).toContain("since nothing wakes you to resume it. A ");
 		});
 
 		it.each([
@@ -667,10 +676,10 @@ describe("its deliberate limits", () => {
 			);
 		});
 
-		it("still tells the parent to end its turn", () => {
-			expect(reasonFor("timeout 300 npm run test -- --full=x &")).toContain(
-				"end the turn with NO tool call",
-			);
+		it("still tells the parent's held run to end its turn", () => {
+			const reason = reasonFor("timeout 300 npm run test -- --full=x &");
+			expect(reason).toContain("almost never delivered. A ");
+			expect(reason).toContain("end the turn with NO tool call. If ");
 		});
 	});
 

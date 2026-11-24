@@ -168,7 +168,7 @@ function readInFlightRuns(
 /** @param {InFlightRun[]} runs */
 const touchedRuns = (runs) => runs.filter((r) => r.lane === "touched");
 
-const WAITED_LANES = new Set(["touched", "named", "changed"]);
+const WAITED_LANES = new Set(["touched", "named", "changed", "isolated"]);
 
 /** @param {InFlightRun[]} runs */
 const waitedRuns = (runs) => runs.filter((r) => WAITED_LANES.has(r.lane));

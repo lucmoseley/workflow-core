@@ -239,8 +239,8 @@ const ROWS: Row[] = [
 		setup: dispatched,
 		quotes: ["npm run test", CORE],
 		marks: "DETACHED INSIDE THE SHELL",
-		measured: 923,
-		ceiling: 945,
+		measured: 1038,
+		ceiling: 1060,
 	},
 	{
 		text: "the background core's detached-suite refusal, to a subagent (#5724)",

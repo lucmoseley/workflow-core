@@ -244,7 +244,7 @@ describe("what counts as the same call", () => {
 	it("never refuses a wait re-run until it reports, on a DONE or a CEILING answer (#5726)", () => {
 		const done = {
 			stdout:
-				"DONE: this session holds no live touched, named or changed test run",
+				"DONE: this session holds no live touched, named, changed or isolated test run",
 			stderr: "",
 			interrupted: false,
 		};

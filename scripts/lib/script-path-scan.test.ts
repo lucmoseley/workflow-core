@@ -83,7 +83,7 @@ describe("messages a shipped script prints", () => {
 			)
 		);
 	};
-	const resolvesItsText = (
+	const isSelfResolving = (
 		file: string,
 		text = fs.readFileSync(file, "utf8"),
 	) => resolvesWholeText.test(text) || resolvedByEmitter(file);
@@ -93,7 +93,7 @@ describe("messages a shipped script prints", () => {
 			...guardFiles,
 			...libNames
 				.map((f) => path.join(__dirname, f))
-				.filter((f) => !resolvesItsText(f)),
+				.filter((f) => !isSelfResolving(f)),
 		];
 		expect(
 			files.flatMap((f) => readBareLines(f, (l) => COMMAND_SHAPED.test(l))),
@@ -120,7 +120,7 @@ describe("messages a shipped script prints", () => {
 	) {
 		return rels
 			.map((rel) => path.join(SCRIPTS, "..", rel))
-			.filter((f) => !resolvesWholeText.test(fs.readFileSync(f, "utf8")))
+			.filter((f) => !isSelfResolving(f))
 			.flatMap((f) => readBareLines(f, shaped));
 	}
 
@@ -183,7 +183,7 @@ describe("messages a shipped script prints", () => {
 		const found: string[] = [];
 		for (const file of hookFiles) {
 			const text = fs.readFileSync(file, "utf8");
-			const resolves = resolvesItsText(file, text);
+			const resolves = isSelfResolving(file, text);
 			text.split("\n").forEach((line, i) => {
 				if (COMMENT_LINE.test(line)) return;
 				const skill = /\.claude\/skills\/[\w-]+\/SKILL\.md/.test(line);

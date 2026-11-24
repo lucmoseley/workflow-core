@@ -169,6 +169,9 @@ const PARENT_OVERRUN = {
 	timed: "end the turn with NO tool call.",
 };
 
+const PARENT_SNAPSHOT_OVERRUN =
+	"keep working on independent work; with none left, end the turn with NO tool call, or in a background job hold it on `node scripts/in-flight-runs.js wait` in the foreground with `timeout: 600000`.";
+
 const TIMED_TEXT = `This suite is WRAPPED IN A SHELL \`timeout\`, which kills it with no result and no pass/fail marker when the clock runs out — and the clock counts time spent waiting in the \`--queue\` too. The Bash tool's own timeout does not kill it: an overrun is moved to the background and notifies, and you ${WAIT_SLOT} If guard-suite-concurrency refuses the re-issue, take its corrected command. A run naming its own test files is not refused. Genuinely need the shell timeout? Prefix the command with \`WFC_SUITE_TIMEOUT=1\`.`;
 
 /**
@@ -258,8 +261,10 @@ function decide(command, ctx) {
 		? "hold your turn on it as the line above says, never ending it."
 		: SUBAGENT_WAIT;
 	/** @param {keyof typeof PARENT_OVERRUN} kind */
-	const overrun = (kind) =>
-		ctx.agent ? subagentOverrun : PARENT_OVERRUN[kind];
+	const overrun = (kind) => {
+		if (ctx.agent) return subagentOverrun;
+		return snapshot ? PARENT_SNAPSHOT_OVERRUN : PARENT_OVERRUN[kind];
+	};
 	if (detached) reason += `\n${withWait(DETACHED_TEXT, overrun("detached"))}`;
 	if (timed.length > 0) reason += `\n${withWait(TIMED_TEXT, overrun("timed"))}`;
 	return { deny: ctx.corePaths(reason.replace(/\n$/, "")) };

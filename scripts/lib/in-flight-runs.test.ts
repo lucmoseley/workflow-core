@@ -200,11 +200,12 @@ describe("the background-job wait (#5716)", () => {
 	};
 	const env = { CLAUDE_CODE_SESSION_ID: S };
 
-	it("waits until the session holds no live touched or named run, then exits 0 saying so", async () => {
+	it("waits until the session holds no live touched, named or isolated run, then exits 0 saying so", async () => {
 		const dir = queueDir();
 		join(dir, 11);
 		join(dir, 12, { args: ["a.test.ts"] });
 		join(dir, 13, { args: ["--full=suite-edit"] });
+		join(dir, 14, { args: ["--isolated"] });
 		let polls = 0;
 		const s = said();
 		const code = await main(["wait"], {
@@ -214,14 +215,14 @@ describe("the background-job wait (#5716)", () => {
 			wait: {
 				sleep: async () => {
 					polls += 1;
-					dead.add(polls === 1 ? 11 : 12);
+					for (const pid of polls === 1 ? [11, 14] : [12]) dead.add(pid);
 				},
 			},
 		});
 		expect(code).toBe(0);
 		expect(polls).toBe(2);
 		expect(s.out.join("")).toBe(
-			"DONE: this session holds no live touched, named or changed test run; read each run's notification for its verdict.\n",
+			"DONE: this session holds no live touched, named, changed or isolated test run; read each run's notification for its verdict.\n",
 		);
 	});
 
