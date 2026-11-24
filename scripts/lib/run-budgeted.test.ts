@@ -39,25 +39,27 @@ function runSh(script: string, budgetMs = BUDGET_MS) {
 
 // guess, #5736
 const BUDGET_DOUBLINGS = 3;
+const TRAPPED = "trapped";
 
 // #5736
-function pastTheBudget(script: string) {
+function runShUntilTrapped(script: string) {
 	let budgetMs = BUDGET_MS;
-	for (let doublings = 0; doublings <= BUDGET_DOUBLINGS; doublings++) {
+	for (let doublings = 0; ; doublings++) {
 		const r = runSh(script, budgetMs);
 		const [pgid, ready] = r.stdout.trim().split("\n");
-		if (ready === "trapped") return { ...r, pgid: Number(pgid) };
+		if (ready === TRAPPED) return { ...r, pgid: Number(pgid) };
+		if (r.status !== TIMEOUT_EXIT || doublings === BUDGET_DOUBLINGS)
+			throw new Error(
+				`sh never printed ${TRAPPED} inside a ${budgetMs} ms budget, so the case went untested: exit ${r.status}, stderr ${JSON.stringify(r.stderr)}`,
+			);
 		budgetMs *= 2;
 	}
-	throw new Error(
-		`sh never set its trap inside a ${budgetMs / 2} ms budget, so the case went untested`,
-	);
 }
 
 describe("past the budget", () => {
 	it("kills a TERM-trapping grandchild and exits 137, the #2855 case", async () => {
-		const r = pastTheBudget(
-			"echo $$; trap '' TERM; echo trapped; sleep 30 & wait",
+		const r = runShUntilTrapped(
+			`echo $$; trap '' TERM; echo ${TRAPPED}; sleep 30 & wait`,
 		);
 		expect(r.status).toBe(KILLED_EXIT);
 		expect(r.elapsedMs).toBeLessThan(SECOND_SIGNAL_BOUND_MS);
@@ -65,8 +67,8 @@ describe("past the budget", () => {
 	});
 
 	it("exits 124 where the TERM ended the leader, killing a straggler that outlived it", async () => {
-		const r = pastTheBudget(
-			"echo $$; (trap '' TERM; echo trapped; sleep 30) & sleep 30",
+		const r = runShUntilTrapped(
+			`echo $$; (trap '' TERM; echo ${TRAPPED}; sleep 30) & sleep 30`,
 		);
 		expect(r.status).toBe(TIMEOUT_EXIT);
 		expect(r.elapsedMs).toBeLessThan(SECOND_SIGNAL_BOUND_MS);
