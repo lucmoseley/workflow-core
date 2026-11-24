@@ -103,6 +103,7 @@ describe("the session's in-flight test runs, read from the launcher's run record
 	it.each([
 		[["--queue", "--full=suite-edit"], "full"],
 		[["--queue", "--shared"], "shared"],
+		[["--isolated"], "isolated"],
 		[["--queue", "--changed"], "changed"],
 		[["--retest"], "touched"],
 		[[], "touched"],

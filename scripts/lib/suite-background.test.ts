@@ -635,7 +635,7 @@ describe("its deliberate limits", () => {
 				/^Past 30 s the run moves to the background; then wait inside the turn — /,
 			);
 			expect(lines[1]).toContain("`node scripts/in-flight-runs.js wait`");
-			expect(lines[1]).toContain("re-run until `DONE`");
+			expect(lines[1]).toContain("re-run on `CEILING`");
 		});
 
 		it("leaves the parent's text as it was", () => {
@@ -644,12 +644,27 @@ describe("its deliberate limits", () => {
 			expect(reason).not.toContain("in-flight-runs.js");
 		});
 
-		it("adds no wait to a subagent's held 600000 run", () => {
+		it("tells a subagent's held 600000 run to wait inside the turn", () => {
 			const reason = reasonFor("npm run test -- --full=x &", "sub");
 			expect(reason.split("\n")[0]).toBe(
 				`${HELD_OPENER}npm run test -- --full=x`,
 			);
-			expect(reason).not.toContain("in-flight-runs.js");
+			expect(reason).not.toContain("Past 30 s");
+			expect(reason).toContain("and notifies: then wait inside the turn — ");
+		});
+
+		it.each([
+			"npm run test &",
+			"timeout 300 npm run test",
+			"timeout 300 npm run test -- --full=x &",
+		])("never tells a subagent to end its turn on `%s`", (command) => {
+			expect(reasonFor(command, "sub")).not.toContain("end the turn");
+		});
+
+		it("still tells the parent to end its turn", () => {
+			expect(reasonFor("timeout 300 npm run test -- --full=x &")).toContain(
+				"end the turn with NO tool call",
+			);
 		});
 	});
 

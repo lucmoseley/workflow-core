@@ -1,6 +1,7 @@
 const crypto = require("node:crypto");
 const { canonicalJson } = require("./canonical-json.js");
 const { NOOP, SLEEP } = require("./agent-poll.js");
+const { escapeRe } = require("./regex-group.js");
 
 // guess, #5529
 const MAX_AGE_S = 3600;
@@ -11,13 +12,15 @@ const EC_CLEARED = "-";
 
 const VOLATILE = /duration|elapsed|timestamp|startTime|endTime|_ms$|Millis/i;
 
-/** @param {string} base */
-const scriptPath = (base) =>
-	`(?:'(?:[^'\\n]*/)?${base}'|"(?:[^"\\n$\`]*/)?${base}"|(?:[^\\s;&|<>\`$()'"]*/)?${base})`;
+/** @param {string} name */
+const scriptPathPattern = (name) => {
+	const base = escapeRe(name);
+	return `(?:'(?:[^'\\n]*/)?${base}'|"(?:[^"\\n$\`]*/)?${base}"|(?:[^\\s;&|<>\`$()'"]*/)?${base})`;
+};
 
 // #5726
 const WAIT = new RegExp(
-	`^[ \\t\\n\\v\\f\\r]*(?:timeout[ \\t]+[0-9]+[smhd]?[ \\t]+)?(?:(?:node|bash|sh)[ \\t]+)?(?:${scriptPath("in-flight-runs\\.js")}[ \\t]+wait|${scriptPath("bg-run\\.sh")}[ \\t]+wait|${scriptPath("watch-artefact\\.js")})(?:[ \\t][^\\n;&|<>\`$()]*)?\\n*$`,
+	`^[ \\t\\n\\v\\f\\r]*(?:timeout[ \\t]+[0-9]+[smhd]?[ \\t]+)?(?:(?:node|bash|sh)[ \\t]+)?(?:${scriptPathPattern("in-flight-runs.js")}[ \\t]+wait|${scriptPathPattern("bg-run.sh")}[ \\t]+wait|${scriptPathPattern("watch-artefact.js")})(?:[ \\t][^\\n;&|<>\`$()]*)?\\n*$`,
 );
 
 /**

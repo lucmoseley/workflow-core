@@ -243,7 +243,8 @@ describe("what counts as the same call", () => {
 
 	it("never refuses a wait re-run until it reports, on a DONE or a CEILING answer (#5726)", () => {
 		const done = {
-			stdout: "DONE: this session holds no live touched or named test run",
+			stdout:
+				"DONE: this session holds no live touched, named or changed test run",
 			stderr: "",
 			interrupted: false,
 		};
@@ -548,7 +549,7 @@ describe("the cases a mutant must not survive (#2791)", () => {
 			"This exact call has already run twice in a row and given the same answer both times — for a Read, the file unchanged since you last read it — so a third run is very unlikely to say anything new.\n\nIf you are waiting on a background job or a subagent: END THE TURN — the completion notification wakes the session or, arriving mid-call, is folded into the next tool result (97%, #845), so a repeat buys nothing. Say in one line what you are waiting for, then stop producing output.\n\nIf you genuinely need this again — the state it reads has changed since — VARY THE COMMAND and it will not match. The first refusal on a call clears its chain and lets the identical call through once more, but a second refusal on the same call does not, and from there only a varied command runs.",
 		);
 		expect(said("a1")).toBe(
-			"This exact call has already run twice in a row and given the same answer both times — for a Read, the file unchanged since you last read it — so a third run is very unlikely to say anything new.\n\nIf you are waiting on a background job, wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run.sh job with `scripts/bg-run.sh wait <name>`, a test run moved past `timeout: 30000` with `node scripts/in-flight-runs.js wait` in the foreground with `timeout: 600000`, re-run until `DONE` (it also waits on your parent's runs, which share your session id), or the blocked operation retried directly. You are a subagent: ending your turn ends your work for good, since nothing wakes you to resume it.\n\nIf you genuinely need this again — the state it reads has changed since — VARY THE COMMAND and it will not match. The first refusal on a call clears its chain and lets the identical call through once more, but a second refusal on the same call does not, and from there only a varied command runs.",
+			"This exact call has already run twice in a row and given the same answer both times — for a Read, the file unchanged since you last read it — so a third run is very unlikely to say anything new.\n\nIf you are waiting on a background job, wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run.sh job with `scripts/bg-run.sh wait <name>`, a test run moved past `timeout: 30000` with `node scripts/in-flight-runs.js wait` in the foreground with `timeout: 600000`, re-run on `CEILING` (it also waits on your parent's runs, which share your session id), or the blocked operation retried directly. You are a subagent: ending your turn ends your work for good, since nothing wakes you to resume it.\n\nIf you genuinely need this again — the state it reads has changed since — VARY THE COMMAND and it will not match. The first refusal on a call clears its chain and lets the identical call through once more, but a second refusal on the same call does not, and from there only a varied command runs.",
 		);
 	});
 

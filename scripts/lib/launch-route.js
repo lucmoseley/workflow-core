@@ -95,7 +95,7 @@ function launchRoute(argv, sessionId) {
 	const frozen = shared ? "shared" : "worktree";
 	/** @type {Tree} */
 	const settled = full || isolated ? frozen : "shared";
-	const snapshot = isSnapshotArgv(argv) && session !== null;
+	const snapshot = !shared && !isolated && !full && session !== null;
 	return {
 		rest,
 		kind,
@@ -218,6 +218,7 @@ const isPassStoreLaunch = (route, argv, env = process.env) =>
 module.exports = {
 	isPassStoreLaunch,
 	QUEUE_FLAG,
+	ISOLATED_FLAG,
 	SHARED_FLAG,
 	FULL_FLAG,
 	FULL_PREFIX,

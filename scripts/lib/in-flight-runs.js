@@ -5,7 +5,11 @@ const { caught, ignoreFailure } = require("./caught.js");
 const { noop } = require("./noop.js");
 const { durationClock, now } = require("./clock.js");
 const { writeFd } = require("./write-fd.js");
-const { SHARED_FLAG, launchRoute } = require("./launch-route.js");
+const {
+	ISOLATED_FLAG,
+	SHARED_FLAG,
+	launchRoute,
+} = require("./launch-route.js");
 const { shellQuote } = require("./sh-quote.js");
 const {
 	defaultQueueDir,
@@ -16,7 +20,7 @@ const {
 const RUN_PREFIX = "run-";
 
 /**
- * @typedef {import("./launch-route.js").LaunchRoute["kind"] | "shared"} RunLane
+ * @typedef {import("./launch-route.js").LaunchRoute["kind"] | "shared" | "isolated"} RunLane
  * @typedef {{ pid: number, startedAt: number, command: string, lane: RunLane }} InFlightRun
  * @typedef {{ pid: number, at: number, start?: number, session?: string, args?: string[] }} RunRecord
  * @typedef {{ queueDir?: string, alive?: (pid: number) => boolean, startTime?: (pid: number) => number }} InFlightOptions
@@ -28,6 +32,7 @@ const RUN_PREFIX = "run-";
  */
 function laneOf(args) {
 	if (args.includes(SHARED_FLAG)) return "shared";
+	if (args.includes(ISOLATED_FLAG)) return "isolated";
 	const route = launchRoute(args, null);
 	return route.source === "retest" ? "touched" : route.kind;
 }
@@ -110,7 +115,7 @@ function isGone(record, { alive, startTime }) {
  * @param {Required<Pick<InFlightOptions, "alive" | "startTime">>} probes
  * @returns {RunRecord | null}
  */
-function liveRecord(file, probes) {
+function readLiveRecordDeletingGone(file, probes) {
 	const record = readRunRecord(file);
 	if (!record) return null;
 	if (!isMarkerStale(record, probes)) return record;
@@ -144,7 +149,10 @@ function readInFlightRuns(
 	const runs = [];
 	for (const name of names) {
 		if (!name.startsWith(RUN_PREFIX)) continue;
-		const record = liveRecord(path.join(queueDir, name), { alive, startTime });
+		const record = readLiveRecordDeletingGone(path.join(queueDir, name), {
+			alive,
+			startTime,
+		});
 		if (!record || record.session !== session) continue;
 		const args = Array.isArray(record.args) ? record.args.map(String) : [];
 		runs.push({
