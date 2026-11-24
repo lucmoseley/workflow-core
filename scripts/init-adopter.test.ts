@@ -1034,6 +1034,14 @@ describe("init in a fresh repository", () => {
 		);
 	});
 
+	it("leaves resolve_core.py out of a dry run's pathspec where the adopter holds none (#5718)", () => {
+		const { dir } = repo();
+		const r = init(dir, "--founder", "A Founder", "--no-tracker", "--dry-run");
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toMatch(/git add -N .*resolve-core\.js/);
+		expect(r.stdout).not.toContain("resolve_core.py");
+	});
+
 	it("replaces an adopter's edit to the browser helper on a re-run (#133)", () => {
 		const { dir } = initialised();
 		fs.writeFileSync(path.join(dir, "scripts/browse.py"), "clobbered\n");
