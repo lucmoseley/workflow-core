@@ -1294,14 +1294,27 @@ function childRel(rel, name) {
 	return rel ? `${rel}/${name}` : name;
 }
 
+/**
+ * @param {{ quiet: boolean }} how
+ * @returns {{ stage: string, path: string }[]}
+ */
+function readIndexEntries({ quiet }) {
+	return execGit(["ls-files", "--stage", "-z"], {
+		encoding: "utf8",
+		...(quiet ? { stdio: ["ignore", "pipe", "ignore"] } : {}),
+	})
+		.split("\0")
+		.filter(Boolean)
+		.map((line) => {
+			const tab = line.indexOf("\t");
+			return { stage: line.slice(tab - 1, tab), path: line.slice(tab + 1) };
+		});
+}
+
 /** @param {string | null} [root] */
 function readTrackedFiles(root) {
 	if (root) return walkTracked(root);
-	return execGit(["ls-files", "--deduplicate", "-z"], {
-		encoding: "utf8",
-	})
-		.split("\0")
-		.filter(Boolean);
+	return [...new Set(readIndexEntries({ quiet: false }).map((e) => e.path))];
 }
 
 function readUntrackedFiles() {
@@ -1321,13 +1334,9 @@ function readConflictedPaths() {
 	try {
 		return [
 			...new Set(
-				execGit(["ls-files", "--unmerged", "-z"], {
-					encoding: "utf8",
-					stdio: ["ignore", "pipe", "ignore"],
-				})
-					.split("\0")
-					.filter(Boolean)
-					.map((l) => l.slice(l.indexOf("\t") + 1)),
+				readIndexEntries({ quiet: true })
+					.filter((e) => e.stage !== "0")
+					.map((e) => e.path),
 			),
 		];
 	} catch {

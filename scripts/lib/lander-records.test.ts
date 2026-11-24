@@ -181,6 +181,7 @@ describe("the drop record", () => {
 			...red.cause,
 			runs: [31, 32],
 			mainRun: 7,
+			mainRed: ["x.ts"],
 			failures: [{ file: "x.ts", test: "a > b", message: "expected 1" }],
 		},
 	};
@@ -198,6 +199,7 @@ describe("the drop record", () => {
 			cited,
 			{ ...cited, cause: { ...cited.cause, runs: ["31"] } } as never,
 			{ ...cited, cause: { ...cited.cause, mainRun: "7" } } as never,
+			{ ...cited, cause: { ...cited.cause, mainRed: "x.ts" } } as never,
 			{
 				...cited,
 				cause: { ...cited.cause, failures: [{ file: "x.ts" }] },
@@ -307,6 +309,7 @@ describe("every field a verdict or a cause holds", () => {
 			files: ["x.ts"],
 			iso: "i0",
 			mainRun: 7,
+			mainRed: ["x.ts"],
 			...marks,
 		} satisfies Required<Extract<Cause, { kind: "red" }>>,
 		collision: {

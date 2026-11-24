@@ -14,20 +14,29 @@ const buildTypeErrors = (errors) =>
 		: "whose errors its log did not name";
 
 /**
- * @param {{files: readonly string[], typecheck?: readonly string[]}} red
+ * @param {{files: readonly string[], typecheck?: readonly string[],
+ *   mainRed?: readonly string[]}} red
  * @param {boolean} onMain
  */
-function buildFailed({ files, typecheck }, onMain) {
+function buildFailed({ files, typecheck, mainRed }, onMain) {
 	const where = onMain ? ", where `main` passes it" : "";
 	const typecheckClause =
 		typecheck && `the type-check twice${where}, ${buildTypeErrors(typecheck)}`;
 	if (files.length === 0)
 		return `failed ${typecheckClause ?? `the whole suite twice, naming no file${where}`}`;
-	const listed = onMain
-		? "these files twice, which pass on `main` there"
-		: "twice";
+	const listed =
+		onMain && !mainRed
+			? "these files twice, which pass on `main` there"
+			: "twice";
 	return `failed ${listed}:\n${buildFileList(files)}${typecheckClause ? `\n\nIt also failed ${typecheckClause}` : ""}`;
 }
+
+/** @param {{files: readonly string[], mainRed?: readonly string[]}} red */
+const buildMainRed = ({ files, mainRed }) => {
+	if (!mainRed) return "";
+	const passing = files.filter((f) => !mainRed.includes(f));
+	return `\n\n\`main\` fails these files too, but the tester read different failures there:\n${buildFileList(mainRed)}${passing.length > 0 ? `\n\nThese pass on \`main\` there:\n${buildFileList(passing)}` : ""}`;
+};
 
 /**
  * @param {{files: readonly string[], runs?: readonly number[],
@@ -75,7 +84,7 @@ function buildDropEvidence({ onto, cause }) {
 		case "refused":
 			return `${alone}, its merge was refused, the refusal's verdict lines and its end:\n\n${quoteBlock(cause.reason)}`;
 		case "red":
-			return `${alone} as ${cause.iso}, ${cause.noRun ? NO_RUN : `it ${buildFailed(cause, true)}${buildCited(cause)}`}`;
+			return `${alone} as ${cause.iso}, ${cause.noRun ? NO_RUN : `it ${buildFailed(cause, true)}${buildMainRed(cause)}${buildCited(cause)}`}`;
 		case "unrecorded":
 			return `why is unknown, as the lander's drop record lost its entry; its commits are read off \`main\` at ${onto}`;
 		case "collision": {
