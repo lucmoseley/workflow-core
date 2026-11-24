@@ -659,7 +659,7 @@ function buildTallies() {
 		memMinutes: new Set(),
 		boundCostS: 0,
 		/** @type {Map<Waiter, number>} */
-		rungHeldPart: new Map(),
+		rungHeldPastS: new Map(),
 	};
 }
 
@@ -677,7 +677,7 @@ function tallyTick(tick, w, acc) {
 		for (const a of also) add(acc.limbAlso, `${first} / ${a}`, TICK_S);
 		add(acc.limb, first, TICK_S);
 		if (isBoundHold(e, first, tick, w)) acc.boundCostS += TICK_S;
-		tallyRungHeld(e, tick, w, acc.rungHeldPart);
+		tallyRungHeld(e, tick, w, acc.rungHeldPastS);
 		add(acc.limbClass, `${first} / ${e.cls}`, TICK_S);
 		addNested(acc.limbSession, e.session ?? "(no session)", first);
 		addNested(acc.limbEra, tick.era, first);
@@ -699,12 +699,12 @@ const isBoundHold = (e, first, tick, w) =>
  * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
- * @param {Map<Waiter, number>} held
+ * @param {Map<Waiter, number>} pastS
  */
-function tallyRungHeld(e, tick, w, held) {
+function tallyRungHeld(e, tick, w, pastS) {
 	if (e.whole || e.kind === "tsc" || !isRungHeld(e, tick, w)) return;
 	const pastBound = tick.t - queueTimeOf(e, tick) >= PART_PASS_AGE_MS;
-	add(held, e, pastBound ? TICK_S : 0);
+	add(pastS, e, pastBound ? TICK_S : 0);
 }
 
 /**
@@ -843,7 +843,6 @@ function turnReasonsOf(e, tick, w, { liftBound = false } = {}) {
 			admissionOpen,
 			peerClimbHeld,
 			slots: WHOLE_SUITE_MAX,
-			// #5680
 			now: liftBound ? Number.NEGATIVE_INFINITY : tick.t,
 		},
 		{
@@ -1094,7 +1093,7 @@ function replay(logs, w) {
 			.map((e) => e.gap)
 			.sort((a, b) => a - b),
 		boundCostS: acc.boundCostS,
-		...rungHeldOf(acc.rungHeldPart),
+		...rungHeldOf(acc.rungHeldPastS),
 		unread: logs.unread,
 		memMinutes: acc.memMinutes.size,
 		minutes: Math.ceil((w.until - w.since) / 60_000),

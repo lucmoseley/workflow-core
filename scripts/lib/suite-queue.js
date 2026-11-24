@@ -1078,7 +1078,7 @@ function passingTurn(options = {}) {
 	};
 }
 
-// #5679 measured: kept on its cost to younger waiters and the held heads it guards, both in the replay
+// #5679 guess
 const PART_PASS_AGE_MS = 7 * 60 * 1000;
 
 const QUEUE_SIGNALS = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 };
