@@ -71,7 +71,7 @@ describe("the type-check reserve and the Windows limbs (#4956)", () => {
 			varianceMb2: 80_000,
 			pssMb: 1665,
 			unread: 0,
-			noProcess: 0,
+			noProcessCharged: 0,
 			noProcessUncharged: 0,
 			problems: [],
 		};
@@ -93,7 +93,7 @@ describe("the type-check reserve and the Windows limbs (#4956)", () => {
 			varianceMb2: 80_000,
 			pssMb: 0,
 			unread: 0,
-			noProcess: 5,
+			noProcessCharged: 2,
 			noProcessUncharged: 3,
 			problems: [],
 		};

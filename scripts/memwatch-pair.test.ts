@@ -277,6 +277,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 			"psi_io_some",
 			"psi_io_full",
 			"mem_avail_mb",
+			"mem_free_mb",
 			...meminfoFields,
 			"loop_peak_mb",
 			"cpu_busy_pct",
@@ -320,7 +321,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 		fs.writeFileSync(
 			meminfo,
 			buildMeminfo(
-				{ availableMb: 2000, swapTotalMb: 0, swapFreeMb: 0 },
+				{ availableMb: 2000, freeMb: 600, swapTotalMb: 0, swapFreeMb: 0 },
 				{
 					AnonPages: 3_145_728,
 					Cached: 1_048_000,
@@ -341,7 +342,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 		expect(meminfoFields.map((k) => row[k])).toEqual([
 			3072, 1024, 1024, 500, 200, 20, 50, 0,
 		]);
-		expect(row.mem_avail_mb).toBe(2000);
+		expect(row).toMatchObject({ mem_avail_mb: 2000, mem_free_mb: 600 });
 	});
 
 	it("writes null for a meminfo key the kernel does not report", async () => {
@@ -599,22 +600,61 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 		expect(new Set(minutes).size).toBe(minutes.length);
 	});
 
-	it("counts a tsc started through node_modules/.bin", async () => {
-		const bin = path.join(tmp, "node_modules", ".bin");
-		fs.mkdirSync(bin, { recursive: true });
-		const tsc = path.join(bin, "tsc");
-		fs.writeFileSync(tsc, "setTimeout(() => {}, 30_000);\n");
-		const child = keptSpawn("concurrent").spawn(process.execPath, [tsc], {
+	// guess: outlives a pass by far, #5706
+	const CountedLifeS = 30;
+	// guess: room for the spawn to reach /proc, #5706
+	const CountedSettleMs = 300;
+	it.each([
+		["tsc", "a tsc through node_modules/.bin", "node_modules/.bin/tsc"],
+		["tsc", "TypeScript 6's tsc6", "node_modules/typescript/bin/tsc6"],
+		[
+			"tsc",
+			"TypeScript 7's node wrapper",
+			"node_modules/@typescript/native/bin/tsc",
+		],
+		["lander", "the queue lander", "scripts/queue-lander.js"],
+	])("counts %s for %s (#5706)", async (field, _what, rel) => {
+		const dir = fs.mkdtempSync(path.join(tmp, "counted-"));
+		const file = path.join(dir, rel);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(file, `setTimeout(() => {}, ${CountedLifeS * 1000});\n`);
+		await expectCounted(field, path.basename(dir), process.execPath, [file]);
+	});
+
+	it("counts tsc for TypeScript 7's native compiler, which runs as no node (#5706)", async () => {
+		const dir = fs.mkdtempSync(path.join(tmp, "counted-"));
+		const native = path.join(
+			dir,
+			"node_modules/@typescript/typescript-linux-x64/lib/tsc",
+		);
+		fs.mkdirSync(path.dirname(native), { recursive: true });
+		const sleep = execFileSync("sh", ["-c", "command -v sleep"], {
+			encoding: "utf8",
+		}).trim();
+		fs.copyFileSync(sleep, native);
+		fs.chmodSync(native, 0o755);
+		await expectCounted("tsc", path.basename(dir), native, [
+			String(CountedLifeS),
+		]);
+	});
+
+	async function expectCounted(
+		field: string,
+		name: string,
+		cmd: string,
+		args: string[],
+	) {
+		const child = keptSpawn("concurrent").spawn(cmd, args, {
 			stdio: "ignore",
 		});
 		try {
-			await setTimeout(300);
-			const { lines } = await quietPass("minute-tsc");
-			expect(JSON.parse(lines[0]).tsc).toBeGreaterThan(0);
+			await setTimeout(CountedSettleMs);
+			const { lines } = await quietPass(`minute-${name}`);
+			expect(JSON.parse(lines[0])[field]).toBeGreaterThan(0);
 		} finally {
 			child.kill();
 		}
-	});
+	}
 
 	it("writes null sessions, not a wrong count, when the session lib is missing", async () => {
 		const { lines } = await quietPass("minute-nolib", {

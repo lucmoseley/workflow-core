@@ -135,7 +135,7 @@ function cpuSlotsRow(cpu) {
  * @typedef {{ ok: true, sessions: number, unvouched: boolean, processes: number | null, processesError: string | null } | { ok: false, error: string, processes: number | null, processesError: string | null }} LiveSessionsResult
  * @typedef {{ held: false } | { held: true, swapFreeMb: number, swapTotalMb: number, availableMb: number }} SwapHold
  * @typedef {{ meanMb: number, sigmaMb: number, declared: boolean, problem?: string }} SessionDraw
- * @typedef {{ sessions: number, meanMb: number, varianceMb2: number, pssMb: number, unread: number, noProcess: number, noProcessUncharged: number, problems: string[], refused?: boolean }} LiveDraw
+ * @typedef {{ sessions: number, meanMb: number, varianceMb2: number, pssMb: number, unread: number, noProcessCharged: number, noProcessUncharged: number, problems: string[], refused?: boolean }} LiveDraw
  * @typedef {{ why: string, chargeMb: number }} UnreadReserve
  * @typedef {{ live: { pid: number, chargeMb: number }[], unread: UnreadReserve | null }} Landers
  * @typedef {{ live: { pid: number, chargeMb: number, spawned: boolean, part: boolean }[], unread: UnreadReserve | null }} Gates
@@ -295,9 +295,10 @@ function liveDraw(
 	}
 	const p95Mb = (/** @type {SessionDraw} */ d) => d.meanMb + DRAW_Z * d.sigmaMb;
 	waiting.sort((a, b) => p95Mb(b) - p95Mb(a));
-	for (const d of waiting.slice(0, NO_PROCESS_CHARGED)) charge(d);
-	draw.noProcess = waiting.length;
-	draw.noProcessUncharged = Math.max(0, waiting.length - NO_PROCESS_CHARGED);
+	const charged = waiting.slice(0, NO_PROCESS_CHARGED);
+	for (const d of charged) charge(d);
+	draw.noProcessCharged = charged.length;
+	draw.noProcessUncharged = waiting.length - charged.length;
 	draw.pssMb = Math.floor(heldKb / 1024);
 	return draw;
 }
@@ -308,9 +309,9 @@ function buildLiveDrawLine(live) {
 		return "unknown — the session listing was refused, so no live session's draw is counted";
 	const line = `${live.sessions} live session(s): mean ${live.meanMb} MB + ${DRAW_Z} × σ ${Math.round(Math.sqrt(live.varianceMb2))} MB − ${live.pssMb} MB they already hold`;
 	const notes = [
-		...(live.noProcess
+		...(live.noProcessCharged
 			? [
-					`${live.noProcess - live.noProcessUncharged} with no process, charged in full${live.noProcessUncharged ? `, ${live.noProcessUncharged} more charged nothing until they wake` : ""}`,
+					`${live.noProcessCharged} with no process, charged in full${live.noProcessUncharged ? `, ${live.noProcessUncharged} more charged nothing until they wake` : ""}`,
 				]
 			: []),
 		...(live.unread ? [`${live.unread} charged in full, memory unread`] : []),
@@ -1386,6 +1387,7 @@ function buildWindowsLine({ windows, guestFreeMb, windowsChargeMb }) {
  *   testsHeld: number,
  *   windows: import("./windows-memory.js").WindowsRead,
  *   guestFreeMb: number | null,
+ *   noProcessCharged: number,
  *   floorMb: number,
  *   marginMb: number,
  *   reclaimedMb: number,
@@ -1439,6 +1441,7 @@ function strictAdmission(mem, procs, readings = {}) {
 		testsHeld: f.testsHeld,
 		windows: f.windows,
 		guestFreeMb: f.guestFreeMb,
+		noProcessCharged: f.live.noProcessCharged,
 		floorMb: EARLYOOM_FLOOR_MB,
 		marginMb: DRAW_MARGIN_MB,
 		reclaimedMb,
