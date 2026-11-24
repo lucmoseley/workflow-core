@@ -642,10 +642,12 @@ describe("its deliberate limits", () => {
 			["npm run test &", ". A "],
 			["timeout 300 npm run test", ". If "],
 		])(
-			"tells the parent's snapshot run `%s` to keep working, not to end its turn",
+			"tells the parent's snapshot run `%s` to keep working on independent work before ending its turn",
 			(command, next) => {
 				const reason = reasonFor(command);
 				expect(reason.split("\n")[0]).toBe(`${SNAPSHOT_OPENER}npm run test`);
+				expect(reason).not.toContain("Past 30 s");
+				expect(reason).not.toContain("You are a subagent");
 				expect(reason).toContain(
 					`keep working on independent work; with none left, end the turn with NO tool call, or in a background job hold it on \`node scripts/in-flight-runs.js wait\` in the foreground with \`timeout: 600000\`${next}`,
 				);

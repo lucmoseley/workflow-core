@@ -17,6 +17,7 @@ describe("messages a shipped script prints", () => {
 	const exempt = [
 		/^\t"`node scripts\/session-arbiter\.js list`\.";$/,
 		/^\tconst overflow = `\\n {2}… and \$\{dropped\} more — node scripts\/session-arbiter\.js list`;$/,
+		/^\t"`node scripts\/in-flight-runs\.js wait` in the foreground with `timeout: 600000`";$/,
 		/^const SUBAGENT_WAIT = `wait inside the turn — what you wait on in the foreground with \\`timeout: 600000\\`, a bg-run\.sh job with \\`scripts\/bg-run\.sh wait <name>\\`/,
 		/^\tbyHand: "`node scripts\/claim-issue\.js <n>` to claim an issue by hand",$/,
 		/^\t"node scripts\/lib\/resolve-core\.js scripts\/status-report\.js";$/,
