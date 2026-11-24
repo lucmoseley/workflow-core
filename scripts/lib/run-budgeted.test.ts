@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { keptSpawn } from "./kept-spawn.js";
 import { isGroupDead } from "./process-fixture";
 import { runInProcessAsync } from "./run-in-process.js";
+import { shellQuote } from "./sh-quote.js";
 
 const {
 	RUN_BUDGETED,
@@ -93,30 +94,6 @@ describe("its own failures", () => {
 	});
 });
 
-it("kills a group that ignores the signal, and dies by it, when told to stop (#2928)", async () => {
-	const child = keptSpawn("signal").spawn(
-		process.execPath,
-		[
-			RUN_BUDGETED,
-			"60000",
-			"1000",
-			"sh",
-			"-c",
-			"trap '' TERM; echo $$; sleep 30 & wait",
-		],
-		{ stdio: ["ignore", "pipe", "ignore"] },
-	);
-	const pgid = await new Promise<number>((resolve) =>
-		child.stdout.once("data", (d) => resolve(Number(String(d).trim()))),
-	);
-	const ended = new Promise<NodeJS.Signals | null>((resolve) =>
-		child.on("exit", (_code, signal) => resolve(signal)),
-	);
-	child.kill("SIGTERM");
-	expect(await ended).toBe("SIGTERM");
-	await expectGroupDead(pgid);
-});
-
 // guess, #5188
 const SIGNALLED_BUDGET_MS = 60_000;
 const SIGNALLED_GRACE_MS = 20_000;
@@ -128,13 +105,14 @@ async function signalled(
 	trap: string,
 	body: string,
 	signals: NodeJS.Signals[],
+	graceMs = SIGNALLED_GRACE_MS,
 ) {
 	const child = keptSpawn("signal").spawn(
 		process.execPath,
 		[
 			RUN_BUDGETED,
 			String(SIGNALLED_BUDGET_MS),
-			String(SIGNALLED_GRACE_MS),
+			String(graceMs),
 			"sh",
 			"-c",
 			`${trap}; echo $$; ${body}`,
@@ -155,13 +133,24 @@ async function signalled(
 	return { pgid, signal: await ended, elapsedMs: Date.now() - started };
 }
 
+it("kills a group that ignores the signal, and dies by it, when told to stop (#2928)", async () => {
+	const r = await signalled(
+		"trap '' TERM",
+		"sleep 30 & wait",
+		["SIGTERM"],
+		1000,
+	);
+	expect(r.signal).toBe("SIGTERM");
+	await expectGroupDead(r.pgid);
+});
+
 describe("a signal to the runner (#5188)", () => {
 	it("passes it on to the group, so a member's cleanup runs, and dies by it", async () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "run-budgeted-"));
 		const mark = path.join(dir, "cleaned");
 		try {
 			const r = await signalled(
-				`trap 'touch ${mark}; exit 130' INT`,
+				`trap ${shellQuote(`touch ${shellQuote(mark)}; exit 130`)} INT`,
 				"sleep 30 & wait",
 				["SIGINT"],
 			);
