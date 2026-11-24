@@ -28,7 +28,6 @@ const REPO_SETUP_STEP = "Repo setup";
 const renderRepoSetup = (setup) =>
 	setup?.length
 		? `
-      # From the "ciSetup" key: what the repo's commands need past its lockfile.
       - name: ${REPO_SETUP_STEP}
         run: |
 ${setup.map((c) => `          ${c}\n`).join("")}`
