@@ -104,6 +104,7 @@ describe("the session's in-flight test runs, read from the launcher's run record
 		[["--queue", "--full=suite-edit"], "full"],
 		[["--queue", "--shared"], "shared"],
 		[["--queue", "--changed"], "changed"],
+		[["--retest"], "touched"],
 		[[], "touched"],
 	])("tells %j's lane", (args, lane) => {
 		const dir = queueDir();
@@ -118,6 +119,14 @@ describe("the session's in-flight test runs, read from the launcher's run record
 		join(dir, 12, { session: T });
 		join(dir, 13, { session: "" });
 		expect(read(dir)).toEqual([]);
+	});
+
+	it("deletes a dead run's record, whichever session it was", () => {
+		const dir = queueDir();
+		join(dir, 11, { session: T });
+		dead.add(11);
+		expect(read(dir)).toEqual([]);
+		expect(fs.readdirSync(dir)).toEqual([]);
 	});
 
 	it("drops a run's record when the run ends", () => {
@@ -198,7 +207,7 @@ describe("the background-job wait (#5716)", () => {
 		expect(code).toBe(0);
 		expect(polls).toBe(2);
 		expect(s.out.join("")).toBe(
-			"DONE: this session holds no live touched or named test run; read each run's notification for its verdict.\n",
+			"DONE: this session holds no live touched, named or changed test run; read each run's notification for its verdict.\n",
 		);
 	});
 

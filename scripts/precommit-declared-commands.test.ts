@@ -324,14 +324,16 @@ describe("the test gate beside the committing session's own in-flight touched ru
 		expect(ran("test")).toBe(true);
 	});
 
-	it("runs as today where the queue will not read", () => {
+	it("runs as today where the queue will not read, saying it could not check", () => {
 		const tmp = scratch();
 		fs.writeFileSync(path.join(tmp, "wfc-suite-queue"), "not a directory");
 		const { code, out, ran } = gateRun({
 			CLAUDE_CODE_SESSION_ID: Own,
 			TMPDIR: tmp,
 		});
-		expect(out).not.toContain("in flight");
+		expect(out).toContain(
+			"pre-commit: this session's test-run records would not read, so the commit goes ahead without checking for an in-flight touched run (#5716).\n",
+		);
 		expect(code).toBe(0);
 		expect(ran("test")).toBe(true);
 	});

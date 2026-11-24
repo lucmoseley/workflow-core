@@ -1,9 +1,9 @@
 #!/usr/bin/env node
+// #5716
 const { writeFd } = require("./lib/write-fd.js");
 const idSeam = require("./lib/session-id.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const {
-	WAIT_CEILING_S,
 	commitRefusal,
 	readInFlightRuns,
 	runList,
@@ -50,7 +50,13 @@ async function main(
 	if (parsed.command === "commit") {
 		if (!session) return 0;
 		const runs = read(session);
-		const held = runs === null ? [] : touchedRuns(runs);
+		if (runs === null) {
+			err(
+				"pre-commit: this session's test-run records would not read, so the commit goes ahead without checking for an in-flight touched run (#5716).\n",
+			);
+			return 0;
+		}
+		const held = touchedRuns(runs);
 		if (held.length === 0) return 0;
 		err(commitRefusal(held, parsed.positionals[0] ?? ""));
 		return EXIT.REFUSED;
@@ -70,12 +76,12 @@ async function main(
 	}
 	if (result.verdict === "CEILING") {
 		out(
-			`CEILING: after ${wait?.ceilingS ?? WAIT_CEILING_S} s this session still holds ${runList(result.runs)}; re-run this wait to keep waiting.\n`,
+			`CEILING: after ${result.ceilingS} s this session still holds ${runList(result.runs)}; re-run this wait to keep waiting.\n`,
 		);
 		return EXIT.CEILING;
 	}
 	out(
-		"DONE: this session holds no live touched or named test run; read each run's notification for its verdict.\n",
+		"DONE: this session holds no live touched, named or changed test run; read each run's notification for its verdict.\n",
 	);
 	return 0;
 }

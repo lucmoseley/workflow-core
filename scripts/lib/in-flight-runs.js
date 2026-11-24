@@ -5,7 +5,7 @@ const { caught, ignoreFailure } = require("./caught.js");
 const { noop } = require("./noop.js");
 const { durationClock, now } = require("./clock.js");
 const { writeFd } = require("./write-fd.js");
-const { launchRoute } = require("./launch-route.js");
+const { SHARED_FLAG, launchRoute } = require("./launch-route.js");
 const { shellQuote } = require("./sh-quote.js");
 const {
 	defaultQueueDir,
@@ -16,7 +16,7 @@ const {
 const RUN_PREFIX = "run-";
 
 /**
- * @typedef {"touched" | "named" | "changed" | "full" | "shared"} RunLane
+ * @typedef {import("./launch-route.js").LaunchRoute["kind"] | "shared"} RunLane
  * @typedef {{ pid: number, startedAt: number, command: string, lane: RunLane }} InFlightRun
  * @typedef {{ pid: number, at: number, start?: number, session?: string, args?: string[] }} RunRecord
  * @typedef {{ queueDir?: string, alive?: (pid: number) => boolean, startTime?: (pid: number) => number }} InFlightOptions
@@ -27,8 +27,9 @@ const RUN_PREFIX = "run-";
  * @returns {RunLane}
  */
 function laneOf(args) {
-	if (args.includes("--shared")) return "shared";
-	return launchRoute(args, null).kind;
+	if (args.includes(SHARED_FLAG)) return "shared";
+	const route = launchRoute(args, null);
+	return route.source === "retest" ? "touched" : route.kind;
 }
 
 /**
@@ -108,16 +109,21 @@ function readInFlightRuns(
 	try {
 		names = fs.readdirSync(queueDir).map(String);
 	} catch (error) {
-		if (/** @type {{ code?: string }} */ (error)?.code === "ENOENT") return [];
+		if (caught(error).code === "ENOENT") return [];
 		return null;
 	}
 	/** @type {InFlightRun[]} */
 	const runs = [];
 	for (const name of names) {
 		if (!name.startsWith(RUN_PREFIX)) continue;
-		const record = readRunRecord(path.join(queueDir, name));
-		if (!record || record.session !== session) continue;
-		if (isMarkerStale(record, { alive, startTime })) continue;
+		const file = path.join(queueDir, name);
+		const record = readRunRecord(file);
+		if (!record) continue;
+		if (isMarkerStale(record, { alive, startTime })) {
+			ignoreFailure(() => fs.rmSync(file, { force: true }));
+			continue;
+		}
+		if (record.session !== session) continue;
 		const args = Array.isArray(record.args) ? record.args.map(String) : [];
 		runs.push({
 			pid: record.pid,
@@ -175,7 +181,7 @@ const WAIT_CEILING_S = 540;
 const WAIT_POLL_MS = 2000;
 
 /**
- * @typedef {{ verdict: "DONE" } | { verdict: "CEILING", runs: InFlightRun[] } | { verdict: "UNREAD" }} WaitResult
+ * @typedef {{ verdict: "DONE" } | { verdict: "CEILING", ceilingS: number, runs: InFlightRun[] } | { verdict: "UNREAD" }} WaitResult
  */
 
 /**
@@ -199,13 +205,12 @@ async function waitForRuns(
 		const held = waitedRuns(runs);
 		if (held.length === 0) return { verdict: "DONE" };
 		if (clock() - start >= ceilingS * 1000)
-			return { verdict: "CEILING", runs: held };
+			return { verdict: "CEILING", ceilingS, runs: held };
 		await sleep(pollMs);
 	}
 }
 
 module.exports = {
-	WAIT_CEILING_S,
 	recordRun,
 	commitRefusal,
 	readInFlightRuns,
