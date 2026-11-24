@@ -633,8 +633,12 @@ function init(at) {
 	out(
 		"Next: commit the skeleton through the full hook stack — that commit IS the test.",
 	);
+	const isHeld = (/** @type {string} */ rel) =>
+		fs.existsSync(path.join(root, rel));
 	const paths = skeletonPaths(
-		(rel) => dryRun || fs.existsSync(path.join(root, rel)),
+		(rel) => dryRun || isHeld(rel),
+		undefined,
+		isHeld,
 	).join(" ");
 	out(`  git add -N ${paths}`);
 	out(`  git commit -m "<why this repo exists>" -- ${paths}`);

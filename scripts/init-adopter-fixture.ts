@@ -15,6 +15,8 @@ import { upgrade } from "./lib/upgrade-walk.js";
 
 export const SKELETON_PATHS = skeletonPaths(
 	(rel) => rel !== "package.json" && rel !== CI_WORKFLOW,
+	undefined,
+	() => false,
 );
 
 export const CORE = path.resolve(__dirname, "..");

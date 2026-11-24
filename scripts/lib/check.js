@@ -136,11 +136,13 @@ function sayFdFromEnv() {
 }
 
 /**
- * @returns {"index" | "baseline" | undefined}
+ * @returns {{ side: "index" | "baseline", rev: string | undefined } | undefined}
  */
 function sideFromEnv() {
 	const side = process.env[SIDE_ENV];
-	return side === "index" || side === "baseline" ? side : undefined;
+	return side === "index" || side === "baseline"
+		? { side, rev: process.env[SIDE_REV_ENV] || undefined }
+		: undefined;
 }
 
 /** @typedef {"spawn" | "in-process"} SideRun */
@@ -234,12 +236,10 @@ class CheckContext {
 		this._spec = opts.spec;
 		/** @type {SideRun} */
 		this.sides = opts.sides ?? "spawn";
-		this.side = opts.side ?? sideFromEnv();
+		const fromEnv = opts.side === undefined ? sideFromEnv() : undefined;
+		this.side = opts.side ?? fromEnv?.side;
 		/** @type {string | undefined} */
-		this.sideRev =
-			opts.side === undefined && this.side
-				? process.env[SIDE_REV_ENV] || undefined
-				: undefined;
+		this.sideRev = fromEnv?.rev;
 		this.warnOnly = argv.includes("--warn");
 		this.asJson = argv.includes("--json");
 		this.jsonText = argv.includes("--json-text");

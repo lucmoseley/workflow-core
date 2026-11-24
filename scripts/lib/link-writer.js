@@ -94,7 +94,7 @@ function memoLocalRepo() {
  * @param {Ref} ref
  * @param {string|null} fallback
  */
-const namesRef = (repoUrl, number, ref, fallback) => {
+const isSameRef = (repoUrl, number, ref, fallback) => {
 	const repo = parseRepoOfUrl(repoUrl) ?? fallback;
 	return !!repo && refKey({ repo, number }) === refKey(ref);
 };
@@ -182,6 +182,8 @@ async function waitFor(listed, { retries, sleepMs, first = false }) {
 	return false;
 }
 
+const LOCAL_NUMBER = /^#?([0-9]{1,9})$/;
+
 /**
  * @param {string[]} rest
  * @param {() => Promise<string>} home
@@ -190,7 +192,7 @@ async function waitFor(listed, { retries, sleepMs, first = false }) {
 async function parseSubIssueArgs(rest, home) {
 	if (rest.length !== 2) fail("other", USAGE["sub-issue"]);
 	const [p = "", c = ""] = rest;
-	const parent = /^#?([0-9]{1,9})$/.exec(p)?.[1];
+	const parent = LOCAL_NUMBER.exec(p)?.[1];
 	if (!parent) fail("other", `parent '${p}' is not an issue number`);
 	const child = await parseRef(c, home);
 	if (!child)
@@ -209,7 +211,7 @@ const CHILD_ROW = /^(.*)#([0-9]+)$/;
  * @param {number} parent
  * @param {Ref} child
  */
-async function listsChild(repo, parent, child) {
+async function hasChild(repo, parent, child) {
 	const listed = await readGhText([
 		"api",
 		`repos/${repo}/issues/${parent}/sub_issues`,
@@ -221,7 +223,7 @@ async function listsChild(repo, parent, child) {
 		const m = CHILD_ROW.exec(line);
 		if (!m) return false;
 		const url = requiredGroup(m, 1, CHILD_ROW);
-		return namesRef(url, Number(requiredGroup(m, 2, CHILD_ROW)), child, null);
+		return isSameRef(url, Number(requiredGroup(m, 2, CHILD_ROW)), child, null);
 	});
 }
 
@@ -238,7 +240,7 @@ async function linkSubIssue(args, warn, { replaceParent }) {
 	);
 	const t = timing();
 	const label = refLabel(child, repo);
-	const listed = () => listsChild(repo, parent, child);
+	const listed = () => hasChild(repo, parent, child);
 
 	await assertParentHidesNoOpenChild(repo, parent, child);
 	const id = await readDatabaseId(child, repo);
@@ -347,7 +349,7 @@ async function postSubIssue({
 async function parseRef(text, home) {
 	const q = parseQualifiedRef(text);
 	if (q) return q;
-	const m = /^#?([0-9]{1,9})$/.exec(text);
+	const m = LOCAL_NUMBER.exec(text);
 	return m ? { repo: await home(), number: Number(m[1]) } : null;
 }
 
@@ -355,7 +357,7 @@ async function parseRef(text, home) {
  * @param {Ref} blocked
  * @param {Ref} blocker
  */
-async function listsBlocker(blocked, blocker) {
+async function hasBlocker(blocked, blocker) {
 	try {
 		const out = await ghAsync([
 			"api",
@@ -366,7 +368,7 @@ async function listsBlocker(blocked, blocker) {
 		/** @type {{number: number, repository_url?: string}[]} */
 		const rows = out.trim() ? JSON.parse(out).flat() : [];
 		return rows.some((r) =>
-			namesRef(r.repository_url, r.number, blocker, blocked.repo),
+			isSameRef(r.repository_url, r.number, blocker, blocked.repo),
 		);
 	} catch {
 		return false;
@@ -400,7 +402,7 @@ async function linkBlocker(args, warn) {
 	if (warning) warn(warning);
 
 	const t = timing();
-	const listed = () => listsBlocker(blocked, blocker);
+	const listed = () => hasBlocker(blocked, blocker);
 	try {
 		await ghAsync([
 			"api",

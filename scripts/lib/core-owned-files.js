@@ -20,6 +20,7 @@ const {
 	HOOKS,
 	LOCAL_HOOKS,
 	HELPERS,
+	COPIES_IF_HELD,
 } = require("./adopter-skeleton.js");
 const { isHookShim } = require("./hook-shim.js");
 const {
@@ -45,6 +46,7 @@ const {
 const { SESSION_COST_TABLE, readCostTableIn } = require("./session-spend.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { caught } = require("./caught.js");
+const { readText, dataOrThrow } = require("./file-read.js");
 const { isUnder } = require("./is-under.js");
 const {
 	HOST_REGISTRATIONS,
@@ -89,12 +91,13 @@ const SETTINGS = ".claude/settings.json";
 
 /**
  * @param {Context} ctx
- * @param {{rel: string, body: string, mode?: number, lost?: string}} file
+ * @param {{rel: string, body: string, mode?: number, lost?: string, ifHeld?: boolean}} file
  * @returns {string[]}
  */
-function bringFile({ root, dryRun, out }, { rel, body, mode, lost }) {
+function bringFile({ root, dryRun, out }, { rel, body, mode, lost, ifHeld }) {
 	const at = path.join(root, rel);
 	const existing = readIfPresent(at);
+	if (existing === null && ifHeld) return [];
 	const bodyChanged = existing !== body;
 	const modeWrong =
 		mode !== undefined &&
@@ -127,14 +130,7 @@ function bringFile({ root, dryRun, out }, { rel, body, mode, lost }) {
  * @param {string} at
  * @returns {string|null}
  */
-function readIfPresent(at) {
-	try {
-		return fs.readFileSync(at, "utf8");
-	} catch (err) {
-		if (caught(err).code !== "ENOENT") throw err;
-		return null;
-	}
-}
+const readIfPresent = (at) => dataOrThrow(readText(at));
 
 /** @param {Context} ctx */
 function bringHooks(ctx) {
@@ -158,38 +154,37 @@ function bringHooks(ctx) {
 	});
 }
 
-/** @param {Context} ctx */
-function bringHelpers(ctx) {
-	return HELPERS.flatMap((rel) => {
-		const body = readIfPresent(path.join(ctx.pluginRoot, rel));
-		if (body === null) {
-			ctx.out(`MISSING ${rel} — the plugin root carries no copy`);
-			return [];
-		}
-		return bringFile(ctx, {
-			rel,
-			body,
-			mode: 0o755,
-			lost: "it differed from the plugin's copy, so any local edit to it is gone",
-		});
+/**
+ * @param {Context} ctx
+ * @param {string} rel
+ * @param {{mode?: number, ifHeld?: boolean}} [how]
+ */
+function bringPluginCopy(ctx, rel, { mode, ifHeld } = {}) {
+	const body = readIfPresent(path.join(ctx.pluginRoot, rel));
+	if (body === null) {
+		ctx.out(`MISSING ${rel} — the plugin root carries no copy`);
+		return [];
+	}
+	return bringFile(ctx, {
+		rel,
+		body,
+		mode,
+		ifHeld,
+		lost: "it differed from the plugin's copy, so any local edit to it is gone",
 	});
 }
 
 /** @param {Context} ctx */
-function bringCoreDocs(ctx) {
-	return CORE_DOCS.flatMap((rel) => {
-		const body = readIfPresent(path.join(ctx.pluginRoot, rel));
-		if (body === null) {
-			ctx.out(`MISSING ${rel} — the plugin root carries no copy`);
-			return [];
-		}
-		return bringFile(ctx, {
-			rel,
-			body,
-			lost: "it differed from the plugin's copy, so any local edit to it is gone",
-		});
-	});
-}
+const bringHelpers = (ctx) =>
+	HELPERS.flatMap((rel) => bringPluginCopy(ctx, rel, { mode: 0o755 }));
+
+/** @param {Context} ctx */
+const bringHeldCopies = (ctx) =>
+	COPIES_IF_HELD.flatMap((rel) => bringPluginCopy(ctx, rel, { ifHeld: true }));
+
+/** @param {Context} ctx */
+const bringCoreDocs = (ctx) =>
+	CORE_DOCS.flatMap((rel) => bringPluginCopy(ctx, rel));
 
 /**
  * @typedef {object} WorkflowBring
@@ -583,12 +578,14 @@ const ghLabels = (root) => ({
  * @typedef {object} Entry
  * @property {(ctx: Context) => string[]} bring
  * @property {string[]} paths
+ * @property {boolean} [ifHeld]
  */
 
 /** @type {Entry[]} */
 const ENTRIES = [
 	{ bring: bringHooks, paths: HOOKS.map((hook) => `.husky/${hook}`) },
 	{ bring: bringHelpers, paths: HELPERS },
+	{ bring: bringHeldCopies, paths: COPIES_IF_HELD, ifHeld: true },
 	{ bring: bringRules, paths: [RULES_FILE, REFERENCE_FILE] },
 	{ bring: bringCoreDocs, paths: CORE_DOCS },
 	{ bring: bringCi, paths: [CI_WORKFLOW] },
@@ -631,13 +628,16 @@ const SKELETON_ROOTS = ["CLAUDE.md", "AGENTS.md", ".claude", "docs", ".husky"];
 /**
  * @param {(rel: string) => boolean} isPresent
  * @param {Entry[]} [entries]
+ * @param {(rel: string) => boolean} [isHeld]
  */
-function skeletonPaths(isPresent, entries = ENTRIES) {
+function skeletonPaths(isPresent, entries = ENTRIES, isHeld = isPresent) {
 	return [
 		...SKELETON_ROOTS,
-		...coreOwnedPaths(entries).filter(
-			(rel) => !isUnder(rel, SKELETON_ROOTS) && isPresent(rel),
-		),
+		...entries
+			.flatMap(({ paths, ifHeld }) =>
+				paths.filter((rel) => (ifHeld ? isHeld : isPresent)(rel)),
+			)
+			.filter((rel) => !isUnder(rel, SKELETON_ROOTS)),
 	];
 }
 

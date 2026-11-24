@@ -33,7 +33,7 @@ function readAttributeExcluded(
 			...opts,
 			env: { ...(env ?? process.env), GIT_INDEX_FILE: path.join(dir, "index") },
 		};
-		failed(
+		throwUnlessRan(
 			spawnGitSync(["read-tree", from.rev], scratch),
 			`read-tree ${from.rev}`,
 		);
@@ -47,7 +47,7 @@ function readAttributeExcluded(
  * @param {import("node:child_process").SpawnSyncReturns<string>} r
  * @param {string} what
  */
-function failed(r, what) {
+function throwUnlessRan(r, what) {
 	if (r.error) throw new Error(`git ${what} failed: ${r.error.message}`);
 	if (r.status !== 0) throw new Error(`git ${what} failed: ${r.stderr.trim()}`);
 }
@@ -69,7 +69,7 @@ function checkAttr(paths, cached, opts) {
 		],
 		{ ...opts, input: paths.map((p) => `${p}\0`).join("") },
 	);
-	failed(r, "check-attr");
+	throwUnlessRan(r, "check-attr");
 	const fields = r.stdout.split("\0");
 	const excluded = new Set();
 	for (let i = 0; i + 2 < fields.length; i += 3) {

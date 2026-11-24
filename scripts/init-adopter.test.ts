@@ -1024,6 +1024,24 @@ describe("init in a fresh repository", () => {
 		);
 	});
 
+	it("gives no resolve_core.py to an adopter holding none, though the core carries one (#5718)", () => {
+		const { dir } = initialised();
+		expect(fs.existsSync(path.join(CORE, "scripts/lib/resolve_core.py"))).toBe(
+			true,
+		);
+		expect(fs.existsSync(path.join(dir, "scripts/lib/resolve_core.py"))).toBe(
+			false,
+		);
+	});
+
+	it("leaves resolve_core.py out of a dry run's pathspec where the adopter holds none (#5718)", () => {
+		const { dir } = repo();
+		const r = init(dir, "--founder", "A Founder", "--no-tracker", "--dry-run");
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toMatch(/git add -N .*resolve-core\.js/);
+		expect(r.stdout).not.toContain("resolve_core.py");
+	});
+
 	it("replaces an adopter's edit to the browser helper on a re-run (#133)", () => {
 		const { dir } = initialised();
 		fs.writeFileSync(path.join(dir, "scripts/browse.py"), "clobbered\n");

@@ -215,7 +215,7 @@ describe("check-comment-policy", () => {
 		);
 	});
 
-	it("lists as copies every core-owned code file but the rendered hook shims, plus resolve_core.py, which an adopter copies once", () => {
+	it("lists as copies every core-owned code file but the rendered hook shims", () => {
 		const surface = JSON.parse(
 			fs.readFileSync(
 				path.join(PLUGIN_ROOT, "scripts/lib/helper-surface.json"),
@@ -225,9 +225,7 @@ describe("check-comment-policy", () => {
 		const owned = coreOwnedPaths().filter(
 			(rel) => CODE_FILE.test(rel) && !SHIMS.includes(rel),
 		);
-		expect([...surface.copies].sort()).toEqual(
-			[...owned, "scripts/lib/resolve_core.py"].sort(),
-		);
+		expect([...surface.copies].sort()).toEqual([...owned].sort());
 		expect([...surface.copies].sort()).toEqual([...COPIES].sort());
 	});
 
