@@ -15,7 +15,7 @@ const { noop } = require("./noop.js");
 const { isNetworkFault } = require("./network-fault.js");
 const { readJsonl } = require("./jsonl.js");
 const { SUITE_WORKFLOW } = require("./suite-timings.js");
-const { recordRun } = require("./local-tester.js");
+const { recordRun } = require("./lander-run-record.js");
 const {
 	ADOPTER_WORKFLOWS,
 	NAMED_JOB,
@@ -251,17 +251,27 @@ function judgeRed(sha, ran, { reads, fallsBack, suiteStep }) {
 
 /**
  * @param {string} raw
+ * @param {(job: string, step: string|undefined) => boolean} keep
+ * @returns {string}
+ */
+const logLinesWhere = (raw, keep) =>
+	raw
+		.split("\n")
+		.filter((l) => {
+			const [job = "", step] = l.split("\t");
+			return keep(job, step);
+		})
+		.join("\n");
+
+/**
+ * @param {string} raw
  * @param {string} job
  */
 function jobLog(raw, job) {
 	const shard = job.match(SHARD_JOB)?.[0];
-	return raw
-		.split("\n")
-		.filter((l) => {
-			const name = l.split("\t")[0] ?? "";
-			return shard ? name.match(SHARD_JOB)?.[0] === shard : name === job;
-		})
-		.join("\n");
+	return logLinesWhere(raw, (name) =>
+		shard ? name.match(SHARD_JOB)?.[0] === shard : name === job,
+	);
 }
 
 /**
@@ -354,16 +364,12 @@ const hasFailedStep = (job, name) =>
  */
 const parseTypeErrors = (log, jobs) =>
 	stripLogPrefix(
-		log
-			.split("\n")
-			.filter((l) => {
-				const [job = "", step] = l.split("\t");
-				return (
-					jobs.includes(job) &&
-					(step === TYPECHECK_STEP || step === UNNAMED_STEP)
-				);
-			})
-			.join("\n"),
+		logLinesWhere(
+			log,
+			(job, step) =>
+				jobs.includes(job) &&
+				(step === TYPECHECK_STEP || step === UNNAMED_STEP),
+		),
 	)
 		.split("\n")
 		.filter((l) => TYPE_ERROR.test(l))
@@ -415,11 +421,10 @@ function readCleared(sha, jobs, reads) {
 		const files = retried.flatMap((j) => {
 			if (j.databaseId === undefined)
 				throw new Error(`job ${j.name} lists no id`);
-			const own = reads
-				.jobLogOf(j.databaseId)
-				.split("\n")
-				.filter((line) => line.split("\t")[1] === RETRY_STEP)
-				.join("\n");
+			const own = logLinesWhere(
+				reads.jobLogOf(j.databaseId),
+				(_, step) => step === RETRY_STEP,
+			);
 			return parseRetryLine(stripLogPrefix(own), CLEARED);
 		});
 		return files.length > 0 ? reads.presentAt(sha, [...new Set(files)]) : [];
@@ -604,6 +609,12 @@ function settle(v) {
 }
 
 /**
+ * @param {string} reason
+ * @returns {AskVerdict}
+ */
+const offActions = (reason) => ({ kind: "unknown", reason, offActions: true });
+
+/**
  * @param {string} sha
  * @param {number} after
  * @param {On} suite
@@ -624,24 +635,17 @@ async function suiteVerdict(
 	);
 	if (v.kind === "jobless") {
 		if (repushed)
-			return {
-				kind: "unknown",
-				reason: `${v.reason}, after ${suite.branch} was pushed again`,
-			};
+			return offActions(`${v.reason}, after ${suite.branch} was pushed again`);
 		const next = await repushedVerdict(sha, suite, v.run);
 		return next.kind === "red" && next.noRun
-			? {
-					kind: "unknown",
-					reason: `${v.reason}, and no run followed ${suite.branch} pushed again`,
-				}
+			? offActions(
+					`${v.reason}, and no run followed ${suite.branch} pushed again`,
+				)
 			: next;
 	}
 	if (v.kind !== "runner") return settle(v);
 	if (reruns >= RUNNER_RERUNS)
-		return {
-			kind: "unknown",
-			reason: `${v.reason}, on ${reruns + 1} attempts`,
-		};
+		return offActions(`${v.reason}, on ${reruns + 1} attempts`);
 	try {
 		reads.rerun(v.run);
 	} catch (err) {
@@ -679,7 +683,7 @@ function namedRunVerdict(sha, title, reads) {
 	const failed = readFailed(sha, stripLogPrefix(raw), reads);
 	return failed.files.length > 0
 		? { kind: "red", ...failed, run: id }
-		: { kind: "unknown", reason: unjudgedReason(id, raw), offActions: true };
+		: offActions(unjudgedReason(id, raw));
 }
 
 /**
@@ -757,7 +761,7 @@ async function namedVerdict(
 	}
 	if (present.length === 0) return { kind: "green" };
 	if (!isolation && readDispatchesToday(record, now()) >= NAMED_DAILY_CAP)
-		return unknown(`${workflow}'s ${NAMED_DAILY_CAP}-a-day cap is spent`);
+		return offActions(`${workflow}'s ${NAMED_DAILY_CAP}-a-day cap is spent`);
 	const nonce = crypto.randomUUID();
 	try {
 		reads.dispatch({ sha, files: present, nonce });
@@ -781,11 +785,7 @@ async function namedVerdict(
 	);
 	if (v.kind !== "pending") return v;
 	return v.run === null
-		? {
-				kind: "unknown",
-				reason: `${workflow} listed no run titled ${title}`,
-				offActions: true,
-			}
+		? offActions(`${workflow} listed no run titled ${title}`)
 		: unknown(`run ${v.run} unfinished after ${RUN_BOUND_MS / 60_000} min`);
 }
 
@@ -817,7 +817,7 @@ const liveQueueReads = (root, workflows) => ({
  * @property {QueueReads} [reads]
  * @property {(ms: number) => Promise<void>} [wait]
  * @property {() => number} [now]
- * @property {(run: import("./local-tester.js").RunLine) => void} [record]
+ * @property {(run: import("./lander-run-record.js").RunLine) => void} [record]
  */
 
 /**
@@ -903,7 +903,7 @@ function queueTester({
 					tester: "actions",
 					suiteSeconds: v.timed.seconds,
 				});
-			return judged(v);
+			return toVerdict(v);
 		},
 		cancel(place, keep) {
 			const listed = reads.runsOn(suiteRef(place));
@@ -942,7 +942,7 @@ function offActionsReason(v) {
  * @param {AskVerdict} v
  * @returns {Verdict}
  */
-function judged(v) {
+function toVerdict(v) {
 	if (v.kind === "local") return { kind: "unknown", reason: v.reason };
 	if ("offActions" in v) {
 		const { offActions: _, ...rest } = v;

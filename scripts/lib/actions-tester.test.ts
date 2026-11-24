@@ -27,8 +27,10 @@ const ISO1 = { kind: "iso", k: 1 } as const;
 const BASE = { kind: "iso", k: "base" } as const;
 
 let tmp: string | null = null;
+const namedRoots: string[] = [];
 afterEach(() => {
-	if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+	for (const dir of [tmp, ...namedRoots.splice(0)])
+		if (dir) fs.rmSync(dir, { recursive: true, force: true });
 	tmp = null;
 });
 
@@ -624,8 +626,9 @@ const fakeNamedReads = (
 };
 
 const namedRoot = () => {
-	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "named-rerun-"));
-	return tmp;
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "named-rerun-"));
+	namedRoots.push(dir);
+	return dir;
 };
 
 const askNamed = (
@@ -1687,7 +1690,7 @@ it("keeps an adopter's red on the code a red, its failed jobs having started ste
 	expect(a.asked).toEqual([]);
 });
 
-it("tests locally a whole run whose shards ran no suite, quoting the suite's own line and writing no record line, where workflow-core reads a red (#5700)", async () => {
+it("tests locally a whole run whose shards ran no suite, quoting the suite's own line and writing no record line, where workflow-core reads a red; paired with \"keeps an adopter's red on the code a red\" (#5700)", async () => {
 	const unrun = () => {
 		const r = queueReads([() => [run(1, "failure")]]);
 		r.jobsOf = () => [
@@ -1718,7 +1721,7 @@ it("tests locally a whole run whose shards ran no suite, quoting the suite's own
 	});
 });
 
-it("tests locally a whole run where one shard ran no suite though another names its failing file, writing no record line (#5700)", async () => {
+it('tests locally a whole run where one shard ran no suite though another names its failing file, writing no record line; paired with "keeps an adopter\'s red on the code a red" (#5700)', async () => {
 	const r = queueReads([() => [run(1, "failure")]]);
 	r.jobsOf = () => [
 		...shards("failure", "failure").map((j) => ({
@@ -1740,7 +1743,7 @@ it("tests locally a whole run where one shard ran no suite though another names 
 	expect(a.recorded).toEqual([]);
 });
 
-it("tests locally a named run that names no failing file on an adopter (#5700)", async () => {
+it('tests locally a named run that names no failing file on an adopter; paired with "reads a failed named run as red on the tree\'s failing files" (#5700)', async () => {
 	const r = queueReads([() => []], { named: "failure" });
 	r.failedLogOf = () => "Named files\tNamed files\tMISSING chromium";
 	r.jobsOf = () => [{ name: "Named files", conclusion: "failure", steps: [] }];
@@ -1812,20 +1815,87 @@ it("tests locally an ask whose push, read or dispatch is refused on anything but
 	expect(d.asked).toEqual([]);
 });
 
-it("keeps the named-rerun cap on an adopter, a spent day no verdict (#5511)", async () => {
+it("tests locally a named rerun on an adopter whose day's cap is spent, dispatching nothing, where workflow-core reads no verdict (#5511)", async () => {
 	const root = namedRoot();
 	fs.writeFileSync(
 		path.join(markersDir(root), ".lander-named-runs.jsonl"),
 		`${JSON.stringify({ at: new Date().toISOString() })}\n`.repeat(12),
 	);
-	const a = adopterOf(queueReads([() => []]), root);
+	const r = queueReads([() => []]);
+	const a = adopterOf(r, root);
 	expect(
 		await a.tester.verdict(BATCH0, SHA, ["scripts/lib/a.test.ts"]),
-	).toEqual({
+	).toEqual({ kind: "green" });
+	expect(a.asked).toEqual([[BATCH0, SHA, ["scripts/lib/a.test.ts"], false]]);
+	expect(a.lines).toEqual([
+		"lander: batch 0 at aaaaaaaaa tested locally: workflow-core-named-rerun.yml's 12-a-day cap is spent",
+	]);
+	expect(r.dispatched).toEqual([]);
+});
+
+it("tests locally an adopter's whole run that judges no code after the ref is pushed again, where workflow-core reads no verdict (#5511)", async () => {
+	const twice = () => {
+		const r = queueReads([
+			() => [run(5, "failure")],
+			() => [run(9, "failure"), run(5, "failure")],
+		]);
+		r.jobsOf = () => shards("success", "success", "success");
+		return r;
+	};
+	const a = adopterOf(twice());
+	expect(await a.tester.verdict(BATCH0, SHA)).toEqual({ kind: "green" });
+	expect(a.lines).toEqual([
+		"lander: batch 0 at aaaaaaaaa tested locally: run 9 failed listing no failed job, which judges no code, after lander/batch-0 was pushed again",
+	]);
+	expect(await queueOf(twice()).verdict(BATCH0, SHA)).toMatchObject({
 		kind: "unknown",
-		reason: "workflow-core-named-rerun.yml's 12-a-day cap is spent",
 	});
-	expect(a.asked).toEqual([]);
+	const none = queueReads([() => [run(5, "failure")]]);
+	none.jobsOf = () => [
+		...shards("success"),
+		{ name: "Suite passed", conclusion: "failure", steps: [] },
+	];
+	const b = adopterOf(none);
+	expect(await b.tester.verdict(BATCH0, SHA)).toEqual({ kind: "green" });
+	expect(b.lines).toEqual([
+		"lander: batch 0 at aaaaaaaaa tested locally: run 5 failed listing no failed job, which judges no code, and no run followed lander/batch-0 pushed again",
+	]);
+});
+
+it("tests locally an adopter's whole run whose runner fails to ready on every attempt, where workflow-core reads no verdict (#5511)", async () => {
+	const unready = () => {
+		const r = queueReads([
+			() => [run(5, "failure")],
+			() => [run(5, "failure", { attempt: 2 })],
+			() => [run(5, "failure", { attempt: 3 })],
+		]);
+		r.jobsOf = () => unreadied("Install test tools");
+		return r;
+	};
+	const a = adopterOf(unready());
+	expect(await a.tester.verdict(BATCH0, SHA)).toEqual({ kind: "green" });
+	expect(a.lines[0]).toMatch(
+		/^lander: batch 0 at aaaaaaaaa tested locally: .*'Install test tools' step, which judges no code, on 3 attempts$/,
+	);
+	expect(await queueOf(unready()).verdict(BATCH0, SHA)).toMatchObject({
+		kind: "unknown",
+	});
+});
+
+it("tests locally an adopter's whole run whose rerun is refused on anything but the network (#5511)", async () => {
+	const r = queueReads([() => [run(5, "failure")]]);
+	r.jobsOf = () => unreadied("Install test tools");
+	r.rerun = () => {
+		throw Object.assign(new Error("gh"), {
+			stderr: "HTTP 403: Resource not accessible",
+		});
+	};
+	const a = adopterOf(r);
+	expect(await a.tester.verdict(BATCH0, SHA)).toEqual({ kind: "green" });
+	expect(a.asked).toEqual([[BATCH0, SHA, [], false]]);
+	expect(a.lines[0]).toMatch(
+		/^lander: batch 0 at aaaaaaaaa tested locally: workflow-core-lander\.yml runs unreadable: .*HTTP 403/,
+	);
 });
 
 it("records each whole run it judges, green or red, its suite seconds summed across the shard jobs' suite step (#5511)", async () => {

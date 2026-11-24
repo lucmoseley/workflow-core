@@ -14,11 +14,8 @@ const {
 const { short } = require("./lander-git.js");
 const { readRunCode, readSupersededFiles } = require("./lander-code.js");
 const { startLevelling } = require("./level-main.js");
-const {
-	commandTester,
-	localTester,
-	readWholeRuns,
-} = require("./local-tester.js");
+const { readWholeRuns } = require("./lander-run-record.js");
+const { commandTester, localTester } = require("./local-tester.js");
 const { liveQueueDeps } = require("./queue-issue.js");
 const { dropRecord, pipelineRecord } = require("./lander-records.js");
 const { isQueueHead, queueNameOf } = require("./landing-refs.js");
