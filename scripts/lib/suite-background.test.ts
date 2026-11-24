@@ -661,6 +661,12 @@ describe("its deliberate limits", () => {
 			expect(reasonFor(command, "sub")).not.toContain("end the turn");
 		});
 
+		it("tells a subagent's detached snapshot run to hold its turn", () => {
+			expect(reasonFor("npm run test &", "sub")).toContain(
+				"and notifies: then hold your turn on it as the line above says, never ending it. A ",
+			);
+		});
+
 		it("still tells the parent to end its turn", () => {
 			expect(reasonFor("timeout 300 npm run test -- --full=x &")).toContain(
 				"end the turn with NO tool call",

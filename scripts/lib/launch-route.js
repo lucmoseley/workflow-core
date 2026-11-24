@@ -95,7 +95,7 @@ function launchRoute(argv, sessionId) {
 	const frozen = shared ? "shared" : "worktree";
 	/** @type {Tree} */
 	const settled = full || isolated ? frozen : "shared";
-	const snapshot = !shared && !isolated && !full && session !== null;
+	const snapshot = isSnapshotArgv(argv) && session !== null;
 	return {
 		rest,
 		kind,
