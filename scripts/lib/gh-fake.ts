@@ -304,8 +304,7 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 	// This tracker holds no pull request to record, so a listed one's key is
 	// GitHub's documented pull_request object (REST, "List repository issues").
 	// Residual: no live case holds pull_request, and nothing holds the stub
-	// at or below a key recorded as null (milestone, pinned_comment, intent,
-	// and status, an object on an open issue).
+	// at or below a key recorded as null (milestone, pinned_comment, intent).
 	recorded.issuesPage[0][0].pull_request = { url: "", html_url: "", diff_url: "", patch_url: "", merged_at: "" };
 	const typeOf = (v) => (Array.isArray(v) ? "array" : typeof v);
 	const walk = (t, v, at) => {
