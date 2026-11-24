@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, expect, vi } from "vitest";
 import { CI_WORKFLOW } from "./lib/adopter-ci.js";
-import { HELD_COPIES } from "./lib/adopter-skeleton.js";
+import { COPIES_IF_HELD } from "./lib/adopter-skeleton.js";
 import { skeletonPaths } from "./lib/core-owned-files.js";
 import { defineTemplate, mkDirOutsideRepo } from "./lib/git-fixture";
 import { adopt } from "./lib/init-adopter-core.js";
@@ -16,7 +16,9 @@ import { upgrade } from "./lib/upgrade-walk.js";
 
 export const SKELETON_PATHS = skeletonPaths(
 	(rel) =>
-		rel !== "package.json" && rel !== CI_WORKFLOW && !HELD_COPIES.includes(rel),
+		rel !== "package.json" &&
+		rel !== CI_WORKFLOW &&
+		!COPIES_IF_HELD.includes(rel),
 );
 
 export const CORE = path.resolve(__dirname, "..");

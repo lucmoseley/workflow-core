@@ -1024,6 +1024,16 @@ describe("init in a fresh repository", () => {
 		);
 	});
 
+	it("gives no resolve_core.py to an adopter holding none, though the core carries one (#5718)", () => {
+		const { dir } = initialised();
+		expect(fs.existsSync(path.join(CORE, "scripts/lib/resolve_core.py"))).toBe(
+			true,
+		);
+		expect(fs.existsSync(path.join(dir, "scripts/lib/resolve_core.py"))).toBe(
+			false,
+		);
+	});
+
 	it("replaces an adopter's edit to the browser helper on a re-run (#133)", () => {
 		const { dir } = initialised();
 		fs.writeFileSync(path.join(dir, "scripts/browse.py"), "clobbered\n");

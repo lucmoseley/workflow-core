@@ -51,6 +51,7 @@ const {
 	renderRoadmap,
 	RULES_FILE: RULES,
 	TOOLS,
+	COPIES_IF_HELD,
 } = require("./adopter-skeleton.js");
 const {
 	bringCoreFiles,
@@ -634,7 +635,9 @@ function init(at) {
 		"Next: commit the skeleton through the full hook stack — that commit IS the test.",
 	);
 	const paths = skeletonPaths(
-		(rel) => dryRun || fs.existsSync(path.join(root, rel)),
+		(rel) =>
+			fs.existsSync(path.join(root, rel)) ||
+			(dryRun && !COPIES_IF_HELD.includes(rel)),
 	).join(" ");
 	out(`  git add -N ${paths}`);
 	out(`  git commit -m "<why this repo exists>" -- ${paths}`);

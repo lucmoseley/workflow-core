@@ -20,7 +20,7 @@ const {
 	HOOKS,
 	LOCAL_HOOKS,
 	HELPERS,
-	HELD_COPIES,
+	COPIES_IF_HELD,
 } = require("./adopter-skeleton.js");
 const { isHookShim } = require("./hook-shim.js");
 const {
@@ -184,8 +184,8 @@ const bringHelpers = (ctx) =>
 
 /** @param {Context} ctx */
 const bringHeldCopies = (ctx) =>
-	HELD_COPIES.filter(
-		(rel) => readIfPresent(path.join(ctx.root, rel)) !== null,
+	COPIES_IF_HELD.filter((rel) =>
+		fs.existsSync(path.join(ctx.root, rel)),
 	).flatMap((rel) => bringPluginCopy(ctx, rel));
 
 /** @param {Context} ctx */
@@ -590,7 +590,7 @@ const ghLabels = (root) => ({
 const ENTRIES = [
 	{ bring: bringHooks, paths: HOOKS.map((hook) => `.husky/${hook}`) },
 	{ bring: bringHelpers, paths: HELPERS },
-	{ bring: bringHeldCopies, paths: HELD_COPIES },
+	{ bring: bringHeldCopies, paths: COPIES_IF_HELD },
 	{ bring: bringRules, paths: [RULES_FILE, REFERENCE_FILE] },
 	{ bring: bringCoreDocs, paths: CORE_DOCS },
 	{ bring: bringCi, paths: [CI_WORKFLOW] },
