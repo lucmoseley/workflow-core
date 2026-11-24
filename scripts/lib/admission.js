@@ -295,9 +295,10 @@ function liveDraw(
 	}
 	const p95Mb = (/** @type {SessionDraw} */ d) => d.meanMb + DRAW_Z * d.sigmaMb;
 	waiting.sort((a, b) => p95Mb(b) - p95Mb(a));
-	for (const d of waiting.slice(0, NO_PROCESS_CHARGED)) charge(d);
-	draw.noProcessCharged = Math.min(waiting.length, NO_PROCESS_CHARGED);
-	draw.noProcessUncharged = Math.max(0, waiting.length - NO_PROCESS_CHARGED);
+	const charged = waiting.slice(0, NO_PROCESS_CHARGED);
+	for (const d of charged) charge(d);
+	draw.noProcessCharged = charged.length;
+	draw.noProcessUncharged = waiting.length - charged.length;
 	draw.pssMb = Math.floor(heldKb / 1024);
 	return draw;
 }
