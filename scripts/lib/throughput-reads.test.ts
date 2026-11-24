@@ -30,6 +30,11 @@ const tickRead = (root: string, since = 0) =>
 const HOUR = 3_600_000;
 const HI = Date.parse("2026-11-16T07:00:00Z");
 const LO = HI - 24 * HOUR;
+// #5722
+const pinClockToHi = () => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	vi.setSystemTime(HI);
+};
 
 function writeJob(
 	seat: string,
@@ -72,6 +77,7 @@ beforeEach(() => {
 	vi.stubEnv("WFC_REFILL_DIR", path.join(tmp, "refill"));
 });
 afterEach(() => {
+	vi.useRealTimers();
 	vi.unstubAllEnvs();
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -332,6 +338,8 @@ describe("a breaker trial's landing reads (#5300)", () => {
 });
 
 describe("a checkout's loop sessions (#5289)", () => {
+	beforeEach(pinClockToHi);
+
 	const windowOf = (launches: SeatedLaunch[] = []) =>
 		readThroughputWindow({ roots: ["/srv/dv"], launches, lo: LO, hi: HI })[0];
 	const hoursOf = (launches: SeatedLaunch[] = []) =>
@@ -481,9 +489,11 @@ describe("a checkout's loop sessions (#5289)", () => {
 });
 
 describe("readThroughputWindow", () => {
+	beforeEach(pinClockToHi);
+
 	it("reads a served checkout's window: its sessions' hours, its breaker at the end, the window's events", () => {
 		const Hour = 3_600_000;
-		const hi = Date.parse("2026-11-16T07:00:00Z");
+		const hi = HI;
 		const lo = hi - 24 * Hour;
 		const seat = path.join(tmp, "seat");
 		const row = (at: number) =>

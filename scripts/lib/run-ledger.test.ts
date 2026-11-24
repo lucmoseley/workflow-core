@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const {
@@ -16,6 +16,12 @@ const {
 const runMemory = require("./run-memory.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 
+// #5722
+const NOW = Date.parse("2026-10-24T12:00:00Z");
+beforeEach(() => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	vi.setSystemTime(NOW);
+});
 const dirs: string[] = [];
 afterEach(() => {
 	vi.useRealTimers();
@@ -125,9 +131,7 @@ describe("the ledger beside the marker stores (#2824)", () => {
 	});
 
 	it("drops lines past 30 days once the oldest is a day beyond", () => {
-		const now = Date.parse("2026-10-24T12:00:00Z");
-		vi.useFakeTimers({ toFake: ["Date"] });
-		vi.setSystemTime(now);
+		const now = NOW;
 		const root = sandbox();
 		const ago = (days: number) => new Date(now - days * DAY_MS).toISOString();
 		fs.mkdirSync(path.dirname(ledgerOf(root)), { recursive: true });
