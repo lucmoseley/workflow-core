@@ -3,6 +3,7 @@ const { TREE_PEAK_SAMPLE_MS } = require("./admission.js");
 const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
+const { writeFd } = require("./write-fd.js");
 
 const RUN_RECORD = ".lander-runs.jsonl";
 // guess, #3323
@@ -31,7 +32,7 @@ function recordRun(root, run) {
 		{ at: new Date().toISOString(), ...run },
 		RUN_RECORD_RETAIN_MS,
 	);
-	if (!landed) process.stderr.write(`lander: run record unwritten: ${file}\n`);
+	if (!landed) writeFd(2, `lander: run record unwritten: ${file}\n`);
 }
 
 /** @param {number} samples */
