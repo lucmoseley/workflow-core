@@ -42,6 +42,9 @@ function parseFailingFiles(out) {
 	return [...files];
 }
 
+const TEMP_NAME =
+	/(?<=[A-Za-z0-9][-_])(?:(?=[A-Za-z0-9]{0,5}[A-Z0-9])[A-Za-z0-9]{6}|(?=[a-z0-9_]{0,7}[0-9_])[a-z0-9_]{8})\b|\btmp[a-z0-9_]{8}\b/g;
+
 /** @param {string} text */
 const buildSignature = (text) =>
 	crypto
@@ -49,6 +52,7 @@ const buildSignature = (text) =>
 		.update(
 			text
 				.replace(/(?<![\w.])(?:\/[^\s/:'"`]+)+\//g, "")
+				.replace(TEMP_NAME, "~")
 				.replace(/\b[0-9a-f]{7,40}\b/g, "#")
 				.replace(/\d+/g, "#"),
 		)

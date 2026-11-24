@@ -677,18 +677,25 @@ function redMarksOf(v, first) {
 
 /**
  * @param {Batch} b
- * @param {QueueState} s
  * @param {readonly string[]} files
- * @returns {number|null}
  */
-function mainRunOf(b, s, files) {
-	const base = b.bases.findLast(
+const ontoVerdictOf = (b, files) =>
+	b.bases.findLast(
 		(x) =>
 			x.sha === b.onto &&
 			(files.length === 0
 				? x.files.length === 0
 				: files.every((f) => x.files.includes(f))),
 	)?.verdict;
+
+/**
+ * @param {Batch} b
+ * @param {QueueState} s
+ * @param {readonly string[]} files
+ * @returns {number|null}
+ */
+function mainRunOf(b, s, files) {
+	const base = ontoVerdictOf(b, files);
 	if (base?.kind === "red")
 		return files.length > 0 && !files.some((f) => base.files.includes(f))
 			? (base.run ?? null)
@@ -712,6 +719,9 @@ function mainRunOf(b, s, files) {
 function redAloneCause(b, s, { name, iso, asked, v, first }) {
 	const files = v.files.length > 0 ? v.files : asked;
 	const mainRun = v.noRun ? null : mainRunOf(b, s, files);
+	const onto = v.noRun ? undefined : ontoVerdictOf(b, files);
+	const mainRed =
+		onto?.kind === "red" ? files.filter((f) => onto.files.includes(f)) : [];
 	return {
 		kind: "red",
 		name,
@@ -719,6 +729,7 @@ function redAloneCause(b, s, { name, iso, asked, v, first }) {
 		iso,
 		...redMarksOf(v, first),
 		...(mainRun === null ? {} : { mainRun }),
+		...(mainRed.length > 0 ? { mainRed } : {}),
 	};
 }
 

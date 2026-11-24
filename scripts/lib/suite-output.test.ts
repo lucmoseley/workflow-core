@@ -85,6 +85,9 @@ describe("a failure's signature (#3937)", () => {
 		["a moved line", "at lib/a.js:75", "at lib/a.js:79"],
 		["a sha", "red at 4fbccfa99", "red at 8caad354d"],
 		["a checkout's path", "/home/runner/w/lib/a.js", "/home/lucmo/lib/a.js"],
+		["a temp dir's path", "in /tmp/ledger-SfFJ91", "in /tmp/ledger-PU2kUQ"],
+		["a Python temp dir", "/tmp/tmpk3_x9qa1 gone", "/tmp/tmpz0abc_de gone"],
+		["a prefixed Python one", "named-rerun-ab12cd_e", "named-rerun-zz9y_xwv"],
 	])("is one across a difference only in %s", (_, was, now) => {
 		expect(signed(was)).toBe(signed(now));
 	});
@@ -105,5 +108,35 @@ describe("a failure's signature (#3937)", () => {
 				" FAIL  scripts/a.test.ts > it\n ✓ scripts/c.test.ts (3 tests)",
 			),
 		).toEqual([{ file: "scripts/a.test.ts", test: "it" }]);
+	});
+
+	describe("across two runs of one test in different temp dirs (#5727)", () => {
+		const ledgerRed = (repo: string, got: string) =>
+			parseFailingTests(
+				[
+					" FAIL  scripts/lib/run-ledger.test.ts > the ledger beside the marker stores (#2824) > writes one line",
+					"AssertionError: expected [ { …(3) } ] to deeply equal [ { …(3) } ]",
+					"",
+					"- Expected",
+					"+ Received",
+					"",
+					"    {",
+					`+     "repo": "${repo}",`,
+					`-     "lines": ${got},`,
+					"    }",
+				].join("\n"),
+			)[0]?.signature;
+
+		it("is one where only the mkdtemp basename differs", () => {
+			expect(ledgerRed("ledger-SfFJ91", "2")).toBe(
+				ledgerRed("ledger-PU2kUQ", "2"),
+			);
+		});
+
+		it("still tells apart an assertion whose value differs", () => {
+			expect(ledgerRed("ledger-SfFJ91", "2")).not.toBe(
+				ledgerRed("ledger-PU2kUQ", "null"),
+			);
+		});
 	});
 });

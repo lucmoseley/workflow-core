@@ -77,7 +77,8 @@ const PHASES = Object.freeze(
  *   readonly failures?: readonly QuotedFailure[]}} RedMarks
  * @typedef {{readonly kind: "red", readonly name: string,
  *   readonly files: readonly string[], readonly iso: string,
- *   readonly mainRun?: number} & RedMarks} RedAlone
+ *   readonly mainRun?: number, readonly mainRed?: readonly string[]}
+ *   & RedMarks} RedAlone
  * @typedef {{readonly kind: "collision", readonly name: string,
  *   readonly files: readonly string[], readonly step: string,
  *   readonly after: readonly string[]} & RedMarks} Collision
@@ -344,6 +345,7 @@ const isCause = (u) => {
 			isStringList(o.files) &&
 			typeof o.iso === "string" &&
 			(o.mainRun === undefined || typeof o.mainRun === "number") &&
+			(o.mainRed === undefined || isStringList(o.mainRed)) &&
 			marksValid,
 		unrecorded: () => true,
 		collision: () =>

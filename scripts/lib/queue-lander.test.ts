@@ -21,6 +21,7 @@ import {
 	type TrackerDroppedRef,
 	type Verdict,
 } from "./queue-lander.js";
+import { parseFailingTests } from "./suite-output.js";
 
 const { FilingRefusedError } = createRequire(__filename)("./filing-refused.js");
 const { PushRefused } = createRequire(__filename)("./network-fault.js");
@@ -2461,6 +2462,65 @@ describe("the red path", () => {
 		expect(kinds(actions)).not.toContain("start-isolation");
 		expect(disk.baseRed).toEqual(["m0 scripts/x.test.ts"]);
 		expect(remote.main).toBe("merge(m0;a1,b1)");
+	});
+
+	it("reads main's failure rerun in another temp dir as main's, filing the base-red ticket and dropping no member (#5727)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		const x = "scripts/x.test.ts";
+		const ranIn = (repo: string): Verdict => ({
+			kind: "red",
+			files: [x],
+			failures: parseFailingTests(
+				[
+					` FAIL  ${x} > the ledger > writes one line`,
+					"AssertionError: expected [ { …(3) } ] to deeply equal [ { …(3) } ]",
+					`+     "repo": "${repo}",`,
+				].join("\n"),
+			),
+		});
+
+		const { end, actions } = await land(remote, disk, {
+			requiresRun: false,
+			verdict: (sha) => ranIn(sha === "m0" ? "ledger-SfFJ91" : "ledger-PU2kUQ"),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(kinds(actions)).toContain("file-base-red");
+		expect(kinds(actions)).not.toContain("start-isolation");
+		expect(disk.drops).toEqual([]);
+		expect(remote.main).toBe("merge(m0;a1,b1)");
+	});
+
+	it("says on a member dropped for a file main fails differently that main fails it too, not that main passes it (#5727)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+
+		await land(remote, disk, {
+			requiresRun: false,
+			verdict: (sha) => {
+				if (sha === "m0") return failing("on main");
+				return sha.includes("b1") ? failing("in the batch") : Green;
+			},
+		});
+
+		const [filed] = disk.filed;
+		expect(filed?.drop.cause).toMatchObject({
+			kind: "red",
+			name: "b",
+			mainRed: ["scripts/x.test.ts"],
+		});
+		const body = filed ? bodyOf(filed.drop, filed.held) : "";
+		expect(body).not.toContain("pass on `main` there");
+		expect(body).toContain(
+			"`main` fails these files too, but the tester read different failures there:\n- `scripts/x.test.ts`",
+		);
 	});
 
 	it("holds a batch red only where main is red too where main takes only a sha a CI run passed, ledgering it never green, and lands the fix pushed after", async () => {

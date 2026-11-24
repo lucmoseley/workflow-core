@@ -29,6 +29,12 @@ function buildFailed({ files, typecheck }, onMain) {
 	return `failed ${listed}:\n${buildFileList(files)}${typecheckClause ? `\n\nIt also failed ${typecheckClause}` : ""}`;
 }
 
+/** @param {{mainRed?: readonly string[]}} red */
+const buildMainRed = ({ mainRed }) =>
+	mainRed
+		? `\n\n\`main\` fails these files too, but the tester read different failures there:\n${buildFileList(mainRed)}`
+		: "";
+
 /**
  * @param {{files: readonly string[], runs?: readonly number[],
  *   mainRun?: number}} red
@@ -75,7 +81,7 @@ function buildDropEvidence({ onto, cause }) {
 		case "refused":
 			return `${alone}, its merge was refused, the refusal's verdict lines and its end:\n\n${quoteBlock(cause.reason)}`;
 		case "red":
-			return `${alone} as ${cause.iso}, ${cause.noRun ? NO_RUN : `it ${buildFailed(cause, true)}${buildCited(cause)}`}`;
+			return `${alone} as ${cause.iso}, ${cause.noRun ? NO_RUN : `it ${buildFailed(cause, !cause.mainRed)}${buildMainRed(cause)}${buildCited(cause)}`}`;
 		case "unrecorded":
 			return `why is unknown, as the lander's drop record lost its entry; its commits are read off \`main\` at ${onto}`;
 		case "collision": {
