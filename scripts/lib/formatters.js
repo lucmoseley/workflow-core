@@ -31,6 +31,7 @@ const { writeFd } = require("./write-fd.js");
 const { readBlob } = require("./staged.js");
 const { HOOK_GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
 const { GIT_MODE } = require("./git-mode.js");
+const { parseIndexEntries } = require("./git-objects.js");
 const { readAttributeExcluded } = require("./git-attributes.js");
 
 // #5529
@@ -212,10 +213,11 @@ function indexHead() {
 	const r = spawnGitSync(["ls-files", "-s", "-z"], { encoding: "utf8" });
 	if (r.status !== 0)
 		throw new Error(`git ls-files failed: ${r.stderr.trim()}`);
-	const links = new Set();
-	for (const entry of r.stdout.split("\0"))
-		if (entry.startsWith(`${GIT_MODE.symlink} `))
-			links.add(entry.slice(entry.indexOf("\t") + 1));
+	const links = new Set(
+		parseIndexEntries(r.stdout)
+			.filter((e) => e.mode === GIT_MODE.symlink)
+			.map((e) => e.path),
+	);
 	return (p) => (links.has(p) ? null : readBlob(`:${p}`));
 }
 

@@ -1851,6 +1851,8 @@ const {
 } = require("./lib/rule-emission-calls.js");
 const { readCommit } = require("./lib/commit-sha.js");
 const { gitReader, SHORT_SHA, spawnGitSync } = require("./lib/git.js");
+const { parseIndexEntries } = require("./lib/git-objects.js");
+/** @typedef {import("./lib/git-objects.js").IndexEntry} IndexEntry */
 const { isInsideAnyRepo } = require("./lib/git-tree.js");
 const { readMergeHeadLines } = require("./lib/merge-heads.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -2743,7 +2745,7 @@ function readStagedBlobs(dirty) {
 	const index = new Map();
 	const literal = ["--literal-pathspecs"];
 	const scope = ["--", ...dirty];
-	const staged = gitPaths([...literal, "ls-files", "--stage", "-z", ...scope]);
+	const staged = gitStdout([...literal, "ls-files", "--stage", "-z", ...scope]);
 	const unstaged = gitPaths([
 		...literal,
 		"diff",
@@ -2754,12 +2756,16 @@ function readStagedBlobs(dirty) {
 	const error = staged.error ?? unstaged.error;
 	if (error) return { index, whole: [], error };
 	const rest = new Set(unstaged.paths);
-	for (const line of staged.paths) {
-		const m = /^\d+ ([0-9a-f]+) (\d)\t(.*)$/s.exec(line);
-		if (!m?.[1] || !m[3])
-			return { index, whole: [], error: `unparsed index line ${line}` };
-		if (m[2] === "0") index.set(m[3], m[1]);
-		else rest.add(m[3]);
+	/** @type {IndexEntry[]} */
+	let entries;
+	try {
+		entries = parseIndexEntries(staged.stdout);
+	} catch (e) {
+		return { index, whole: [], error: caught(e).message };
+	}
+	for (const e of entries) {
+		if (e.stage === "0") index.set(e.path, e.oid);
+		else rest.add(e.path);
 	}
 	const whole = dirty.filter(
 		(p) => !rest.has(p) && (index.has(p) || !fs.existsSync(path.join(root, p))),
@@ -3216,12 +3222,20 @@ function readHeldAtGate(ctx, inputs, pushed) {
  * @returns {{ paths: string[], error: string | null }}
  */
 function gitPaths(args) {
+	const { stdout, error } = gitStdout(args);
+	return { paths: stdout.split("\0").filter(Boolean), error };
+}
+
+/**
+ * @param {string[]} args
+ * @returns {{ stdout: string, error: string | null }}
+ */
+function gitStdout(args) {
 	const r = spawnGitSync(["-C", root, ...args], {
 		encoding: "utf8",
 	});
 	const error = gitFailure(r);
-	if (error) return { paths: [], error };
-	return { paths: r.stdout.split("\0").filter(Boolean), error: null };
+	return error ? { stdout: "", error } : { stdout: r.stdout, error: null };
 }
 
 /**

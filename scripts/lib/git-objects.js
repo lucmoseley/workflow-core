@@ -94,6 +94,26 @@ function listTree(rev, pathspecs, { cwd, recursive = true, timeout } = {}) {
 	return entries;
 }
 
+/** @typedef {{ mode: string, oid: string, stage: string, path: string }} IndexEntry */
+
+/**
+ * @param {string} stageListing
+ * @returns {IndexEntry[]}
+ */
+function parseIndexEntries(stageListing) {
+	return stageListing
+		.split("\0")
+		.filter(Boolean)
+		.map((line) => {
+			const m = /^(\d{6}) ([0-9a-f]+) ([0-3])\t(.+)$/s.exec(line);
+			if (!m?.[1] || !m[2] || !m[3] || !m[4])
+				throw brokenError(
+					`git ls-files --stage printed an unparsed line: ${line}`,
+				);
+			return { mode: m[1], oid: m[2], stage: m[3], path: m[4] };
+		});
+}
+
 /**
  * @param {string} rev
  * @param {string} file
@@ -115,7 +135,9 @@ function isGitlink(rev, file, cwd, timeout) {
 			`git ls-files failed while reading ${file} in the index: ` +
 				`${String(staged.stderr ?? "").trim() || staged.error?.message}`,
 		);
-	return staged.stdout.startsWith(`${GIT_MODE.gitlink} `);
+	return parseIndexEntries(staged.stdout).some(
+		(e) => e.mode === GIT_MODE.gitlink,
+	);
 }
 
 /**
@@ -155,6 +177,7 @@ function readCommittedFile(rev, file, opts) {
 module.exports = {
 	readObjectBatch,
 	listTree,
+	parseIndexEntries,
 	readFileAt,
 	readCommittedFile,
 };
