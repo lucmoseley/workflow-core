@@ -52,6 +52,11 @@ const FAILED_LOG = [
 	"Full suite / Python\tPytest\t2026-10-27T08:30:02.0Z FAILED scripts/test_b.py::test_c - assert 1",
 ].join("\n");
 
+const ONE_SHARD_LOG = FAILED_LOG.replaceAll(
+	"Full suite / Vitest (2/6)",
+	"Vitest (1/1)",
+);
+
 const reads = (
 	listings: (() => Run[])[],
 	jobs: Job[] = [...shards("success", "success"), SUITE_PASSED],
@@ -721,7 +726,7 @@ it("reads a failed named run as red on the tree's failing files, and one naming 
 	).toEqual({
 		kind: "unknown",
 		reason:
-			"run 7 failed naming no failing test file in the tree, as a run that ran no suite leaves it",
+			"run 7 failed naming no failing test file in the tree, its last line: npm ci failed",
 	});
 });
 
@@ -1672,6 +1677,7 @@ it("keeps an adopter's red on the code a red, its failed jobs having started ste
 		},
 		{ name: "Suite passed", conclusion: "failure", steps: [] },
 	];
+	r.failedLogOf = () => ONE_SHARD_LOG;
 	const a = adopterOf(r);
 	expect(await a.tester.verdict(BATCH0, SHA)).toMatchObject({
 		kind: "red",
@@ -1703,13 +1709,35 @@ it("tests locally a whole run whose shards ran no suite, quoting the suite's own
 	expect(await a.tester.verdict(BATCH0, SHA)).toEqual({ kind: "green" });
 	expect(a.asked).toEqual([[BATCH0, SHA, [], false]]);
 	expect(a.lines).toEqual([
-		"lander: batch 0 at aaaaaaaaa tested locally: run 1 failed naming no failing test file in the tree, as a run that ran no suite leaves it: MISSING images — install: python3 -m pip install -r plugin/requirements.txt",
+		"lander: batch 0 at aaaaaaaaa tested locally: run 1's Full suite / Vitest (1/2) job failed naming no failing test file in the tree, its last line: test/all.sh: 4 missing — no suite was run.",
 	]);
 	expect(a.recorded).toEqual([]);
 	expect(await queueOf(unrun()).verdict(BATCH0, SHA)).toMatchObject({
 		kind: "red",
 		files: [],
 	});
+});
+
+it("tests locally a whole run where one shard ran no suite though another names its failing file, writing no record line (#5700)", async () => {
+	const r = queueReads([() => [run(1, "failure")]]);
+	r.jobsOf = () => [
+		...shards("failure", "failure").map((j) => ({
+			...j,
+			steps: [{ name: "Whole-run group", conclusion: "failure" }],
+		})),
+		{ name: "Suite passed", conclusion: "failure", steps: [] },
+	];
+	r.failedLogOf = () =>
+		[
+			"Vitest (1/2)\tWhole-run group\t2026-11-24T04:00:00.0000000Z FAIL test/a.test.js",
+			"Vitest (2/2)\tWhole-run group\t2026-11-24T04:00:00.0000000Z test/all.sh: 1 missing — no suite was run.",
+		].join("\n");
+	const a = adopterOf(r);
+	expect(await a.tester.verdict(BATCH0, SHA)).toEqual({ kind: "green" });
+	expect(a.lines).toEqual([
+		"lander: batch 0 at aaaaaaaaa tested locally: run 1's Full suite / Vitest (2/2) job failed naming no failing test file in the tree, its last line: test/all.sh: 1 missing — no suite was run.",
+	]);
+	expect(a.recorded).toEqual([]);
 });
 
 it("tests locally a named run that names no failing file on an adopter (#5700)", async () => {
@@ -1721,7 +1749,7 @@ it("tests locally a named run that names no failing file on an adopter (#5700)",
 		kind: "green",
 	});
 	expect(a.lines).toEqual([
-		"lander: run alone 1 at aaaaaaaaa tested locally: run 100 failed naming no failing test file in the tree, as a run that ran no suite leaves it: MISSING chromium",
+		"lander: run alone 1 at aaaaaaaaa tested locally: run 100 failed naming no failing test file in the tree, its last line: MISSING chromium",
 	]);
 });
 
@@ -1858,6 +1886,7 @@ it("records each whole run it judges, green or red, its suite seconds summed acr
 			"2026-11-22T00:01:00Z",
 		),
 	];
+	red.failedLogOf = () => ONE_SHARD_LOG;
 	const b = adopterOf(red);
 	await b.tester.verdict(BATCH0, SHA);
 	expect(b.recorded).toMatchObject([

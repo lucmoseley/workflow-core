@@ -150,7 +150,6 @@ module.exports = {
 	CI_MARKER,
 	CI_WORKFLOW,
 	DEFAULT_TIMEOUT_MINUTES,
-	REPO_SETUP_STEP,
 	renderCiWorkflow,
 	renderJobEnv,
 	renderSetupSteps,

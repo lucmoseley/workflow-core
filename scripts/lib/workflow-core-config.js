@@ -257,7 +257,7 @@ const isStringArray = (v) =>
 const isCommandList = (v) =>
 	Array.isArray(v) &&
 	v.length > 0 &&
-	v.every((x) => typeof x === "string" && x.trim() !== "");
+	v.every((x) => typeof x === "string" && x.trim() !== "" && !x.includes("\n"));
 
 /** @param {unknown} v @returns {v is boolean} */
 const isBoolean = (v) => typeof v === "boolean";
@@ -845,7 +845,7 @@ function readConfig({
 		cfg,
 		"ciSetup",
 		isCommandList,
-		"a non-empty array of shell commands, each a non-empty string",
+		"a non-empty array of shell commands, each a non-empty string of one line",
 	);
 	const founderNotice = readKey(
 		cfg,
