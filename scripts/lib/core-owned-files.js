@@ -46,6 +46,7 @@ const {
 const { SESSION_COST_TABLE, readCostTableIn } = require("./session-spend.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { caught } = require("./caught.js");
+const { readText, dataOrThrow } = require("./file-read.js");
 const { isUnder } = require("./is-under.js");
 const {
 	HOST_REGISTRATIONS,
@@ -128,14 +129,7 @@ function bringFile({ root, dryRun, out }, { rel, body, mode, lost }) {
  * @param {string} at
  * @returns {string|null}
  */
-function readIfPresent(at) {
-	try {
-		return fs.readFileSync(at, "utf8");
-	} catch (err) {
-		if (caught(err).code !== "ENOENT") throw err;
-		return null;
-	}
-}
+const readIfPresent = (at) => dataOrThrow(readText(at));
 
 /** @param {Context} ctx */
 function bringHooks(ctx) {
