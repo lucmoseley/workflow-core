@@ -241,6 +241,40 @@ describe("what counts as the same call", () => {
 		}
 	});
 
+	it("never refuses a wait re-run until it reports, on a DONE or a CEILING answer (#5726)", () => {
+		const done = {
+			stdout: "DONE: this session holds no live touched or named test run",
+			stderr: "",
+			interrupted: false,
+		};
+		const ceiling = {
+			stdout: "CEILING: 540 s passed with 1 run live — re-run this wait",
+			stderr: "",
+			interrupted: false,
+		};
+		for (const command of [
+			"node scripts/in-flight-runs.js wait",
+			"scripts/bg-run.sh wait suite 540",
+			"timeout 540 node scripts/watch-artefact.js a.md 120 530 --log o.txt",
+		])
+			for (const answer of [done, ceiling]) {
+				call({ command, timeout: 600_000 }, answer);
+				call({ command, timeout: 600_000 }, answer);
+				expectSilentAllow(call({ command, timeout: 600_000 }, answer));
+			}
+	});
+
+	it("still refuses the third identical call that only reads the wait script", () => {
+		for (const command of [
+			"node scripts/in-flight-runs.js",
+			"cat scripts/in-flight-runs.js",
+		]) {
+			call({ command }, SAME);
+			call({ command }, SAME);
+			expectDeny(call({ command }, SAME));
+		}
+	});
+
 	it("does not mistake a Read whose path merely starts with sleep", () => {
 		const input = { file_path: "/tmp/sleep 600" };
 		call(input, SAME, { tool: "Read" });
