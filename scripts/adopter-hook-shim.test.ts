@@ -397,6 +397,7 @@ describe("the shim text (#1839)", () => {
 			adrs: new Set<string>(),
 			deps: depsPattern([]),
 			styleOnly: {},
+			commentMarkers: [],
 		};
 		for (const hook of HOOKS)
 			expect(judgeSource(renderHookShim(hook), adopter), hook).toEqual([]);

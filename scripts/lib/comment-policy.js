@@ -25,6 +25,7 @@ const { scanJs } = require("./strip-comments.js");
  *   adrs: Set<string>,
  *   deps: RegExp | null,
  *   styleOnly: Record<string, string[]>,
+ *   commentMarkers: string[],
  * }} FileFacts
  * @typedef {{ tag: "COMMENT" | "SUPPRESSION" | "ADR-UNRESOLVED",
  *   line: number, match: string, why: string }} Breach
@@ -704,6 +705,13 @@ function directiveOf(text, lang) {
 	return null;
 }
 
+/**
+ * @param {string} line
+ * @param {string} marker
+ */
+const isMarkerLine = (line, marker) =>
+	line.startsWith(marker) && /^(?:\s|$)/.test(line.slice(marker.length));
+
 /** @param {string} list */
 const splitRules = (list) =>
 	list
@@ -817,7 +825,9 @@ function splitDirectives(unit, facts) {
 	const prose = [];
 	lines.forEach((raw, n) => {
 		const line = raw.trim();
-		const d = directiveOf(line, facts.lang);
+		const d =
+			directiveOf(line, facts.lang) ??
+			(facts.commentMarkers.some((m) => isMarkerLine(line, m)) ? "code" : null);
 		if (d === null) {
 			if (line !== "") prose.push(line);
 			return;

@@ -12,6 +12,7 @@ const {
 	langOf,
 } = require("./lib/comment-policy.js");
 const { readText } = require("./lib/file-read.js");
+const { readConfig } = require("./lib/workflow-core-config.js");
 const STYLE_ONLY = require("./lib/style-only-rules.json").rules;
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
@@ -115,6 +116,7 @@ function readTreeFacts(root) {
 	const surface = JSON.parse(readOr(root, SURFACE) ?? "{}");
 	const pluginSurface = JSON.parse(fs.readFileSync(PLUGIN_SURFACE, "utf8"));
 	const adrDir = path.join(root, ADR_DIR);
+	const config = readConfig({ root, quiet: true });
 	const adrs = new Set(
 		(fs.existsSync(adrDir) ? fs.readdirSync(adrDir) : []).flatMap((name) => {
 			const m = /^(\d{4})-.*\.md$/.exec(name);
@@ -130,6 +132,10 @@ function readTreeFacts(root) {
 		adrs,
 		deps: depsPattern(readManifestDeps(root)),
 		checkJs: /"checkJs"\s*:\s*true/.test(readOr(root, "tsconfig.json") ?? ""),
+		commentMarkers: config.commentMarkers ?? [],
+		configWarnings: config.warnings.filter((w) =>
+			w.includes('"commentMarkers"'),
+		),
 	};
 }
 
@@ -342,6 +348,7 @@ const SPEC = {
 		if (!fs.existsSync(root))
 			ctx.broken(`the root ${root} does not exist — nothing was read`);
 		const tree = readTreeFacts(root);
+		for (const w of tree.configWarnings) ctx.say(`WARN ${w}`);
 		/** @type {Map<string, number>} */
 		const perFile = new Map();
 		let judged = 0;
@@ -379,6 +386,7 @@ const factsFor = (tree, rel, lang) => ({
 	adrs: tree.adrs,
 	deps: tree.deps,
 	styleOnly: STYLE_ONLY,
+	commentMarkers: tree.commentMarkers,
 });
 
 /**

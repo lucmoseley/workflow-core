@@ -639,6 +639,13 @@ describe("readConfig — each simple key's valid, malformed and absent value (#1
 		pathRow("pickNextRankingPath"),
 		["roadmapMajorPin", 5, "5", "a number", undefined],
 		["ruffExclude", ["data/**"], [7], arrayOfStrings, undefined],
+		[
+			"commentMarkers",
+			["@encodes"],
+			["@encodes docs"],
+			"an array of markers, each one word with no whitespace",
+			undefined,
+		],
 		["sessionMeanMb", 600, 0, "a positive integer", undefined],
 		["sessionSigmaMb", 320, 320.5, "a positive integer", undefined],
 		["fullTestShards", 2, 0, "a positive integer", undefined],
