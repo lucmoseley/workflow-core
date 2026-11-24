@@ -6703,8 +6703,8 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 });
 
 describe("the bare run takes only the touched tests (#2930)", () => {
-	function touchedRepo() {
-		const dir = repo();
+	const touchedTemplate = defineTemplate((dir) => {
+		repoTemplate.instantiate(dir);
 		const files: Record<string, string> = {
 			"lib/a.js": "module.exports = 1;\n",
 			"lib/a.test.ts": 'import a from "./a.js";\n',
@@ -6723,7 +6723,12 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 			});
 		git("add", ".");
 		git("commit", "-qm", "units");
-		return dir;
+	});
+
+	function touchedRepo() {
+		const dir = mkDirOutsideRepo("runvitest-");
+		dirs.push(dir);
+		return touchedTemplate.instantiate(dir);
 	}
 
 	const launch = async (
@@ -6842,8 +6847,8 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 		const Checker = "scripts/check-instruction-surface.test.ts";
 		const Reader = "lib/reader.test.ts";
 		const edges = () => ({ [Anchors]: [Checker, Reader] });
-		function regenerated() {
-			const dir = touchedRepo();
+		const anchorsTemplate = defineTemplate((dir) => {
+			touchedTemplate.instantiate(dir);
 			fs.mkdirSync(path.join(dir, "scripts"));
 			for (const f of [Anchors, Checker, Reader])
 				fs.writeFileSync(path.join(dir, f), "export {};\n");
@@ -6854,6 +6859,11 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 				});
 			git("add", ".");
 			git("commit", "-qm", "anchors");
+		});
+		function regenerated() {
+			const dir = mkDirOutsideRepo("runvitest-");
+			dirs.push(dir);
+			anchorsTemplate.instantiate(dir);
 			fs.appendFileSync(path.join(dir, Anchors), "// regenerated\n");
 			return dir;
 		}

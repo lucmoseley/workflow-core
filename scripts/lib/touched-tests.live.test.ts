@@ -22,9 +22,15 @@ function selectedBy(file: string): string[] {
 
 it("the guard-registry anchors select the check-guard-registry family and the anchors-merge test", () => {
 	const files = selectedBy(".claude/guard-registry-anchors.json");
-	const family = files.filter((f) =>
-		/^scripts\/check-guard-registry(-[\w-]+)?\.test\.ts$/.test(f),
-	);
+	const family = execFileSync(
+		"git",
+		["ls-files", "scripts/check-guard-registry*.test.ts"],
+		{ cwd: ROOT, encoding: "utf8" },
+	)
+		.split("\n")
+		.filter((f) =>
+			/^scripts\/check-guard-registry(-[\w-]+)?\.test\.ts$/.test(f),
+		);
 	expect(family).toContain("scripts/check-guard-registry.test.ts");
 	expect(files).toEqual(
 		[...family, "scripts/lib/registry-anchors-merge.test.ts"].sort(),

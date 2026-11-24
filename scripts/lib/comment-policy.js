@@ -1,7 +1,7 @@
 const { CALLER_BODY, LOADS_BODY } = require("./code-edges-pragmas.js");
 const { DENIES_THROUGH_BODY } = require("./deny-capable.js");
 const { SHIM_MARK } = require("./hook-shim.js");
-const { EXEMPT_MARKERS, POINTER } = require("./exempt-markers.js");
+const { EXEMPT_MARKERS, ISSUE_REF, POINTER } = require("./exempt-markers.js");
 const { escapeRe } = require("./regex-group.js");
 const { scanJs } = require("./strip-comments.js");
 
@@ -753,10 +753,10 @@ function barePointers(text) {
 }
 const LICENCE = /SPDX-License-Identifier:|\bcopyright\b|©/i;
 const DERIVATION = /\b(?:measured|guess)\b/i;
-const ISSUE = /(?<![\w&])#\d+|\/[\w.-]+#\d+/;
+const ISSUE = new RegExp(String.raw`(?<![\w&])${ISSUE_REF}`);
 const ANY_ISSUE = /(?<!&)#\d+/;
 const URL = /\bhttps?:\/\/\S/;
-const POINTER_LINK = /\[(?:[\w.-]+\/[\w.-]+)?#\d+\]\([^)\s]*\)/g;
+const POINTER_LINK = new RegExp(String.raw`\[${ISSUE_REF}\]\([^)\s]*\)`, "g");
 
 /**
  * @param {string} line

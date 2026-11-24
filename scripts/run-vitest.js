@@ -106,7 +106,8 @@ const {
 } = require("./lib/changed-selection.js");
 /** @typedef {import("./lib/dirty-tree.js").ExecFn} ExecFn */
 /** @typedef {{ write: (s: string) => unknown }} Writer */
-/** @typedef {import("./lib/cached-plan.js").Looked<NonNullable<ReturnType<typeof expandChanged>>>} LookedPlan */
+/** @typedef {NonNullable<ReturnType<typeof expandChanged>> & { leftOut?: string[] }} Plan */
+/** @typedef {import("./lib/cached-plan.js").Looked<Plan>} LookedPlan */
 /** @typedef {import("./lib/test-inflight.js").InflightRecord} InflightRecord */
 /** @typedef {import("./lib/changed-selection.js").ExpandFs} ExpandFs */
 /** @typedef {import("./lib/isolated-worktree.js").WorktreeFs} WorktreeFs */
@@ -299,7 +300,7 @@ function neverStarted(record) {
 
 /**
  * @param {string[]} argv
- * @param {() => ReturnType<typeof expandChanged>} expand
+ * @param {() => Plan|null} expand
  * @param {{ root: string, launch: LauncherLaunch, out: Writer, err: Writer,
  *    session: string|null, emptyOnly: boolean, execFn?: ExecFn }} run
  * @returns {{ code: Promise<number>, looked?: undefined }
@@ -357,7 +358,7 @@ function finishAllCached(looked, { root, launch, out, session, execFn }) {
 	return 0;
 }
 
-/** @param {{ inflightFile: string, timingsFile: string, plan: ReturnType<typeof expandChanged>, launch: LauncherLaunch, base: string|null, cached: Record<string, string>|null, startMark: bigint|null, tmpRoot: string|null, memoryFile: string }} run */
+/** @param {{ inflightFile: string, timingsFile: string, plan: Plan|null, launch: LauncherLaunch, base: string|null, cached: Record<string, string>|null, startMark: bigint|null, tmpRoot: string|null, memoryFile: string }} run */
 function vitestEnv({
 	inflightFile,
 	timingsFile,
@@ -414,7 +415,7 @@ function readRunCostLines(root, file, err) {
 
 /**
  * @param {string[]} argv
- * @param {ReturnType<typeof expandChanged>} plan
+ * @param {Plan|null} plan
  * @param {{ root: string, execFn?: ExecFn, slotFree?: boolean, err?: Writer }} options
  * @returns {import("./lib/suite-handoff.js").CarriedWeight}
  */
@@ -558,7 +559,7 @@ function runOnce(
 	if (planned.code !== null) return planned.code;
 	const { looked } = planned;
 	argv = looked.argv;
-	/** @type {ReturnType<typeof expandChanged>} */
+	/** @type {Plan|null} */
 	const plan = looked.plan;
 	const weighed =
 		launch.wholeSlot === undefined || escalationRequeues
@@ -1033,7 +1034,7 @@ const readCommittedBase = (root, execFn) =>
 
 /**
  * @param {LauncherLaunch} launch
- * @param {ReturnType<typeof expandChanged>} plan
+ * @param {Plan|null} plan
  * @param {string} root
  * @param {ExecFn} [execFn]
  * @returns {string|null}
@@ -1130,7 +1131,7 @@ function runTouched(route, options) {
  * @param {string[]} rest
  * @param {string} at
  * @param {RouteOptions & { ownWork?: OwnSet|null }} options
- * @returns {NonNullable<ReturnType<typeof expandChanged>>}
+ * @returns {Plan}
  */
 function planTouched(rest, at, options) {
 	try {
@@ -1500,7 +1501,7 @@ function emptySelectionSource(route, options, own) {
  * @param {LaunchRoute} route
  * @param {RouteOptions} options
  * @param {ProbeSet|null} [own]
- * @returns {{ source: string|null, plan: ReturnType<typeof expandChanged>, probed: boolean }}
+ * @returns {{ source: string|null, plan: Plan|null, probed: boolean }}
  */
 function probeSelection(route, options, own) {
 	const { root = TREE_ROOT, err = process.stderr } = options;
