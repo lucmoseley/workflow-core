@@ -191,6 +191,35 @@ describe("the shapes lib/agent-poll.js owns", () => {
 		expect(chain.isNeighbours("Read", "sleep 5")).toBe(false));
 });
 
+describe("the in-turn waits rule:job-holds-turn prescribes (#5726)", () => {
+	it.each([
+		"node scripts/in-flight-runs.js wait",
+		"node ./scripts/in-flight-runs.js wait",
+		"node /home/u/.claude/plugins/cache/wfc/scripts/in-flight-runs.js wait",
+		"scripts/bg-run.sh wait suite 540",
+		"bash scripts/bg-run.sh wait suite",
+		"timeout 540 node scripts/watch-artefact.js /tmp/a.md 120 530 --log /tmp/o.txt",
+		"node scripts/watch-artefact.js --no-artefact 120 530 --log /tmp/o.txt",
+		"node '/home/u/my plugins/scripts/watch-artefact.js' a.md 120 530 --log o.txt",
+		'node "/home/u/my plugins/scripts/in-flight-runs.js" wait',
+	])("leaves %j on Bash", (c) =>
+		expect(chain.isNeighbours("Bash", c)).toBe(true),
+	);
+
+	it.each([
+		"node scripts/in-flight-runs.js",
+		"node scripts/in-flight-runs.js list",
+		"cat scripts/in-flight-runs.js",
+		"scripts/bg-run.sh check suite",
+		"node scripts/in-flight-runs.js wait; git status",
+		"node scripts/in-flight-runs.js wait && rm -rf x",
+		"git status; node scripts/in-flight-runs.js wait",
+		"node scripts/watch-artefact.js $(cat f)",
+		"node 'scripts/in-flight-runs.js wait; rm x'",
+		"node 'a/in-flight-runs.js\" wait",
+	])("judges %j", (c) => expect(chain.isNeighbours("Bash", c)).toBe(false));
+});
+
 describe("the recorder core, read back by the reader", () => {
 	const Same = { stdout: "1 passed", stderr: "", interrupted: false };
 	const Ls = { command: "ls" };
