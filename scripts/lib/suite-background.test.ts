@@ -614,6 +614,45 @@ describe("its deliberate limits", () => {
 		expect(out?.permissionDecision).toBe("deny");
 	});
 
+	describe("a subagent's snapshot run (#5724)", () => {
+		const reasonFor = (command: string, agent?: string) =>
+			runCore(
+				"guard-suite-background",
+				{
+					session_id: "test",
+					...(agent === undefined ? {} : { agent_id: agent }),
+					hook_event_name: "PreToolUse",
+					tool_name: "Bash",
+					tool_input: { command },
+				},
+				{ root: dir },
+			).output?.permissionDecisionReason ?? "";
+
+		it("tells a subagent to hold its turn on the moved run", () => {
+			const lines = reasonFor("npm run test &", "sub").split("\n");
+			expect(lines[0]).toBe(`${SNAPSHOT_OPENER}npm run test`);
+			expect(lines[1]).toMatch(
+				/^Past 30 s the run moves to the background; then wait inside the turn — /,
+			);
+			expect(lines[1]).toContain("`node scripts/in-flight-runs.js wait`");
+			expect(lines[1]).toContain("re-run until `DONE`");
+		});
+
+		it("leaves the parent's text as it was", () => {
+			const reason = reasonFor("npm run test &");
+			expect(reason.split("\n")[0]).toBe(`${SNAPSHOT_OPENER}npm run test`);
+			expect(reason).not.toContain("in-flight-runs.js");
+		});
+
+		it("adds no wait to a subagent's held 600000 run", () => {
+			const reason = reasonFor("npm run test -- --full=x &", "sub");
+			expect(reason.split("\n")[0]).toBe(
+				`${HELD_OPENER}npm run test -- --full=x`,
+			);
+			expect(reason).not.toContain("in-flight-runs.js");
+		});
+	});
+
 	it("honours one segment's detach escape for the whole command", () => {
 		expect(verdict("WFC_SUITE_DETACH=1 npm run test; npm run test:py &")).toBe(
 			"allow",

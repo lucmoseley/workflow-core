@@ -12,7 +12,7 @@ const {
 } = require("./suite-launch.js");
 const { launchTestFileCount } = require("./suite-bounded.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
-const { SNAPSHOT_RUN_TIMEOUT_MS } = require("./wait-text.js");
+const { SNAPSHOT_RUN_TIMEOUT_MS, SUBAGENT_WAIT } = require("./wait-text.js");
 
 /**
  * @typedef {object} BackgroundPorts
@@ -243,6 +243,8 @@ function decide(command, ctx) {
 		fix = command;
 	}
 	let reason = `${fixOpener(snapshot)}${fix}`;
+	if (snapshot && ctx.agent)
+		reason += `\nPast ${SNAPSHOT_RUN_TIMEOUT_MS / 1000} s the run moves to the background; then ${SUBAGENT_WAIT}`;
 	if (detached) reason += `\n${DETACHED_TEXT}`;
 	if (timed.length > 0) reason += `\n${TIMED_TEXT}`;
 	return { deny: ctx.corePaths(reason.replace(/\n$/, "")) };
