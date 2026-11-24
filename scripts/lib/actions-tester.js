@@ -224,7 +224,38 @@ function runVerdict(sha, { reads, fallsBack, suiteStep }, after) {
 			attempt: run.attempt,
 			reason: `run ${id}'s ${fault}, which judges no code`,
 		};
-	return { ...readRed(sha, id, failed, reads), timed: timing(jobs, suiteStep) };
+	return judgeRed(sha, id, jobs, { reads, fallsBack, suiteStep });
+}
+
+/**
+ * @param {string} sha
+ * @param {number} id
+ * @param {Job[]} jobs
+ * @param {Pick<On, "reads" | "fallsBack" | "suiteStep">} on
+ * @returns {SuiteRunVerdict}
+ */
+function judgeRed(sha, id, jobs, { reads, fallsBack, suiteStep }) {
+	const raw = reads.failedLogOf(id);
+	const failed = jobs.filter((j) => j.conclusion === "failure");
+	const red = readRed(sha, id, failed, { ...reads, failedLogOf: () => raw });
+	if (fallsBack && red.files.length === 0 && !red.typecheck)
+		return { kind: "local", reason: unjudgedReason(id, raw) };
+	return { ...red, timed: timing(jobs, suiteStep) };
+}
+
+/* #5700 */
+const NO_SUITE_LINE = /\bMISSING\b|no suite was run/;
+
+/**
+ * @param {number} id
+ * @param {string} raw
+ */
+function unjudgedReason(id, raw) {
+	const said = stripLogPrefix(raw)
+		.split("\n")
+		.map((l) => l.trim())
+		.find((l) => NO_SUITE_LINE.test(l));
+	return `run ${id} failed naming no failing test file in the tree, as a run that ran no suite leaves it${said ? `: ${said}` : ""}`;
 }
 
 /**
@@ -613,13 +644,11 @@ function namedRunVerdict(sha, title, reads) {
 	}
 	if (run.conclusion !== "failure")
 		return { kind: "unknown", reason: `run ${id} ended ${run.conclusion}` };
-	const failed = readFailed(sha, stripLogPrefix(reads.failedLogOf(id)), reads);
+	const raw = reads.failedLogOf(id);
+	const failed = readFailed(sha, stripLogPrefix(raw), reads);
 	return failed.files.length > 0
 		? { kind: "red", ...failed, run: id }
-		: {
-				kind: "unknown",
-				reason: `run ${id} failed naming no failing file in the tree`,
-			};
+		: { kind: "unknown", reason: unjudgedReason(id, raw), offActions: true };
 }
 
 /**

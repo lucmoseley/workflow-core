@@ -720,7 +720,8 @@ it("reads a failed named run as red on the tree's failing files, and one naming 
 		),
 	).toEqual({
 		kind: "unknown",
-		reason: "run 7 failed naming no failing file in the tree",
+		reason:
+			"run 7 failed naming no failing test file in the tree, as a run that ran no suite leaves it",
 	});
 });
 
@@ -1678,6 +1679,50 @@ it("keeps an adopter's red on the code a red, its failed jobs having started ste
 		files: ["scripts/lib/a.test.ts", "scripts/test_b.py"],
 	});
 	expect(a.asked).toEqual([]);
+});
+
+it("tests locally a whole run whose shards ran no suite, quoting the suite's own line and writing no record line, where workflow-core reads a red (#5700)", async () => {
+	const unrun = () => {
+		const r = queueReads([() => [run(1, "failure")]]);
+		r.jobsOf = () => [
+			...shards("failure", "failure").map((j) => ({
+				...j,
+				steps: [{ name: "Whole-run group", conclusion: "failure" }],
+			})),
+			{ name: "Suite passed", conclusion: "failure", steps: [] },
+		];
+		r.failedLogOf = () =>
+			[
+				"Vitest (1/2)\tWhole-run group\t2026-11-24T04:00:00.0000000Z MISSING images — install: python3 -m pip install -r plugin/requirements.txt",
+				"Vitest (1/2)\tWhole-run group\t2026-11-24T04:00:00.0000000Z test/all.sh: 4 missing — no suite was run.",
+				"Vitest (1/2)\tWhole-run group\t2026-11-24T04:00:00.0000000Z ##[error]Process completed with exit code 1.",
+			].join("\n");
+		return r;
+	};
+	const a = adopterOf(unrun());
+	expect(await a.tester.verdict(BATCH0, SHA)).toEqual({ kind: "green" });
+	expect(a.asked).toEqual([[BATCH0, SHA, [], false]]);
+	expect(a.lines).toEqual([
+		"lander: batch 0 at aaaaaaaaa tested locally: run 1 failed naming no failing test file in the tree, as a run that ran no suite leaves it: MISSING images — install: python3 -m pip install -r plugin/requirements.txt",
+	]);
+	expect(a.recorded).toEqual([]);
+	expect(await queueOf(unrun()).verdict(BATCH0, SHA)).toMatchObject({
+		kind: "red",
+		files: [],
+	});
+});
+
+it("tests locally a named run that names no failing file on an adopter (#5700)", async () => {
+	const r = queueReads([() => []], { named: "failure" });
+	r.failedLogOf = () => "Named files\tNamed files\tMISSING chromium";
+	r.jobsOf = () => [{ name: "Named files", conclusion: "failure", steps: [] }];
+	const a = adopterOf(r);
+	expect(await a.tester.verdict(ISO1, SHA, ["scripts/lib/a.test.ts"])).toEqual({
+		kind: "green",
+	});
+	expect(a.lines).toEqual([
+		"lander: run alone 1 at aaaaaaaaa tested locally: run 100 failed naming no failing test file in the tree, as a run that ran no suite leaves it: MISSING chromium",
+	]);
 });
 
 it("tests locally a whole suite whose run is never listed on an adopter, where workflow-core reads a no-run red (#5511)", async () => {

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CI_WORKFLOW, REPO_SETUP_STEP } from "./adopter-ci.js";
 import { defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
 import {
@@ -166,6 +167,44 @@ describe("the upgrade's lander workflows", () => {
 			expect(read(rel)).not.toContain("ubuntu-24.04-arm");
 			expect(read(rel)).toContain("timeout-minutes: 9\n");
 		}
+	});
+
+	it("runs the ciSetup key's commands, in order, after the lockfile install in every job of both workflows and the CI job; none without the key (#5700)", () => {
+		const setup = [
+			"python3 -m pip install -r plugin/requirements.txt",
+			"python3 -m playwright install --with-deps chromium",
+		];
+		const setupOf = (rel: string) =>
+			Object.values(parsed(rel).jobs)
+				.filter((j) => (j.steps ?? []).length > 1)
+				.map((j) => {
+					const names = (j.steps ?? []).map(
+						(s) => (s as { name?: string }).name,
+					);
+					const at = names.indexOf(REPO_SETUP_STEP);
+					expect(at).toBe(names.indexOf("Install dependencies") + 1);
+					return (j.steps ?? [])[at]?.run;
+				});
+		config({ ciSetup: setup, ci: { runner: "ubuntu-24.04-arm" } });
+		run();
+		for (const rel of [...PATHS, CI_WORKFLOW]) {
+			const runs = setupOf(rel);
+			expect(runs.length).toBeGreaterThan(0);
+			for (const r of runs) expect(r).toBe(`${setup.join("\n")}\n`);
+		}
+		config({ ci: { runner: "ubuntu-24.04-arm" } });
+		run();
+		for (const rel of [...PATHS, CI_WORKFLOW])
+			expect(read(rel)).not.toContain(REPO_SETUP_STEP);
+	});
+
+	it("skips both workflows naming the fault where ciSetup is no list of commands (#5700)", () => {
+		config({ ciSetup: [] });
+		const lines = run();
+		expect(lines.join("\n")).toMatch(
+			/skipped \.github\/workflows\/workflow-core-lander\.yml.*ciSetup/,
+		);
+		for (const rel of PATHS) expect(exists(rel)).toBe(false);
 	});
 
 	it("reads contents alone, names no secret, pins every action to a full sha and sets up Node 24", () => {

@@ -110,6 +110,7 @@ const KNOWN_KEYS = [
 	"landingTester",
 	"founderNotice",
 	"ci",
+	"ciSetup",
 	"suiteRunners",
 	"worktreeLinks",
 	"polled",
@@ -175,6 +176,7 @@ const unsetCommands = () =>
  * @property {LandingTester} landingTester
  * @property {number} [fullTestShards]
  * @property {Ci} [ci]
+ * @property {string[]} [ciSetup]
  * @property {FounderNotice} [founderNotice]
  * @property {string[]} [suiteRunners]
  * @property {string[]} [worktreeLinks]
@@ -250,6 +252,12 @@ const isString = (v) => typeof v === "string";
 /** @param {unknown} v @returns {v is string[]} */
 const isStringArray = (v) =>
 	Array.isArray(v) && v.every((x) => typeof x === "string");
+
+/** @param {unknown} v @returns {v is string[]} */
+const isCommandList = (v) =>
+	Array.isArray(v) &&
+	v.length > 0 &&
+	v.every((x) => typeof x === "string" && x.trim() !== "");
 
 /** @param {unknown} v @returns {v is boolean} */
 const isBoolean = (v) => typeof v === "boolean";
@@ -833,6 +841,12 @@ function readConfig({
 		isCi,
 		`an object of "runner" (one of ${CI_RUNNERS.join(", ")}) and an optional "timeoutMinutes" (a positive integer, at most ${SLIM_MAX_MINUTES} on ubuntu-slim)`,
 	);
+	const ciSetup = readKey(
+		cfg,
+		"ciSetup",
+		isCommandList,
+		"a non-empty array of shell commands, each a non-empty string",
+	);
 	const founderNotice = readKey(
 		cfg,
 		"founderNotice",
@@ -932,6 +946,7 @@ function readConfig({
 		fullTestShards,
 		landingTester,
 		ci,
+		ciSetup,
 		founderNotice,
 		suiteRunners,
 		worktreeLinks,

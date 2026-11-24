@@ -244,10 +244,10 @@ function bringWorkflows(ctx, { paths, faultKeys, want }) {
 const bringCi = (ctx) =>
 	bringWorkflows(ctx, {
 		paths: [CI_WORKFLOW],
-		faultKeys: ["ci"],
-		want: ({ ci }) =>
+		faultKeys: ["ci", "ciSetup"],
+		want: ({ ci, ciSetup }) =>
 			ci
-				? { write: [{ rel: CI_WORKFLOW, body: renderCiWorkflow(ci) }] }
+				? { write: [{ rel: CI_WORKFLOW, body: renderCiWorkflow(ci, ciSetup) }] }
 				: { remove: 'carries no "ci" key' },
 	});
 
@@ -259,6 +259,7 @@ const bringLanderWorkflows = (ctx) =>
 			"landingTester",
 			"fullTestShards",
 			"ci",
+			"ciSetup",
 			"commands",
 			"commands.full_test",
 			"commands.test",

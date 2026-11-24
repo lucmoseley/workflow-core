@@ -25,7 +25,7 @@ const DEFAULT_RUNNER = "ubuntu-24.04-arm";
 
 /**
  * @typedef {Pick<import("./workflow-core-config.js").Config,
- *   "commands" | "fullTestShards" | "ci">} LanderConfig
+ *   "commands" | "fullTestShards" | "ci" | "ciSetup">} LanderConfig
  */
 
 /**
@@ -57,13 +57,13 @@ function renderSuiteWorkflow(config) {
 		.map(
 			(id, i) => `  ${id}:
     name: ${shardJobName(i + 1, n)}
-${renderJobHead(config)}${renderJobEnv()}${renderSetupSteps()}
+${renderJobHead(config)}${renderJobEnv()}${renderSetupSteps({ setup: config.ciSetup })}
       - name: ${GROUP_STEP}
         run: node .workflow-core/scripts/lander-ci.js group ${i + 1}/${n}
 `,
 		)
 		.join("\n");
-	return `${header('Its shard jobs follow\n# "fullTestShards", their runner and ceiling the "ci" key.')}name: workflow-core lander
+	return `${header('Its shard jobs follow\n# "fullTestShards", their runner and ceiling the "ci" key, their setup\n# "ciSetup".')}name: workflow-core lander
 
 on:
   push:
@@ -93,7 +93,7 @@ ${renderJobHead(config)}    steps:
  * @returns {string}
  */
 function renderNamedWorkflow(config) {
-	return `${header('Its runner and ceiling\n# follow the "ci" key.')}name: workflow-core named rerun
+	return `${header('Its runner and ceiling\n# follow the "ci" key, its setup "ciSetup".')}name: workflow-core named rerun
 
 run-name: named-rerun \${{ inputs.sha }} \${{ inputs.nonce }}
 
@@ -118,7 +118,7 @@ permissions:
 jobs:
   named:
     name: ${NAMED_JOB}
-${renderJobHead(config)}${renderJobEnv()}${renderSetupSteps({ ref: SHA_INPUT })}
+${renderJobHead(config)}${renderJobEnv()}${renderSetupSteps({ ref: SHA_INPUT, setup: config.ciSetup })}
       # Through the environment, never \`\${{ }}\` in \`run:\`:
       # https://docs.github.com/en/actions/reference/security/secure-use#use-an-intermediate-environment-variable
       - name: ${NAMED_JOB}
