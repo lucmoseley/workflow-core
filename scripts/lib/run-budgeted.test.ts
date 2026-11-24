@@ -28,36 +28,52 @@ async function expectGroupDead(pgid: number) {
 	});
 }
 
-function runSh(script: string) {
+function runSh(script: string, budgetMs = BUDGET_MS) {
 	const started = Date.now();
 	const r = keptSpawn("timeout").spawnSync(
 		process.execPath,
-		[
-			RUN_BUDGETED,
-			String(BUDGET_MS),
-			String(KILL_AFTER_MS),
-			"sh",
-			"-c",
-			script,
-		],
+		[RUN_BUDGETED, String(budgetMs), String(KILL_AFTER_MS), "sh", "-c", script],
 		{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
 	);
 	return { ...r, elapsedMs: Date.now() - started };
 }
 
+// guess, #5736
+const BUDGET_DOUBLINGS = 3;
+const TRAPPED = "trapped";
+
+// #5736
+function runShUntilTrapped(script: string) {
+	let budgetMs = BUDGET_MS;
+	for (let doublings = 0; ; doublings++) {
+		const r = runSh(script, budgetMs);
+		const [pgid, ready] = r.stdout.trim().split("\n");
+		if (ready === TRAPPED) return { ...r, pgid: Number(pgid) };
+		if (r.status !== TIMEOUT_EXIT || doublings === BUDGET_DOUBLINGS)
+			throw new Error(
+				`sh never printed ${TRAPPED} inside a ${budgetMs} ms budget, so the case went untested: exit ${r.status}, stderr ${JSON.stringify(r.stderr)}`,
+			);
+		budgetMs *= 2;
+	}
+}
+
 describe("past the budget", () => {
 	it("kills a TERM-trapping grandchild and exits 137, the #2855 case", async () => {
-		const r = runSh("echo $$; trap '' TERM; sleep 30 & wait");
+		const r = runShUntilTrapped(
+			`echo $$; trap '' TERM; echo ${TRAPPED}; sleep 30 & wait`,
+		);
 		expect(r.status).toBe(KILLED_EXIT);
 		expect(r.elapsedMs).toBeLessThan(SECOND_SIGNAL_BOUND_MS);
-		await expectGroupDead(Number(r.stdout.trim()));
+		await expectGroupDead(r.pgid);
 	});
 
 	it("exits 124 where the TERM ended the leader, killing a straggler that outlived it", async () => {
-		const r = runSh("echo $$; (trap '' TERM; sleep 30) & sleep 30");
+		const r = runShUntilTrapped(
+			`echo $$; (trap '' TERM; echo ${TRAPPED}; sleep 30) & sleep 30`,
+		);
 		expect(r.status).toBe(TIMEOUT_EXIT);
 		expect(r.elapsedMs).toBeLessThan(SECOND_SIGNAL_BOUND_MS);
-		await expectGroupDead(Number(r.stdout.trim()));
+		await expectGroupDead(r.pgid);
 	});
 });
 
