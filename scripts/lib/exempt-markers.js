@@ -16,7 +16,7 @@ const EXEMPT_MARKERS = /** @type {const} */ ([
 
 const CITATION_REPO = "workflow-core";
 
-const ISSUE_REF = String.raw`(?:[\w.-]+\/[\w.-]+|${escapeRe(CITATION_REPO)})?#\d+`;
+const ISSUE_REF = String.raw`(?:[\w.-]+\/[\w.-]+|(?<![\w.-])${escapeRe(CITATION_REPO)})?#\d+`;
 
 const POINTER_BODY = String.raw`${ISSUE_REF}|ADR-\d{4}|RFC\d+(?:§[\d.]+)?|https?:\/\/(?:www\.rfc-editor\.org\/rfc\/|datatracker\.ietf\.org\/doc\/(?:html\/)?|tools\.ietf\.org\/html\/)rfc\d+(?:[#/?.]\S*)?`;
 

@@ -18,6 +18,7 @@ describe("exemptMarker", () => {
 		"cli-args-exempt: a pass-through wrapper",
 		"cli-args-exempt: #12abc",
 		"cli-args-exempt: repo#12",
+		"cli-args-exempt: x-workflow-core#12",
 	])("refuses %s", (line) => {
 		expect(exemptMarker("cli-args").test(line)).toBe(false);
 	});
