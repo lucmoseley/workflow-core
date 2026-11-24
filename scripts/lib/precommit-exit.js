@@ -1,9 +1,10 @@
 const { programSource } = require("./shell-words.js");
 
-const EXIT_ONE =
-	/\|\|\s*exit\s+1(?:(?:\s*;\s*|\s+)(?:fi|done|esac|\}))*\s*(?:;;?\s*)?(?:#.*)?$/;
+const CLOSED_TAIL = String.raw`(?:\s*;;?\s*(?:fi|done|esac|\})|\s*\))*\s*(?:;;?\s*)?(?:#.*)?$`;
+const EXIT_ONE = new RegExp(String.raw`\|\|\s*exit\s+1${CLOSED_TAIL}`);
 const OPENS_BLOCK = /\|\|\s*\{\s*(?:#.*)?$/;
-const EXIT_ONE_LINE = /^exit\s+1\s*(?:;;?\s*)?(?:#.*)?$/;
+const EXIT_ONE_LINE = new RegExp(String.raw`^exit\s+1${CLOSED_TAIL}`);
+const CASE_ARM = /^(?:case\s.*?\sin\s+)?\(?[^()\s]*\)\s+/;
 const SUBSTITUTION = /^[A-Za-z_][A-Za-z0-9_]*="?\$\((.*)\)"?$/;
 const FALLBACK = /^([A-Za-z_][A-Za-z0-9_]*)=\S*$/;
 const ARM_END = /;;\s*(?:#.*)?$/;
@@ -46,7 +47,7 @@ function isCheckerCommand(command) {
 	const substituted = SUBSTITUTION.exec(last)?.[1];
 	if (substituted)
 		return !substituted.includes("|") && isCheckerCommand(substituted);
-	const words = wordsOf(last);
+	const words = wordsOf(last.replace(CASE_ARM, ""));
 	while (words.length > 0) {
 		const first = words[0] ?? "";
 		if (!LEADING.has(first) && !ASSIGNMENT.test(first)) break;

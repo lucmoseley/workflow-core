@@ -121,11 +121,13 @@ describe("parseBreaches", () => {
 			1,
 		],
 		["a one-line group (#5684)", "{ node scripts/c.js || exit 1; }", 1],
+		["a subshell (#5684)", "( node scripts/c.js || exit 1 )", 1],
 		[
-			"a group closed without a semicolon (#5684)",
-			"{ node scripts/c.js || exit 1 }",
+			"a one-line case arm (#5684)",
+			"case $x in a) node scripts/c.js || exit 1 ;; esac",
 			1,
 		],
+		["a bare trailing semicolon (#5684)", "node scripts/c.js || exit 1;", 1],
 		[
 			"nested one-line blocks (#5684)",
 			"if a; then for f in b; do node scripts/c.js || exit 1; done; fi # why",
@@ -137,6 +139,12 @@ describe("parseBreaches", () => {
 
 	it("names a block whose exit 1 carries a semicolon and a comment", () => {
 		expect(lines("node scripts/c.js || {\n  exit 1 ; # why\n}\n")).toEqual([1]);
+	});
+
+	it("names a block whose exit 1 closes it on the same line (#5684)", () => {
+		expect(lines("node scripts/c.js || {\n  echo bad\n  exit 1; }\n")).toEqual([
+			1,
+		]);
 	});
 
 	it("passes a block exiting 1 only after its close", () => {
