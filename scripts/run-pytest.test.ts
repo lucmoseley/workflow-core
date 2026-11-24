@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -362,21 +362,28 @@ describe("a bare run", () => {
 	describe("with a checker-only file in the session's diff (#4967)", () => {
 		const Anchors = "scripts/instruction-surface-anchors.json";
 		const Reader = "scripts/test_anchors.py";
-		function regenerated() {
-			const root = pyRepo();
-			fs.mkdirSync(path.join(root, "docs"));
+		const anchorsTemplate = defineTemplate((dir) => {
+			pyRepo(dir);
+			fs.mkdirSync(path.join(dir, "docs"));
 			for (const [f, text] of Object.entries({
 				"docs/test-read-edges.json": '{ "edges": {} }\n',
 				[Anchors]: "{}\n",
 				"scripts/check-instruction-surface.test.ts": "export {};\n",
 				[Reader]: 'ANCHORS = HERE / "instruction-surface-anchors.json"\n',
 			}))
-				fs.writeFileSync(path.join(root, f), text);
+				fs.writeFileSync(path.join(dir, f), text);
 			for (const args of [
 				["add", "."],
 				["commit", "-qm", "anchors"],
 			])
-				spawnSync("git", args, { cwd: root });
+				execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+		});
+		function regenerated() {
+			const root = fs.realpathSync(
+				fs.mkdtempSync(path.join(os.tmpdir(), "runpy-")),
+			);
+			dirs.push(root);
+			anchorsTemplate.instantiate(root);
 			fs.appendFileSync(path.join(root, Anchors), "\n");
 			return root;
 		}

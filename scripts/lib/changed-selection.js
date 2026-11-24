@@ -387,7 +387,7 @@ function vitestRelated({ bin, root, paths, execFn, config, fsImpl, narrowed }) {
  *   err?: { write: (s: string) => unknown } }} [options]
  * @returns {{ argv: string[], files: string[], own: string[], added: string[],
  *   admissible: boolean, narrowed: boolean, changed: string[], base: string|null,
- *   banner: string, leftOut?: string[] }|null}
+ *   banner: string }|null}
  */
 function expandChanged(
 	argv,
