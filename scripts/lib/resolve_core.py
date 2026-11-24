@@ -1,0 +1,193 @@
+"""Usage, from an adopter's conftest.py, before any test imports from the core:
+
+    sys.path.insert(0, os.path.join(resolve_core(), "scripts", "lib"))
+
+The Python mirror of scripts/lib/resolve-core.js: resolve_core() returns the
+workflow-core directory an adopter's Python scripts and pytest suite import the
+helper surface from. An adopter copies it once into its own tree and never
+re-syncs it.
+
+FROZEN, as resolve-core.js is: a change to its lookup, its export or its
+variable names is a major release with a migration note. Standard library only,
+Python 3.10 or later.
+
+Same lookup, same variables, same messages as resolve-core.js: WORKFLOW_CORE_DIR,
+then WORKFLOW_CORE_CHECKOUT, then the installed plugin's install row for the
+adopter root as spelt, else, where the root is a checkout's top level, for its
+main checkout as git spells it, asking git only where the root has no row. A
+value the CLI never writes — a non-string ref or install path — fails in both,
+naming the pin, but its message text can differ.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+from collections.abc import Callable, Mapping
+
+PLUGIN = "workflow-core"
+OVERRIDE = "WORKFLOW_CORE_DIR"
+CHECKOUT = "WORKFLOW_CORE_CHECKOUT"
+TAG_REF = re.compile(r"v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?")
+
+
+def _refuse_constant(name):
+    raise ValueError(name)
+
+
+def _read_json(at):
+    """workflow-core#1274, workflow-core#5504."""
+    if not os.path.isfile(at):
+        return None
+    try:
+        # workflow-core#5504
+        with open(at, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError as err:
+        raise RuntimeError(f"resolve-core: {at} cannot be read") from err
+    try:
+        return json.loads(text, parse_constant=_refuse_constant)
+    except ValueError as err:
+        raise RuntimeError(f"resolve-core: {at} is not JSON") from err
+
+
+def _get(value, key):
+    return value.get(key) if isinstance(value, dict) else None
+
+
+def _read_git_roots(**options):
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+                "--show-toplevel",
+            ],
+            capture_output=True,
+            text=True,
+            **options,
+        )
+    except OSError as err:
+        raise RuntimeError("resolve-core: git cannot be run") from err
+    if result.returncode != 0:
+        # workflow-core#1274, workflow-core#4117
+        return None
+    out = result.stdout
+    lines = out.strip().split("\n")
+    if len(lines) < 2:
+        raise RuntimeError(f"git rev-parse printed fewer than two lines: {out}")
+    common, top = lines[:2]
+    return (os.path.dirname(common) if os.path.basename(common) == ".git" else top, top)
+
+
+def _adopter_root():
+    roots = _read_git_roots()
+    return roots[0] if roots else os.getcwd()
+
+
+def _read_main_checkout(root):
+    # workflow-core#4117
+    env = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR")
+    }
+    roots = _read_git_roots(cwd=root, env=env)
+    if roots is None:
+        return root
+    main, top = roots
+    return main if os.path.realpath(top) == os.path.realpath(root) else root
+
+
+def _read_pin(root):
+    settings = _read_json(os.path.join(root, ".claude", "settings.json"))
+    known = _get(settings, "extraKnownMarketplaces")
+    if not isinstance(known, dict):
+        known = {}
+    enabled = _get(settings, "enabledPlugins")
+    for key in enabled if isinstance(enabled, dict) else {}:
+        name, marketplace = ([*key.split("@"), ""])[:2]
+        if name == PLUGIN and marketplace and marketplace in known:
+            ref = _get(_get(known[marketplace], "source"), "ref")
+            return marketplace, ref
+    return None, None
+
+
+def _stderr(line):
+    sys.stderr.write(f"{line}\n")
+
+
+def resolve_core(
+    *,
+    root: str | None = None,
+    env: Mapping[str, str] | None = None,
+    warn: Callable[[str], None] = _stderr,
+) -> str:
+    if root is None:
+        root = _adopter_root()
+    if env is None:
+        env = os.environ
+    marketplace, ref = _read_pin(root)
+    pin = "none" if ref is None else str(ref)
+
+    def fail(missing):
+        raise RuntimeError(
+            f"resolve-core: no {PLUGIN} directory for pin {pin} — {missing}"
+        )
+
+    for name in (OVERRIDE, CHECKOUT):
+        directory = env.get(name)
+        if not directory:
+            continue
+        if not os.path.isdir(directory):
+            fail(f"{name} names {directory}, which is not a directory")
+        return os.path.abspath(directory)
+
+    unset = f"{OVERRIDE} and {CHECKOUT} are unset"
+    if not marketplace:
+        settings = os.path.join(root, ".claude", "settings.json")
+        fail(f"{unset}, and {settings} enables no {PLUGIN} from a known marketplace")
+    config = env.get("CLAUDE_CONFIG_DIR")
+    if config is None:
+        config = os.path.join(os.path.expanduser("~"), ".claude")
+    record = os.path.join(config, "plugins", "installed_plugins.json")
+    key = f"{PLUGIN}@{marketplace}"
+    entries = _get(_get(_read_json(record), "plugins"), key)
+
+    def rows_for(tree):
+        return (
+            [row for row in entries if _get(row, "projectPath") == tree]
+            if isinstance(entries, list)
+            else []
+        )
+
+    rows = rows_for(root)
+    searched = root
+    if not rows:
+        main = _read_main_checkout(root)
+        if main != root:
+            rows = rows_for(main)
+            searched = f"{root} or {main}"
+    install_path = _get(rows[-1], "installPath") if rows else None
+    if not install_path:
+        fail(f"{unset}, and {record} records no {key} install for {searched}")
+    if not isinstance(install_path, str) or not os.path.isdir(install_path):
+        fail(f"{record} records {install_path}, which is not a directory")
+
+    version = _get(
+        _read_json(os.path.join(install_path, ".claude-plugin", "plugin.json")),
+        "version",
+    )
+    if (
+        TAG_REF.fullmatch(pin)
+        and isinstance(version, str)
+        and version.removeprefix("v") != pin.removeprefix("v")
+    ):
+        warn(
+            f"resolve-core: the installed {PLUGIN} is {version}, not the pinned {pin}"
+            " — local results can differ from CI's until the install catches up"
+        )
+    return install_path

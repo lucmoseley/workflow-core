@@ -1,0 +1,293 @@
+#!/usr/bin/env node
+
+const { runCheck } = require("./lib/check.js");
+const {
+	BUDGET_ARMED_BY,
+	CEILING_MS,
+	TARGET_MS,
+} = require("./lib/suite-ceiling.js");
+const {
+	DEFAULT_SUITE,
+	isFullRun,
+	readFailures,
+	readMarkers,
+	readStoreFile,
+	shortSha,
+	suiteOf,
+} = require("./lib/test-pass-marker.js");
+const {
+	byAt,
+	isFullShard,
+	isGreenFull,
+	isWholeKill,
+	latestLoneSuite,
+	shardOf,
+} = require("./lib/whole-suite-runs.js");
+
+/** @typedef {import("./lib/test-pass-marker.js").Marker} Marker */
+/** @typedef {import("./lib/whole-suite-runs.js").TimedMarker} TimedMarker */
+
+/** @param {number} ms */
+const secs = (ms) => `${Math.round(ms / 1000)} s`;
+
+/**
+ * @param {Marker[]} markers
+ * @param {Marker[]} failures
+ * @returns {{runs: TimedMarker[], unjudged: string[]}}
+ */
+function latestRuns(markers, failures) {
+	const all = [
+		...markers
+			.filter(isGreenFull)
+			.filter((m) => isFullRun(m) || isFullShard(m)),
+		...failures.filter(isWholeKill),
+	].sort(byAt);
+	const latest = all.findLast((m) => !m.ceilingKill) ?? all.at(-1);
+	if (!latest) return { runs: [], unjudged: [] };
+	/** @param {Marker} m */
+	const countOf = (m) => shardOf(m)?.count ?? 0;
+	const count = countOf(latest);
+	const recent = all.slice(
+		all.findLastIndex((m) => !m.ceilingKill && countOf(m) !== count) + 1,
+	);
+	const shaped = recent.filter((m) => countOf(m) === count);
+	/** @type {TimedMarker[]} */
+	const runs = [];
+	/** @type {string[]} */
+	const unjudged = [];
+	for (let index = count === 0 ? 0 : 1; index <= count; index++) {
+		const slot = shaped.filter((m) => (shardOf(m)?.index ?? 0) === index);
+		const green = slot.findLastIndex((m) => !m.ceilingKill);
+		if (slot.length > 0) runs.push(...slot.slice(Math.max(green, 0)));
+		else unjudged.push(`${index}/${count}`);
+	}
+	runs.push(...recent.filter((m) => countOf(m) !== count));
+	return { runs, unjudged };
+}
+
+/** @typedef {{file: string, seconds: number, sha: string, at: string|null}} SlowRedFile */
+
+/**
+ * @param {Marker[]} failures
+ * @param {string|null} since
+ * @returns {SlowRedFile[]}
+ */
+function slowRedFiles(failures, since) {
+	/** @type {Map<string, SlowRedFile>} */
+	const newest = new Map();
+	const reds = failures
+		.filter(
+			(m) =>
+				suiteOf(m) === DEFAULT_SUITE &&
+				(since === null || (m.at ?? "") > since),
+		)
+		.sort(byAt);
+	for (const m of reds)
+		for (const s of m.slowest ?? [])
+			newest.set(s.file, {
+				file: s.file,
+				seconds: s.seconds,
+				sha: m.sha,
+				at: m.at ?? null,
+			});
+	return [...newest.values()]
+		.filter((f) => f.seconds * 1000 >= TARGET_MS)
+		.sort((a, b) => b.seconds - a.seconds);
+}
+
+/** @param {Marker} m */
+const subjectOf = (m) => {
+	const shard = shardOf(m);
+	const what = shard
+		? `shard ${shard.index}/${shard.count} of the whole suite`
+		: "whole suite";
+	return m.ceilingKill
+		? `a ${what} killed at the ceiling, at ${shortSha(m.sha)}`
+		: `the latest green ${what}, at ${shortSha(m.sha)}`;
+};
+
+/** @param {NonNullable<Marker["machine"]>|undefined} machine */
+function machineLine(machine) {
+	if (!machine) return "machine reading: none recorded";
+	const load =
+		machine.load1 === null ? "load1 unknown" : `load1 ${machine.load1}`;
+	return `machine reading: busy ${machine.busyPct}% of ${machine.ceilingPct}% (system ${machine.systemPct}%, nice ${machine.nicePct}%, user ${machine.userPct}%, iowait ${machine.iowaitPct}%), ${load}`;
+}
+
+/**
+ * @param {Marker} m
+ * @returns {string[]}
+ */
+function buildFileLines(m) {
+	if (m.ceilingKill) {
+		const inflight = m.inflight ?? [];
+		if (inflight.length === 0)
+			return ["  in flight at the kill: none recorded"];
+		return [
+			"  in flight at the kill:",
+			...inflight.map((f) => `    ${f.module} (${f.stage})`),
+		];
+	}
+	const slowest = m.slowest ?? [];
+	if (slowest.length === 0) return ["  slowest files: none recorded"];
+	return [
+		"  slowest files:",
+		...slowest.map((s) => `    ${s.seconds.toFixed(1)} s  ${s.file}`),
+	];
+}
+
+/**
+ * @param {import("./lib/check.js").Ctx} ctx
+ * @param {TimedMarker} marker
+ * @param {string} target
+ */
+function reportBreach(ctx, marker, target) {
+	const subject = subjectOf(marker);
+	const shard = shardOf(marker);
+	const record = {
+		sha: marker.sha,
+		at: marker.at ?? null,
+		shard,
+		ceilingKill: Boolean(marker.ceilingKill),
+		durationMs: marker.durationMs,
+		targetMs: TARGET_MS,
+		ceilingMs: CEILING_MS,
+		machine: marker.machine ?? null,
+		slowest: marker.slowest ?? [],
+	};
+	const slot = shard ? `\t${shard.index}/${shard.count}` : "";
+	const killed = record.ceilingKill ? `\tkilled ${record.at}` : "";
+	ctx.warn(
+		"SUITE-MARGIN",
+		`${subject}, took ${secs(record.durationMs)}, over ${target}.`,
+		record,
+		`SUITE-MARGIN\t${marker.sha}${slot}${killed}`,
+	);
+	ctx.say(
+		`SUITE-MARGIN — ${subject} (${marker.at ?? "undated"}), took ${secs(record.durationMs)}: over the ${secs(TARGET_MS)} target, against the ${secs(CEILING_MS)} ceiling.`,
+	);
+	ctx.say(`  ${machineLine(marker.machine)}`);
+	for (const line of buildFileLines(marker)) ctx.say(line);
+	return record;
+}
+
+/**
+ * @param {import("./lib/check.js").Ctx} ctx
+ * @param {boolean} noRun
+ * @param {string[]} shards
+ * @returns {string[]}
+ */
+function warnUnjudged(ctx, noRun, shards) {
+	/** @param {string[]} slots */
+	const shardText = (slots) =>
+		`No green run of shard ${slots.join(", ")} is recorded, so it is unjudged: run it with \`npm run test -- --full=other --shard=<k/n>\`, or wait for the lander's next shard runs.`;
+	const lines = [];
+	if (noRun) {
+		const text =
+			"No green whole vitest suite is recorded, so the margin is unjudged: run one with `npm run test -- --full=other --queue`, or wait for the lander's next run.";
+		ctx.warn("SUITE-MARGIN-UNJUDGED", text, {}, "SUITE-MARGIN-UNJUDGED");
+		lines.push(text);
+	}
+	for (const slot of shards)
+		ctx.warn(
+			"SUITE-MARGIN-UNJUDGED",
+			shardText([slot]),
+			{ shard: slot },
+			`SUITE-MARGIN-UNJUDGED\t${slot}`,
+		);
+	if (shards.length > 0) lines.push(shardText(shards));
+	return lines;
+}
+
+/**
+ * @param {import("./lib/check.js").Ctx} ctx
+ * @param {SlowRedFile} f
+ * @param {string} target
+ */
+function reportSlowFile(ctx, f, target) {
+	const took = `${f.file} took ${f.seconds.toFixed(1)} s in a red run at ${shortSha(f.sha)}`;
+	ctx.warn(
+		"SUITE-MARGIN-SLOW-FILE",
+		`${took}, at or over ${target}.`,
+		f,
+		`SUITE-MARGIN-SLOW-FILE\t${f.file}`,
+	);
+	ctx.say(
+		`SUITE-MARGIN — ${took} (${f.at ?? "undated"}): at or over the ${secs(TARGET_MS)} target on its own.`,
+	);
+}
+
+/**
+ * @param {Marker[]} markers
+ * @param {Marker[]} failures
+ * @returns {string}
+ */
+function armText(markers, failures) {
+	if (BUDGET_ARMED_BY !== null) return "";
+	const m = latestLoneSuite(markers, failures);
+	if (!m || m.ceilingKill || m.durationMs >= TARGET_MS) return "";
+	return `The lone whole suite at ${shortSha(m.sha)} passed in ${secs(m.durationMs)}, under the target: arm the growth budget by setting BUDGET_ARMED_BY in scripts/lib/suite-ceiling.js to "${m.sha}" (workflow-core#5137).`;
+}
+
+runCheck({
+	name: "suite-margin",
+	usage:
+		"node check-suite-margin.js [--store <pass-marker file>] [--fail-store <fail-marker file>] [--notify] [--json]",
+	valueFlags: ["--store", "--fail-store"],
+	run(/** @type {import("./lib/check.js").Ctx} */ ctx) {
+		const store = ctx.value("--store", "");
+		const failStore = ctx.value("--fail-store", "");
+		const markers = store ? readStoreFile(store) : readMarkers();
+		const failures = failStore ? readStoreFile(failStore) : readFailures();
+		const { runs, unjudged } = latestRuns(markers, failures);
+		const target = `the ${secs(TARGET_MS)} target (the ${secs(CEILING_MS)} ceiling is the backstop)`;
+		const since = runs
+			.filter((m) => !m.ceilingKill)
+			.map((m) => m.at ?? "")
+			.reduce(
+				(at, x) => (at === null || x < at ? x : at),
+				/** @type {string|null} */ (null),
+			);
+		const slowFiles = slowRedFiles(failures, since);
+		const unjudgedLines = warnUnjudged(ctx, runs.length === 0, unjudged);
+
+		const over = runs.filter((m) => m.ceilingKill || m.durationMs >= TARGET_MS);
+		const inside =
+			runs.length > 0 && over.length === 0
+				? `${runs.map((m) => `${subjectOf(m)}, took ${secs(m.durationMs)}`).join("; ")}: inside ${target}.`
+				: null;
+		const lead = `${inside ?? ""} ${armText(markers, failures)}`.trim();
+		if (inside && slowFiles.length === 0 && unjudged.length === 0)
+			return { okLine: lead };
+
+		if (lead) ctx.say(lead);
+		const records = over.map((m) => reportBreach(ctx, m, target));
+		for (const f of slowFiles) reportSlowFile(ctx, f, target);
+		for (const line of unjudgedLines) ctx.say(line);
+		if (over.length > 0)
+			ctx.say(
+				"  A run past the ceiling is killed and the push gate goes red (workflow-core#2667). Cut its heavy tail by measured cost (workflow-core#2729), or raise `fullTestShards` (workflow-core#2996).",
+			);
+		if (slowFiles.length > 0)
+			ctx.say(
+				"  A file runs whole on one worker, so no shard count brings the suite under it: cut it by measured cost (workflow-core#2729).",
+			);
+		/** @type {[number, string][]} */
+		const parts = [
+			[over.length, "run(s) over the target"],
+			[slowFiles.length, "red-run file(s) over the target"],
+			[unjudged.length, "shard(s) with no green run"],
+			[runs.length === 0 ? 1 : 0, "whole suite with no green run"],
+		];
+		const counted = parts.filter(([n]) => n > 0);
+		const [only] = counted;
+		return {
+			noun:
+				counted.length === 1 && only
+					? only[1]
+					: `finding(s): ${counted.map(([n, noun]) => `${n} ${noun}`).join(", ")}`,
+			count: counted.reduce((sum, [n]) => sum + n, 0),
+			data: { breaches: records, slowFiles, unjudged },
+		};
+	},
+});

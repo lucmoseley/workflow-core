@@ -1,0 +1,5 @@
+A FAULT BELIEVED FIXED MAY BE BACK. Before diagnosing, run these four checks and name each one's finding in your reply:
+1. Earlier fix — search every tracker in the corpus (@CORPUS@), `--state all`, with two or three wordings of the symptom. For each earlier-fix ticket, read its body and close comment for what it did not cover (residual, deferred, Unenforced, `**Outstanding:**`).
+2. Reproduce — measure or reproduce the failure before theorising: time it, count it, read the failing hook's log and header.
+3. Is the fix live here — confirm it is on this repo's `main` and in the checkout that is running (behind count; in an adopter, the pinned workflow-core version).
+4. Conflicting rule — look for another rule, guard or skill that demands the old behaviour.

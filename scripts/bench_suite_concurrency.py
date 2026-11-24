@@ -1,0 +1,577 @@
+#!/usr/bin/env python3
+
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import claude_sessions
+from fail_open import expected, fail_open
+from wfc_bin import bin_path
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CLK = os.sysconf("SC_CLK_TCK")
+PAGE = os.sysconf("SC_PAGE_SIZE")
+
+EARLYOOM_PCT = 8.0
+# guess against a 10 Hz watchdog, origin untraced, workflow-core#5550
+DEFAULT_FLOOR_MARGIN_MB = 150.0
+# guess, origin untraced, workflow-core#5550
+TRIVIAL_ABORT_S = 5.0
+
+
+def meminfo():
+    d = {}
+    with open("/proc/meminfo") as f:
+        for line in f:
+            k, v = line.split(":", 1)
+            d[k] = int(v.split()[0])
+    return d
+
+
+def mem_available_mb():
+    return meminfo()["MemAvailable"] / 1024
+
+
+def swap_used_mb():
+    m = meminfo()
+    return (m["SwapTotal"] - m["SwapFree"]) / 1024
+
+
+def parse_ppid(stat_text):
+    try:
+        return int(stat_text[stat_text.rindex(")") + 2 :].split()[1])
+    except (ValueError, IndexError) as e:
+        fail_open(e, "torn stat read as an exited process")
+        return None
+
+
+def parse_cpu_ticks_and_rss(stat_text, statm_text):
+    try:
+        tail = stat_text[stat_text.rindex(")") + 2 :].split()
+        return int(tail[11]) + int(tail[12]), int(statm_text.split()[1]) * PAGE
+    except (ValueError, IndexError) as e:
+        fail_open(e, "torn stat/statm read as an exited process")
+        return None
+
+
+def count_sessions(ps_output, cwd_of=claude_sessions.live_cwd):
+    return claude_sessions.count_sessions(claude_sessions.parse_ps(ps_output), cwd_of)
+
+
+def session_count():
+    return count_sessions(
+        subprocess.run(
+            [bin_path("ps"), *claude_sessions.PS_ARGS], capture_output=True, text=True
+        ).stdout
+    )
+
+
+def children_map():
+    kids = {}
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                stat_text = f.read()
+        except (FileNotFoundError, PermissionError, ProcessLookupError) as e:
+            expected(e, f"pid {pid} exited since the listing, or is not ours to read")
+            continue
+        ppid = parse_ppid(stat_text)
+        if ppid is not None:
+            kids.setdefault(ppid, []).append(int(pid))
+    return kids
+
+
+def tree(root, kids):
+    out, stack = [], [root]
+    while stack:
+        p = stack.pop()
+        out.append(p)
+        stack.extend(kids.get(p, []))
+    return out
+
+
+def proc_stats(pid):
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            stat_text = f.read()
+        with open(f"/proc/{pid}/statm") as f:
+            statm_text = f.read()
+    except (FileNotFoundError, PermissionError, ProcessLookupError) as e:
+        expected(e, f"pid {pid} gone, or not ours to read")
+        return None
+    return parse_cpu_ticks_and_rss(stat_text, statm_text)
+
+
+def volunteer(pid):
+    try:
+        with open(f"/proc/{pid}/oom_score_adj", "w") as f:
+            f.write("1000")
+        return True
+    except (FileNotFoundError, ProcessLookupError) as e:
+        expected(e, f"pid {pid} exited since the tree was read")
+        return False
+    except OSError as e:
+        fail_open(e, f"pid {pid} not volunteered")
+        return False
+
+
+def sample(roots, seen):
+    kids = children_map()
+    rss = 0
+    npids = 0
+    for r in roots:
+        for pid in tree(r, kids):
+            st = proc_stats(pid)
+            if st:
+                if pid not in seen:
+                    volunteer(pid)
+                seen[pid] = max(seen.get(pid, 0), st[0])
+                rss += st[1]
+                npids += 1
+    return sum(seen.values()), rss / 1e6, npids
+
+
+# measured 214.3 MB idle MemAvailable wander, one sample, lucmoseley/mantahostels#1449
+BASELINE_SHIFT_TOLERANCE_MB = 215.0
+
+
+def classify_baseline(
+    rest_mb, avail_end_mb, dip_mb, *, sessions_start, sessions_end, rss_peak_mb=None
+):
+    shift = max(0.0, rest_mb - avail_end_mb)
+    sessions_delta = sessions_end - sessions_start
+    stationary = shift <= BASELINE_SHIFT_TOLERANCE_MB and sessions_delta <= 0
+    return {
+        "baseline_shift_mb": round(shift, 1),
+        "sessions_delta": sessions_delta,
+        "baseline_stationary": stationary,
+        "dip_attributable_mb": round(max(0.0, dip_mb - shift), 1),
+        "dip_over_rss_peak": round(dip_mb / rss_peak_mb, 2) if rss_peak_mb else None,
+    }
+
+
+def drift_from_settle_means(means):
+    if len(means) < 2:
+        raise ValueError("drift needs at least two settles; one measures nothing")
+    deltas = [round(abs(b - a), 1) for a, b in zip(means, means[1:], strict=False)]
+    return {
+        "settles": len(means),
+        "settle_means_mb": [round(m, 1) for m in means],
+        "drift_deltas_mb": deltas,
+        "drift_max_mb": max(deltas),
+        "drift_mean_mb": round(sum(deltas) / len(deltas), 1),
+    }
+
+
+def measure_baseline_drift(settles, settle_fn):
+    return drift_from_settle_means([settle_fn() for _ in range(settles)])
+
+
+def default_floor_mb(mem_total_mb):
+    return mem_total_mb * EARLYOOM_PCT / 100 + DEFAULT_FLOOR_MARGIN_MB
+
+
+def parse_flags(flags, floor_mb):
+    require_quiet = None
+    measure_drift = None
+    workers = DEFAULT_WORKERS
+    for f in flags:
+        if f.startswith("--floor-mb="):
+            floor_mb = float(f.split("=", 1)[1])
+        elif f.startswith("--require-quiet="):
+            require_quiet = int(f.split("=", 1)[1])
+        elif f.startswith("--measure-drift="):
+            measure_drift = int(f.split("=", 1)[1])
+        elif f.startswith("--workers="):
+            workers = int(f.split("=", 1)[1])
+        elif f != "--no-warmup":
+            raise ValueError(f"unrecognised flag {f!r}; see this file's usage line")
+    return floor_mb, require_quiet, measure_drift, workers
+
+
+# guess: the worker count the ladder ran at, workflow-core#1603
+DEFAULT_WORKERS = 3
+
+
+def suite_command(workers):
+    return ["npm", "run", "test", "--", "--full=other", f"--maxWorkers={workers}"]
+
+
+def suite_env(env):
+    return {**env, "WFC_TEST_STALL_MS": "0"}
+
+
+CEILING_LINE = "SUITE CEILING"
+
+
+def killed_at_ceiling(log_text):
+    return re.search(rf"^{CEILING_LINE}\b", log_text, re.MULTILINE) is not None
+
+
+def quiet_enough(sessions, required):
+    return required is None or sessions <= required
+
+
+def too_busy(sessions, required):
+    return f"{sessions} sessions live, above the --require-quiet={required} this run demands"
+
+
+# guess, lucmoseley/mantahostels#352
+SETTLE_S = 20
+
+
+def settle(seconds, label):
+    print(f"  settling {seconds}s ({label})...", flush=True)
+    end = time.time() + seconds
+    readings = []
+    while time.time() < end:
+        readings.append(mem_available_mb())
+        time.sleep(1)
+    return sum(readings) / len(readings)
+
+
+class Watchdog:
+    def __init__(self, floor_mb, read_avail=mem_available_mb, killer=None):
+        self.floor_mb = floor_mb
+        self.read_avail = read_avail
+        self.killer = killer or self._killpg
+        self.tripped_at = None
+        self.min_avail = None
+        self._live = set()
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread = None
+
+    @staticmethod
+    def _killpg(pgid):
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError as e:
+            expected(e, f"process group {pgid} gone before the kill")
+        except PermissionError as e:
+            fail_open(e, f"process group {pgid} left unkilled")
+
+    def arm(self, pgids):
+        self.tripped_at = None
+        self.min_avail = None
+        with self._lock:
+            self._live = set(pgids)
+
+    def start(self):
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def note_reaped(self, pgid):
+        with self._lock:
+            self._live.discard(pgid)
+
+    def disarm(self):
+        self._stop.set()
+        if self._thread:
+            # guess, origin untraced, workflow-core#5550
+            self._thread.join(timeout=2)
+        with self._lock:
+            self._live = set()
+
+    def check_once(self):
+        avail = self.read_avail()
+        self.min_avail = avail if self.min_avail is None else min(self.min_avail, avail)
+        if avail >= self.floor_mb:
+            return False
+        self.tripped_at = round(avail, 1)
+        print(
+            f"  WATCHDOG: MemAvailable {avail:.0f} MB below floor "
+            f"{self.floor_mb:.0f} MB — killing suites",
+            flush=True,
+        )
+        with self._lock:
+            doomed = list(self._live)
+            self._live = set()
+        for pgid in doomed:
+            self.killer(pgid)
+        return True
+
+    def _loop(self):
+        while not self._stop.is_set():
+            if self.check_once():
+                return
+            self._stop.wait(0.1)
+
+
+def run_config(n, workers, *, rest_avail, rest_swap, watchdog, out, run_seq):
+    print(f"[{n} suite(s) x {workers} workers] launching", flush=True)
+    sessions_start = session_count()
+    logs, procs = [], []
+    t0 = time.time()
+    try:
+        for i in range(n):
+            log = open(f"{out}/run-{n}-{run_seq}-{i}.log", "w")
+            logs.append(log)
+            procs.append(
+                subprocess.Popen(
+                    suite_command(workers),
+                    cwd=REPO,
+                    env=suite_env(os.environ),
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            )
+            volunteer(procs[-1].pid)
+
+        roots = [p.pid for p in procs]
+        watchdog.arm(roots)
+        watchdog.start()
+        peak_rss = 0.0
+        min_avail_1hz = 1e9
+        max_swap = rest_swap
+        max_pids = 0
+        samples = []
+        last_ticks, last_t = 0, t0
+        peak_cpu = 0.0
+
+        finished = [None] * n
+        seen = {}
+        while any(f is None for f in finished):
+            time.sleep(1.0)
+            now = time.time()
+            ticks, rss, npids = sample(roots, seen)
+            avail = mem_available_mb()
+            swap = swap_used_mb()
+            cpu = (ticks - last_ticks) / CLK / (now - last_t) * 100
+            last_ticks, last_t = ticks, now
+            peak_rss = max(peak_rss, rss)
+            min_avail_1hz = min(min_avail_1hz, avail)
+            max_swap = max(max_swap, swap)
+            max_pids = max(max_pids, npids)
+            if npids:
+                peak_cpu = max(peak_cpu, cpu)
+            samples.append(
+                {
+                    "t": round(now - t0, 1),
+                    "cpu_pct": round(cpu, 1),
+                    "rss_mb": round(rss, 1),
+                    "avail_mb": round(avail, 1),
+                    "swap_mb": round(swap, 1),
+                    "pids": npids,
+                }
+            )
+            for i, p in enumerate(procs):
+                if finished[i] is not None:
+                    continue
+                wpid, status, ru = os.wait4(p.pid, os.WNOHANG)
+                if wpid == 0:
+                    continue
+                watchdog.note_reaped(p.pid)
+                p.returncode = os.waitstatus_to_exitcode(status)
+                finished[i] = (
+                    round(now - t0, 1),
+                    p.returncode,
+                    ru.ru_utime + ru.ru_stime,
+                )
+    finally:
+        watchdog.disarm()
+        for log in logs:
+            log.close()
+
+    ceiling = [
+        killed_at_ceiling(Path(log.name).read_text(errors="replace")) for log in logs
+    ]
+
+    aborted = watchdog.tripped_at is not None
+    wall = max(f[0] for f in finished)
+    avail_end = settle(SETTLE_S, f"after {n}-suite run")
+    sessions_end = session_count()
+    rusage_cpu_s = sum(f[2] for f in finished)
+    trough = watchdog.min_avail if watchdog.min_avail is not None else min_avail_1hz
+    return {
+        "suites": n,
+        "workers": workers,
+        "aborted_by_watchdog": aborted,
+        "cpu_valid": not aborted,
+        "dip_is_lower_bound": aborted,
+        "trivially_aborted": aborted and wall < TRIVIAL_ABORT_S,
+        "watchdog_tripped_at_mb": watchdog.tripped_at,
+        "headroom_at_start_mb": round(rest_avail - watchdog.floor_mb, 1),
+        "sessions_live": sessions_end,
+        "sessions_start": sessions_start,
+        "avail_end_mb": round(avail_end, 1),
+        **classify_baseline(
+            rest_avail,
+            avail_end,
+            rest_avail - trough,
+            sessions_start=sessions_start,
+            sessions_end=sessions_end,
+            rss_peak_mb=peak_rss,
+        ),
+        "wall_s": round(wall, 1),
+        "per_run": [
+            {
+                "wall_s": f[0],
+                "exit": f[1],
+                "cpu_s": round(f[2], 1),
+                "ceiling_killed": killed,
+            }
+            for f, killed in zip(finished, ceiling, strict=True)
+        ],
+        "all_green": all(f[1] == 0 for f in finished),
+        "ceiling_killed": sum(ceiling),
+        "cpu_pct_peak": round(peak_cpu, 1),
+        "cpu_s_sampled": round(last_ticks / CLK, 1),
+        "cpu_s_rusage": round(rusage_cpu_s, 1),
+        "cpu_pct_avg_rusage": round(rusage_cpu_s / wall * 100, 1),
+        "rss_peak_mb": round(peak_rss, 1),
+        "avail_min_mb": round(trough, 1),
+        "avail_min_mb_1hz": round(min_avail_1hz, 1),
+        "avail_rest_mb": round(rest_avail, 1),
+        "avail_dip_mb": round(rest_avail - trough, 1),
+        "swap_rest_mb": round(rest_swap, 1),
+        "swap_delta_mb": round(max_swap - rest_swap, 1),
+        "max_pids": max_pids,
+        "samples": samples,
+    }
+
+
+def main(argv):
+    out = os.environ["OUTDIR"]
+    args = [a for a in argv if not a.startswith("--")]
+    flags = [a for a in argv if a.startswith("--")]
+
+    mem_total_mb = meminfo()["MemTotal"] / 1024
+    earlyoom_mb = mem_total_mb * EARLYOOM_PCT / 100
+    floor_mb = default_floor_mb(mem_total_mb)
+    try:
+        floor_mb, require_quiet, measure_drift, workers = parse_flags(flags, floor_mb)
+    except ValueError as e:
+        sys.exit(str(e))
+
+    configs = [int(x) for x in args] or [1, 2, 3]
+    watchdog = Watchdog(floor_mb)
+    live = session_count()
+
+    print(
+        f"MemTotal {mem_total_mb:.0f} MB · earlyoom kills at {earlyoom_mb:.0f} MB · "
+        f"watchdog floor {floor_mb:.0f} MB · {live} sessions live",
+        flush=True,
+    )
+    if not quiet_enough(live, require_quiet):
+        sys.exit(f"refused: {too_busy(live, require_quiet)}; no warm-up run")
+
+    if measure_drift:
+        print(
+            f"measuring idle baseline drift over {measure_drift} settles",
+            flush=True,
+        )
+        drift = measure_baseline_drift(
+            measure_drift, lambda: settle(SETTLE_S, "idle drift")
+        )
+        drift["sessions_live"] = live
+        drift["settle_s"] = SETTLE_S
+        with open(f"{out}/drift.json", "w") as f:
+            json.dump(drift, f, indent=1)
+        print(
+            f"  idle drift over {drift['settles']} x {SETTLE_S}s settles: "
+            f"max {drift['drift_max_mb']} MB, mean {drift['drift_mean_mb']} MB "
+            f"(BASELINE_SHIFT_TOLERANCE_MB is currently {BASELINE_SHIFT_TOLERANCE_MB})",
+            flush=True,
+        )
+
+    if "--no-warmup" not in flags:
+        print("warm-up run (discarded)", flush=True)
+        with open(f"{out}/warmup.log", "w") as wl:
+            subprocess.run(
+                suite_command(workers),
+                cwd=REPO,
+                env=suite_env(os.environ),
+                stdout=wl,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+            )
+
+    results = []
+    for run_seq, n in enumerate(configs):
+        rest = settle(SETTLE_S, f"before {n}-suite run")
+        if rest <= floor_mb:
+            print(
+                f"[{n} suite(s)] SKIPPED: resting {rest:.0f} MB is already at or "
+                f"below the {floor_mb:.0f} MB floor",
+                flush=True,
+            )
+            results.append(
+                {
+                    "suites": n,
+                    "workers": workers,
+                    "skipped_below_floor": True,
+                    "avail_rest_mb": round(rest, 1),
+                }
+            )
+            break
+        live = session_count()
+        if not quiet_enough(live, require_quiet):
+            print(
+                f"[{n} suite(s)] SKIPPED: {too_busy(live, require_quiet)}",
+                flush=True,
+            )
+            results.append(
+                {
+                    "suites": n,
+                    "workers": workers,
+                    "skipped_not_quiet": True,
+                    "sessions_live": live,
+                    "avail_rest_mb": round(rest, 1),
+                }
+            )
+            continue
+        rest_swap = swap_used_mb()
+        r = run_config(
+            n,
+            workers,
+            rest_avail=rest,
+            rest_swap=rest_swap,
+            watchdog=watchdog,
+            out=out,
+            run_seq=run_seq,
+        )
+        results.append(r)
+        print(
+            f"[{n} suite(s)] wall {r['wall_s']}s"
+            f"  cpu {r['cpu_pct_avg_rusage']}% (valid={r['cpu_valid']})"
+            f"  avail rest {r['avail_rest_mb']:.0f} -> min {r['avail_min_mb']:.0f}"
+            f"  dip {r['avail_dip_mb']:.0f}MB  sessions {r['sessions_live']}"
+            f"  green={r['all_green']}  ceiling-killed={r['ceiling_killed']}"
+            f"  aborted={r['aborted_by_watchdog']}"
+            f"  trivial={r['trivially_aborted']}"
+            f"  stationary={r['baseline_stationary']}"
+            f" (shift {r['baseline_shift_mb']:.0f}MB, sessions {r['sessions_start']}->{r['sessions_live']},"
+            f" attributable {r['dip_attributable_mb']:.0f}MB)",
+            flush=True,
+        )
+        if r["ceiling_killed"]:
+            print(
+                f"  {r['ceiling_killed']} of {n} suite(s) killed at the suite"
+                " ceiling (#2667): the row is unusable, its dip cut short",
+                flush=True,
+            )
+        with open(f"{out}/results.json", "w") as f:
+            json.dump(results, f, indent=1)
+        if r["aborted_by_watchdog"]:
+            print("  stopping the ladder: the watchdog fired", flush=True)
+            break
+    with open(f"{out}/results.json", "w") as f:
+        json.dump(results, f, indent=1)
+    print("DONE", flush=True)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

@@ -1,0 +1,219 @@
+const path = require("node:path");
+const { stripVTControlCharacters } = require("node:util");
+const { CEILING_LINE } = require("./suite-ceiling.js");
+const { suiteLaunchKind } = require("./suite-launch.js");
+const { parseCommand, walkCommands } = require("./shell-parse.js");
+const { literal } = require("./shell-words.js");
+
+/**
+ * @typedef {object} VerdictPorts
+ * @property {Record<string, unknown>} payload
+ * @property {string} logRoot
+ * @property {(session: string) => import("./test-log.js").RunRecord[]} readRuns
+ * @property {(file: string) => string} readFile
+ * @property {() => number} now
+ * @property {import("./suite-launch.js").LaunchPorts["runners"]} runners
+ * @property {import("./suite-launch.js").LaunchPorts["isWrapperScript"]} isWrapperScript
+ * @typedef {import("./kit-context.js").KitContext & VerdictPorts} VerdictContext
+ */
+
+const VERDICT_RE = /^[^\S\n\r\u2028\u2029]*(Test Files|Tests)\s+\d/m;
+const TEST_LOG_RE = /^TEST LOG: (.+)$/gm;
+
+const BANNER_LINE_RE = new RegExp(
+	`^(FILTERED RUN|SUITE STALLED|${CEILING_LINE})\\b`,
+);
+const FAIL_RE = /^\s*FAIL\s/;
+const EMPTY_RUN_RE = /^FILTERED RUN — ran 0 of 0 tests in 0 of /m;
+// guess, workflow-core#1575
+const MAX_FAIL_LINES = 10;
+// guess, workflow-core#1575
+const MAX_LINE = 300;
+// guess, workflow-core#1575
+const WINDOW_SLACK_MS = 5000;
+
+/**
+ * @param {string} output
+ * @returns {string|null}
+ */
+function logFromOutput(output) {
+	let last = null;
+	for (const [, shown] of stripVTControlCharacters(output).matchAll(
+		TEST_LOG_RE,
+	))
+		if (shown) last = shown.trim();
+	return last;
+}
+
+/**
+ * @param {import("./test-log.js").RunRecord[]} runs
+ * @param {number} since
+ * @param {number} now
+ * @returns {{ log: string } | { why: string }}
+ */
+function pickRun(runs, since, now) {
+	const inside = runs.filter(
+		(r) => Date.parse(r.startedAt) >= since && Date.parse(r.endedAt) <= now,
+	);
+	const last = inside.at(-1);
+	if (last === undefined)
+		return { why: "no run in this session's record falls inside the call" };
+	const pids = new Set(inside.map((r) => r.pid));
+	if (pids.size > 1)
+		return {
+			why: `${pids.size} launches of this session ran inside the call — which one lost its verdict is uncertain`,
+		};
+	return { log: last.log };
+}
+
+/**
+ * @param {string} text
+ * @returns {string[]}
+ */
+function parseVerdictLines(text) {
+	const lines = [];
+	let fails = 0;
+	for (const raw of stripVTControlCharacters(text).split("\n")) {
+		const line = raw.trimEnd();
+		if (FAIL_RE.test(line)) {
+			fails += 1;
+			if (fails > MAX_FAIL_LINES) continue;
+		} else if (!VERDICT_RE.test(line) && !BANNER_LINE_RE.test(line)) continue;
+		lines.push(line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)}…` : line);
+	}
+	if (fails > MAX_FAIL_LINES)
+		lines.push(
+			`  … and ${fails - MAX_FAIL_LINES} more FAIL line(s) in the log`,
+		);
+	return lines;
+}
+
+/**
+ * @param {string[]} lines
+ * @param {string} shown
+ */
+function buildMessage(lines, shown) {
+	const body =
+		lines.length > 0
+			? lines.map((l) => `  ${l}`).join("\n")
+			: "  (the log holds no pass/fail line — the run ended before vitest printed one)";
+	return [
+		"This suite run's pass/fail lines were cut from its output — a `grep` or `head` on the output drops them, and the runner's own lines can push them out of a short `tail` (workflow-core#1575). From the run's own log:",
+		body,
+		`TEST LOG: ${shown}`,
+		"Read that log for anything more. Do not re-run the suite to see this verdict again.",
+	].join("\n");
+}
+
+/**
+ * @typedef {{ session_id?: string, duration_ms?: number,
+ *   error?: string, is_interrupt?: boolean,
+ *   tool_response?: { stdout?: string, stderr?: string, interrupted?: boolean,
+ *     backgroundTaskId?: string, timedOutAfterMs?: number } }} Payload
+ */
+
+/**
+ * @param {Payload} payload
+ * @param {VerdictPorts} ports
+ * @returns {{ log: string } | { why: string }}
+ */
+function readRecordedLog(payload, ports) {
+	const session = payload.session_id;
+	const took = payload.duration_ms;
+	if (!session || typeof took !== "number")
+		return { why: "no session id or duration_ms in the payload" };
+	const now = ports.now();
+	return pickRun(ports.readRuns(session), now - took - WINDOW_SLACK_MS, now);
+}
+
+/**
+ * @param {Payload} payload
+ * @returns {string|null}
+ */
+function callOutput(payload) {
+	if (payload.is_interrupt) return null;
+	const response = payload.tool_response;
+	if (!response) return payload.error ?? "";
+	if (
+		response.backgroundTaskId ||
+		response.interrupted ||
+		response.timedOutAfterMs
+	)
+		return null;
+	return `${response.stdout ?? ""}\n${response.stderr ?? ""}`;
+}
+
+/**
+ * @param {Payload} payload
+ * @param {VerdictPorts} ports
+ * @returns {{ context?: string, why?: string }}
+ */
+function judge(payload, ports) {
+	const output = callOutput(payload);
+	if (output === null || VERDICT_RE.test(stripVTControlCharacters(output)))
+		return {};
+	const root = ports.logRoot;
+	const shownLog = logFromOutput(output);
+	const found = shownLog
+		? { log: path.resolve(root, shownLog) }
+		: readRecordedLog(payload, ports);
+	if ("why" in found) return found;
+	let text;
+	try {
+		text = ports.readFile(found.log);
+	} catch (error) {
+		return { why: `the run's log is unreadable (${error}): ${found.log}` };
+	}
+	if (EMPTY_RUN_RE.test(stripVTControlCharacters(text)))
+		return {
+			why: "an empty selection — vitest ran no file, so no verdict was lost",
+		};
+	return {
+		context: buildMessage(
+			parseVerdictLines(text),
+			path.relative(root, found.log),
+		),
+	};
+}
+
+/**
+ * @param {string} subject
+ * @param {VerdictContext} ctx
+ */
+function countLaunches(subject, ctx) {
+	const parsed = parseCommand(subject);
+	let launches = 0;
+	walkCommands(
+		parsed,
+		({ runs }) => {
+			for (const run of runs()) {
+				const own = run.words.map((w) => literal(w, parsed.spans).text);
+				const kind = suiteLaunchKind(own, ctx)?.kind;
+				if (kind === "npm-vitest" || kind === "wrapper") launches += 1;
+			}
+		},
+		ctx,
+	);
+	return launches;
+}
+
+/**
+ * @param {string} subject
+ * @param {VerdictContext} ctx
+ * @returns {{ context: string } | null}
+ */
+function decide(subject, ctx) {
+	const launches = countLaunches(subject, ctx);
+	if (launches === 0) return null;
+	if (launches > 1) {
+		ctx.log(
+			`${launches} suite launches in one call — which lost its verdict is uncertain`,
+		);
+		return null;
+	}
+	const { context, why } = judge(/** @type {Payload} */ (ctx.payload), ctx);
+	if (why) ctx.log("a suite run's lost verdict went unreported", why);
+	return context ? { context } : null;
+}
+
+module.exports = { decide };

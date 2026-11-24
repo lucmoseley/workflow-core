@@ -1,0 +1,636 @@
+# Code standards base
+
+The rules `/code-review`'s Standards axis cites in every repo the workflow-core plugin runs in. Every rule here is **citable as a breach**.
+
+Every repo reads this text from the plugin, in place, and keeps no copy. A repo's own choices sit in its local `docs/code-standards.md`, which may be absent; with none, this base applies unchanged.
+
+**Every line pin here resolves at the plugin root**, not in the repo under review: `scripts/lib/check.js:10-15` means that file inside the plugin.
+
+## §0 How to use this
+
+### Route by code kind
+
+Every rule binds a **code kind**, never a directory. Route each path in the diff to its kind by the default map below; a local file may add rows or override one, and may send a path to no kind at all only as the local-file rules below allow.
+
+| Code kind | Default paths | Sections that bind |
+|---|---|---|
+| test | any `*.test.js`, `*.test.jsx`, `*.test.ts`, `*.test.tsx`, their `*.spec.js`, `*.spec.jsx`, `*.spec.ts` and `*.spec.tsx` forms, or one of those with `c` or `m` before its extension (`*.test.mjs`, `*.spec.cts`); pytest's `test_*.py`, `*_test.py` and `conftest.py`; anything under a `test/`, `tests/`, `fixtures/`, `testkit/`, `testkits/`, `stubs/` or `fakes/` directory; a testkit, harness, fixture, stub or fake module named for what it is (§G6's test support) | §G + §X, and §N2 |
+| shell | any `*.sh`; `.husky/*` | §G + §S, and §N2 |
+| hook module | a mod's hooks module (`.claude/skills/*/hooks/**`); a plugin's entry module (`hooks/register.ts`) | §G, and §N2 |
+| program | the `.js` and `.ts` files under `scripts/**` and `.claude/skills/*/scripts/**`, the modules under `scripts/lib/` included; any other file opening with a shebang | §G + §N |
+| library | `lib/**` and `app/**`, and their `src/` spellings `src/lib/**` and `src/app/**` (workflow-core#1961), components, layouts and static data tables included; a Next.js Pages Router app's `pages/**` and `src/pages/**` (workflow-core#2061); a web app's root entry points: `proxy`, `middleware` and `instrumentation`, as `.ts` or `.js`, at the root or under `src/` (workflow-core#1923) | §G + §T, and §N2 |
+
+A path matching several rows takes the first that matches, top down: a test under `scripts/` is a test, and a shell script with a shebang is shell. A code file no row matches binds §G alone: say so in the finding, since the fix is a local route row.
+
+**Presentational code takes its kind's full rule set, as any other code does** (workflow-core#1824). The I/O a web app's edge does is excepted in §T7.
+
+### Risk paths
+
+A **risk path** is code that moves money, decides identity or authorisation, handles personal data, or writes something another system trusts. A local file names its own product's risk paths, for its own rules to key on.
+
+### The design vocabulary
+
+Rules here use seven design words in these senses only.
+
+- **Module** — anything with an interface and an implementation, at any scale: a function, a class, a file, a package, or a slice across tiers.
+- **Interface** — everything a caller must know to use a module correctly: its signature, and also its invariants, the order its calls must come in, how it fails, the configuration it needs and what it costs. Not the TypeScript keyword, which §T4 calls "the `interface` keyword".
+- **Seam** — the place a module's interface sits, where behaviour can be changed without editing that place.
+- **Adapter** — a concrete thing that fills a seam by satisfying its interface, such as the production implementation or a test fake.
+- **Depth** — how much behaviour a caller or a test reaches per unit of interface it must learn. A **deep** module hides much behind a small interface; a **shallow** one has an interface nearly as large as its body.
+- **Core** — a module that does no I/O itself and takes its I/O through injected ports: §T7's shape, whatever its route kind, so a lib module of program kind can be a core.
+- **Shell** — the program or composition root that builds the adapters, hands them to the core, writes what the core returns and exits. A shell is a composition root in §T7's sense. Not the shell code kind §S binds.
+
+### Stack clauses and house clauses
+
+Most rules hold in any repo. Two kinds of clause inside them do not:
+
+- A **stack clause** spells a rule for one tool and binds only where the repo has that tool's tell. The tells: a Vitest config (`vitest.config.*`); `tsconfig.json`; `biome.json`; any `*.sh` file, for shellcheck; `ruff.toml`, `.ruff.toml` or a `[tool.ruff]` table in `pyproject.toml`, for ruff; a `pytest.ini`, a `[tool.pytest.ini_options]` table in `pyproject.toml` or a `conftest.py`, for pytest; `docs/test-read-edges.json`, for the read-edge manifest; and `checkJs` set in `tsconfig.json`, for §N8. Read the tell from the repo under review. Where it is absent, the clause does not bind, and the repo writes nothing to say so. Where it is present, the clause binds only the files its tool reads: a Vitest clause binds the tests Vitest runs, never a pytest file beside them.
+- A **house clause** is a choice no tool keys on — CommonJS, a single trailing `module.exports`, the four program families, `runCheck`, the naming scheme, the plugin's own helpers. It is on by default in every plugin repo. A house clause naming its languages — *House, Node programs only* — binds those alone, so a file in another language takes only the rules that hold in any language.
+
+Each is marked where it stands, *Stack (tell)* or *House*. A local file may switch either off; it may never switch off the rest of a rule.
+
+### How a rule enters
+
+A rule enters this base because it is right, never because the code already does it (workflow-core#1312). The spec that adds a rule fixes every existing breach of it in workflow-core itself in the same change, and gives every other repo the plugin runs in a required `[act]` step in that release's migration note, with the command that lists its breaches (workflow-core#1406). A rule whose breach exists only in a change, never in a standing tree, has nothing to list, so it enters with a `[notice]` that says so in place of that step (workflow-core#1495); a repo adopting the plugin later meets every rule at adoption. How much fixing that takes is never a reason to decline a rule or soften its severity. A decline gives one of five merit grounds: false findings, no defect behind the rule, a tool already enforcing it, a stack it cannot fit, or code the repo never has or does — never code it merely lacks today.
+
+**The same test settles every scoping decision about a repo the plugin runs in, what the plugin ships to it as well as what this base asks of it** (workflow-core#1380). Whether the repo already follows a practice, or already has the setup the practice needs, is never a reason to leave a rule, a gate or a script out of its reach, or to soften one. A stack clause's tell is no such setup: it says whether the repo uses the tool at all.
+
+### Severity
+
+- **hard** — the breach is evident from the diff alone, no code breaks the rule without a written reason on the issue that allowed it, and a deviation is a defect rather than a taste call. A breach elsewhere in the code is a second finding, never a reason to downgrade this one.
+- **judgement** — real, citable, but a change may have a good reason to differ. Say what the reason would have to be.
+
+### Comments
+
+**A comment in code is refused unless it is one of the kinds `docs/comment-kinds.md` lists, in that kind's form, and its tie rule binds** (workflow-core#5455). No rule here asks for any other comment. Where a rule asks for a reason, the reason goes on the issue, and the site carries at most the bare `#N` that K5 admits (workflow-core#5457). A marker a plugin checker reads — `full-sweep-only:` (§X10) or `Unbuilt caller:` (§G6) — is one of the directives `docs/comment-kinds.md` names as code.
+
+
+### A local file changes this base only through its changes table, its route rows, its local rules and its primitives rows
+
+A repo's local file makes exactly five kinds of change. Two are rows of its changes table: it switches off a stack or house clause, or excepts named paths from a base rule, with a reason and a ticket. The reason names one of the five merit grounds above; a reason that the code does not do it yet, lacks the setup, or would cost work to bring up names none, and is itself a finding. The third, adding or overriding route rows and risk paths, sits in its route-rows section. A route row may send a path to "none", binding no section, only where the repo neither writes nor runs that code (workflow-core#1262): vendored, generated, or a reference export nothing imports. Such a row says which of the three it is and cites its ruling. The fourth adds a local rule (`§L` + kind letter + number, such as `§LX1`) in its own section, and contradicts nothing. It never switches off a principle and never changes a severity. The fifth adds rows to its own primitives table, of the base table's shape (§Primitives below), each for a job the base table has no row for.
+
+**A sentence in a local file that contradicts this base outside its changes table, its route rows, its local rules and its primitives rows is itself a finding, and the base wins. So is a local rule that contradicts it, a row that switches off a principle or changes a severity, a "none" row over code the repo writes or runs, a local primitives row naming a base row's job, or a route row that sends code to a kind it is not, which excepts it from its own kind's rules with no reason or ticket.** A finding narrowed by a local row cites both: *§X2 (base), excepted by local row 2*.
+
+**A documented rule overrides the Fowler smell baseline.** The local file's "Smells not raised" names the smells that repo deliberately contradicts; do not raise them.
+
+### The citations rot
+
+The plugin's citation checker (`scripts/check-code-standards.js`) reports a quotation that no longer sits in the lines it cites, and a quotation-less line pin whose lines have changed. Findings never gate. Fix the citation, never the file it points at (mantahostels#1095).
+
+### A rule a tool enforces is not a standard
+
+Nothing here restates a rule a tool already enforces. Check a candidate rule, and a finding, against the floor below and then the local file's §W before writing or citing it. A breach a tool already refuses is a duplicate finding.
+
+The floor is every gate in the plugin's own `.husky/pre-commit` that judges code, whether it refuses or warns only, in every repo it runs in, so no local file restates it (workflow-core#1826). A local §W lists only what its repo adds: the rule sets its own linter configs and declared commands carry, what its CI runs, floor gates included, and the gates its `.husky/pre-commit.local` runs.
+
+| Gate | Refuses | Where it runs |
+|---|---|---|
+| gitleaks | a secret in the staged content | every commit; a missing binary refuses |
+| `commands.check_staged` | whatever the declared command refuses, under the repo's own config | where declared |
+| ESLint, `--max-warnings 0` | a finding or warning under the repo's ESLint config | staged `app/` and `lib/` `.ts`/`.tsx` and `scripts/` `.js`/`.mjs`/`.cjs`/`.ts`, where `commands.lint` is declared; skips with no `eslint` on `PATH` |
+| `commands.typecheck` | **nothing: it warns only**, reading the whole worktree | a commit staging `.js`, `.ts`, `.tsx`, `.mts` or `tsconfig.json`, where declared |
+| `scripts/check-code-standards.js` | **nothing: it warns only** of an export block offering names nothing takes, or only tests do, and of a `docs/export-callers.json` row that keeps nothing (§N7, §G6) | every commit, reading the worktree against `HEAD` |
+| shellcheck, `-x --severity=style --exclude=SC2016` | any finding at style severity or above, bar that one code | staged shell files: a husky hook or its `.local` companion, `.sh` and `.bash` files, and extensionless files with a shell shebang, minus `.gitattributes`' `linguist-vendored` and `linguist-generated` paths; skips with no binary |
+| shfmt at `-i 2 -ci`, `ruff format` at its defaults | any layout difference, so layout in either language is never a finding | the same shell files, and staged `.py`; a missing formatter refuses unless a workflow runs it |
+| actionlint | a workflow fault, shellcheck over each `run:` block included | staged `.github/workflows/*.yml` and `*.yaml`; skips with no binary |
+| ruff | a finding the commit introduces, under the repo's root ruff config, else the plugin's `ruff.toml` | staged `.py` outside `ruffExclude`; a missing binary refuses unless a workflow runs `ruff check` |
+| `scripts/check-swallowed-errors.js` | an `except` or catching `__exit__` the commit adds that neither raises, exits nor hands its error to a `fail_open` reporter, or a `contextlib.suppress` of a broad type (§N5) | staged program-routed `.py`; a missing `python3` refuses |
+| `scripts/check-cli-args.js` | a program reading its command line without a strict parser | a `scripts/*.js` the commit adds or edits; an inherited one only warns |
+| `scripts/check-jsonl-reads.js` | a hand split-and-parse of JSONL rather than `scripts/lib/jsonl.js` | a commit staging a `scripts/` program, judging the whole repo |
+| `scripts/check-arbiter-commands.js` | a printed `session-arbiter.js` command, or a `scriptPath()` of the arbiter, spelt by hand rather than through `buildArbiterCommand` (or `buildArbiterCommandIn(env)`) in `scripts/lib/build-arbiter-command.js` | a commit staging a `scripts/` program, judging the whole repo |
+| `scripts/check-clock-copies.js` | a program reading `WFC_NOW` itself rather than `now()` in `scripts/lib/clock.js` | a commit staging a `scripts/` program, judging the whole repo |
+| `scripts/check-report-programs.js` | a `report-*` program building its own `gh issue create` rather than `createIssue` | a commit staging a `scripts/report-*` program, judging the whole repo |
+| `scripts/check-program-output.js` | a program calling `process.exit`, or any `report-*`, writing through `console` or `process.stdout.write` / `process.stderr.write` rather than `writeFd` or `writeTerminal` (§N6) | a commit staging a `scripts/` or `.claude/skills/*/scripts/` program, judging the whole repo |
+| `scripts/check-gh-route.js` | a `gh` call off `scripts/lib/gh.js` and `WFC_GH`, or a `claude` call off `scripts/lib/claude-bin.js` and `WFC_CLAUDE_BIN`: a second var, a Node program's own spawn, a bare shell call, or a test's stub on `PATH` (§X2, §N7) | a commit staging `scripts/`, `.claude/skills/`, `.husky/` or `hooks/`, judging the whole repo |
+| `scripts/check-guard-test-isolation.js`, `scripts/check-host-root-test-isolation.js`, `scripts/check-git-fixture-identity.js`, `scripts/check-test-env-writes.js` | a `scripts/` test that spawns a guard without redirecting `CLAUDE_CONFIG_DIR`, spawns a `hostRoot()`- or `gr_root`-rooted script without redirecting `CLAUDE_PROJECT_DIR`, or commits in a git fixture it gave no identity; a test anywhere writing or deleting `process.env` directly rather than through `vi.stubEnv` | a commit staging `scripts/` code, or for the last any test file or `scripts/` `.ts` helper, each judging the whole repo |
+| `scripts/check-precommit-exit.js` | a checker line in `.husky/pre-commit` or `.husky/pre-commit.local` exiting 1 on its failure, turning its BROKEN into a finding (§N4) | a commit staging either file, reading the index |
+| `scripts/check-test-spawn.js` | a test spawning `node` on the program under test other than through `keptSpawn(<reason>)` (§X3) | a commit staging a test under `scripts/` or `.claude/skills/`, judging the whole repo |
+| `scripts/check-host-root.js` | a script finding the host repository other than through the one host-root seam, or a file shipping with the plugin reached through the host root or the session's tree | a commit staging `scripts/`, `.claude/` or `.husky/`, judging the whole repo; skips in a repo shipping no plugin |
+| `scripts/check-adopter-boundary.js` | the core's adopter-boundary page naming a path in a group the code does not put it in, or naming a shipped, written or core-only entry, or a top-level tracked path, in no group | every commit, reading the worktree; skips in a repo with no such page |
+| `scripts/check-primitives.js` | a primitives row whose exemplar or enforcing check path, or § id, does not resolve, or a local row naming a base row's job; a base row's fault only warns in an adopter | every commit, `--paths-only`, reading the worktree |
+| `scripts/check-registrations.js` | a hook, guard or checker the commit adds unregistered or untested | a commit staging `scripts/`, `.husky/`, `.github/workflows/` or the registration files, judging the whole repo |
+| `scripts/check-workflow-permissions.js` | a workflow job reaching past the timer-triggered autonomy ceiling | staged `.github/workflows/*.yml` and `*.yaml`, read from the worktree |
+| `scripts/generate-test-read-edges.js --check` | a `docs/test-read-edges.json` the commit's tests no longer match; a test read the selector cannot attribute only warns | staged test files or the manifest, where the manifest exists |
+| `scripts/check-skill-frontmatter.js`, `scripts/check-skill-body-size.js` | a skill's frontmatter YAML rejects, or a skill or command body holding an unescaped `$<digit>` | staged `.claude/skills/*/SKILL.md`; the body check on every commit |
+| `scripts/check-hand-callers.js` | a `Caller:`, `Callers:` or `Callers of …:` line the commit adds to the header of a JS, TS, shell or Python script, which `git grep` answers instead (workflow-core#4720, workflow-core#4885) | a commit staging `scripts/` or a skill's `scripts/`; an inherited line only warns |
+| `commands.test` | a red suite, run whole | where declared, until its verdict probe passes; the lander's run before `main` moves is then the gate. **The verdict contract:** the command exits 0 on green and non-zero on red; on red it prints each failing test file on its own line as `FAIL <path>`, `FAILED <path>::<test>` or `ERROR <path>`, the path from the repo root; given file paths as arguments, it runs those files alone. The probe runs `<command> <canary>` with and without `WFC_VERDICT_PROBE=1`, the canary being `commands.testCanary`, a test file that fails only under that variable, and runs again once the command, the runner it resolves to or the canary changes. The runner is every file the walk reads the command loading (`scripts/lib/file-reach.js`); a load spelled inside a command held as data, as a suite list a script runs by `exec ${queue[0]}`, is declared in the script holding it by a `# code-edges loads: <path>` line, the path off that script's directory |
+| `scripts/mutation-hold-gate.js` | a changed line on a declared sensitive path where a planted bug survives every test | with the `mutation` module on |
+
+A gate that skips here refuses nothing, so a finding it would have refused is no duplicate in that repo; nor is one a gate only warns of.
+
+---
+
+## Primitives
+
+Copy a row's exemplar, never the nearest file doing the same job (**Primitive**, `.claude/workflow-core.glossary.md`). A base row's Exemplar and Enforcing check paths resolve at the plugin root, so each names a file the release ships, and the release build refuses one it does not; local rows' resolve at the host root. An exemplar is therefore never a test: the "Running a program under test" row names the primitive itself, and the `gh` and `claude` rows' stubbing halves have none. No program refuses a breach of a `Standards axis criterion` row: `/code-review`'s Standards axis judges it against every diff, and a diff doing the row's job without its primitive is a finding citing the row's Rule.
+
+| Job | Primitive | Exemplar | Rule | Enforcing check |
+|---|---|---|---|---|
+| Keeping a new program's decisions out of its I/O | a core taking every read through injected ports, and a shell that builds the adapters, delegates to the core and turns its outcome into output and an exit | `scripts/lib/primitives-table.js`, behind `scripts/check-primitives.js` | §0, its Core and Shell; §T7, §X11 | Standards axis criterion |
+| Ending a guard's hook call with a decision | `scripts/lib/guard-entry.js`'s `run`, the core returning a decision | `scripts/guard-failed-call-rules.js` | §S4 | Standards axis criterion |
+| Building a hook's JSON output | `envelope` in `scripts/lib/hook-envelope.js` | `scripts/inject-compaction-count.js` | §G12 | Standards axis criterion |
+| A checker's outcome, report and exit | `runCheck` in `scripts/lib/check.js` and its five-outcome alphabet | `scripts/check-cli-args.js` | §N3, §N4 | Standards axis criterion |
+| Finding the host repository | `hostRoot()` in `scripts/lib/host-root.js` | `scripts/check-stale-git-locks.js` | §0, its floor table | `scripts/check-host-root.js` |
+| Reading a program's command line | `scripts/lib/cli-args.js`, or `node:util`'s strict `parseArgs` | `scripts/check-plugin-gap.js` | §0, its floor table | `scripts/check-cli-args.js` |
+| Reading a JSONL file or text | `readJsonl`, `parseJsonl` or, for a streamed line, `parseJsonlRow` in `scripts/lib/jsonl.js` | `scripts/lib/dispatch-ledger.js` | §0, its floor table | `scripts/check-jsonl-reads.js` |
+| Printing a `session-arbiter.js` command | `buildArbiterCommand`, or `buildArbiterCommandIn(env)` where the env is a port's, in `scripts/lib/build-arbiter-command.js` | `scripts/lib/tracker-ops.js` | §0, its floor table | `scripts/check-arbiter-commands.js` |
+| Reading the clock | `now()` in `scripts/lib/clock.js` (re-exported by `scripts/lib/check.js`), pinned by `WFC_NOW`; for a guard core, a host port's `now(env)` handed its `ctx.env` | `scripts/check-history-trim.js`, `scripts/lib/sweep-fire-host.js` | §0, its floor table | `scripts/check-clock-copies.js` |
+| Invoking `gh`, and stubbing it in a test | `gh`, `ghJson` and their kin in `scripts/lib/gh.js`, reading `WFC_GH`; `"${WFC_GH:-gh}"` in shell; a test's stub at `WFC_GH`, in the core from `scripts/lib/gh-stub.ts`, which the release does not ship | `scripts/check-issue-orphans.js`, `scripts/park-blocked.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
+| Invoking `claude`, and stubbing it in a test | `claudeBin()` in `scripts/lib/claude-bin.js`, reading `WFC_CLAUDE_BIN`, or `claudeBin(env)` where the child runs under an `env` of its own; `"${WFC_CLAUDE_BIN:-claude}"` in shell; a test's stub at `WFC_CLAUDE_BIN` | `scripts/run-mod-tests.js`, `scripts/start-session.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
+| Reading all of a program's stdin | `readFdAll` in `scripts/lib/read-fd.js` | `scripts/write-secret.js` | §N6 | Standards axis criterion |
+| Writing a program's output | `writeFd` in `scripts/lib/write-fd.js`; `writeTerminal` there on a path only a person at a terminal reads | `scripts/check-plugin-gap.js` | §N6 | `scripts/check-program-output.js` |
+| A `report-*` program filing an issue | `createIssue` in `scripts/lib/tracking-issue.js`, or its `fileOrRefresh` | `scripts/report-remeasure-due.js` | §N3 | `scripts/check-report-programs.js` |
+| Running a program under test | `runInProcess` in `scripts/lib/run-in-process.js`, `runInProcessAsync` for an async entry; a spawn §X3 keeps, `keptSpawn` in `scripts/lib/kept-spawn.js` | `scripts/lib/run-in-process.js`, its header's contract | §X3 | `scripts/check-test-spawn.js` |
+| Pinning a hot-path program's per-call load and starts | `callCost` or `callCostAsync` in `scripts/lib/call-cost-harness.js`, its `shellCallCost` for a shell program; `call_cost` in `scripts/lib/call_cost_harness.py` | `scripts/lib/call-cost-harness.js`, `scripts/lib/call_cost_harness.py` | §G13 | Standards axis criterion |
+| A pre-commit gate line | the checker's own exit code passed on, `exit "$?"`, or `staged_gate`'s `status` mode in `scripts/lib/precommit-gate.sh`; a literal `exit 2` where the hook reads a probe's or lister's output, since a crash's own code may be 1 | `.husky/pre-commit` | §N4 | `scripts/check-precommit-exit.js` |
+| A pre-commit gate staging blobs out of the index | `staged_gate` in `scripts/lib/precommit-gate.sh` | `.husky/pre-commit` | §S6 | Standards axis criterion |
+| Ending a Stop hook with a block | `blockStop` in `scripts/lib/hook-block.js`, with its `charge` and `capSpent` | `scripts/guard-uncommitted-work.js` | §G10 | Standards axis criterion |
+| Reading or writing an arbiter record | `paths`, `readRecord` and `writeRecord` and their kin in `scripts/lib/arbiter-core.js` | `scripts/lib/arbiter-issue-claims.js` | §N10 | Standards axis criterion |
+| Holding a lock for a program's whole run, which a crashed holder cannot wedge | `pidLock` in `scripts/lib/pid-lock.js`, stale only once its holder has gone | `scripts/file-morning-review.js` | §G1 | Standards axis criterion |
+| Asking whether a pid is alive | `pidAlive` in `scripts/lib/arbiter-proc.js`, which reads EPERM as alive | `scripts/lib/pid-lock.js` | §G1 | Standards axis criterion |
+| Printing a rule the rule-text store holds | `rule_text` in `scripts/lib/rule-text.sh`; `readRuleText` or `readRuleTextOr` in `scripts/lib/rule-text.js`; a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js` | `scripts/lib/commit-subject.js`, `scripts/check-weakens-line.js` | §G11 | Standards axis criterion |
+
+---
+
+## §G — every code kind
+
+### §G1 · A non-obvious decision is recorded on its issue, and its residual becomes a test or an open issue — **judgement**
+
+A decision that could reasonably have gone the other way is recorded where workflow-core#5457 sends it: on the closed issue that settled it by default, in an ADR only where it passes workflow-core#5459's bar, or carried by a test, a name, the code's shape or a check. The site keeps a bare `#N` or `ADR-NNNN` only where a reader would otherwise undo the code's shape (K5). What the choice leaves broken becomes a test pinning it or an open issue, never a comment.
+
+### §G2 · A magic value carries its derivation — **hard**
+
+A value that was chosen — a threshold, a size, a count, a timeout — states where it came from, and says so when it is a guess, wherever it sits: a module constant, a parameter's default, a call-site argument or a local name (workflow-core#1406). It does so in the value-derivation form `docs/comment-kinds.md` gives: one line holding `measured` and the figure, or `guess`, and the `#N` that holds the detail. Several sites holding one value for one reason take it from one constant that carries the derivation. A name for a fixed path or label is not one, nor is a value nothing chose, such as a unit conversion or a command's argument count.
+
+### §G3 · A retained escape hatch silences only a style-only or faulty rule, and names it — **hard**
+
+A suppression is K3: the tool's own directive naming the rule, inline on the line it excuses, one rule per directive, never bare and never a file-top blanket. It silences only a rule that is style-only or faulty, which `scripts/lib/style-only-rules.json` lists by tool. A suppression of a correctness rule is refused: fix the code.
+
+An empty block is no escape hatch either: the code changes shape so the block holds a statement (workflow-core#5488).
+
+- *Stack (`tsconfig.json`)*: `@ts-ignore`, `@ts-expect-error` and `@ts-nocheck` silence the type checker, a correctness rule, so none is kept. For `any` and `!`, prefer `unknown` and narrow (§T2).
+- *Stack (`biome.json`)*: a `biome-ignore` names a rule in a group the list holds.
+- *Stack (`*.sh`)*: `# shellcheck disable=<code>`. The list holds no ShellCheck code, so a disable is refused.
+- *Stack (`ruff.toml`)*: `# noqa: <code>`, never a bare `# noqa`, nor a file-top `# ruff: noqa` or `# flake8: noqa` (workflow-core#1284). Ruff fires E402 on the import below a `sys.path.insert`, not on the insert, so the directive sits on the import.
+- *House*: an empty `catch` becomes `ignoreFailure(act)` or `orFallback(read, fallback)` from `scripts/lib/caught.js`, and an empty callback `noop` from `scripts/lib/noop.js`.
+
+### §G4 · A file departing from its family's policy cites the issue that allowed it — **judgement**
+
+Families disagree with each other on purpose: error policy is *opposite* between a fail-loud writer and a fail-open guard. A file departing from its family's policy has an issue ruling the departure, and its opening comment is that issue's bare `#N` (K5), so a reader does not pull it back into line.
+
+### §G5 · Names follow one scheme the repo states — **hard**
+
+A repo's names follow one scheme, and a name breaking it is the breach.
+
+*House, JS, TS and shell files only*: files kebab-case (`check-digest-version.js`, `guard-dispatch.js`), React components PascalCase; a Node program file that joins a family is prefixed by it (§N3). In JS and TS, module-scope constants `SCREAMING_SNAKE`; predicates `isX`/`hasX`, builders `buildX`, parsers `parseX`, readers `readX`: a reader's job is returning what it read from a file, a directory or a command's output, raw or parsed (workflow-core#2750). A reader named by a noun breaches; one another verb leads (`renderX`, `loadX`) does not, nor does a wrapper named for the command it runs (`git`, `gh`) (workflow-core#2654). In any other language — and for shell's own identifiers — the scheme is the one the local file states, else that language's own convention: snake_case for Python; for shell, lower snake_case functions and variables and UPPER_SNAKE constants and environment variables, as the Google Shell Style Guide has it (workflow-core#1252, workflow-core#1406).
+
+### §G6 · Nothing is exported only for its tests — **hard**
+
+**Program, library and test.** A program is tested by running it. A module is tested through the exports its real callers use. Logic that deserves its own tests becomes a module with a real caller, never a helper exported for the test (workflow-core#1348).
+
+The fixes, best first: the test drives the program end to end through `run-in-process`, and the export goes; the logic moves into a module whose real caller is the program, tested through that module's exports; or the name becomes file-local, and the test reaches it through an export a real caller uses. `scripts/lib/launch-route.js` is the second, a module of its own whose route table is tested through its export. A comment is never the fix.
+
+Three kinds of export are not test-only:
+
+- **A program's entry point**, exported so `run-in-process` can run it: a `main` exported by a file carrying a `require.main` guard, as `scripts/audit-escape-lines.js:426` does — *"module.exports = { main };"*.
+- **Test support.** A testkit, harness, fixture, stub or fake module, named for what it is, and anything under a `fixtures/` directory. `scripts/lib/precommit-gate-harness.js`, the machinery the `.husky/pre-commit` gate suites share, is one.
+- **A module built ahead of its caller**, whose opening comment is the directive `Unbuilt caller: <caller> (#N)`, naming the caller and the open issue that builds it.
+
+**Reported, never gated** (workflow-core#1361): the plugin's citation checker reports a name only test-kind files consume as it does one nothing consumes, under §N7's scan and its limits.
+
+### §G7 · An injected seam has a second adapter — **judgement**
+
+**Program, library and shell.** Every injected seam — a dependency parameter, a port, or an env var standing in for a binary, a file or a clock — has a second adapter beside production's, and a test fake counts. Otherwise an open issue names the caller that will supply one, and the seam cites it as a bare `#N` (K5).
+
+`scripts/lib/suite-queue.js:414` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:25` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
+
+Where neither fits, remove the seam: create the dependency in place, and let the test reach it another way, through a temp directory, the real clock, or a binary stubbed at its §N7 var (workflow-core#1374).
+
+**Outside the rule:** an env var that tunes a value (a timeout, a ceiling, a poll interval), and one a program sets for its own child.
+
+**The good reason to differ is a second adapter that lives outside the repo** — a parameter another release of the plugin fills, or an env var the founder or an adopter sets by hand. That is an outside contract, so the seam's doc comment says who fills it (K4).
+
+**A fake the repo owns is held to its production adapter by a contract test** (workflow-core#2207). It binds a fake a change adds or touches, so each standing owned fake (`claude`, `ps`, `gitleaks`, `ruff`, `journalctl`, `dmesg`, the `/proc/meminfo`, `/proc` and `loadavg` fixtures) comes under it when touched, its live cases using free calls only: `--help`, or a read of the real `/proc/meminfo` through the same parser.
+
+1. A fake this repo owns for a seam — a shared testkit fake, a stub executable standing in for a binary, or a fixture file standing in for a system file — is held to the production adapter by a contract test: one list of cases, run against both.
+2. The real side runs where the production adapter runs: in the ordinary suite wherever the dependency is reachable with no spend and no side effect, and skipped elsewhere with the reason. For `gh`, `claude`, `ps`, `journalctl` and `dmesg` the live cases run on the founder's machine, never in CI. A case that needs nothing, such as a logged-out `gh` with an empty `GH_CONFIG_DIR`, runs wherever the binary is installed. A case that would spend tokens or write somewhere visible is kept as a recorded response, beside the command that re-records it.
+3. The contract checks shape and verdict, not values: the real and fake answers give the same verdict from the production reader, and a JSON answer has the same keys and types. Its fixtures are synthetic.
+4. One shared fake per owned port, and a test picks which answer it serves. A hand-written double for a port that has a shared fake is the breach.
+5. Outside it: a fake whose production adapter is a single standard-library read with no behaviour of its own, such as an injected `now`, and a value passed in place of a port.
+
+- *House*: the fake and its fixtures live in a `<port>-fake` module in the lib directory and the contract in `<port>.contract.test.ts`, which names its fixture paths as literals so a change to either selects it (§X10).
+
+### §G8 · A new name for a glossary concept uses the glossary's term — **judgement**
+
+**Every code kind.** Where the repo has a `GLOSSARY.md`, a new name for a concept the glossary defines uses the glossary's term and none of its *Avoid* words.
+
+A homonym, a name for a different concept that happens to share a word, is outside the rule: `unreachableRemedy` at `scripts/lib/gh.js:279` names GitHub not answering, not the glossary's *Unreachable* page.
+
+The unasked-rerun guard asks whether certificates attest a commit, so its verdict is `attestationOf` (`scripts/lib/test-pass-marker.js:828`), never `coverOf`; a standards file's line pins are read by `parseLinePins` (`scripts/lib/standards-pins.js:115`), never `parsePins` (workflow-core#1373).
+
+### §G9 · State kept between calls has one writer, or writers named for what each does to it — **judgement**
+
+**Program, library and hook module.** §N9 holds what a function is passed; this holds the state it reaches without being passed: Fowler's Global Data smell, and the other half of his Mutable Data smell (workflow-core#1308, workflow-core#1821). That state is a module-scope `let`, a module-scope object, array, Map or Set, or `process.env`. It is written by one function, or only by functions whose names say what each does to it, so a reader finds every write from the declaration. Another module never writes it directly, only through one of those functions. `process.env` has no declaration, so each variable counts as state of its own, and a write through a general setter such as `setEnv` is its caller's. The breach is a second writer named for something else.
+
+`scripts/lib/suite-handoff.js:123-137` keeps `report` behind `fillRunReport` and `takeRunReport`, declared beneath it. `scripts/session-arbiter.js:65-74` keeps its oracle memo behind `listedOnce` and `relistSessions`; `scripts/check-hook-liveness.js:167`'s `saidBeforeElseQueue` names the stamp it queues as well as the question it answers.
+
+The fixes, best first: return the value, so the caller holds it; pass it in, so the write shows at the call site, where §N9 holds a program to it; or move each write into a function named for it, declared beside the state (Fowler's Encapsulate Variable).
+
+**Outside the rule:** a memo its one getter fills; a binding set once at load and only read after; an environment variable set for a child process (§G7); and an environment variable test support sets for the code under test.
+
+**The good reason to differ is state a signal or exit handler reads**, since nothing can hand a handler an argument. Each write sits beside its undo in the function that took the thing, and the declaration names the handler, as `heldWorktrees` and `heldRuns` in `scripts/run-vitest.js` do; `releaseRunsAndWorktrees` drains both on a kill.
+
+**Not test or shell, on purpose.** In a test, a setup hook resets the shared fake and each test writes the answer its own case needs, so the write and its reader sit in one test; a test reading what an earlier test left is order dependence, a different defect. A shell function hands back more than its exit status only by printing or by setting a global, so a global written by several functions is the language's return channel.
+
+### §G10 · A Stop hook's block is counted against a per-session cap and carries its whole correction in `reason` — **hard**
+
+**Program, shell and hook module.** A Stop hook that blocks opens a correction loop with the session (mantahostels#844). So each block is counted in a per-session file, written before the block is emitted, and the hook stops blocking once the count reaches its cap. `reason` is the one channel that reaches the founder and the model alike, so it holds the whole correction (mantahostels#2319, `docs/agents/guard-authoring.md` §Which channel reaches the model). A shell hook writes its own marker before it blocks, as `scripts/concision-backstop.sh` does, once per signal a session.
+
+*House, Node programs only*: the block is `blockStop` from `scripts/lib/hook-block.js`, which owns the counter path, the cap and the last-block notice; a refusal several counters pay for spends the rest through `charge`, and a caller whose work before the block is costly asks `capSpent` first (mantahostels#2383, mantahostels#2786). A program writing `decision: "block"` on a Stop hook's stdout itself is the breach.
+
+**Outside the rule:** a `PostToolUse` deny, whose `decision: "block"` is that event's own control (`scripts/lib/hook-envelope.js`); and `scripts/lib/load-failure-stop.js`, which fires when the guard's own libraries will not load, so it may require none, `hook-block.js` included, and is bounded instead by the payload's `stop_hook_active` to one block a turn (workflow-core#2645).
+
+### §G11 · A rule the rule-text store holds is printed from it, never copied — **hard**
+
+**Program, shell and hook module.** A rule a guard or hook prints to a session lives once, as a fragment under `docs/agents/rules/` keyed by its id (mantahostels#1641, `docs/agents/rules/README.md`), so a reworded rule reaches every place that prints it. A second copy of a fragment's text, whole or in part, is the breach.
+
+*House*: a shell caller sources `scripts/lib/rule-text.sh` and calls `rule_text <id>`; a Node caller calls `readRuleText` from `scripts/lib/rule-text.js`, or, where it must not crash, `readRuleTextOr` there or a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js`. Their fallback for an unreadable store, one clause naming the rule and then the fragment's path, is no copy.
+
+**The good reason to differ is a place the fragment cannot be printed from**: a byte cap it does not fit, or a measuring tool that reads the text literally, as `scripts/check-context-budget.js` reads `scripts/lib/tracker-inject-text.js`'s payload. A shortened copy stays there only where the issue that allowed it names the fragment, and the copy cites it beside it as a bare `#N` (K5); `GH_EMPTY_RESULT_RULE` and the `standardsText` texts in that file are such copies. A copy a test pins word for word to the fragment, or to such a shortened copy, cannot drift unseen, and stays, as `STANDING_LINE` in `scripts/lib/vitest-wrapper.js` and `standards_line` in `scripts/concision-backstop.sh` do.
+
+### §G12 · A hook's JSON output is built by one builder, never an object literal of its own — **hard**
+
+**Program and hook module.** The harness drops a misspelt event name or output key without an error, so a hook's `hookSpecificOutput` and `PostToolUse` decision are built by one builder, and a hook spelling either as an object literal of its own is the breach.
+
+*House, Node programs only*: that builder is `envelope` in `scripts/lib/hook-envelope.js` (workflow-core#4025).
+
+**Outside the rule:** a shell hook, which builds the shape with one `jq` expression, as `scripts/place-new-issue.sh` does, since a Node process per run would cost more than the copy.
+
+<!-- rule:hot-path-cost:begin -->
+### §G13 · A hot-path program costs no more per call than its work needs — **judgement**
+
+A hot-path program is one the harness or git runs per tool call or per commit, or one polled every few seconds: a program a `PreToolUse`, `PostToolUse`, `PostToolUseFailure` or `PostToolBatch` hook entry runs, a module a hook or git-hook dispatcher loads for one, a program a git hook git runs on each commit runs, the status line's command, and a command the repo declares polled. It binds what a change adds or rewrites (workflow-core#5319).
+
+1. Load only what the common path uses. Profile (`--cpu-prof`) before cutting. Defer a rare, heavy module with a `require()` inside its one caller; never a module loaded for its side effects.
+2. A new guard or gate joins the existing dispatcher process rather than registering its own hook entry (workflow-core#2786, workflow-core#5166). No child process where an in-process core serves (workflow-core#2186).
+3. One pass over a shared input, as §X8 (3).
+4. A change made for speed records a before/after median per call, old and new alternating, on its ticket (workflow-core#2797).
+5. Each hot-path program has a pin test asserting the modules one common-path call loads and the child processes it starts. The pin fails a run; no timing figure ever refuses (mantahostels#2255).
+
+- *House, Node programs only*: pin through `callCost` (or `callCostAsync`) in the plugin's pin harness, `scripts/lib/call-cost-harness.js`.
+- *House, Python programs only*: pin through `call_cost` in the harness's Python half, `scripts/lib/call_cost_harness.py`.
+- *House, shell*: pin through the harness's `shellCallCost`, which records each watched binary the script starts, a `run-budgeted.js` start followed by the checker it runs.
+<!-- rule:hot-path-cost:end -->
+
+Judge (4) from the ticket's comments: a change made for speed with no before/after medians there is the finding. Judge (5) from the change's test files. A good reason to differ: a program with no common path a pin can drive, cited per §G4, under (5); or a guard that must run in its own process for a reason the hook docs give, such as fail-closed isolation or a timeout of its own, cited per §G4, under (2).
+
+---
+
+## §T — library code
+
+§T2, §T3 and §T7 hold for a library in any language. The rest of §T, and every TypeScript spelling inside those three, is *Stack (`tsconfig.json`)*.
+
+### §T1 · Library functions annotate their return type; components do not — **hard**
+
+*Stack (`tsconfig.json`)*. Every exported *and* module-private library function carries an explicit return type, the trivial ones included, and an async function annotates the `Promise<…>`. Where the local §W hands this to a linter, raise only what it cannot reach — such as a non-component function inside a `.tsx` file, like a page's `generateStaticParams` (workflow-core#1335).
+
+A React component's JSX return type is left to inference — e.g. `export function Nav() {`.
+
+
+### §T2 · Untrusted input is checked at runtime before its type is trusted — **hard**
+
+Input from outside the library is narrowed by a runtime check before any code relies on its shape. A type assertion that no runtime check precedes is the breach.
+
+*Stack (`tsconfig.json`)*: zero `any`. Untyped input is modelled `unknown` and narrowed before use — e.g. `Array.isArray`, then a `typeof` check on each element — and only then asserted (`as string[]`).
+
+### §T3 · An invariant breach throws; an expected failure returns as an outcome — **hard**
+
+- **Throw** a named error for a policy invariant that must stop the process, carrying the offending data as a field so the caller gets it programmatically rather than by parsing the message.
+- **Return** an outcome value for an expected operational failure. Every failure route — a throw, a timeout, an unreadable answer — lands as an outcome with an empty result, never as a thrown error and never as an unreadable answer passing for "nothing found".
+
+**Failing open is the defect here** — the opposite of §N5.
+
+*Stack (`tsconfig.json`)*: the class subclasses `Error`, sets `this.name` in the constructor, is named `<Subject><Problem>Error`, and takes the offending data as a parameter property (`readonly fields: readonly string[]`).
+
+### §T4 · The `interface` keyword for declared object shapes, `type` for unions and function types — **hard**
+
+*Stack (`tsconfig.json`)*. The rule is the choice between the `interface` keyword and a `type` alias when declaring a named type: an object shape, a type literal `{ … }`, is declared with the `interface` keyword; a union, or a function type such as `type LlmPort = (prompt: string) => Promise<string>`, is a `type`. A type literal written inline in a signature declares nothing, so it is outside the rule (workflow-core#1406). *Stack (`biome.json`)*: where the local §W hands the object-shape limb to Biome's `style/useConsistentTypeDefinitions` (workflow-core#1327), a review leaves it to that rule. Biome's recommended `style/useShorthandFunctionType` refuses an `interface` holding only a call signature, so a review raises the function-type limb only where the repo's `biome.json` turns that rule off.
+
+### §T5 · Every field and array in a library is `readonly` — **hard**
+
+*Stack (`tsconfig.json`)*. Without exception; arrays are `readonly string[]`.
+
+**Library kind only, on purpose.** A program's or a test's types are not held to it, because `readonly` guards the data a library hands to callers it does not know, and a program's or a test's types stay inside their file; a shared testkit's are read by tests alone (workflow-core#1317).
+
+### §T6 · No `satisfies`; `as const` narrows, an annotation declares — **hard**
+
+*Stack (`tsconfig.json`)*. No `satisfies`. A const object wanting literal narrowing takes `as const`; anything with a declared shape takes an annotation.
+
+### §T7 · Dependencies are injected; the library does no I/O — **judgement**
+
+The clock arrives as a function, an external supplier as a one-function transport port, and the module performs no I/O, so every branch is exercised in-process.
+
+**Two kinds of module at a web app's edge may do I/O, on the ground of a stack this rule cannot fit** (workflow-core#1872):
+
+- **A production adapter** fills a port against a real supplier — the network, a database, the filesystem, `process.env`, an SDK. It holds the transport and nothing a test needs to reach: it branches on the supplier's answer only to turn a transport failure into the port's outcome (§T3). Next.js, for one, keeps these in its Data Access Layer (`import 'server-only'`).
+- **A composition root** is a module the framework invokes as an entry point. It builds the adapters and hands them to the library. In the Next.js App Router, for example: a server-rendered `page.tsx` or `layout.tsx` and its `generateMetadata`; a `route.ts` handler; a `"use server"` function or module; `proxy.ts` (`middleware.ts` before Next 16); `instrumentation.ts`. In its Pages Router: a page's `getServerSideProps`, `getStaticProps` and `getStaticPaths`, which run only on the server, and a `pages/api/*` handler (workflow-core#2061); the page's component hydrates in the browser, so it is a client component. Its body wires and delegates; a branch worth testing moves into the library behind a port.
+
+Every other library module stays under the rule, and a client component is never either kind.
+
+**A dependency with a legally load-bearing consequence is required with no default**, so no caller inherits that choice by accident (mantahostels#817). A timeout, by contrast, may default.
+
+*Stack (`tsconfig.json`)*: the clock is `readonly now: () => Date`.
+
+### §T8 · A list or map entry is read as possibly missing — **hard**
+
+*Stack (`tsconfig.json`)*. The type check runs with `noUncheckedIndexedAccess`, so `arr[0]` and `record[k]` read as `T | undefined` and the code handles a missing entry on purpose (workflow-core#1316, workflow-core#1380). `tsc` has no per-path compiler options, so a repo keeping it off its tests sets it in a second config that extends its own.
+
+**A finding is cleared by one of these shapes only:**
+
+- restructure so nothing is indexed: `for…of`, `.entries()`, a destructure;
+- move an existing length or presence check onto the element: read it into a local and test that for `undefined`;
+- a regex capture group the pattern guarantees: read it through a helper that throws when the group did not take part — never for an optional group, `(…)?` or one branch of an alternation;
+- an expected failure, such as a missing argument or a key absent from outside input: the code's existing failure route, a usage error or an outcome value (§T3);
+- `?? null`, only where the declared return already includes `| null`;
+- a broken invariant no restructure removes: throw an `Error` saying what was missing (§T3).
+
+**Each of these is a breach**, since it silences the check and leaves the missing case unhandled: the non-null assertion `!`; `?? ""` or any default that changes what the code does; `?.` where the code used to throw; an `as` or JSDoc cast that drops `undefined`; `@ts-ignore` or `@ts-expect-error`; and a dead `continue` or other unreachable branch. §G3's written reason does not make one a clearing shape: a site none of the shapes fits is raised on a ticket (workflow-core#1336).
+
+**Test files stay outside the check** (workflow-core#1316).
+
+---
+
+## §N — programs
+
+### §N1 · CommonJS, and a shebang on an executable — **hard**
+
+*House, Node programs only*. Every `.js` program uses `require`, never `import`, and an executable carries `#!/usr/bin/env node` as line 1.
+
+A non-test `.ts` program is ESM; where it needs a CommonJS lib it reaches it through `createRequire`, because the lib is spawned as a plain node script by a bash hook and stays CommonJS. **Always `createRequire(import.meta.url)`, never `createRequire(__filename)`** (mantahostels#2191): `__filename` only resolves under Vitest's compatibility shim, so a non-test file copying it breaks when run directly by `node` — `scripts/vitest-inflight-reporter.ts:4` is the portable exemplar: *"const require = createRequire(import.meta.url);"*.
+
+### §N2 · A file opens with a comment only where a permitted kind needs one — **hard**
+
+No program, library module, hook module, shell script or test owes a header (workflow-core#5455). A file opens with a comment only as K1, a licence line; as K4, the contract of an entry point a party outside the repo runs or imports, written as a usage block: a line invokes the file, and no line cites an issue; as the bare K5 pointer §G4 gives a departing file; or as a directive (§Comments). A header giving what the file is, its why or its ticket is refused.
+
+### §N3 · The filename prefix is the contract — **hard**
+
+A filename prefix selects a contract. Where the repo has families for a program's language, a new program joins one and takes its contract whole, or cites the issue that keeps it out of one (§G4). Where its language has no families, it owes no such line, since a header saying "no family" carries no contract (workflow-core#1250, workflow-core#1406); nor does it take another language's family prefix unless it keeps that family's contract, so a Python hook that always exits 0 is never a `check-*` (workflow-core#1406).
+
+*House, Node programs only*: the four families, under `scripts/`:
+
+| Prefix | Contract |
+|---|---|
+| `check-*` | gates through `runCheck` and the five-outcome alphabet (§N4) |
+| `guard-*` | a Claude Code hook: fails open on a fault it catches, exiting 0; a deny-capable one fails closed when the harness ends it (§N5, §S3) |
+| `generate-*` | writes a file, returns 0/1 from `main` and exits on it |
+| `report-*` | files a GitHub issue, exits 0 — never fails a build |
+
+*House, Node programs only*: a `report-*` files through `createIssue` in `scripts/lib/tracking-issue.js`, directly or through its `fileOrRefresh`, never a `gh issue create` of its own (lucmoseley/mantahostels#2762).
+
+The prefix selects a family only under `scripts/`. A skill's own scripts join none by name, so citing §N3 or §N4 against one on the strength of a coincidental prefix is a false finding (mantahostels#1189) — `.claude/skills/concision-pass/scripts/check-facts.js:13` answers to its own three-code alphabet. §G4 still binds it.
+
+### §N4 · One place owns process exit, and the body returns a result — **hard**
+
+A checking program's body returns a result and never ends the process itself; one function owns process exit. A subcommand that does no checking may exit on its own path; the rule binds the checking path.
+
+Three sub-rules a reviewer may cite directly against a program reporting in the five-outcome alphabet below:
+
+- **SKIP versus BROKEN turns on subject-versus-apparatus** (`scripts/lib/check.js:17-25`): what the checker is *asking about* is unavailable → SKIP; what it *reads the repo with* failed → BROKEN.
+- **Severity is a property of the finding**; a caller-side cap such as `--warn` lowers the outcome only, never the findings, and cannot cap BROKEN (`scripts/lib/check.js:27-30`).
+- **A bad invocation is BROKEN, never a finding** — a usage error throws `brokenError` rather than raising a finding (`scripts/lib/check.js:296-298`).
+
+*House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:179-181`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (workflow-core#1586); and `runCheck` owns the exit — a body throws `skipError` or `brokenError` (`scripts/lib/outcome-error.js:16-26`), never exits, and a run's exit code is chosen once, by `exitFor` (`scripts/lib/check.js:1683`). The five outcomes, stated once at `scripts/lib/check.js:10-15`:
+
+```
+OK      ran, found nothing                            exit 0
+SKIP    could not run, and not the repo's fault       exit 0
+WARN    real findings, deliberately not gating        exit 0
+FAIL    real findings that gate                       exit 1
+BROKEN  the checker itself cannot do its job          exit 2
+```
+
+### §N5 · A fail-open is pinned by a test, and printed — **hard**
+
+A program that swallows an error to keep working does so as a design choice that a test pins, and that **where a human reads the output, is printed** (workflow-core#2351, workflow-core#5455). See §S3 for the shell half.
+
+**Gated for Python** (workflow-core#1830, workflow-core#5487): the plugin's pre-commit refuses an `except` a commit adds to a program-routed `.py` that neither raises, exits nor hands the error it binds to a reporter from `scripts/lib/fail_open.py`, so the printing is a duplicate finding there. An `__exit__` that can return true is judged as an `except` binding its exception parameter, and a `contextlib.suppress`, which binds nothing, passes only under a specific type, as `expected` does (workflow-core#5561). `fail_open` prints the error; `tallied` counts it into a tally the program prints, one line for every drop of its kind. **A condition that is the program's normal path is no fault, so it is not printed** (workflow-core#5503): a loop's end, such as `waitpid` raising `ChildProcessError` once no child is left, or a process that exited between being listed and being read. Its `except` hands the error to `expected`, which the gate passes only under a specific caught type, never `Exception`, `BaseException` or `OSError`; where only an errno marks the condition, the handler re-raises every other one. Whether a test pins the site, whether the condition is truly the normal path, and whether an errno handler re-raises every other errno stay review's: the gate passes any handler holding a `raise`.
+
+The `guard-*` family swallows every error and exits 0, since breaking a session is worse than missing one (mantahostels#103 §6).
+
+### §N6 · Output that must survive `process.exit` on a pipe is written synchronously — **hard**
+
+Node programs. On any path whose output precedes a `process.exit` **and** whose stdout may be a pipe — every hook, every checker, and any script an agent runs through Bash — write synchronously, never through `console`: node drops whatever it still has buffered for a pipe at `process.exit` (`scripts/lib/write-fd.js:6-7`), and a hook's stdout is always a pipe, so the report goes through `writeFd`, which loops on `fs.writeSync` (`scripts/lib/write-fd.js:47`). The hazard is the pipe, not the call: a subcommand only a human runs at a terminal is outside it.
+
+A bare `fs.writeSync` is not enough — `scripts/lib/write-fd.js:8-9` *"it drops the tail of a partial write without saying so, and it throws EAGAIN on a full pipe that is non-blocking"*. The writer loops until every byte is taken, waiting out EAGAIN up to a ceiling.
+
+*House, Node programs only*: that writer is `writeFd` from `scripts/lib/write-fd.js` (workflow-core#1676). A bare `fs.writeSync` to fd 1 or 2 is the breach, bar a program that may load nothing of the repo's, as `scripts/run-pinned-guards.js` does. A program calling `process.exit` writes a terminal-only path through `writeTerminal` from the same file, never `console` or a std stream's own write (workflow-core#4018, workflow-core#5484). A `report-*` writes every path through it, a terminal-only one included (workflow-core#3454).
+
+*House, production Node programs only*: a program reads all of its stdin through `readFdAll` from `scripts/lib/read-fd.js`, since `fs.readFileSync(0)` throws EAGAIN on a non-blocking pipe whose writer has not finished (workflow-core#4017). A bare `fs.readFileSync(0)` is the breach, bar such a program, as `scripts/lib/load-failure-stop.js` is. An inline `node -e` in a shell script that never touches `process.stdin` is outside this.
+
+Stream discipline (`scripts/lib/check.js:32-36`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:1683`, and `scripts/lib/check.js:1262` for a crash).
+
+### §N7 · An export nothing consumes is a breach, and a binary a test stubs or a machine may lack is injected at one named var — **judgement**
+
+**An export nothing consumes is a breach of this rule, not a spare part.** Make the name file-local, or, where a real caller reaches it in a form the scan below cannot see, **keep it with a `{module, name, caller}` row in `docs/export-callers.json`**, which the scan verifies: it reports a row once its module no longer exports the name, the scan finds a consumer itself, or the caller no longer spells both the name and the module's basename (workflow-core#5486). The caller is never a test: an export only tests consume is §G6's.
+
+**An external binary a test needs to stub, or a machine running the code may lack, is injected at one named env var, never by `PATH`** — `gh` is read from `WFC_GH`, falling back to the bare name (`scripts/lib/gh-binary.js:11`), and tests set it to a stub. **One var per binary, repo-wide**, and a shell caller takes that same var rather than minting a name or shadowing `PATH` of its own (mantahostels#1374). A sandbox may also hold a decoy on `PATH` behind that var, refusing every call, so a bare name that misses the var stops there rather than reaching the real binary (workflow-core#4089): it injects nothing, since no test can be answered through it.
+
+**Outside the rule: `git`, the repo's own runtimes and their package managers (`node`, `npm`, `python3`) and standard system tools (`free`, `tar`, `sh`, `bash`, `setsid` and their like)** — tests run these for real, and the few that fake one need every call to fail, which a decoy ahead of the real one on `PATH` gives as well as a var would (workflow-core#1283, workflow-core#1406). A test of a detached launcher can put a stub `node` there, or pass the code under test an exec function. One of these enters the rule when tests feed it chosen output, as they do `ps`, and an exit code chosen per call is chosen output: a decoy cannot pass some calls and fail others (workflow-core#2266). `git` enters it so at `WFC_GIT` (workflow-core#2581), `python3` at `WFC_PYTHON`, `npm` at `WFC_NPM` and `node` at `WFC_NODE`; elsewhere `python3` may be missing from a machine, and code that runs it handles that absence rather than taking a var.
+
+*House, Node programs only*: a file that exports uses a single trailing `module.exports = { … }` of named functions, never the `exports.foo =` form — bar a file in a require cycle, which ends on a run of `exports.foo = foo;` lines instead, because a cycle hands a sibling its exports object before the file ends, so replacing that object leaves the sibling a half-filled one (mantahostels#1795).
+
+*House*: the plugin's vars take a `WFC_` prefix — `WFC_GH` for `gh`, `WFC_CLAUDE_BIN` for `claude` (`scripts/lib/claude-bin.js:2`), `WFC_GITLEAKS` for `gitleaks` (`.husky/pre-commit`), `WFC_PS` for `ps` (`scripts/lib/admission.js`), `WFC_PYTHON` for `python3` (`scripts/run-pytest.js`, `scripts/bisect-step.sh`), `WFC_NPM` for `npm` and `WFC_NODE` for `node` (`scripts/bisect-step.sh`), `WFC_CURL` for `curl` (`scripts/lib/npm-install-host.js`), `WFC_TMUX` for `tmux` (`scripts/lib/refill-panel-routes.js`) and `WFC_GIT` for `git` (`scripts/lib/git.js`).
+
+**Reported, never gated** (mantahostels#1799): the plugin's citation checker WARNs each unconsumed name. **A file spelling the name counts as a consumer only if it is neither a test nor test support (§G6), does not define one of its own, and names the exporting module** — a `require` or `import` of it, or its basename in a `path.join` or a spawned command (workflow-core#1616), or, for a module the dispatcher's manifest loads, a `corePath(` call in a file reaching `guard-cores.js` (workflow-core#4136), or, for the `SPEC` or `PROGRAM` of a script `precommit-gates.js` names in a `script:` row, a `fromCoreRoot(` call in a file reaching that table (workflow-core#5628); a definer reading the name off an object is a consumer again, so a caller rebinding an import under its own name is safe. The scan is **textual**, so a name and module path spelled in a comment or a JSON value read as consumed, bar `docs/export-callers.json` itself. A test's or test support's own exports are never scanned.
+
+### §N8 · Every program `.js` is type-checked — **hard**
+
+*Stack (`checkJs`)*. With `checkJs` on across the program `.js` files the repo's `tsconfig.json` includes, every file is checked at full `strict` and a new one needs nothing to opt in. No per-file `// @ts-check` pragma is owed (mantahostels#1464).
+
+**Full `strict` is the bar, and the target is zero errors under it** — `noImplicitAny` is not relaxed for scripts alone (mantahostels#1392).
+
+**§T8's missing-entry check is part of the bar** (workflow-core#1380): programs are held to it as library code is, wherever `tsc` checks them.
+
+**Cannot satisfy it? Convert the file.** `// @ts-nocheck` silences a correctness check, which §G3 refuses, and a file declining on its own error count is one to convert, not to exempt (mantahostels#1397).
+
+**Reported, never gated** (mantahostels#1464): the plugin's `scripts/check-scripts-typecheck.js` names every in-scope file carrying `// @ts-nocheck`, at WARN.
+
+**A catch binding stays `unknown`, as `strict` types it, and is read through `instanceof Error` or the plugin's `caught` (`scripts/lib/caught.js`)** (workflow-core#1329, ruled at workflow-core#1317). A thrown value promises no field at all: a thrown `null` makes `e.code` throw inside the handler meant to fail open. A cast of the binding — `NodeJS.ErrnoException`, `Error`, a hand-written shape — is §T2's unchecked assertion unless a runtime check precedes it. **An `any`, on a catch binding or anywhere else, is §G3's: prefer `unknown` and narrow.**
+
+**Annotate by hand, never through a generated pass such as TypeScript's `inferFromUsage` codefix** (mantahostels#1409).
+
+### §N9 · A function returns its result rather than changing what it was passed — **judgement**
+
+**Program kind only**: library code leans on §T5's `readonly` instead, which holds a passed record's fields and arrays but not a passed Map, Set or regex. A function returns its result rather than changing an object or array it was passed, so every value a call changes shows at the call site. A field write, a push, an in-place sort and a reset of a regex's `lastIndex` all count, and so does a write to an element of a passed list or through a destructured options field. `scripts/lib/issue-gate.js:77` runs a caller's regex on a copy rather than resetting it: *"const local = new RegExp(re);"*.
+
+**The good reason to differ is a caller-owned accumulator or counter passed in for that purpose** — a findings list, a tally, a cache, the state a split-out loop step advances — the house shape (workflow-core#1297). It is said by the parameter's name or type, which names what accumulates in it, as the parameter `tally`, typed `Tally`, in `scripts/check-cleared-trackers.js` does (workflow-core#1375, workflow-core#5455). A record handed in with one field for the callee to fill is an accumulator for that field alone, and the name says which. A record, a regex, a parsed document or a list handed in to be read is never an accumulator.
+
+### §N10 · An arbiter record is reached through the arbiter's one reader and one writer — **hard**
+
+*House*. The session arbiter keeps its records (file claims, issue claims, wants, observations, breaks) as JSON files in its state directory, and what a reader does with a torn, absent or refused record is decided once: absent and torn read as no record, a refused read throws (mantahostels#174, `scripts/lib/arbiter-core.js:195-209`). A record's path comes from `paths` in `scripts/lib/arbiter-core.js`, or joins one of its directories to a name that directory's listing returned; its bytes are read through `readRecord`, `probeRecord`, `readRecordOrLog` or `readRecordOrFlag` and written through `writeRecord` or `createOnce`, there or through an arbiter family function built on them, such as `heldIssues` in `scripts/lib/arbiter-issue-claims.js`. A path to a record built by hand, or a record opened with `fs` and parsed in place, is the breach.
+
+**Outside the rule:** a file in the state directory that holds no arbiter record, read and written by the one module that names its path, such as the ledgers, the error log, `firstSay`'s sentinels, `scripts/lib/notify-report.js`'s reports and `scripts/check-hook-liveness.js`'s state.
+
+---
+
+## §X — tests
+
+### §X1 · Titles are behaviour sentences — **hard**
+
+A test title is a third-person statement of the behaviour and never begins "should" — and it carries the *quality* of the failure, not just the verdict: *fails on a tracked file with no register entry, naming it*. A group names the situation or flag under test, lower case, often with the ticket that created it: *rotation — bounding a log nothing else trims (mantahostels#181)*.
+
+*Stack (Vitest config)*: `describe`/`it`, never `test()` (mantahostels#991).
+
+### §X2 · Isolation comes from a real seam, not from mocking — **hard**
+
+A test fills its seam with a real temp directory, a real subprocess, an injected binary or an injected dependency. Replacing a module the code under test imports is the breach, and the fix is usually that the code needs a seam (§T7, §N7).
+
+**A spy is judged by what it is for** (workflow-core#684). Three uses are sanctioned: capturing output (`process.stdout`/`stderr.write`, `console`, `fs.writeSync` to fd 1 or 2); watching a real call it lets through; and forcing a failure no real seam reaches, **with the issue saying why no real seam reaches it, cited at the site as a bare `#N` (K5)**. A spy standing in for a collaborator the test depends on, where a temp directory, a subprocess or an injected dependency would do, is the breach.
+
+Prefer a shared testkit's fake to a hand-rolled one; for a port the repo owns, §G7 requires it.
+
+- *Stack (Vitest config)*: the breach is `vi.mock`; `vi` itself is for spies, env stubs and waits.
+- *House*: a test reaches `gh` through `WFC_GH` and `claude` through `WFC_CLAUDE_BIN`, each pointed at a stub executable, never through a `PATH` prepended with a fake.
+
+### §X3 · A program test is black-box, and asserts the message as well as the code — **hard**
+
+A case that runs a file as a program — a top-level script, a lib module's `require.main === module` path (workflow-core#686), or a Python module's `if __name__ == "__main__":` path (workflow-core#2249) — runs the real program **end to end** against a throwaway directory it creates and removes: never a unit of it, and never a mock standing in for it.
+
+Both halves are asserted: the exit code, against §N4 where the program is a checker, *and* that the output names the offending thing **and the way out**.
+
+**A builder's name and signature say what it builds, or which real-world act it stands in for** (mantahostels#3118, workflow-core#5455); where they cannot, the builder is renamed, never given a docstring. What an absent argument means is §X5's.
+
+**A module test is the deliberate opposite** — in-process, with injected deps, and held to §X6 instead: a lib test that imports its module and calls it, and any library-kind test. Do not cite this rule against one. A file holding both kinds owes it on its program cases only.
+
+- *Stack (Vitest config)*: `// @vitest-environment node` as line 1, named local builder arrows, and a `beforeEach` minting a temp directory via `mkdtempSync`, a git repo where the program reads git state, with an `afterEach` removing it (workflow-core#1406).
+- *House, Node programs only*: **run the program through `scripts/lib/run-in-process.js`, not a subprocess** (settled at mantahostels#1951). It loads the script as the entry module of the test process and reproduces the exit code, both streams, argv, cwd, the environment and fd 0; what it does not reproduce is at the head of that file. An async entry point goes through `runInProcessAsync` (mantahostels#1944). **A kept spawn names its reason in the call**: `keptSpawn("<reason>").spawnSync(process.execPath, …)` from `scripts/lib/kept-spawn.js`, the reason `timeout`, `signal`, `concurrent` (two processes running at once), `fd` (a real fd), or `boundary`, where the process itself is the subject — its own fresh state, an entry run-in-process cannot load, or a real run held as another's comparand (workflow-core#5483).
+
+### §X4 · A regression case cites its incident and is paired with a positive case — **hard**
+
+Tests of any extension. A `#N` reference names the regression the case pins (mantahostels#991) — e.g. a title ending *mantahostels#137 (the hook reads the exit status)*.
+
+Every regression case is paired with a positive case proving the signal still fires. A case already in the file that proves the signal fires on the same code path is that pair: the regression case names it in its title, and no new positive case is written (workflow-core#5181).
+
+### §X5 · A test builder says what an absent argument means — **judgement**
+
+A test builder with a nullable or optional parameter shows in its own body what that parameter's absence means (workflow-core#1317 Q4, workflow-core#1330, workflow-core#5455). Absence is a `null`, an `undefined`, an omitted parameter or option field, or a Python `None` default. The body shows it where a reader learns what the absence builds without opening another file, a testkit's option type or the module under test: a branch or default on the parameter whose outcome reads plainly, the value written unchanged into the fixture it returns, or a hand-off to a builder in the same file that shows it.
+
+### §X6 · A module test checks what the interface returns or does, never the internals — **hard**
+
+A module test, §X3's in-process kind, asserts what the module's interface returns or does: the value returned, the files or records left, the output written, the calls made on a dependency it was handed. It never asserts the module's internal state, or how often its internals were called (workflow-core#1308 Q4). A spy on captured output, or on an injected dependency, is at the interface and conforms; so is counting the calls a test's own fake receives. §X2's watched real call is held to this too. A breach owes the written reason a hard rule asks for, on its issue, cited beside the assertion as a bare `#N` (K5): for instance, a test counting an internal call because no return value shows the cost it guards (workflow-core#1497).
+
+### §X7 · Deepening or replacing a module deletes the old module's tests the new ones cover — **judgement**
+
+When a module is deepened or replaced, the unit tests of the old module that the new module's tests now cover are deleted in the same change (workflow-core#1308 Q7). A program keeps its §X11 boundary set; its other program cases are deleted under §X11 once a module case covers them (workflow-core#2206).
+
+The good reason to differ: the old module still runs on a path the new module's tests never reach, such as a caller of its own. The kept test cites the issue naming that path, as a bare `#N` (K5).
+
+<!-- rule:test-run-cost:begin -->
+### §X8 · A new test costs no more to run than its fitness needs — **judgement**
+
+It binds the test cases a change adds or rewrites (workflow-core#1771).
+
+1. Build an expensive fixture, index or parse once per file. Each test that writes gets a fresh copy; each that only reads gets a read-only view. Key any cache on every input it reads.
+2. Reach a state by seeding it, or a subject with a real dependency removed, and keep one case on the real call or dependency. For a program with a core, the real call is each production adapter its shell wires, crossed once for real: fs and git in the test's temp directory, and a binary at its §N7 var (§X11 item 3). *House*: `gh` is crossed through `WFC_GH`, its stub held to the real binary by §G7's contract test. Any other program test's process boundary stays §X3's.
+3. Replace a per-case search over a shared input with one pass, proven byte-identical to the old output on the real input and on planted variants.
+4. A change made for speed proves the test still fails: one mutation per changed assertion, reverted, named in the commit message.
+5. A test file the suite's run-cost report names as new over budget, or as grown, is made cheaper, or cites the issue that keeps its cost (§G4).
+
+- *Stack (Vitest config)*: build in `beforeAll` or at module scope, copy fresh in `beforeEach`. §X3's `beforeEach` temp-directory clause still holds: the copy lands in the directory `beforeEach` mints. `.each` is no speed lever, since each row still runs its own setup.
+- *Stack (pytest config)*: build in a `module`-scoped fixture and copy in a function-scoped one. Under xdist, a build stays in its own worker's directory, never a path another worker shares.
+<!-- rule:test-run-cost:end -->
+
+Judge (4) from the full commit messages, `git log <fixed-point>..HEAD` with no `--oneline` (workflow-core#1848). Judge (5) from the over-budget lines the dispatching session hands over; where none were handed over, the finding says (5) was not judged. A good reason to differ: a fixture cheaper to build than to copy, under (1); a subject with no seedable state, under (2); or a file whose cost the run's own load explains, shown by a re-run at low load, under (5).
+
+<!-- rule:test-time-seam:begin -->
+### §X9 · A test asserts time through a seam, never through wall time — **hard**
+
+A budget, timeout or deadline is asserted through an injected clock or a count of what was done. Never assert real elapsed time measured around the call (mantahostels#2035, mantahostels#3535). A shipped timeout that is itself the guarantee is never shortened to make a test fast. A case that must cross the real clock (a signal, a kill, a process timeout) says why at the site through `keptSpawn`'s reason (§X3), or cites its issue as a bare `#N` (K5).
+
+- *Stack (Vitest config)*: fake timers or an injected `now`.
+<!-- rule:test-time-seam:end -->
+
+<!-- rule:test-reads-visible:begin -->
+### §X10 · A test names what it reads where the repo's test selector can see it — **judgement**
+
+A test that reads a tracked file at runtime names it as a literal path, in the test or in a helper it loads directly, so a change to that file selects the test. Where it cannot, its header carries the directive `full-sweep-only: #N`, the issue saying why, and the test runs only on a full run. This binds every test, standing or new: a read the selector misses loses an assertion, not time, so no workflow-core#1771 exception reaches it.
+
+- *Stack (read-edge manifest)*: the read shapes the plugin's read-edge extractor (`scripts/lib/test-read-edges.js`) attributes, and the shapes its header lists as getting no edge, are the shapes this clause means. A read in an unseen shape, with no `full-sweep-only:` line, is the breach. `node <plugin root>/scripts/generate-test-read-edges.js --unseen` lists each one the extractor can judge; its header names the reads it cannot.
+<!-- rule:test-reads-visible:end -->
+
+`judgement` because a two-hop helper chain shows only when the helper is opened, not from the diff alone, and whether a read reaches a tracked document or a fixture the test wrote also needs a reading.
+
+### §X11 · A program with a core keeps its boundary set end to end — **judgement**
+
+A program whose logic sits in a core keeps its **boundary set** as program cases under §X3; its branch cases are module cases on its core under §X6 (workflow-core#2206). The boundary set, where one case may cover several items:
+
+1. Each exit path: every exit code the program's exit owner (§N4) can produce, with its stream, asserting code and message.
+2. Each input channel the shell reads: argv, a bad invocation included; each env var; fd 0.
+3. Each production adapter the shell wires, crossed for real once, as §X8 (2) spells out.
+4. The boundary shapes by nature: §X3 House's three spawn shapes (a timeout or a signal, two processes, a real fd), a §N5 fail-open, a §N6 synchronous write. Where a case spawns the program, as Python's `sys.executable <program>` does, this item reduces to the §N5 fail-open.
+5. A §X4 regression case whose incident was at the boundary. One whose incident was a branch moves to the core with its citation and positive pair.
+
+Three conditions hold it:
+
+1. The core returns the exit outcome and the complete message text.
+2. A module case uses a fake only where §G7's contract test holds it to the production adapter; otherwise the real dependency, in-process.
+3. A program case is deleted only in the change that adds a module case asserting the same outcome, code and message, and each moved assertion carries §X8 (4)'s mutation proof.
+
+A shell branches only to (a) choose which core entry to call from argv or the subcommand, (b) turn the core's outcome into an exit code and a stream (§N4), or (c) fail open on a missing or broken adapter (§N5). Any other conditional in a shell — one choosing what is written, what text is built, which exit is taken, or whether an adapter is called — is a finding. For a ported guard, the shell is the hook command line plus its Node entry, and the hook line holds no logic (workflow-core#2247).
+
+A program case runs a top-level script, a lib module's `require.main === module` path, or a Python module's `if __name__ == "__main__":` path; a case calling a core function is a module case (workflow-core#2249).
+
+It binds the cases and shells a change adds or rewrites, as §X8 does. A program with no core is not in breach. A Next.js composition root owes no boundary set (workflow-core#2249).
+
+- *House*: a `check-*` program's exit paths are each of the five outcomes it can reach. One whose body does its own I/O under `runCheck` has no core.
+
+`judgement` because whether a shell's conditional dispatches or decides needs a reading: argv dispatch and a branch on output look alike to a lexical check (workflow-core#2247).
+
+---
+
+## §S — shell
+
+*Stack (`*.sh`)*: shellcheck at `--severity=style` (workflow-core#1315 Q2) refuses an unquoted expansion (`SC2086`), `read` without `-r` (`SC2162`), a `$?` test on the next line (`SC2181`) and a `source` it cannot follow (`SC1091`).
+
+### §S1 · Every expansion is quoted — **hard**
+
+Binds wherever no shellcheck gate refuses `SC2086`: a repo with no gate, a script outside the gate's file set, or a gate that excludes the code or runs at `--severity=warning` or above. §0's floor gives the shipped gate's file set and severity, the local §W any gate of the repo's own, and its changes table any switch-off of the stack clause above (workflow-core#1350).
+
+### §S2 · Every `source` line carries a `# shellcheck source=` directive — **hard**
+
+The directive names the real path where the sourced file is in the repo (`# shellcheck source=scripts/lib/<lib>.sh`). Where it is not — an adopter sourcing a plugin lib through `$WFC_PLUGIN_ROOT` — it reads `source=/dev/null`.
+
+*Stack (`*.sh`)*: a shebang-less file that is sourced rather than run opens with `# shellcheck shell=<sh|bash>`, as `scripts/lib/precommit-gate.sh` does (workflow-core#753).
+
+### §S3 · A gate fails open by default and logs each swallowed error — **hard**
+
+Any hook that gates an act. A missing tool, a payload it cannot parse or a library it cannot read ALLOWS the act rather than wedge every session at once, and each swallowed error leaves a log line.
+
+**Fail open is the default, not the only answer** (workflow-core#339). A limb may fail CLOSED only where the gate's record of its behaviours names it, the reason on its issue; its refusal is its own record. Judging a value the gate can prove — an empty variable target read as the cwd — is not a departure.
+
+**The default covers a fault the gate catches itself; a gate that can refuse fails closed when the harness ends it** (workflow-core#2670 Q1 (A)): a timeout, a start failure, an exit other than 0 or 2 or invalid JSON refuses the act where the harness lets the registration say so, as Claude Code's `"onFailure": "block"` does from 2.1.295.
+
+*House*: a `guard-*.sh` logs through the plugin's `scripts/lib/guard-log.sh` (`gl_log`) and names its fail-closed limbs on its row in `.claude/implicit-behaviours.json` (workflow-core#5489). `scripts/generate-plugin-hooks.js` writes `onFailure` onto each deny-capable registration.
+
+### §S4 · Deny on a structured fact, warn on an inference — **hard**
+
+A gate refuses only on a structured fact where the act has no legitimate use, and warns where it is inferring (mantahostels#103). A deny that a legitimate spelling cannot escape is a wedge, not a guard.
+
+*House*: a guard never emits `permissionDecision` itself. Its core returns a `deny` or `context` decision, a refusal splicing the offending command in at the `@CMD@` placeholder through `scripts/lib/guard-verdict.js` (mantahostels#994), and `scripts/lib/hook-envelope.js`'s `envelope` owns the JSON shape (`:9-24`).
+
+### §S5 · A script sets the shell options its kind needs — **hard**
+
+A run script sets `-uo pipefail`.
+
+A script that stops at its first failure also sets `-e`: an installer, a mode switch, a snapshot, a launcher or probe, where a half-done run must not go on. A script that goes on past a failure on purpose leaves it off. That covers a gate or other hook, which `-e` would end on an untested failure with no `gl_log` line, §S3's breach by default. It also covers a launcher, benchmark or instrument that records a failure and carries on.
+
+A sourced library sets nothing. Husky hooks set `-e` and nothing else (workflow-core#745): they fail closed, refusing the commit. Any other `sh` script sets `-u` alone, since dash has no `pipefail`.
+
+Under `-u`, a guard reads a positional that may be absent as `${2-}`. An abort still owes §S3's log line. In a gate whose caller refuses on any non-zero exit, as a husky hook does, it fails closed, and its record names that limb (§S3).
+
+### §S6 · A pre-commit gate that stages blobs out of the index is one `staged_gate` declaration — **hard**
+
+*House*. A gate in `.husky/pre-commit` or `.husky/pre-commit.local` that copies staged files out of the index for its checker decides the same four things every such gate does: an unreadable blob warns and passes, since apparatus missing is no finding; a required path the commit deletes refuses; and the checker's verdict short of 0 refuses, with the checker's own code so BROKEN stays distinct from a finding, or a fixed one where the checker's BROKEN is the finding (mantahostels#1793, mantahostels#2894). `staged_gate` in `scripts/lib/precommit-gate.sh` decides them once. The gate arms through `armed` and declares itself as `staged_gate <label> <mode> <exit> <paths> <command> <advice>`. A gate staging blobs with its own `git show :`, `git cat-file`, `git checkout-index` or `gate_stage_out` call is the breach.
+
+**Outside the rule:** a checker that reads the index itself, as `scripts/check-roadmap-valid.js` does, since it stages nothing for another program; and the doc-map gate, a pre-commit dispatcher row (`scripts/lib/doc-map-gate.js`) for the three steps no other gate has, which prints `staged_gate`'s skip and deletion wording through `scripts/lib/precommit-gate-verdicts.js`.
+

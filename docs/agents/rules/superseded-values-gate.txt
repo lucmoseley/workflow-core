@@ -1,0 +1,10 @@
+A SUPERSEDED FIGURE LEFT LIVE IN A TRACKED FILE IS REPORTED BY
+`scripts/check-superseded-values.js`, in the daily repo-checks run at
+session start.
+
+It prints where a value some `docs/doc-map.md` §B entry has superseded is still
+being stated as current.
+
+BEFORE THAT CHECKER EVER SEES IT: a `Supersedes` bullet naming no key in
+`docs/doc-map-superseded.json` is refused by `check-doc-map.js`'s pointer
+assertion in `.husky/pre-commit` (mantahostels#1474), which is this commit.

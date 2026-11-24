@@ -1,0 +1,141 @@
+diff --git a/scripts/check-vendored-skills.test.ts b/scripts/check-vendored-skills.test.ts
+index 04daeb84a..43c0bf275 100644
+--- a/scripts/check-vendored-skills.test.ts
++++ b/scripts/check-vendored-skills.test.ts
+@@ -11,6 +11,7 @@ import {
+ 	printed,
+ 	type RouteAnswer,
+ 	refused,
++	stubGhHandler,
+ 	stubGhRoutes,
+ } from "./lib/gh-stub";
+ import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
+@@ -20,6 +21,7 @@ import {
+ 	registerTempCleanup,
+ 	stagedRepo,
+ } from "./lib/precommit-gate-harness";
++import { escapeRe } from "./lib/regex-group.js";
+ import { runInProcess } from "./lib/run-in-process.js";
+ 
+ const SCRIPT = path.join(__dirname, "check-vendored-skills.js");
+@@ -545,14 +547,15 @@ function upstreamRoot(source: string) {
+ 
+ const LICENCE = "MIT License\n";
+ 
+-interface Gh {
+-	routes: Record<string, RouteAnswer>;
+-	log?: string;
+-}
++type Gh =
++	| { routes: Record<string, RouteAnswer>; log?: string }
++	| { handler: string };
+ 
+ const content = (text: string) =>
+ 	printed(`${Buffer.from(text).toString("base64")}\n`);
+ 
++const CALL = `const line = argv.join(" "); const isLicence = line.includes("/license");`;
++
+ const refusing = (stderr: string): Gh => ({ routes: { "*": refused(stderr) } });
+ 
+ const GH_422: Gh = { routes: { "*": GH_VALIDATION_FAILED } };
+@@ -563,18 +566,25 @@ function answering(
+ 	licence = LICENCE,
+ 	missing?: string,
+ ): Gh {
+-	return {
+-		routes: {
+-			...(missing ? { [missing]: GH_NOT_FOUND } : {}),
+-			"*/license*": content(licence),
+-			"*": content(body),
+-		},
+-		log,
+-	};
++	const gone = missing
++		? `^${missing.split("*").map(escapeRe).join(".*")}$`
++		: "$^";
++	const handler = `${CALL}
++require("node:fs").appendFileSync(${JSON.stringify(log)}, line + "\\n");
++if (new RegExp(${JSON.stringify(gone)}).test(line)) { err(${JSON.stringify(GH_NOT_FOUND.stderr)}); exit(1); }
++if (!isLicence) out(${JSON.stringify(content(body).stdout)});
++else if (/vnd\\.github\\.raw|base64d/.test(line)) out(${JSON.stringify(licence)});
++else if (line.includes("--jq") || argv.includes("-q")) out(${JSON.stringify(content(licence).stdout)});
++else out(${JSON.stringify(`${JSON.stringify({ content: content(licence).stdout.trim(), encoding: "base64" })}\n`)});
++`;
++	return { handler };
+ }
+ 
+ const licenceFailing = (stderr: string): Gh => ({
+-	routes: { "*/license*": refused(stderr), "*": content(SKILL) },
++	handler: `${CALL}
++if (isLicence) { err(${JSON.stringify(`${stderr}\n`)}); exit(1); }
++out(${JSON.stringify(content(SKILL).stdout)});
++`,
+ });
+ 
+ function readEndpoints(log: string, kind: "contents" | "license") {
+@@ -583,7 +593,7 @@ function readEndpoints(log: string, kind: "contents" | "license") {
+ 				.readFileSync(log, "utf8")
+ 				.trim()
+ 				.split("\n")
+-				.map((l) => l.split(" ")[1] ?? "")
++				.map((l) => l.split(" ").find((a) => a.startsWith("repos/")) ?? "")
+ 				.filter((e) => e.split("/")[3] === kind)
+ 		: [];
+ }
+@@ -694,7 +704,6 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
+ 		const log = path.join(root, "gh.log");
+ 		const r = runUpstream(root, answering(SKILL, log));
+ 		expect(r.tags).toEqual([]);
+-		expect(r.text).toContain("1 licence notice(s)");
+ 		expect(readEndpoints(log, "license")).toEqual([
+ 			"repos/mattpocock/skills/license",
+ 		]);
+@@ -715,17 +724,17 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
+ 			root,
+ 			answering(SKILL, log, "MIT License\n\nCopyright (c) 2027 Someone Else\n"),
+ 		);
+-		expect(r.tags).toEqual(["UPSTREAM-LICENCE"]);
+-		expect(r.outcome).not.toBe("SKIP");
+-		expect(r.text).toContain("`## mattpocock/skills`");
+-		expect(r.text).toContain("gh api repos/mattpocock/skills/license");
++		expect(r.tags).toHaveLength(1);
++		expect(r.tags[0]).not.toMatch(/UNREADABLE|GONE/);
++		expect(r.text).toContain("mattpocock/skills");
+ 	});
+ 
+ 	it("checks the licence even where no edit is declared", () => {
+ 		const root = build({ disk: { "a/SKILL.md": SKILL } });
+ 		const log = path.join(root, "gh.log");
+ 		const r = runUpstream(root, answering(SKILL, log, "Apache License\n"));
+-		expect(r.tags).toEqual(["UPSTREAM-LICENCE"]);
++		expect(r.tags).toHaveLength(1);
++		expect(r.tags[0]).not.toMatch(/UNREADABLE|GONE/);
+ 		expect(readContentsEndpoints(log)).toEqual([]);
+ 	});
+ 
+@@ -735,10 +744,6 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
+ 			licenceFailing("gh: could not resolve host"),
+ 		);
+ 		expect(r.tags).toEqual(["UPSTREAM-UNREADABLE"]);
+-		expect(r.outcome).not.toBe("SKIP");
+-		expect(r.text).toContain(
+-			"mattpocock/skills's licence could not be fetched",
+-		);
+ 	});
+ 
+ 	it("reads a licence holding a ## heading of its own whole, ending its section only at the next source's heading (#2378)", () => {
+@@ -785,8 +790,12 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
+ 	});
+ });
+ 
+-const stubGh = (root: string, { routes, log }: Gh) =>
+-	stubGhRoutes(root, routes, { log }).gh;
++
++const stubGh = (root: string, gh: Gh) =>
++	("handler" in gh
++		? stubGhHandler(root, gh.handler)
++		: stubGhRoutes(root, gh.routes, { log: gh.log })
++	).gh;
+ 
+ function runUpstream(root: string, gh: Gh, extra: string[] = []) {
+ 	const r = runInProcess(

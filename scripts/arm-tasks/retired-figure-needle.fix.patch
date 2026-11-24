@@ -1,0 +1,66 @@
+diff --git a/docs/machinery-superseded.json b/docs/machinery-superseded.json
+index 007ef25fe97723cd93cbedc316e06ff397386431..e1c42cf4d8620a087f5bbe458de704ae149081be 100644
+--- a/docs/machinery-superseded.json
++++ b/docs/machinery-superseded.json
+@@ -1805,13 +1805,6 @@
+ 					"condition: \"the cohort has cleared 21 days\""
+ 				]
+ 			},
+-			{
+-				"path": "scripts/report-close-check-reading.js",
+-				"anchors": [
+-					"refused-then-answered question, whichever is later, and at most 21 days",
+-					"21 days caps the wait"
+-				]
+-			},
+ 			{
+ 				"path": "scripts/report-close-check-reading.test.ts",
+ 				"anchors": [
+@@ -1821,12 +1814,6 @@
+ 					"whose first log line came after the 21-day ceiling"
+ 				]
+ 			},
+-			{
+-				"path": "scripts/report-round-check-reading.js",
+-				"anchors": [
+-					"and at most 21 days after that"
+-				]
+-			},
+ 			{
+ 				"path": "scripts/report-round-check-reading.test.ts",
+ 				"anchors": [
+diff --git a/scripts/lib/doc-map.js b/scripts/lib/doc-map.js
+index c71f8502dc7430a618fbfae5eb7dc4e6c9d4e6af..3baece1adf1ea01810e42716c0bf93a5a35266b7 100644
+--- a/scripts/lib/doc-map.js
++++ b/scripts/lib/doc-map.js
+@@ -1467,7 +1467,7 @@ function needlePattern(needle) {
+ 	const body = escapeRe(needle.replace(/^~/, "")).replace(/[–—-]/g, "[–—-]");
+ 	if (!/\d/.test(needle)) return new RegExp(`\\b${body}\\b`, "gi");
+ 	const tail = /[a-z]$/i.test(needle) ? "\\w" : "\\d";
+-	return new RegExp(`(?<![\\w.,])~?${body}(?![${tail}]|\\.\\d)`, "gi");
++	return new RegExp(`(?<![\\w.,#])~?${body}(?![${tail}]|[.,]\\d)`, "gi");
+ }
+ 
+ const DATA_FILES = {
+diff --git a/scripts/lib/doc-map.test.ts b/scripts/lib/doc-map.test.ts
+index d71179a3ffd93f8d3e373271816530e43d880622..4c25ec86bc0a3865a371d82b01eecd434cf604a4 100644
+--- a/scripts/lib/doc-map.test.ts
++++ b/scripts/lib/doc-map.test.ts
+@@ -1239,6 +1239,17 @@ describe("needlePattern", () => {
+ 	it("still matches a needle ending in a digit against a figure with its unit attached", () => {
+ 		expect("a 512MB heap").toMatch(needlePattern("512"));
+ 	});
++
++	it("does not match an issue citation carrying the needle's digits (#1875)", () => {
++		expect("the stamp (#4821) gate").not.toMatch(needlePattern("4821"));
++		expect("see acme/widgets#4821").not.toMatch(needlePattern("4821"));
++		expect("a 4821 s run").toMatch(needlePattern("4821"));
++	});
++
++	it("does not match the head of a longer comma-grouped number (#1875)", () => {
++		expect("38,000,000 characters").not.toMatch(needlePattern("38,000"));
++		expect("a 38,000 B cap").toMatch(needlePattern("38,000"));
++	});
+ });
+ 
+ describe("scanScope", () => {

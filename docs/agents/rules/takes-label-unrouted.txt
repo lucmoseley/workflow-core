@@ -1,0 +1,1 @@
+Without one, /pick-next shows `none` in its TAKES column and nothing says who or what works it (mantahostels#437, mantahostels#442).

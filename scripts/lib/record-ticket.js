@@ -1,0 +1,85 @@
+const fs = require("node:fs");
+const { readText } = require("./file-read.js");
+const { writeFileAtomic } = require("./atomic-write.js");
+const { queueIssueCloser, queueIssueFiler } = require("./queue-issue.js");
+
+/**
+ * @template T
+ * @param {string} file
+ * @param {(rec: unknown) => T|null} parse
+ * @returns {T|null|"torn"}
+ */
+function readTicketRecord(file, parse) {
+	const read = readText(file);
+	if (read.state === "absent") return null;
+	if (read.state === "unreadable") throw read.error;
+	try {
+		return parse(JSON.parse(read.data)) ?? "torn";
+	} catch {
+		return "torn";
+	}
+}
+
+/**
+ * @template T
+ * @typedef {object} RecordTicket
+ * @property {(said: string[]) => T|null|"torn"} read
+ * @property {(title: string, why: (body: string) => string|null,
+ *   next: T|null, said: string[]) => void} close
+ * @property {(title: string, body: string, next: T, said: string[]) => void}
+ *   file
+ */
+
+/**
+ * @template T
+ * @param {import("./queue-issue.js").QueueIssueDeps} deps
+ * @param {object} spec
+ * @param {string} spec.record
+ * @param {(rec: unknown) => T|null} spec.parse
+ * @param {string} spec.noun
+ * @param {string} spec.subject
+ * @param {string} spec.criterion
+ * @param {string} [spec.tornNote]
+ * @returns {RecordTicket<T>}
+ */
+function recordTicket(
+	deps,
+	{ record, parse, noun, subject, criterion, tornNote = "" },
+) {
+	const fileIssue = queueIssueFiler(deps);
+	const closeIssue = queueIssueCloser(deps);
+	const standalone = `The ${noun} tracks the landing queue, not one ticket's work.`;
+	/** @param {T|null} next */
+	const save = (next) =>
+		next === null
+			? fs.rmSync(record, { force: true })
+			: writeFileAtomic(record, `${JSON.stringify(next)}\n`, { mkdir: true });
+	return {
+		read(said) {
+			const rec = readTicketRecord(record, parse);
+			if (rec === "torn") {
+				fs.rmSync(record, { force: true });
+				said.push(
+					`${noun}: ${record} would not parse and is dropped${tornNote}.`,
+				);
+			}
+			return rec;
+		},
+		close(title, why, next, said) {
+			const closed = closeIssue(title, criterion, why);
+			save(next);
+			if (closed !== null) said.push(`${noun}: closed #${closed}.`);
+		},
+		file(title, body, next, said) {
+			said.push(
+				fileIssue(
+					{ title, standalone, noun, subject, origin: "lander-script" },
+					body,
+				),
+			);
+			save(next);
+		},
+	};
+}
+
+module.exports = { recordTicket };
