@@ -238,6 +238,9 @@ const retakesMoved = (b) => b.phase === "merging";
 const byPushOrder = (a, b) =>
 	a.pushedAt - b.pushedAt || Number(a.name > b.name) - Number(a.name < b.name);
 
+/** @param {QueueRef} r @returns {Member} */
+const memberOf = ({ name, sha, pushedAt }) => ({ name, sha, pushedAt });
+
 /** @param {Batch} b */
 const included = (b) =>
 	b.members.filter(
@@ -267,7 +270,7 @@ const landedOf = (b) =>
 function takeBatch(queue, onto, ahead, p) {
 	const first = queue.filter((r) => ahead.includes(r.name));
 	const members = (first.length > 0 ? first : queue)
-		.map(({ name, sha, pushedAt }) => ({ name, sha, pushedAt }))
+		.map(memberOf)
 		.sort(byPushOrder);
 	/** @type {Batch} */
 	const batch = {
@@ -365,16 +368,14 @@ const mergedAlone = (r) => r.kind === "merged" || r.kind === "stale-base";
  * @returns {QueueAction}
  */
 function staleBaseAction(s, result, main) {
-	const { waiting } = waitingOf(s, liveOf(s));
-	if (waiting.length === 0) return staleBaseExit(result, main);
-	return {
-		kind: "take-waiting",
-		members: waiting.map(({ name, sha, pushedAt }) => ({
-			name,
-			sha,
-			pushedAt,
-		})),
-	};
+	const live = liveOf(s);
+	const held = live.search?.phase === "held" ? live.search.members : [];
+	const waiting = waitingOf(s, live).waiting.filter(
+		(r) => !held.some((m) => m.name === r.name && m.sha === r.sha),
+	);
+	if (waiting.length === 0 || s.superseded || result.onto !== main)
+		return staleBaseExit(result, main);
+	return { kind: "take-waiting", members: waiting.map(memberOf) };
 }
 
 /**
@@ -2311,6 +2312,7 @@ async function act(deps, action, run) {
 				...b,
 				members: [...b.members, ...action.members].sort(byPushOrder),
 				integration: null,
+				phase: /** @type {const} */ ("merging"),
 			};
 			record.write(batch);
 			for (const m of action.members) deps.logQueue("take", m);

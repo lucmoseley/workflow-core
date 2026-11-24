@@ -95,7 +95,7 @@
 	"scripts/self-plugin-canary.sh": "a1dd2a66bf7eac68",
 	"scripts/session-arbiter.js": "00b1ec77bd3d5520",
 	"scripts/session-checkout.js": "a4acaff2ce5d3e15",
-	"scripts/session-start-sweeps.sh": "a822d1bbf6a2ea3c",
+	"scripts/session-start-sweeps.sh": "908d2370b65e38fb",
 	"scripts/start-lander-on-push.js": "3c31ab79392e60bf",
 	"scripts/unpark-on-prompt.js": "eb5060d2506aaa68",
 	"scripts/vitest-inflight-reporter.ts": "4c065b27271c7312",
