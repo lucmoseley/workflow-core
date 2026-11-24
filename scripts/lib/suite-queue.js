@@ -1078,7 +1078,7 @@ function passingTurn(options = {}) {
 	};
 }
 
-// #3361 measured p90 370 s of 265 opened part-suite waits the memory rung held, rounded up to the minute
+// #5679 guess
 const PART_PASS_AGE_MS = 7 * 60 * 1000;
 
 const QUEUE_SIGNALS = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 };
