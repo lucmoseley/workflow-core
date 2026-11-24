@@ -5,7 +5,7 @@ const { caught, ignoreFailure } = require("./caught.js");
 const { noop } = require("./noop.js");
 const { durationClock, now } = require("./clock.js");
 const { writeFd } = require("./write-fd.js");
-const { launchRoute } = require("./launch-route.js");
+const { SHARED_FLAG, launchRoute } = require("./launch-route.js");
 const { shellQuote } = require("./sh-quote.js");
 const {
 	defaultQueueDir,
@@ -16,7 +16,7 @@ const {
 const RUN_PREFIX = "run-";
 
 /**
- * @typedef {"touched" | "named" | "changed" | "full" | "shared"} RunLane
+ * @typedef {import("./launch-route.js").LaunchRoute["kind"] | "shared"} RunLane
  * @typedef {{ pid: number, startedAt: number, command: string, lane: RunLane }} InFlightRun
  * @typedef {{ pid: number, at: number, start?: number, session?: string, args?: string[] }} RunRecord
  * @typedef {{ queueDir?: string, alive?: (pid: number) => boolean, startTime?: (pid: number) => number }} InFlightOptions
@@ -27,8 +27,9 @@ const RUN_PREFIX = "run-";
  * @returns {RunLane}
  */
 function laneOf(args) {
-	if (args.includes("--shared")) return "shared";
-	return launchRoute(args, null).kind;
+	if (args.includes(SHARED_FLAG)) return "shared";
+	const route = launchRoute(args, null);
+	return route.source === "retest" ? "touched" : route.kind;
 }
 
 /**
@@ -53,7 +54,8 @@ function recordRun({
 	clock = now,
 	warn = (s) => writeFd(2, s),
 }) {
-	const file = path.join(queueDir, `${RUN_PREFIX}${pid}.json`);
+	const start = readStartTimeOf(pid);
+	const file = path.join(queueDir, `${RUN_PREFIX}${pid}-${start}.json`);
 	try {
 		fs.mkdirSync(queueDir, { recursive: true });
 		fs.writeFileSync(
@@ -61,7 +63,7 @@ function recordRun({
 			JSON.stringify({
 				pid,
 				at: clock(),
-				start: readStartTimeOf(pid),
+				start,
 				session,
 				args,
 			}),
@@ -91,6 +93,33 @@ function readRunRecord(file) {
 }
 
 /**
+ * @param {RunRecord} record
+ * @param {Required<Pick<InFlightOptions, "alive" | "startTime">>} probes
+ * @returns {boolean}
+ */
+function isGone(record, { alive, startTime }) {
+	if (!alive(record.pid)) return true;
+	const current = startTime(record.pid);
+	return (
+		current > 0 && typeof record.start === "number" && current !== record.start
+	);
+}
+
+/**
+ * @param {string} file
+ * @param {Required<Pick<InFlightOptions, "alive" | "startTime">>} probes
+ * @returns {RunRecord | null}
+ */
+function liveRecord(file, probes) {
+	const record = readRunRecord(file);
+	if (!record) return null;
+	if (!isMarkerStale(record, probes)) return record;
+	if (isGone(record, probes))
+		ignoreFailure(() => fs.rmSync(file, { force: true }));
+	return null;
+}
+
+/**
  * @param {string} session
  * @param {InFlightOptions} [options]
  * @returns {InFlightRun[] | null}
@@ -108,16 +137,15 @@ function readInFlightRuns(
 	try {
 		names = fs.readdirSync(queueDir).map(String);
 	} catch (error) {
-		if (/** @type {{ code?: string }} */ (error)?.code === "ENOENT") return [];
+		if (caught(error).code === "ENOENT") return [];
 		return null;
 	}
 	/** @type {InFlightRun[]} */
 	const runs = [];
 	for (const name of names) {
 		if (!name.startsWith(RUN_PREFIX)) continue;
-		const record = readRunRecord(path.join(queueDir, name));
+		const record = liveRecord(path.join(queueDir, name), { alive, startTime });
 		if (!record || record.session !== session) continue;
-		if (isMarkerStale(record, { alive, startTime })) continue;
 		const args = Array.isArray(record.args) ? record.args.map(String) : [];
 		runs.push({
 			pid: record.pid,
@@ -175,7 +203,7 @@ const WAIT_CEILING_S = 540;
 const WAIT_POLL_MS = 2000;
 
 /**
- * @typedef {{ verdict: "DONE" } | { verdict: "CEILING", runs: InFlightRun[] } | { verdict: "UNREAD" }} WaitResult
+ * @typedef {{ verdict: "DONE" } | { verdict: "CEILING", ceilingS: number, runs: InFlightRun[] } | { verdict: "UNREAD" }} WaitResult
  */
 
 /**
@@ -199,13 +227,12 @@ async function waitForRuns(
 		const held = waitedRuns(runs);
 		if (held.length === 0) return { verdict: "DONE" };
 		if (clock() - start >= ceilingS * 1000)
-			return { verdict: "CEILING", runs: held };
+			return { verdict: "CEILING", ceilingS, runs: held };
 		await sleep(pollMs);
 	}
 }
 
 module.exports = {
-	WAIT_CEILING_S,
 	recordRun,
 	commitRefusal,
 	readInFlightRuns,

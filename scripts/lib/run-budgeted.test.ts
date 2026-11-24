@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { keptSpawn } from "./kept-spawn.js";
 import { isGroupDead } from "./process-fixture";
 import { runInProcessAsync } from "./run-in-process.js";
+import { shellQuote } from "./sh-quote.js";
 
 const {
 	RUN_BUDGETED,
@@ -93,30 +94,6 @@ describe("its own failures", () => {
 	});
 });
 
-it("kills a group that ignores the signal, and dies by it, when told to stop (#2928)", async () => {
-	const child = keptSpawn("signal").spawn(
-		process.execPath,
-		[
-			RUN_BUDGETED,
-			"60000",
-			"1000",
-			"sh",
-			"-c",
-			"echo $$; trap '' TERM; sleep 30 & wait",
-		],
-		{ stdio: ["ignore", "pipe", "ignore"] },
-	);
-	const pgid = await new Promise<number>((resolve) =>
-		child.stdout.once("data", (d) => resolve(Number(String(d).trim()))),
-	);
-	const ended = new Promise<NodeJS.Signals | null>((resolve) =>
-		child.on("exit", (_code, signal) => resolve(signal)),
-	);
-	child.kill("SIGTERM");
-	expect(await ended).toBe("SIGTERM");
-	await expectGroupDead(pgid);
-});
-
 // guess, #5188
 const SIGNALLED_BUDGET_MS = 60_000;
 const SIGNALLED_GRACE_MS = 20_000;
@@ -124,16 +101,21 @@ const SECOND_SIGNAL_BOUND_MS = SIGNALLED_GRACE_MS / 2;
 // guess, #5188
 const SIGNAL_GAP_MS = 200;
 
-async function signalled(script: string, signals: NodeJS.Signals[]) {
+async function signalled(
+	trap: string,
+	body: string,
+	signals: NodeJS.Signals[],
+	graceMs = SIGNALLED_GRACE_MS,
+) {
 	const child = keptSpawn("signal").spawn(
 		process.execPath,
 		[
 			RUN_BUDGETED,
 			String(SIGNALLED_BUDGET_MS),
-			String(SIGNALLED_GRACE_MS),
+			String(graceMs),
 			"sh",
 			"-c",
-			`echo $$; ${script}`,
+			`${trap}; echo $$; ${body}`,
 		],
 		{ stdio: ["ignore", "pipe", "ignore"] },
 	);
@@ -151,13 +133,25 @@ async function signalled(script: string, signals: NodeJS.Signals[]) {
 	return { pgid, signal: await ended, elapsedMs: Date.now() - started };
 }
 
+it("kills a group that ignores the signal, and dies by it, when told to stop (#2928)", async () => {
+	const r = await signalled(
+		"trap '' TERM",
+		"sleep 30 & wait",
+		["SIGTERM"],
+		1000,
+	);
+	expect(r.signal).toBe("SIGTERM");
+	await expectGroupDead(r.pgid);
+});
+
 describe("a signal to the runner (#5188)", () => {
 	it("passes it on to the group, so a member's cleanup runs, and dies by it", async () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "run-budgeted-"));
 		const mark = path.join(dir, "cleaned");
 		try {
 			const r = await signalled(
-				`trap 'touch ${mark}; exit 130' INT; sleep 30 & wait`,
+				`trap ${shellQuote(`touch ${shellQuote(mark)}; exit 130`)} INT`,
+				"sleep 30 & wait",
 				["SIGINT"],
 			);
 			expect(r.signal).toBe("SIGINT");
@@ -169,7 +163,7 @@ describe("a signal to the runner (#5188)", () => {
 	});
 
 	it("kills the group at once on a second signal, not after kill-after-ms", async () => {
-		const r = await signalled("trap '' TERM; sleep 30 & wait", [
+		const r = await signalled("trap '' TERM", "sleep 30 & wait", [
 			"SIGTERM",
 			"SIGTERM",
 		]);
