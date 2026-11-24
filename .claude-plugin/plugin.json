@@ -1,6 +1,6 @@
 {
 	"name": "workflow-core",
-	"version": "3.2.0",
+	"version": "3.2.1",
 	"description": "The shared agent workflow: guards, the session arbiter, and the pick-next, wayfinder and implement skills.",
 	"author": {
 		"name": "Luc Moseley"
