@@ -371,7 +371,7 @@ const GATES = [
 		sources: ["scripts/lib/comment-policy.js"],
 		refusals: [
 			"fits no permitted comment kind",
-			"not on the style-only list (scripts/lib/style-only-rules.json)",
+			"not on the style-only list",
 			"suppression naming no rule",
 			"names no file under docs/adr/",
 		],
