@@ -426,6 +426,25 @@ describe("the refused shapes", () => {
 			]);
 	});
 
+	it("judges a Stryker disable on the raw comment value Stryker reads (#5748)", () => {
+		const code = "\nconst a = 1;\n";
+		expect(tags(`//  Stryker disable all: r${code}`, "js")).toEqual([
+			"SUPPRESSION@1",
+		]);
+		expect(tags(`/**\n * Stryker disable all: r\n */${code}`, "js")).toEqual([
+			"SUPPRESSION@2",
+		]);
+		expect(tags(`/*\n Stryker disable all: r\n */${code}`, "js")).toEqual([
+			"SUPPRESSION@2",
+		]);
+		expect(tags(`// Stryker disable all: r${code}`, "js")).toEqual([]);
+		expect(tags(`/* Stryker disable all: r */${code}`, "js")).toEqual([]);
+		expect(tags(`//Stryker disable all: r${code}`, "js")).toEqual([]);
+		expect(tags("# Stryker disable all: r\nx = 1\n", "py")).toEqual([
+			"SUPPRESSION@1",
+		]);
+	});
+
 	it("judges the prose beside a suppression on its own", () => {
 		expect(
 			tags(

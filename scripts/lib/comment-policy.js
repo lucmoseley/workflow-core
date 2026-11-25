@@ -14,6 +14,7 @@ const {
  * @typedef {{
  *   line: number,
  *   lines: string[],
+ *   values: (string | undefined)[],
  *   top: boolean,
  *   jsdoc: boolean,
  *   next: string,
@@ -77,8 +78,12 @@ const blankShebang = (source) =>
 		: source;
 
 /**
- * @typedef {{ start: number, end: number, text: string[], kind: "line" | "block" | "string" }} Raw
+ * @typedef {{ start: number, end: number, text: string[], kind: "line" | "block" | "string", value?: string }} Raw
  */
+
+/** @param {Raw} raw */
+const valuesOf = (raw) =>
+	raw.text.map((_, n) => (n === 0 ? raw.value : undefined));
 
 /**
  * @param {string} source
@@ -107,6 +112,7 @@ function foldUnits(source, raws, extra) {
 			prev.endLine === line - 1
 		) {
 			prev.lines.push(...raw.text);
+			prev.values.push(...valuesOf(raw));
 			prev.endLine = endLine;
 			continue;
 		}
@@ -117,6 +123,7 @@ function foldUnits(source, raws, extra) {
 			own,
 			kind: raw.kind,
 			lines: [...raw.text],
+			values: valuesOf(raw),
 			top: raw.start <= firstCode,
 			jsdoc,
 			owner,
@@ -126,9 +133,10 @@ function foldUnits(source, raws, extra) {
 	const commentOnly = commentLines(lines, raws, starts);
 	for (const u of out)
 		if (u.own) u.next = nextCodeLine(lines, u.endLine, commentOnly);
-	return out.map(({ line, lines: text, top, jsdoc, next, owner }) => ({
+	return out.map(({ line, lines: text, values, top, jsdoc, next, owner }) => ({
 		line,
 		lines: text,
+		values,
 		top,
 		jsdoc,
 		next,
@@ -219,12 +227,19 @@ function jsUnits(source) {
 	const raws = scanJs(src).comments.map(([start, end]) => {
 		const text = src.slice(start, end);
 		if (text.startsWith("//"))
-			return { start, end, kind: "line", text: [text.slice(2).trim()] };
+			return {
+				start,
+				end,
+				kind: "line",
+				text: [text.slice(2).trim()],
+				value: text.slice(2),
+			};
 		return {
 			start,
 			end,
 			kind: "block",
 			text: blockLines(trimBlock(text)),
+			value: text.slice(2, text.endsWith("*/") ? -2 : text.length),
 		};
 	});
 	return foldUnits(src, raws, (raw) => ({
@@ -591,7 +606,7 @@ function jsdocProse(lines) {
 
 /**
  * @typedef {{ lang?: Lang, re: RegExp,
- *   read: (m: RegExpExecArray) => Suppression | "code" | null }} Directive
+ *   read: (m: RegExpExecArray, value: string | undefined) => Suppression | "code" | null }} Directive
  */
 
 /** @param {string} tool @param {number} [group] */
@@ -625,8 +640,8 @@ const DIRECTIVES = [
 	},
 	{
 		re: /^Stryker\s+disable\s+(?:next-line\s+)?([^:]*)/i,
-		read: (m) => {
-			const d = parseStrykerDirective(m.input);
+		read: (m, value) => {
+			const d = value === undefined ? null : parseStrykerDirective(value);
 			return d !== null && !isUnreasonedDisable(d)
 				? "code"
 				: suppresses("stryker")(m);
@@ -702,14 +717,15 @@ const DIRECTIVES = [
 /**
  * @param {string} text
  * @param {Lang} lang
+ * @param {string | undefined} value
  * @returns {Suppression | "code" | null}
  */
-function directiveOf(text, lang) {
+function directiveOf(text, lang, value) {
 	const t = text.trim();
 	for (const d of DIRECTIVES) {
 		if (d.lang && d.lang !== lang) continue;
 		const m = d.re.exec(t);
-		if (m) return d.read(m);
+		if (m) return d.read(m, value);
 	}
 	return null;
 }
@@ -835,7 +851,7 @@ function splitDirectives(unit, facts) {
 	lines.forEach((raw, n) => {
 		const line = raw.trim();
 		const d =
-			directiveOf(line, facts.lang) ??
+			directiveOf(line, facts.lang, unit.values[n]) ??
 			(facts.commentMarkers.some((m) => isMarkerLine(line, m)) ? "code" : null);
 		if (d === null) {
 			if (line !== "") prose.push(line);
