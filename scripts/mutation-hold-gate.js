@@ -26,7 +26,12 @@ const { runInTree } = require("./lib/isolated-worktree.js");
 const { readRuleTextOr } = require("./lib/rule-text.js");
 const { matchSensitivePaths } = require("./lib/sensitive-paths.js");
 const { requiredGroup } = require("./lib/regex-group.js");
-const { HOST_CONFIG_FAULT, RESULT_FD } = require("./lib/stryker-comments.js");
+const {
+	HOST_CONFIG_FAULT,
+	RESULT_FD,
+	parseDirective,
+	unreasonedDisable,
+} = require("./lib/stryker-comments.js");
 const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -97,9 +102,6 @@ const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
 const POOL = "forks";
 const DISABLE_TYPE_CHECKS = false;
 
-/* https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/transformers/directive-bookkeeper.ts */
-const DIRECTIVE =
-	/^\s?Stryker (disable|restore)(?: (next-line))? ([a-zA-Z, ]+)(?::(.+)?)?/;
 const DISABLE_TEXT = "Stryker disable";
 const COMPONENT = /\.(html|vue|svelte)$/;
 const SCRIPT = /(<script\b([^>]*)>)([\s\S]*?)<\/script\s*>/gi;
@@ -391,25 +393,8 @@ function readCommentsInChild(root, strykerConfig, entries) {
 const findDirectiveLine = (c) =>
 	c.loc.start.line + (c.value.startsWith("\n") ? 1 : 0);
 
-/** @typedef {{verb: string, scope: string | undefined, mutators: string[], reason: string | undefined}} ParsedDirective */
+/** @typedef {import("./lib/stryker-comments.js").ParsedDirective} ParsedDirective */
 /** @typedef {{comment: BabelComment, directive: ParsedDirective}} Directive */
-
-/**
- * @param {string} text
- * @returns {ParsedDirective | null}
- */
-function parseDirective(text) {
-	const d = DIRECTIVE.exec(text);
-	if (d === null) return null;
-	return {
-		verb: requiredGroup(d, 1, DIRECTIVE),
-		scope: d[2],
-		mutators: requiredGroup(d, 3, DIRECTIVE)
-			.split(",")
-			.map((m) => m.trim().toLowerCase()),
-		reason: d[4],
-	};
-}
 
 /**
  * @param {BabelComment[]} comments
@@ -418,8 +403,7 @@ function parseDirective(text) {
 const unreasonedIn = (comments) =>
 	comments.flatMap((comment) => {
 		const directive = parseDirective(comment.value);
-		return directive?.verb === "disable" &&
-			(directive.reason === undefined || directive.reason.trim() === "")
+		return directive !== null && unreasonedDisable(directive)
 			? [{ comment, directive }]
 			: [];
 	});

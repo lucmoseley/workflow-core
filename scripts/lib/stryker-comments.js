@@ -5,9 +5,13 @@ const { pathToFileURL } = require("node:url");
 const { caught } = require("./caught.js");
 const { parseErrorFirstLine } = require("./first-line.js");
 const { readFdAll } = require("./read-fd.js");
+const { requiredGroup } = require("./regex-group.js");
 const { writeFd } = require("./write-fd.js");
 
 const HOST_CONFIG_FAULT = "could not read the host's Stryker config";
+/* https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/transformers/directive-bookkeeper.ts */
+const DIRECTIVE =
+	/^\s?Stryker (disable|restore)(?: (next-line))? ([a-zA-Z, ]+)(?::(.+)?)?/;
 const RESULT_FD = 3;
 const NOT_CHILDREN = new Set([
 	"leadingComments",
@@ -45,6 +49,29 @@ const TSX_PLUGINS = [...TS_PLUGINS, "jsx"];
  */
 /** @typedef {{id: string, filename: string, pieces: {code: string, kind: ParseKind}[]}} ParseEntry */
 /** @typedef {Record<string, {comments: BabelComment[]} | {error: string}>} ReadComments */
+
+/** @typedef {{verb: string, scope: string | undefined, mutators: string[], reason: string | undefined}} ParsedDirective */
+
+/**
+ * @param {string} text
+ * @returns {ParsedDirective | null}
+ */
+function parseDirective(text) {
+	const d = DIRECTIVE.exec(text);
+	if (d === null) return null;
+	return {
+		verb: requiredGroup(d, 1, DIRECTIVE),
+		scope: d[2],
+		mutators: requiredGroup(d, 3, DIRECTIVE)
+			.split(",")
+			.map((m) => m.trim().toLowerCase()),
+		reason: d[4],
+	};
+}
+
+/** @param {ParsedDirective} d */
+const unreasonedDisable = (d) =>
+	d.verb === "disable" && (d.reason === undefined || d.reason.trim() === "");
 
 /**
  * @param {string} file
@@ -178,4 +205,10 @@ if (require.main === module)
 	);
 
 // Node finds a CommonJS module's named exports for an ESM import only in a literal `module.exports` object: https://nodejs.org/api/esm.html#commonjs-namespaces
-module.exports = { HOST_CONFIG_FAULT, RESULT_FD, loadStrykerConfig };
+module.exports = {
+	HOST_CONFIG_FAULT,
+	RESULT_FD,
+	loadStrykerConfig,
+	parseDirective,
+	unreasonedDisable,
+};

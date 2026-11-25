@@ -4,6 +4,10 @@ const { SHIM_MARK } = require("./hook-shim.js");
 const { EXEMPT_MARKERS, ISSUE_REF, POINTER } = require("./exempt-markers.js");
 const { escapeRe } = require("./regex-group.js");
 const { scanJs } = require("./strip-comments.js");
+const {
+	parseDirective: parseStrykerDirective,
+	unreasonedDisable,
+} = require("./stryker-comments.js");
 
 /**
  * @typedef {"js" | "py" | "sh"} Lang
@@ -620,8 +624,13 @@ const DIRECTIVES = [
 		read: readsAsCode,
 	},
 	{
-		re: /^Stryker\s+disable\s+(?:next-line\s+)?([^:]*)(?::(.*))?/i,
-		read: (m) => (m[2] ? "code" : suppresses("stryker")(m)),
+		re: /^Stryker\s+disable\s+(?:next-line\s+)?([^:]*)/i,
+		read: (m) => {
+			const d = parseStrykerDirective(m.input);
+			return d !== null && !unreasonedDisable(d)
+				? "code"
+				: suppresses("stryker")(m);
+		},
 	},
 	{ re: /^Stryker\s+restore\b/i, read: readsAsCode },
 	{

@@ -406,6 +406,24 @@ describe("the refused shapes", () => {
 			"a stryker suppression of EqualityOperator, not on the style-only list",
 		);
 		expect(tags(src(":"), "js")).toEqual(["SUPPRESSION@1", "SUPPRESSION@3"]);
+		expect(
+			tags(
+				"// Stryker disable EqualityOperator: equivalent\nconst a = 1;\n// Stryker restore EqualityOperator\n",
+				"js",
+			),
+		).toEqual([]);
+	});
+
+	it("refuses a reasoned Stryker disable that Stryker does not read as one (#5720)", () => {
+		for (const head of [
+			"stryker disable all",
+			"Stryker  disable all",
+			"Stryker disable next-line",
+			"Stryker disable next-line X1",
+		])
+			expect(tags(`// ${head}: a reason\nconst a = 1;\n`, "js")).toEqual([
+				"SUPPRESSION@1",
+			]);
 	});
 
 	it("judges the prose beside a suppression on its own", () => {
