@@ -1,6 +1,7 @@
 /* #5497 */
 import fs from "node:fs";
 import path from "node:path";
+import { writeFileAtomic } from "./atomic-write.js";
 import { readJsonl } from "./jsonl.js";
 
 export const epoch = () => Math.floor(Date.now() / 1000);
@@ -14,9 +15,7 @@ export function writeMemwatchReading(
 	availMb: number,
 	idleS: number,
 ) {
-	const tmp = `${file}.tmp`;
-	fs.writeFileSync(tmp, `${at} ${availMb} 1 2 60 100 ${idleS}\n`);
-	fs.renameSync(tmp, file);
+	writeFileAtomic(file, `${at} ${availMb} 1 2 60 100 ${idleS}\n`);
 }
 
 export function awayLoadEnv(
