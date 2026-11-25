@@ -8,7 +8,7 @@ const {
 	isRunnerFailure,
 } = require("./run-budgeted.js");
 const { caught } = require("./caught.js");
-const { docPath, scriptPath } = require("./script-path");
+const { docPath, isCoreRepo, scriptPath } = require("./script-path");
 const { gateOnOf, parseAddedGateLines } = require("./issue-gate.js");
 const { hostRoot } = require("./host-root.js");
 const { isSameRepo } = require("./issue-ref.js");
@@ -198,8 +198,13 @@ function unfetchedCheckout(command) {
  * @param {string} command
  * @param {string} dir
  */
-const buildUnfetchedRefusal = (command, dir) =>
-	`the \`check:\` \`${command}\` on the \`**Gated on:**\` line reads an \`origin/\` ref in ${dir}, which nothing fetches, so its reading never changes and no judge is queued when the condition comes true (#5697). Read GitHub live instead: for an adopter's workflow-core pin on a workflow-core issue's gate, \`node ${scriptPath("release-contains.js")} <sha> --pinned-by <owner/repo>\`; for any other file, \`gh api -H "Accept: application/vnd.github.raw+json" repos/<owner/repo>/contents/<path>\`. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
+const buildUnfetchedRefusal = (command, dir) => {
+	const file = `\`gh api -H "Accept: application/vnd.github.raw+json" repos/<owner/repo>/contents/<path>\``;
+	const live = isCoreRepo()
+		? `for an adopter's workflow-core pin, \`node scripts/release-contains.js <sha> --pinned-by <owner/repo>\`; for any other file, ${file}`
+		: file;
+	return `the \`check:\` \`${command}\` on the \`**Gated on:**\` line reads an \`origin/\` ref in ${dir}, which nothing fetches, so its reading never changes and no judge is queued when the condition comes true (#5697). Read GitHub live instead: ${live}. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
+};
 
 /**
  * @param {string} [repo]

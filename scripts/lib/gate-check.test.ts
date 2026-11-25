@@ -161,6 +161,19 @@ describe("a check reading an unfetched origin ref (#5697)", () => {
 		},
 	);
 
+	it("names only the gh api read in an adopter, which ships no release-contains.js", () => {
+		const notCore = fs.mkdtempSync(path.join(os.tmpdir(), "gate-adopter-"));
+		vi.stubEnv("GIT_DIR", notCore);
+		try {
+			const { refusals } = verdictOf("", gate(`\`${pinRead}\``), false);
+			expect(refusals[0]).toContain("gh api");
+			expect(refusals[0]).not.toContain("release-contains");
+		} finally {
+			vi.unstubAllEnvs();
+			fs.rmSync(notCore, { recursive: true, force: true });
+		}
+	});
+
 	it("passes one that fetches that checkout first, and a read of the host's own origin", () => {
 		for (const check of [
 			`git -C ~/x fetch -q origin && ${pinRead}`,
