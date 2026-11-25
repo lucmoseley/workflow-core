@@ -22,6 +22,7 @@ import {
 	type HeldRun,
 	type Lander,
 	SELF,
+	type Typecheck,
 	writeHostRepo,
 	writeLoadavg,
 	writeProcRoot,
@@ -36,7 +37,7 @@ import { carrying } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
-import { readLiveGateSeats } from "./lib/suite-queue";
+import { readLiveGateSeats, readLiveTypechecks } from "./lib/suite-queue";
 
 const FLOOR = 794;
 
@@ -137,6 +138,7 @@ interface Machine {
 	landers?: Lander[];
 	gates?: Gate[];
 	heldRuns?: HeldRun[];
+	typechecks?: Typecheck[];
 	states?: Record<string, string>;
 	windowsMb?: number;
 	queueUnreadable?: boolean;
@@ -165,6 +167,7 @@ const machineEnv = (m: Machine = {}) => {
 		landers = [],
 		gates = [],
 		heldRuns = [],
+		typechecks = [],
 		states = {},
 		windowsMb,
 	} = m;
@@ -182,7 +185,7 @@ const machineEnv = (m: Machine = {}) => {
 		);
 	return {
 		MEMWATCH_MINUTE_LOG: minuteLog,
-		...buildIsolatedEnv(dir, { landers, gates, heldRuns }),
+		...buildIsolatedEnv(dir, { landers, gates, heldRuns, typechecks }),
 		WFC_MEMINFO: meminfo(mb),
 		WFC_PS: ps(psLines, { fails: psFails }),
 		WFC_CLAUDE_BIN: claude(sessions, { raw: agentsRaw, cwd: host, states }),
@@ -1780,6 +1783,86 @@ describe("buildWindowsLine (#4956)", () => {
 	});
 });
 
+describe("the type-check reserve (#5703)", () => {
+	const chargeMb = launchChargeMb({ kind: "tsc" });
+	const pid = String(process.pid);
+	const big = {
+		mb: 9000,
+		sessions: [SELF, GROWN],
+		pss: GROWN_PSS,
+	};
+
+	it("holds none with no type-check queued or running, and a queued one's charge less the live sessions' suite share", () => {
+		const without = run(big).json;
+		expect(without.typecheckReserveMb).toBe(0);
+		const { json } = run({
+			...big,
+			typechecks: [{ pid: process.pid, chargeMb }],
+		});
+		expect(json.typecheckReserveMb).toBe(chargeMb - 147);
+		expect(json.budgetMb).toBe(without.budgetMb - json.typecheckReserveMb);
+	});
+
+	it("holds a running type-check's charge less the PSS its tree already holds", () => {
+		const queued = run({
+			...big,
+			typechecks: [{ pid: process.pid, chargeMb }],
+		}).json;
+		const { json } = run({
+			...big,
+			typechecks: [{ pid: process.pid, chargeMb, spawned: true }],
+			pss: { ...GROWN_PSS, "9001": mbKb(600) },
+			parents: { "9001": pid },
+		});
+		expect(json.typecheckReserveMb).toBe(queued.typecheckReserveMb - 600);
+	});
+
+	it("holds the full charge for a type-check a session started, whose PSS the session's draw already counts", () => {
+		const queued = run({
+			...big,
+			typechecks: [{ pid: process.pid, chargeMb }],
+		}).json;
+		const { json } = run({
+			...big,
+			typechecks: [{ pid: process.pid, chargeMb, spawned: true }],
+			pss: { ...GROWN_PSS, "9001": mbKb(600) },
+			parents: { [pid]: "701", "9001": pid },
+		});
+		expect(json.typecheckReserveMb).toBe(queued.typecheckReserveMb);
+	});
+
+	it("subtracts the PSS of a running type-check the admitting session started, whose own PSS no draw counts", () => {
+		const queued = run({
+			...big,
+			typechecks: [{ pid: process.pid, chargeMb }],
+		}).json;
+		const { json } = run({
+			...big,
+			sessions: [`${SELF}@702`, GROWN],
+			typechecks: [{ pid: process.pid, chargeMb, spawned: true }],
+			pss: { ...GROWN_PSS, "9001": mbKb(600) },
+			parents: { [pid]: "702", "9001": pid },
+		});
+		expect(json.typecheckReserveMb).toBe(queued.typecheckReserveMb - 600);
+	});
+
+	it("charges a memory-held type-check once, by the held-run reserve", () => {
+		const { json } = run({
+			...big,
+			typechecks: [{ pid: process.pid, chargeMb, memoryHeld: true }],
+		});
+		expect(json.typecheckReserveMb).toBe(0);
+		expect(json.heldRunMb).toBe(chargeMb);
+	});
+
+	it("holds none for a dead type-check's marker", () => {
+		expect(
+			run({ ...big, typechecks: [{ pid: 2 ** 22 + 1, chargeMb }] }).json
+				.typecheckReserveMb,
+		).toBe(0);
+	});
+});
+
 describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 	afterEach(() => vi.unstubAllEnvs());
 
@@ -1799,6 +1882,7 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 				landers: readLiveLanders(),
 				gates: readLiveGateSeats(),
 				heldRuns,
+				typechecks: readLiveTypechecks({ unreadMb: () => 0 }),
 				testsHeld: 0,
 			},
 		});

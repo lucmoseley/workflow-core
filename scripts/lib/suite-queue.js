@@ -26,7 +26,12 @@ const {
 } = require("./suite-launch.js");
 const { vitestLineSize, weighCarried } = require("./suite-bounded.js");
 const { chargeMb: launchChargeMb } = require("./launch-charge.js");
-const { TSC_QUEUE_NAME, isTscRunner, runnerPeakMb } = require("./tsc-slot.js");
+const {
+	TSC_QUEUE_NAME,
+	defaultTscQueueDir,
+	isTscRunner,
+	runnerPeakMb,
+} = require("./tsc-slot.js");
 const { sweepJoinFiles } = require("./tsc-join-files.js");
 const { isLanderRun } = require("./session-id.js");
 const {
@@ -770,13 +775,7 @@ function readTestsHeldOnWindows(options = {}) {
  */
 function readTestsHeldOnMemory(options = {}) {
 	return readLiveWaiters(options)
-		.filter(
-			({ record: r }) =>
-				r.memoryHeld === true &&
-				r.role === undefined &&
-				r.admitted !== true &&
-				r.spawned !== true,
-		)
+		.filter(({ record }) => isMemoryHeldWaiter(record))
 		.map(({ name, record: r }) => ({
 			pid: r.pid,
 			chargeMb: peakMbOf(name, r),
@@ -784,6 +783,46 @@ function readTestsHeldOnMemory(options = {}) {
 				? { rungMb: Number(r.memoryRungMb) }
 				: {}),
 		}));
+}
+
+/** @param {QueueRecord} r */
+const isMemoryHeldWaiter = (r) =>
+	r.memoryHeld === true &&
+	r.role === undefined &&
+	r.admitted !== true &&
+	r.spawned !== true;
+
+/**
+ * #5703
+ * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean, unreadMb: () => number }} options
+ * @returns {import("./admission.js").Typechecks}
+ */
+function readLiveTypechecks({
+	queueDir = defaultTscQueueDir(),
+	queueFs = fs,
+	alive = pidAlive,
+	unreadMb,
+}) {
+	const { markers, error } = readMarkers(queueDir, queueFs);
+	if (error !== null)
+		return {
+			live: [],
+			unread: {
+				why: `the type-check queue ${queueDir} would not read (${caught(error).message})`,
+				chargeMb: unreadMb(),
+			},
+		};
+	return {
+		live: markers
+			.map((m) => m.record)
+			.filter((r) => !isMarkerStale(r, { alive }) && !isMemoryHeldWaiter(r))
+			.map((r) => ({
+				pid: r.pid,
+				chargeMb: peakMbOf(TSC_QUEUE_NAME, r),
+				spawned: r.spawned === true,
+			})),
+		unread: null,
+	};
 }
 
 const SEAT_ENV = "WFC_SUITE_SEAT";
@@ -1341,6 +1380,7 @@ function readGateSeats({ queueDir, parentOf = readParentOf } = {}) {
 module.exports = {
 	readGateSeats,
 	readLiveGateSeats,
+	readLiveTypechecks,
 	PART_PASS_AGE_MS,
 	partLaneOf,
 	turnOf,

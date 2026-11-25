@@ -6978,11 +6978,9 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 			return dir;
 		}
 		function tempRoot(holder: number) {
-			const tmp = tmpRootWithMarkers(
-				qdir(),
-				[],
-				[{ pid: holder, spawned: true }],
-			);
+			const tmp = tmpRootWithMarkers(qdir(), {
+				gates: [{ pid: holder, spawned: true }],
+			});
 			vi.stubEnv("TMPDIR", tmp);
 			return tmp;
 		}

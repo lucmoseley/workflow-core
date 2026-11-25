@@ -296,7 +296,9 @@ describe("a bare run", () => {
 				fs.mkdtempSync(path.join(os.tmpdir(), "runpy-tmp-")),
 			);
 			dirs.push(dir);
-			return tmpRootWithMarkers(dir, [], [{ pid: holder, spawned: true }]);
+			return tmpRootWithMarkers(dir, {
+				gates: [{ pid: holder, spawned: true }],
+			});
 		}
 
 		it("takes `head` inside a fixture gate seat, and its certificate's scope names it", async () => {
