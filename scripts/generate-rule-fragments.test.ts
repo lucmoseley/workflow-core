@@ -22,7 +22,10 @@ const check = () =>
 	});
 
 const runOver = (dir: string, args: string[] = []) =>
-	runInProcess(GEN, args, { env: { ...process.env, CLAUDE_PROJECT_DIR: dir } });
+	runInProcess(GEN, args, {
+		cwd: dir,
+		env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+	});
 
 function scratch<T>(fn: (dir: string) => T): T {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rule-frag-"));
@@ -32,6 +35,13 @@ function scratch<T>(fn: (dir: string) => T): T {
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 }
+
+const seedFiles = (dir: string, files: Record<string, string>) => {
+	for (const [rel, text] of Object.entries(files)) {
+		fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+		fs.writeFileSync(path.join(dir, rel), text);
+	}
+};
 
 const readCommitted = (): Record<string, { source: string; trigger: string }> =>
 	JSON.parse(fs.readFileSync(path.join(ROOT, MANIFEST), "utf8")).rules;
@@ -43,13 +53,16 @@ const sourcesSkipped = () =>
 		),
 	);
 
-const committed = (): Record<string, string> =>
-	Object.fromEntries(
+let committedOnce: Record<string, string> | undefined;
+const committed = (): Record<string, string> => {
+	committedOnce ??= Object.fromEntries(
 		[
 			...sourcesSkipped(),
 			...fs.readdirSync(path.join(ROOT, STORE)).map((f) => path.join(STORE, f)),
 		].map((rel) => [rel, fs.readFileSync(path.join(ROOT, rel), "utf8")]),
 	);
+	return committedOnce;
+};
 
 describe("the committed store matches its anchored source", () => {
 	it("--check is green on the tree as committed", () => {
@@ -62,10 +75,12 @@ describe("the committed store matches its anchored source", () => {
 		const rules = readCommitted();
 		expect(Object.keys(rules).length).toBeGreaterThan(0);
 		scratch((dir) => {
-			for (const s of sourcesSkipped()) {
-				fs.mkdirSync(path.dirname(path.join(dir, s)), { recursive: true });
-				fs.copyFileSync(path.join(ROOT, s), path.join(dir, s));
-			}
+			seedFiles(
+				dir,
+				Object.fromEntries(
+					Object.entries(committed()).filter(([rel]) => !rel.startsWith(STORE)),
+				),
+			);
 			expect(runOver(dir).status).toBe(0);
 			expect(fs.readFileSync(path.join(dir, MANIFEST), "utf8")).toBe(
 				fs.readFileSync(path.join(ROOT, MANIFEST), "utf8"),
@@ -84,10 +99,7 @@ describe("the committed store matches its anchored source", () => {
 describe("--check refuses a source edit that was not re-rendered", () => {
 	it("names the stale fragment and exits 1", () => {
 		scratch((dir) => {
-			for (const [rel, text] of Object.entries(committed())) {
-				fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
-				fs.writeFileSync(path.join(dir, rel), text);
-			}
+			seedFiles(dir, committed());
 			expect(runOver(dir, ["--check"]).status).toBe(0);
 			const rel = "docs/agents/rules/takes-value-vocabulary.txt";
 			fs.appendFileSync(
@@ -108,16 +120,12 @@ describe("an id anchored in two documents", () => {
 			const [first, second] = sourcesSkipped();
 			if (first === undefined || second === undefined)
 				throw new Error("the generator names fewer than two sources");
-			for (const rel of [first, second]) {
-				fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
-				fs.writeFileSync(
-					path.join(dir, rel),
-					"<!-- rule:roadmap-gating:begin -->\ntext\n<!-- rule:roadmap-gating:end -->\n",
-				);
-			}
+			const region =
+				"<!-- rule:roadmap-gating:begin -->\ntext\n<!-- rule:roadmap-gating:end -->\n";
+			seedFiles(dir, { [first]: region, [second]: region });
 			const r = runOver(dir, ["--check"]);
 			expect(r.stderr).toBe(
-				`generate-rule-fragments: rule:roadmap-gating is anchored in both ${first} and ${second}\n`,
+				`generate-rule-fragments: rule:roadmap-gating is anchored in both ${first} and ${second} — keep one region and delete the other\n`,
 			);
 			expect(r.status).toBe(1);
 		});
@@ -129,9 +137,7 @@ describe("a malformed anchor pair refuses rather than rendering half a rule", ()
 		scratch((dir) => {
 			const [first] = sourcesSkipped();
 			if (first === undefined) throw new Error("the generator names no source");
-			const file = path.join(dir, first);
-			fs.mkdirSync(path.dirname(file), { recursive: true });
-			fs.writeFileSync(file, body);
+			seedFiles(dir, { [first]: body });
 			return runOver(dir, ["--check"]);
 		});
 
@@ -190,12 +196,10 @@ describe("a span inside a region (#4155)", () => {
 		scratch((dir) => {
 			const [first] = sourcesSkipped();
 			if (first === undefined) throw new Error("the generator names no source");
-			const file = path.join(dir, first);
-			fs.mkdirSync(path.dirname(file), { recursive: true });
-			fs.writeFileSync(
-				file,
-				"<!-- rule:roadmap-gating:begin -->\nGates carry <!-- rule:gate-basis-line:begin -->a basis\nline<!-- rule:gate-basis-line:end --> beneath.\n<!-- rule:roadmap-gating:end -->\n",
-			);
+			seedFiles(dir, {
+				[first]:
+					"<!-- rule:roadmap-gating:begin -->\nGates carry <!-- rule:gate-basis-line:begin -->a basis\nline<!-- rule:gate-basis-line:end --> beneath.\n<!-- rule:roadmap-gating:end -->\n",
+			});
 			expect(runOver(dir).status).toBe(0);
 			const read = (id: string) =>
 				fs.readFileSync(path.join(dir, STORE, `${id}.txt`), "utf8");
