@@ -82,8 +82,10 @@ const blankShebang = (source) =>
  */
 
 /** @param {Raw} raw */
-const valuesOf = (raw) =>
-	raw.text.map((_, n) => (n === 0 ? raw.value : undefined));
+function valuesOf(raw) {
+	const at = raw.value?.startsWith("\n") ? 1 : 0;
+	return raw.text.map((_, n) => (n === at ? raw.value : undefined));
+}
 
 /**
  * @param {string} source

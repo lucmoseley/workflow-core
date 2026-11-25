@@ -440,6 +440,7 @@ describe("the refused shapes", () => {
 		expect(tags(`// Stryker disable all: r${code}`, "js")).toEqual([]);
 		expect(tags(`/* Stryker disable all: r */${code}`, "js")).toEqual([]);
 		expect(tags(`//Stryker disable all: r${code}`, "js")).toEqual([]);
+		expect(tags(`/*\nStryker disable all: r\n*/${code}`, "js")).toEqual([]);
 		expect(tags("# Stryker disable all: r\nx = 1\n", "py")).toEqual([
 			"SUPPRESSION@1",
 		]);
