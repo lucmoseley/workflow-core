@@ -39991,7 +39991,6 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/launch-charge.test.ts": [
@@ -65274,7 +65273,6 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/tsc-slot.test.ts": [
