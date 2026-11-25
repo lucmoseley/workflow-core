@@ -32,7 +32,7 @@ interface Issue {
 	closed?: boolean;
 	parent?: number;
 	blockedBy?: Blocker[];
-	failBlockers?: boolean;
+	failBlockers?: boolean | GhAnswer;
 	pull_request?: object;
 	unlisted?: boolean;
 }
@@ -47,6 +47,8 @@ interface Fixture {
 
 const CALL_LOG = () => path.join(dir, "calls.log");
 const API = "https://api.github.com/repos";
+
+const failedRead = (f: true | GhAnswer) => (f === true ? GH_NOT_FOUND : f);
 
 const issueRoutes = (issues: Issue[]) =>
 	Object.fromEntries(
@@ -80,7 +82,7 @@ const stubGh = ({
 	for (const i of issues)
 		routes[`repos/${repoOf(i)}/issues/${i.number}/dependencies/blocked_by`] =
 			i.failBlockers
-				? GH_NOT_FOUND
+				? failedRead(i.failBlockers)
 				: page(
 						"blockedByPage",
 						(i.blockedBy ?? []).map((b) => ({
@@ -254,11 +256,27 @@ describe("cycles", () => {
 	});
 
 	it("drops a gate naming no readable issue rather than calling the walk partial", async () => {
-		const r = await run({ issues: [{ number: 1, body: gatedOn("#77") }] }, [
-			"--json",
-		]);
+		const r = await run(
+			{
+				issues: [
+					{ number: 1, body: gatedOn("#77") },
+					{ number: 77, unlisted: true, failBlockers: true },
+				],
+			},
+			["--json"],
+		);
 		expect(r.status, r.out).toBe(0);
 		expect(r.json().cycleCount).toBe(0);
+	});
+
+	it("calls the walk partial where a gated-on issue's read fails for another reason", async () => {
+		const r = await run({
+			issues: [
+				{ number: 1, body: gatedOn("#77") },
+				{ number: 77, unlisted: true, failBlockers: GH_VALIDATION_FAILED },
+			],
+		});
+		expect(r.out).toContain("could not read the links of #77");
 	});
 
 	it("reports a loop once, not once per member", async () => {

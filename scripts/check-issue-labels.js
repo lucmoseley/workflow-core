@@ -413,7 +413,7 @@ function checkGates(iss, raise, faults) {
  * @param {ReturnType<typeof readShipped>} shipped
  */
 function checkShippedGate(iss, raise, shipped) {
-	if (!shipped?.cited.has(iss.number)) return;
+	if (!shipped || "unread" in shipped || !shipped.cited.has(iss.number)) return;
 	const own = parseRepoOfUrl(iss.repository_url);
 	const adopter = gateRefsOf(iss.body, own).filter((r) =>
 		isInOtherRepo(r, own),
@@ -724,6 +724,10 @@ const SPEC = {
 			gateFaults: readGateCitations(issues, ctx),
 			shipped: readShipped(worktreeRoot()),
 		};
+		if (counts.shipped && "unread" in counts.shipped)
+			ctx.say(
+				`Unread: the newest release's commits (${counts.shipped.unread}), so SHIPPED-GATED is unjudged.\n`,
+			);
 
 		/** @type {Unlabelled[]} */
 		const unlabelled = [];

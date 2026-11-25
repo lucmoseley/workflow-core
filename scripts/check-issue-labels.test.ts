@@ -23,6 +23,7 @@ import {
 	stubGhRoutes,
 	THERE,
 } from "./lib/gh-stub";
+import { defineTemplate } from "./lib/git-fixture";
 import { overrideFingerprint } from "./lib/issue-gate";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
@@ -1876,39 +1877,47 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 	);
 });
 
-describe("a shipped ticket gated on an adopter's issue (#5698)", () => {
-	const git = (args: string[]) =>
-		execFileSync("git", args, {
-			cwd: dir,
-			encoding: "utf8",
-			env: {
-				...process.env,
-				GIT_AUTHOR_NAME: "t",
-				GIT_AUTHOR_EMAIL: "t@t",
-				GIT_COMMITTER_NAME: "t",
-				GIT_COMMITTER_EMAIL: "t@t",
-			},
-		}).trim();
-	const release = () => {
-		git(["init", "-q", "-b", "main"]);
-		git(["commit", "-q", "--allow-empty", "-m", "Build the module (#5683)"]);
-		const source = git(["rev-parse", "HEAD"]);
-		git([
+const gitIn = (cwd: string, args: string[]) =>
+	execFileSync("git", args, {
+		cwd,
+		encoding: "utf8",
+		env: {
+			...process.env,
+			GIT_AUTHOR_NAME: "t",
+			GIT_AUTHOR_EMAIL: "t@t",
+			GIT_COMMITTER_NAME: "t",
+			GIT_COMMITTER_EMAIL: "t@t",
+		},
+	}).trim();
+
+const releaseBuilt = (rendered: (source: string) => string) =>
+	defineTemplate((root) => {
+		gitIn(root, ["init", "-q", "-b", "main"]);
+		gitIn(root, [
 			"commit",
 			"-q",
 			"--allow-empty",
 			"-m",
-			`Release workflow-core v1.0.0, rendered from ${source}`,
+			"Cite #5684 and build the module (#5683)",
 		]);
-		git(["tag", "v1.0.0"]);
-	};
+		const source = gitIn(root, ["rev-parse", "HEAD"]);
+		gitIn(root, ["commit", "-q", "--allow-empty", "-m", rendered(source)]);
+		gitIn(root, ["tag", "v1.0.0"]);
+	});
+
+const released = releaseBuilt(
+	(source) => `Release workflow-core v1.0.0, rendered from ${source}`,
+);
+const unrendered = releaseBuilt(() => "Release workflow-core v1.0.0");
+
+describe("a shipped ticket gated on an adopter's issue (#5698)", () => {
 	const gated = (ref: string) =>
 		`**Gated on:** ${ref} closes — abandon if: the adopter drops the module\n**Gate basis:** the adopter ticket consumes the build`;
 	const shippedGated = async (issue: Issue) =>
 		(await run([], stubGh([issue]))).out;
 
 	it("warns where the ticket's build is in the newest release, naming the tag and the adopter ticket", async () => {
-		release();
+		released.instantiate(dir);
 		const out = await shippedGated({
 			number: 5683,
 			body: gated("lucmoseley/mantahostels#3905"),
@@ -1921,21 +1930,30 @@ describe("a shipped ticket gated on an adopter's issue (#5698)", () => {
 
 	it.for([
 		{
-			what: "a ticket no released commit cites",
+			what: "a ticket a released subject cites outside its trailing reference",
 			number: 5684,
 			ref: "m/t#3905",
 		},
 		{ what: "a gate on its own repo's issue", number: 5683, ref: "#12" },
 	])("stays silent on $what", async ({ number, ref }) => {
-		release();
+		released.instantiate(dir);
 		expect(await shippedGated({ number, body: gated(ref) })).not.toContain(
 			"SHIPPED-GATED",
 		);
 	});
 
-	it("stays silent where the clone holds no release", async () => {
+	it("stays silent where the directory is no clone", async () => {
 		expect(
 			await shippedGated({ number: 5683, body: gated("m/t#3905") }),
 		).not.toContain("SHIPPED-GATED");
+	});
+
+	it("says SHIPPED-GATED is unjudged where the newest tag names no source", async () => {
+		unrendered.instantiate(dir);
+		const out = await shippedGated({ number: 5683, body: gated("m/t#3905") });
+		expect(out).not.toContain("its build shipped");
+		expect(out).toContain(
+			"Unread: the newest release's commits (v1.0.0: its message carries no rendered-from line), so SHIPPED-GATED is unjudged.",
+		);
 	});
 });

@@ -81,10 +81,10 @@ async function readNodes(refs) {
 	return reads;
 }
 
-// #5698
 /**
  * @typedef {{refs: Map<string, Ref>, edges: Map<string, {to: Ref, kind: Kind}[]>,
- *   states: Map<string, NodeRead & {ok: true}>, unread: Unread[], linked: Set<string>}} Graph
+ *   states: Map<string, NodeRead & {ok: true}>, unread: Unread[],
+ *   reachedByLink: Set<string>, gateMisses: Unread[]}} Graph
  */
 
 /** @returns {Graph} */
@@ -93,8 +93,17 @@ const buildEmptyGraph = () => ({
 	edges: new Map(),
 	states: new Map(),
 	unread: [],
-	linked: new Set(),
+	reachedByLink: new Set(),
+	gateMisses: [],
 });
+
+const NOT_AN_ISSUE = /\(HTTP 404\)|Could not resolve to an Issue/;
+
+/** @param {Graph} g @returns {Unread[]} */
+const settledUnread = (g) => [
+	...g.unread,
+	...g.gateMisses.filter((m) => g.reachedByLink.has(refKey(m.ref))),
+];
 
 /**
  * @param {Graph} g
@@ -105,13 +114,23 @@ const buildEmptyGraph = () => ({
 function recordRead(g, ref, r) {
 	const k = refKey(ref);
 	if (!r.ok) {
-		if (r.reason === "unreachable" || g.linked.has(k))
-			g.unread.push({ ref, error: r.error, reason: r.reason });
+		const miss = { ref, error: r.error, reason: r.reason };
+		// #5698
+		if (r.reason === "broken" && NOT_AN_ISSUE.test(r.error))
+			g.gateMisses.push(miss);
+		else g.unread.push(miss);
 		return [];
 	}
+	if (r.state === null)
+		g.gateMisses.push({
+			ref,
+			error: "GitHub answered no issue, so its Gated on line went unread",
+			reason: "broken",
+		});
 	g.states.set(k, r);
 	g.edges.set(k, r.edges);
-	for (const e of r.edges) if (e.kind !== "gate") g.linked.add(refKey(e.to));
+	for (const e of r.edges)
+		if (e.kind !== "gate") g.reachedByLink.add(refKey(e.to));
 	return r.edges;
 }
 
@@ -144,7 +163,7 @@ async function pathTo(from, to) {
 	/** @type {Map<string, {from: Ref, kind: Kind}>} */
 	const via = new Map();
 	g.refs.set(refKey(from), from);
-	g.linked.add(refKey(from));
+	g.reachedByLink.add(refKey(from));
 	let frontier = [from];
 	while (frontier.length > 0 && !via.has(target)) {
 		await readLevel(g, frontier, (k) => g.refs.has(k));
@@ -153,7 +172,7 @@ async function pathTo(from, to) {
 	}
 	return {
 		path: via.has(target) ? traceBack(g, via, from, target) : null,
-		unread: g.unread,
+		unread: settledUnread(g),
 	};
 }
 
@@ -346,7 +365,7 @@ async function loops(seeds, { home }) {
 		const k = refKey(s);
 		if (g.refs.has(k)) continue;
 		g.refs.set(k, s);
-		g.linked.add(k);
+		g.reachedByLink.add(k);
 		frontier.push(s);
 	}
 	while (frontier.length > 0) {
@@ -367,7 +386,7 @@ async function loops(seeds, { home }) {
 			return { members, path: examplePath(members.map(refKey), g) };
 		})
 		.sort((a, b) => order(must(a.members[0]), must(b.members[0])));
-	return { cycles, nodes: g.refs.size, unread: g.unread };
+	return { cycles, nodes: g.refs.size, unread: settledUnread(g) };
 }
 
 /** @type {Record<Kind, string>} */

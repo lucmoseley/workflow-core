@@ -107,6 +107,7 @@ function liveMatches(re, body) {
 }
 
 const ABANDON_SEG = /[—–-][ \t]*abandon if:[ \t]*/gi;
+const SEGMENT_HEAD = /[—–-][ \t]*(?:abandon if|check):/i;
 const CHECK_SEG = /[—–-][ \t]*check:[ \t]*/gi;
 
 /**
@@ -164,10 +165,10 @@ function gateRefsOf(body, self) {
 	const owner = self?.split("/")[0] ?? null;
 	/** @type {Map<string, {repo: string|S, number: number}>} */
 	const out = new Map();
-	for (const r of scanIssueRefs(
-		gate.malformed ? gate.raw : gate.condition,
-		REF_FORMS.citation,
-	)) {
+	const condition = gate.malformed
+		? (gate.raw.split(SEGMENT_HEAD)[0] ?? "")
+		: gate.condition;
+	for (const r of scanIssueRefs(condition, REF_FORMS.citation)) {
 		const repo =
 			r.name === null
 				? self

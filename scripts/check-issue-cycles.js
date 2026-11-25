@@ -89,9 +89,12 @@ function reportCycles(ctx, cycles, home) {
 	ctx.say(
 		"\n  Break the loop at the link that orders nothing. A sub-issue holds its parent open, so work\n" +
 			"  ruled not to hold its originator belongs beside it, not under it\n" +
-			"  (docs/agents/issue-tracker.md §Placing a new issue). A shipped ticket gated on an adopter's\n" +
-			"  issue closes, leaving the proof to that adopter ticket.",
+			"  (docs/agents/issue-tracker.md §Placing a new issue).",
 	);
+	if (cycles.some((c) => c.path.some((l) => l.kind === "gate")))
+		ctx.say(
+			"  A shipped ticket gated on an adopter's issue closes, leaving the proof to that adopter ticket.",
+		);
 }
 
 const SPEC = {
