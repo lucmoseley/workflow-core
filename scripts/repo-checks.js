@@ -153,14 +153,14 @@ function withStderr(job, stderr) {
 
 /**
  * @param {RepoCheck} entry
- * @param {string} root
+ * @param {{ root: string, spawn: Spawn }} at
  * @param {{ ms: number, by: string }} limit
  * @param {string[]} extra
  * @returns {Job}
  */
-function launch(entry, root, limit, extra) {
+function launch(entry, { root, spawn }, limit, extra) {
 	const json = entry.kind === "check";
-	const r = spawnSync(
+	const r = spawn(
 		process.execPath,
 		[
 			path.join(coreRoot(), "scripts", entry.script),
@@ -252,9 +252,10 @@ const readRescans = (file) =>
 /**
  * @param {Host} host
  * @param {Kept} kept
+ * @param {Spawn} spawn
  * @returns {Job[]}
  */
-function runAll(host, kept) {
+function runAll(host, kept, spawn) {
 	const checkMs = parseCeiling("WFC_REPO_CHECKS_CHECK_MS", CHECK_MS);
 	const deadline = Date.now() + parseCeiling("WFC_REPO_CHECKS_RUN_MS", RUN_MS);
 	return REPO_CHECKS.map((entry) => {
@@ -275,7 +276,7 @@ function runAll(host, kept) {
 		const ms = checkMs * (entry.ceilingScale ?? 1);
 		const job = launch(
 			entry,
-			host.root,
+			{ root: host.root, spawn },
 			left < ms
 				? { ms: left, by: "the run's ceiling" }
 				: { ms, by: `its ${Math.round(ms / 1000)} s ceiling` },
@@ -515,7 +516,15 @@ function writeStandingIssue(host, jobs, { file, startMs }) {
 	}
 }
 
-function main() {
+/**
+ * @typedef {(file: string, args: string[],
+ *   options: import("node:child_process").SpawnSyncOptionsWithStringEncoding)
+ *   => import("node:child_process").SpawnSyncReturns<string>} Spawn
+ */
+
+// #5734
+/** @param {Spawn} [spawn] */
+function main(spawn = spawnSync) {
 	try {
 		const root = adoptHostRoot();
 		const dir = gitCommonDirOrThrow(root);
@@ -542,7 +551,7 @@ function main() {
 					startMs,
 				};
 				const host = readHost(root);
-				const jobs = runAll(host, kept);
+				const jobs = runAll(host, kept, spawn);
 				writeResult(result, jobs, repoKey(host));
 				writeCarried(files, kept, jobs);
 				writeNotifyReport(host, jobs, { startMs, result });
@@ -563,5 +572,7 @@ function main() {
 		);
 	}
 }
+
+module.exports = { main };
 
 if (require.main === module) main();

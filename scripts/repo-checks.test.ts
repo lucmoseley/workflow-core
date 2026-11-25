@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { writeStubChecker } from "./lib/fixtures/stub-checker.js";
 import { stubGhScript } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
@@ -15,6 +16,10 @@ import { REPO_CHECKS } from "./lib/repo-checks-registry";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "repo-checks.js");
+const IN_PROCESS = path.join(
+	__dirname,
+	"lib/fixtures/repo-checks-in-process.js",
+);
 const STAMP = ".repo-checks-read";
 const LOCK = ".repo-checks-read.lock";
 const RESULT = ".repo-checks.json";
@@ -41,8 +46,6 @@ interface Stub {
 	sleepMs?: number;
 	stderr?: string;
 }
-const sourceLiteral = (envelope: object) =>
-	JSON.stringify(JSON.stringify(envelope));
 
 const okEnvelope = (id: string) => ({
 	checker: id,
@@ -117,21 +120,12 @@ function fixture(
 			stub.envelope === undefined && json
 				? okEnvelope(entry.id)
 				: stub.envelope;
-		fs.writeFileSync(
-			path.join(scripts, entry.script),
-			[
-				"const fs = require('node:fs');",
-				`fs.appendFileSync(${JSON.stringify(launches)}, JSON.stringify([${JSON.stringify(entry.id)}, ...process.argv.slice(2)]) + '\\n');`,
-				stub.sleepMs
-					? `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${stub.sleepMs});`
-					: "",
-				envelope
-					? `if (process.argv.includes('--json')) process.stdout.write(${stub.onRescan ? `process.argv.includes('--rescan') ? ${sourceLiteral(stub.onRescan)} : ` : ""}${sourceLiteral(envelope)});`
-					: "",
-				`process.stderr.write(${JSON.stringify(stub.stderr ?? "a diagnostic line\n")});`,
-				`process.exit(${stub.exit ?? 0});`,
-			].join("\n"),
-		);
+		writeStubChecker(path.join(scripts, entry.script), {
+			...stub,
+			id: entry.id,
+			launches,
+			envelope,
+		});
 	};
 	for (const { id } of REPO_CHECKS) restub(id, opts.stubs?.[id] ?? {});
 
@@ -216,9 +210,14 @@ function run(
 	{
 		dir = f.root,
 		env = {},
-	}: { dir?: string; env?: Record<string, string> } = {},
+		launch = "in-process",
+	}: {
+		dir?: string;
+		env?: Record<string, string>;
+		launch?: "in-process" | "spawned";
+	} = {},
 ) {
-	return runInProcess(SCRIPT, [], {
+	return runInProcess(launch === "spawned" ? SCRIPT : IN_PROCESS, [], {
 		cwd: dir,
 		env: fixtureEnv(f, dir, {
 			WFC_SCRIPT_ROOT: f.core,
@@ -243,7 +242,7 @@ const ROADMAP_IDS = [
 describe("repo-checks: gates and order", () => {
 	it("launches every entry once, one at a time in the registry's order, a check asked for its --json envelope and a reporter for nothing", () => {
 		const f = fixture({ config: ALL });
-		const r = run(f);
+		const r = run(f, { launch: "spawned" });
 		expect(r.status).toBe(0);
 		expect(ids(f.launched())).toEqual(REPO_CHECKS.map((e) => e.id));
 		expect(f.result().jobs.map((j: { job: string }) => j.job)).toEqual(
@@ -383,7 +382,7 @@ describe("repo-checks: the merged result", () => {
 		const f = fixture({
 			stubs: { "digest-render": { envelope: null, exit: 2 } },
 		});
-		run(f);
+		run(f, { launch: "spawned" });
 		expect(job(f, "digest-render")).toMatchObject({
 			outcome: "MISSING",
 			keys: [],
@@ -454,7 +453,7 @@ describe("repo-checks: ceilings", () => {
 			stubs: { "digest-version": { sleepMs: 10_000 } },
 		});
 		const started = Date.now();
-		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "1000" } });
+		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "1000" }, launch: "spawned" });
 		expect(Date.now() - started).toBeLessThan(8000);
 		expect(job(f, "digest-version")).toMatchObject({
 			outcome: "BROKEN",
@@ -469,7 +468,7 @@ describe("repo-checks: ceilings", () => {
 			config: { contract: 1, founder: "F", tracker: "o/r", modules: [] },
 			stubs: { cycles: { sleepMs: 1200 }, clobbers: { sleepMs: 1200 } },
 		});
-		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "1000" } });
+		run(f, { env: { WFC_REPO_CHECKS_CHECK_MS: "1000" }, launch: "spawned" });
 		expect(job(f, "cycles")).toMatchObject({
 			outcome: "BROKEN",
 			summary: expect.stringContaining("killed at its 1 s ceiling"),
@@ -481,7 +480,7 @@ describe("repo-checks: ceilings", () => {
 		const f = fixture({
 			stubs: { "digest-version": { sleepMs: 10_000 } },
 		});
-		run(f, { env: { WFC_REPO_CHECKS_RUN_MS: "800" } });
+		run(f, { env: { WFC_REPO_CHECKS_RUN_MS: "800" }, launch: "spawned" });
 		expect(ids(f.launched())).toEqual(["digest-version"]);
 		expect(job(f, "digest-version")).toMatchObject({
 			outcome: "BROKEN",
