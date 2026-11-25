@@ -6,7 +6,7 @@ const { escapeRe } = require("./regex-group.js");
 const { scanJs } = require("./strip-comments.js");
 const {
 	parseDirective: parseStrykerDirective,
-	unreasonedDisable,
+	isUnreasonedDisable,
 } = require("./stryker-directive.js");
 
 /**
@@ -627,7 +627,7 @@ const DIRECTIVES = [
 		re: /^Stryker\s+disable\s+(?:next-line\s+)?([^:]*)/i,
 		read: (m) => {
 			const d = parseStrykerDirective(m.input);
-			return d !== null && !unreasonedDisable(d)
+			return d !== null && !isUnreasonedDisable(d)
 				? "code"
 				: suppresses("stryker")(m);
 		},

@@ -24,7 +24,7 @@ function parseDirective(text) {
 }
 
 /** @param {ParsedDirective} d */
-const unreasonedDisable = (d) =>
+const isUnreasonedDisable = (d) =>
 	d.verb === "disable" && (d.reason === undefined || d.reason.trim() === "");
 
-module.exports = { parseDirective, unreasonedDisable };
+module.exports = { parseDirective, isUnreasonedDisable };

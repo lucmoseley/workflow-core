@@ -959,7 +959,7 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f
 +const { HOST_CONFIG_FAULT, RESULT_FD } = require("./lib/stryker-comments.js");
 +const {
 +	parseDirective,
-+	unreasonedDisable,
++	isUnreasonedDisable,
 +} = require("./lib/stryker-directive.js");
  const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
  const { writeFd } = require("./lib/write-fd.js");
@@ -1141,7 +1141,7 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f
 +const unreasonedIn = (comments) =>
 +	comments.flatMap((comment) => {
 +		const directive = parseDirective(comment.value);
-+		return directive !== null && unreasonedDisable(directive)
++		return directive !== null && isUnreasonedDisable(directive)
 +			? [{ comment, directive }]
 +			: [];
 +	});
