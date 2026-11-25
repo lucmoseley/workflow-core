@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -141,6 +142,55 @@ describe("a check on another repo's issue", () => {
 				{ run: true, repo: "owner/nobody" },
 			),
 		).toEqual({ refusals: [], warnings: [] });
+	});
+});
+
+describe("a check reading an unfetched origin ref (#5697)", () => {
+	const pinRead =
+		"git -C ~/x show origin/main:.claude/settings.json | grep v3.2.0";
+
+	it.each([true, false])(
+		"refuses it, naming the live reads, whether or not the route runs it (run: %s)",
+		(run) => {
+			const { refusals } = verdictOf("", gate(`\`${pinRead}\``), run);
+			expect(refusals).toHaveLength(1);
+			expect(refusals[0]).toContain("reads an `origin/` ref in ~/x");
+			expect(refusals[0]).toContain(
+				"release-contains.js <sha> --pinned-by <owner/repo>",
+			);
+			expect(refusals[0]).toContain("gh api");
+		},
+	);
+
+	it("names only the gh api read in an adopter, which ships no release-contains.js, where the case above names both (#5757)", () => {
+		const adopter = fs.mkdtempSync(path.join(os.tmpdir(), "gate-adopter-"));
+		try {
+			execFileSync("git", ["init", "-q", adopter]);
+			vi.stubEnv("GIT_DIR", path.join(adopter, ".git"));
+			const { refusals } = verdictOf("", gate(`\`${pinRead}\``), false);
+			expect(refusals).toHaveLength(1);
+			expect(refusals[0]).toContain("gh api");
+			expect(refusals[0]).not.toContain("release-contains");
+		} finally {
+			fs.rmSync(adopter, { recursive: true, force: true });
+		}
+	});
+
+	it("passes one that fetches that checkout first, and a read of the host's own origin", () => {
+		for (const check of [
+			`git -C ~/x fetch -q origin && ${pinRead}`,
+			`git -C "$HOME/x" fetch -q && ${pinRead}`,
+			"git merge-base --is-ancestor HEAD origin/main && echo on || echo off",
+		])
+			expect(verdictOf("", gate(check), false).refusals).toEqual([]);
+	});
+
+	it("refuses one whose fetch comes after the read, or fetches another checkout", () => {
+		for (const check of [
+			`${pinRead}; git -C ~/x fetch`,
+			`git -C ~/y fetch && ${pinRead}`,
+		])
+			expect(verdictOf("", gate(check), false).refusals).toHaveLength(1);
 	});
 });
 

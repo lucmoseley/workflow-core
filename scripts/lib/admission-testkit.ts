@@ -27,11 +27,26 @@ export interface HeldRun {
 	rungMb?: number;
 }
 
+export interface Typecheck {
+	pid: number;
+	chargeMb: number;
+	spawned?: boolean;
+	memoryHeld?: boolean;
+}
+
 export const tmpRootWithMarkers = (
 	dir: string,
-	landers: Lander[],
-	gates: Gate[],
-	heldRuns: HeldRun[] = [],
+	{
+		landers = [],
+		gates = [],
+		heldRuns = [],
+		typechecks = [],
+	}: {
+		landers?: Lander[];
+		gates?: Gate[];
+		heldRuns?: HeldRun[];
+		typechecks?: Typecheck[];
+	},
 ) => {
 	const root = path.join(dir, "tmp");
 	const q = path.join(root, "wfc-suite-queue");
@@ -56,6 +71,13 @@ export const tmpRootWithMarkers = (
 				memoryRungMb: rungMb,
 				memoryHeld: true,
 			}),
+		);
+	const tsc = path.join(root, "wfc-tsc-queue");
+	fs.mkdirSync(tsc, { recursive: true });
+	for (const { pid, ...record } of typechecks)
+		fs.writeFileSync(
+			path.join(tsc, `wfc-suite-queue-${pid}.json`),
+			JSON.stringify({ pid, at: 1, ...record }),
 		);
 	return root;
 };
@@ -136,15 +158,17 @@ export const buildIsolatedEnv = (
 		landers = [],
 		gates = [],
 		heldRuns = [],
+		typechecks = [],
 		configDir = path.join(dir, "no-such-config"),
 	}: {
 		landers?: Lander[];
 		gates?: Gate[];
 		heldRuns?: HeldRun[];
+		typechecks?: Typecheck[];
 		configDir?: string;
 	} = {},
 ) => ({
-	TMPDIR: tmpRootWithMarkers(dir, landers, gates, heldRuns),
+	TMPDIR: tmpRootWithMarkers(dir, { landers, gates, heldRuns, typechecks }),
 	CLAUDE_CODE_SESSION_ID: SELF,
 	CLAUDE_CONFIG_DIR: configDir,
 	WFC_REAP_SCRIPT: writeReapScript(dir, []),

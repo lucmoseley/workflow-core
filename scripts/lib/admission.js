@@ -11,8 +11,6 @@ const {
 	buildWindowsUnreadNote,
 	readWindowsMemory,
 } = require("./windows-memory.js");
-const { checkoutPeakMb } = require("./tsc-slot.js");
-const { hostRoot } = require("./host-root.js");
 const { configDirFrom } = require("./config-dir.js");
 const { readParentOf } = require("./proc-stat.js");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
@@ -139,8 +137,9 @@ function cpuSlotsRow(cpu) {
  * @typedef {{ why: string, chargeMb: number }} UnreadReserve
  * @typedef {{ live: { pid: number, chargeMb: number }[], unread: UnreadReserve | null }} Landers
  * @typedef {{ live: { pid: number, chargeMb: number, spawned: boolean, part: boolean }[], unread: UnreadReserve | null }} Gates
- * @typedef {{ landers: Landers, gates: Gates, heldRuns: HeldRuns, testsHeld: number }} Reserves
- * @typedef {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} HeldTree
+ * @typedef {{ live: { pid: number, chargeMb: number, spawned: boolean }[], unread: UnreadReserve | null }} Typechecks
+ * @typedef {{ landers: Landers, gates: Gates, heldRuns: HeldRuns, typechecks: Typechecks, testsHeld: number }} Reserves
+ * @typedef {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string>, selfPid?: string }} HeldTree
  * @typedef {{ pid: string, rssKb: number, args: string }} PsRow
  * @typedef {{ ok: true, rows: PsRow[] } | { ok: false, error: string }} PsRead
  * @typedef {import("./meminfo.js").MeminfoRead} MeminfoRead
@@ -674,27 +673,63 @@ function sessionsPssKb(ids, { pids, pairs, pssKbOf, children, gateSeatPids }) {
 }
 
 /**
- * @param {Landers} landers
+ * #2416
  * @param {HeldTree} tree
+ * @returns {(pid: string) => number}
  */
-function landerHeldMb(landers, { pssKbOf, children, sessionPids }) {
+function undrawnTreeKb({ pssKbOf, children, sessionPids, selfPid }) {
 	/** @type {string[]} */
 	const underSessions = [];
 	for (const pid of sessionPids)
-		descendantsPssKb(
-			pid,
-			{ children, stopPids: sessionPids, pssKbOf: () => 0 },
-			underSessions,
-		);
-	let mb = 0;
-	for (const { pid: n, chargeMb } of landers.live) {
-		const pid = String(n);
-		const kb = underSessions.includes(pid)
+		if (pid !== selfPid)
+			descendantsPssKb(
+				pid,
+				{ children, stopPids: sessionPids, pssKbOf: () => 0 },
+				underSessions,
+			);
+	return (pid) =>
+		underSessions.includes(pid)
 			? 0
 			: descendantsPssKb(pid, { children, stopPids: sessionPids, pssKbOf }, []);
-		mb += Math.max(0, chargeMb - Math.floor(kb / 1024));
-	}
+}
+
+/**
+ * @param {Map<string, number> | undefined} pids
+ * @param {string | undefined} id
+ */
+const selfPidOf = (pids, id) => {
+	const pid = id === undefined ? undefined : pids?.get(id);
+	return pid === undefined ? undefined : String(pid);
+};
+
+/**
+ * @param {Landers} landers
+ * @param {HeldTree} tree
+ */
+function landerHeldMb(landers, tree) {
+	const treeKb = undrawnTreeKb(tree);
+	let mb = 0;
+	for (const { pid, chargeMb } of landers.live)
+		mb += Math.max(0, chargeMb - Math.floor(treeKb(String(pid)) / 1024));
 	return mb;
+}
+
+/**
+ * #5703
+ * @param {Typechecks} typechecks
+ * @param {HeldTree} tree
+ */
+function typecheckChargeMb({ live, unread }, tree) {
+	if (unread !== null) return unread.chargeMb;
+	if (live.length === 0) return 0;
+	const treeKb = undrawnTreeKb(tree);
+	let drawnKb = 0;
+	for (const { pid } of live.filter((t) => t.spawned))
+		drawnKb += treeKb(String(pid));
+	return Math.max(
+		0,
+		Math.max(...live.map((t) => t.chargeMb)) - Math.floor(drawnKb / 1024),
+	);
 }
 
 /**
@@ -1498,21 +1533,22 @@ function machineAdmission({
 	});
 	const load = overloadReading();
 	const cpu = cpuSlots(ps, children, pairs);
+	const tree = {
+		pssKbOf: readPssKb,
+		children,
+		sessionPids: new Set([...(listed.pids?.values() ?? [])].map(String)),
+		selfPid: selfPidOf(listed.pids, process.env.CLAUDE_CODE_SESSION_ID),
+	};
 	const reserveReadings = {
 		windows: readWindowsMemory(),
 		guestFreeMb:
 			meminfo.ok && meminfo.freeKb !== null
 				? Math.floor(meminfo.freeKb / 1024)
 				: null,
-		typecheckChargeMb: checkoutPeakMb(hostRoot()),
+		typecheckChargeMb: typecheckChargeMb(reserves.typechecks, tree),
 		testsHeld: reserves.testsHeld,
 	};
-	const sessionPids = new Set([...(listed.pids?.values() ?? [])].map(String));
-	const held = heldReserves(reserves, {
-		pssKbOf: readPssKb,
-		children,
-		sessionPids,
-	});
+	const held = heldReserves(reserves, tree);
 	const verdict = strictAdmission(mem, procs, {
 		overhead,
 		reclaimable,

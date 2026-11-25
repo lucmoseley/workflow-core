@@ -22,6 +22,7 @@ const {
 	readLiveRoleMarkers,
 	readTestsHeldOnMemory,
 	readTestsHeldOnWindows,
+	readLiveTypechecks,
 	readQueuesClimbMb,
 	queuedRunnerPeakMb,
 	gateDenies,
@@ -415,6 +416,63 @@ describe("readTestsHeldOnMemory (#5555)", () => {
 				alive: () => true,
 			}),
 		).toEqual([]);
+	});
+});
+
+describe("readLiveTypechecks (#5703)", () => {
+	it("reads each live type-check, queued or running, at its launch's peak, leaving a memory-held one to the held-run reserve", () => {
+		const tscDir = path.join(qdir(), "wfc-tsc-queue");
+		joined(tscDir, 11, 11, { chargeMb: 2045 });
+		joined(tscDir, 22, 22).spawned();
+		joined(tscDir, 33, 33).stamps.onMemoryHeld(true);
+		joined(tscDir, 44, 44);
+		expect(
+			readLiveTypechecks({
+				queueDir: tscDir,
+				alive: (pid: number) => pid !== 44,
+				unreadMb: () => 0,
+			}),
+		).toEqual({
+			live: [
+				{ pid: 11, chargeMb: 2045, spawned: false },
+				{
+					pid: 22,
+					chargeMb: launchChargeMb({ kind: "tsc" }),
+					spawned: true,
+				},
+			],
+			unread: null,
+		});
+	});
+
+	it("reads none where no queue exists", () => {
+		expect(
+			readLiveTypechecks({
+				queueDir: path.join(qdir(), "wfc-tsc-queue"),
+				unreadMb: () => 0,
+			}),
+		).toEqual({ live: [], unread: null });
+	});
+
+	it("holds the fallback charge, and says why, where the queue will not read", () => {
+		const refusing = {
+			...fs,
+			readdirSync: (() => {
+				throw new Error("EACCES");
+			}) as unknown as typeof fs.readdirSync,
+		};
+		const { live, unread } = readLiveTypechecks({
+			queueDir: path.join(qdir(), "wfc-tsc-queue"),
+			queueFs: refusing,
+			unreadMb: () => 1497,
+		});
+		expect(live).toEqual([]);
+		expect(unread).toEqual({
+			why: expect.stringMatching(
+				/type-check queue .* would not read \(EACCES\)/,
+			),
+			chargeMb: 1497,
+		});
 	});
 });
 
