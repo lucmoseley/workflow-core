@@ -24,7 +24,9 @@ describe("a check the write adds", () => {
 		const { refusals } = verdictOf("", gate(check));
 		expect(refusals).toHaveLength(1);
 		expect(refusals[0]).toContain(`reads as ${state}`);
-		expect(refusals[0]).toContain('&& echo "on main" || echo "not on main"');
+		expect(refusals[0]).toContain(
+			'&& echo "met: on main" || echo "unmet: not on main"',
+		);
 	});
 
 	it("passes a check that prints a reading, whatever its exit code", () => {

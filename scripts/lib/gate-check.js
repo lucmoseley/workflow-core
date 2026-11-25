@@ -165,7 +165,7 @@ function classifyExit(r, { out, err, timeoutMs, elapsedMs }) {
 }
 
 const PRINTING_FIX =
-	'`git merge-base --is-ancestor X origin/main && echo "on main" || echo "not on main"`';
+	'`git merge-base --is-ancestor X origin/main && echo "met: on main" || echo "unmet: not on main"`';
 
 const GIT_C_ORIGIN = /\bgit\s+-C\s+(\S+)\s[^;&|]*?\borigin\//g;
 const GIT_C_FETCH = /\bgit\s+-C\s+(\S+)\s+fetch\b/g;
