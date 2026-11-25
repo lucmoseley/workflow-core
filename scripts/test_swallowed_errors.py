@@ -31,6 +31,7 @@ def test_a_handler_that_raises_exits_or_reports_passes():
 
 
 def test_printing_and_returning_a_nonzero_code_passes_alone_or_in_a_tuple():
+    """#5749."""
     printed = "print('why', file=sys.stderr)\n    "
     for ret in ("return 3", "return None, 3", "return (3, 'x')"):
         assert breach_lines(handler(printed + ret)) == [], ret
