@@ -933,10 +933,10 @@ index a538d07a98e363a00ce25eaaaed6e8d7dea9da8f..b5df679960da5566a583fa784ada5c9c
  });
 -
 diff --git a/scripts/mutation-hold-gate.js b/scripts/mutation-hold-gate.js
-index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f158bac8d 100644
+index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..83e82e5dc49f898c5aff0f70fd603809d4225227 100644
 --- a/scripts/mutation-hold-gate.js
 +++ b/scripts/mutation-hold-gate.js
-@@ -12,19 +12,25 @@ const { pathToFileURL } = require("node:url");
+@@ -12,19 +12,26 @@ const { pathToFileURL } = require("node:url");
  const { writeFileAtomic } = require("./lib/atomic-write.js");
  const { parseOrCode } = require("./lib/cli-args.js");
  const { caught } = require("./lib/caught.js");
@@ -958,13 +958,14 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f
 +const { requiredGroup } = require("./lib/regex-group.js");
 +const { HOST_CONFIG_FAULT, RESULT_FD } = require("./lib/stryker-comments.js");
 +const {
-+	parseDirective,
++	parseStrykerDirective,
 +	isUnreasonedDisable,
++	directiveLineOffset,
 +} = require("./lib/stryker-directive.js");
  const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
  const { writeFd } = require("./lib/write-fd.js");
  
-@@ -43,8 +49,13 @@ const isMutable = (p) => MUTABLE.test(p) && !TEST_NAME.test(p);
+@@ -43,8 +50,13 @@ const isMutable = (p) => MUTABLE.test(p) && !TEST_NAME.test(p);
  /* #1901 */
  const RED_INITIAL = "There were failed tests in the initial test run";
  
@@ -979,7 +980,7 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f
  
  const REFUSING = new Set(["Survived", "NoCoverage"]);
  const PASSING = new Set(["Killed", "Timeout", "Ignored"]);
-@@ -90,7 +101,18 @@ const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
+@@ -90,7 +102,18 @@ const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
  const POOL = "forks";
  const DISABLE_TYPE_CHECKS = false;
  
@@ -998,7 +999,7 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f
  
  const CACHE_NAME = "wfc-mutation-incremental.json";
  
-@@ -244,8 +266,22 @@ const addedRanges = (hunks) =>
+@@ -244,8 +267,22 @@ const addedRanges = (hunks) =>
  		.map((h) => ({ start: h.newStart, end: h.newStart + h.newCount - 1 }));
  
  /**
@@ -1023,7 +1024,7 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f
   * @param {string} logLine
   */
  function reportFailOpen(stderrLine, logLine) {
-@@ -254,8 +290,301 @@ function reportFailOpen(stderrLine, logLine) {
+@@ -254,8 +291,301 @@ function reportFailOpen(stderrLine, logLine) {
  }
  
  /**
@@ -1129,7 +1130,7 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f
 +
 +/** @param {BabelComment} c */
 +const findDirectiveLine = (c) =>
-+	c.loc.start.line + (c.value.startsWith("\n") ? 1 : 0);
++	c.loc.start.line + directiveLineOffset(c.value);
 +
 +/** @typedef {import("./lib/stryker-directive.js").ParsedDirective} ParsedDirective */
 +/** @typedef {{comment: BabelComment, directive: ParsedDirective}} Directive */
@@ -1140,7 +1141,7 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f
 + */
 +const unreasonedIn = (comments) =>
 +	comments.flatMap((comment) => {
-+		const directive = parseDirective(comment.value);
++		const directive = parseStrykerDirective(comment.value);
 +		return directive !== null && isUnreasonedDisable(directive)
 +			? [{ comment, directive }]
 +			: [];
@@ -1173,7 +1174,7 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f
 +	for (const r of comments) {
 +		if (r.start <= c.start || r.block !== c.block || !isRead(r, added))
 +			continue;
-+		const d = parseDirective(r.value);
++		const d = parseStrykerDirective(r.value);
 +		if (d?.verb !== "restore" || d.scope === "next-line") continue;
 +		const lifted = d.mutators;
 +		if (!lifted.includes("all") && open.includes("all")) continue;
@@ -1327,7 +1328,7 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f
   * @param {string[]} lines
   * @param {{start: {line: number, column: number}, end: {line: number, column: number}}} loc
   * @param {string} at
-@@ -558,8 +887,6 @@ function judge(report, ranges) {
+@@ -558,8 +888,6 @@ function judge(report, ranges) {
  }
  
  /**
@@ -1336,7 +1337,7 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f
   * @param {ConfigCopy[]} copies
   * @param {string[]} staged
   */
-@@ -576,11 +903,16 @@ function readHeldRanges(copies, staged) {
+@@ -576,11 +904,16 @@ function readHeldRanges(copies, staged) {
  		}
  	/** @type {Map<string, LineRange[]>} */
  	const ranges = new Map();
@@ -1356,7 +1357,7 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f
  }
  
  /**
-@@ -693,6 +1025,16 @@ function readRuleOrPointer() {
+@@ -693,6 +1026,16 @@ function readRuleOrPointer() {
  	);
  }
  
@@ -1373,7 +1374,7 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..866cd95ce77cdadb027e5de93ca5eb1f
  /**
   * @param {ReturnType<typeof runStryker>} run
   * @param {string[]} areas
-@@ -744,6 +1086,12 @@ function hold(mode) {
+@@ -744,6 +1087,12 @@ function hold(mode) {
  		const missing = missingToolRefusal(root, HOOK_VOICE);
  		if (missing !== null) return refuse(missing);
  		const tree = gitOr(["write-tree"], "could not read the staged tree").trim();

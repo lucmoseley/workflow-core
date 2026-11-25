@@ -1,6 +1,6 @@
 const { requiredGroup } = require("./regex-group.js");
 
-/* https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/transformers/directive-bookkeeper.ts */
+/* Stryker v10.1.1's own directive pattern: https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/transformers/directive-bookkeeper.ts */
 const DIRECTIVE =
 	/^\s?Stryker (disable|restore)(?: (next-line))? ([a-zA-Z, ]+)(?::(.+)?)?/;
 
@@ -10,7 +10,7 @@ const DIRECTIVE =
  * @param {string} text
  * @returns {ParsedDirective | null}
  */
-function parseDirective(text) {
+function parseStrykerDirective(text) {
 	const d = DIRECTIVE.exec(text);
 	if (d === null) return null;
 	return {
@@ -27,4 +27,11 @@ function parseDirective(text) {
 const isUnreasonedDisable = (d) =>
 	d.verb === "disable" && (d.reason === undefined || d.reason.trim() === "");
 
-module.exports = { parseDirective, isUnreasonedDisable };
+/** @param {string} value */
+const directiveLineOffset = (value) => (value.startsWith("\n") ? 1 : 0);
+
+module.exports = {
+	parseStrykerDirective,
+	isUnreasonedDisable,
+	directiveLineOffset,
+};

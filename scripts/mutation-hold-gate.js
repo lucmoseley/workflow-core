@@ -28,8 +28,9 @@ const { matchSensitivePaths } = require("./lib/sensitive-paths.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { HOST_CONFIG_FAULT, RESULT_FD } = require("./lib/stryker-comments.js");
 const {
-	parseDirective,
+	parseStrykerDirective,
 	isUnreasonedDisable,
+	directiveLineOffset,
 } = require("./lib/stryker-directive.js");
 const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -390,7 +391,7 @@ function readCommentsInChild(root, strykerConfig, entries) {
 
 /** @param {BabelComment} c */
 const findDirectiveLine = (c) =>
-	c.loc.start.line + (c.value.startsWith("\n") ? 1 : 0);
+	c.loc.start.line + directiveLineOffset(c.value);
 
 /** @typedef {import("./lib/stryker-directive.js").ParsedDirective} ParsedDirective */
 /** @typedef {{comment: BabelComment, directive: ParsedDirective}} Directive */
@@ -401,7 +402,7 @@ const findDirectiveLine = (c) =>
  */
 const unreasonedIn = (comments) =>
 	comments.flatMap((comment) => {
-		const directive = parseDirective(comment.value);
+		const directive = parseStrykerDirective(comment.value);
 		return directive !== null && isUnreasonedDisable(directive)
 			? [{ comment, directive }]
 			: [];
@@ -434,7 +435,7 @@ function regionEnd({ comment: c, directive }, comments, added) {
 	for (const r of comments) {
 		if (r.start <= c.start || r.block !== c.block || !isRead(r, added))
 			continue;
-		const d = parseDirective(r.value);
+		const d = parseStrykerDirective(r.value);
 		if (d?.verb !== "restore" || d.scope === "next-line") continue;
 		const lifted = d.mutators;
 		if (!lifted.includes("all") && open.includes("all")) continue;

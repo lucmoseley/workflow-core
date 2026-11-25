@@ -5,8 +5,9 @@ const { EXEMPT_MARKERS, ISSUE_REF, POINTER } = require("./exempt-markers.js");
 const { escapeRe } = require("./regex-group.js");
 const { scanJs } = require("./strip-comments.js");
 const {
-	parseDirective: parseStrykerDirective,
+	parseStrykerDirective,
 	isUnreasonedDisable,
+	directiveLineOffset,
 } = require("./stryker-directive.js");
 
 /**
@@ -83,7 +84,7 @@ const blankShebang = (source) =>
 
 /** @param {Raw} raw */
 function valuesOf(raw) {
-	const at = raw.value?.startsWith("\n") ? 1 : 0;
+	const at = raw.value === undefined ? 0 : directiveLineOffset(raw.value);
 	return raw.text.map((_, n) => (n === at ? raw.value : undefined));
 }
 
@@ -649,7 +650,13 @@ const DIRECTIVES = [
 				: suppresses("stryker")(m);
 		},
 	},
-	{ re: /^Stryker\s+restore\b/i, read: readsAsCode },
+	{
+		re: /^Stryker\s+restore\b/i,
+		read: (_m, value) =>
+			value !== undefined && parseStrykerDirective(value)?.verb === "restore"
+				? "code"
+				: null,
+	},
 	{
 		re: new RegExp(String.raw`^${DENIES_THROUGH_BODY}[ \t]*$`),
 		read: readsAsCode,

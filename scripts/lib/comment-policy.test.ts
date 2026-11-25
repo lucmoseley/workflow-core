@@ -446,6 +446,16 @@ describe("the refused shapes", () => {
 		]);
 	});
 
+	it("admits a Stryker restore only where Stryker reads one", () => {
+		const code = "\nconst a = 1;\n";
+		expect(tags(`// Stryker restore all${code}`, "js")).toEqual([]);
+		expect(tags(`/*\nStryker restore all\n*/${code}`, "js")).toEqual([]);
+		for (const head of ["//  Stryker restore all", "// stryker restore all"])
+			expect(
+				tags(`${head}: the mutant is equivalent${code}`, "js"),
+			).not.toEqual([]);
+	});
+
 	it("judges the prose beside a suppression on its own", () => {
 		expect(
 			tags(
