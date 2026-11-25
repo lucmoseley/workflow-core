@@ -43,6 +43,14 @@ const sourcesSkipped = () =>
 		),
 	);
 
+const committed = (): Record<string, string> =>
+	Object.fromEntries(
+		[
+			...sourcesSkipped(),
+			...fs.readdirSync(path.join(ROOT, STORE)).map((f) => path.join(STORE, f)),
+		].map((rel) => [rel, fs.readFileSync(path.join(ROOT, rel), "utf8")]),
+	);
+
 describe("the committed store matches its anchored source", () => {
 	it("--check is green on the tree as committed", () => {
 		const r = check();
@@ -75,22 +83,44 @@ describe("the committed store matches its anchored source", () => {
 
 describe("--check refuses a source edit that was not re-rendered", () => {
 	it("names the stale fragment and exits 1", () => {
-		const rel = "docs/agents/rules/takes-value-vocabulary.txt";
-		const file = path.join(ROOT, rel);
-		const before = fs.readFileSync(file, "utf8");
-		try {
-			fs.writeFileSync(
-				file,
-				`${before}| \`takes:invented\` | not a value | — |\n`,
+		scratch((dir) => {
+			for (const [rel, text] of Object.entries(committed())) {
+				fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+				fs.writeFileSync(path.join(dir, rel), text);
+			}
+			expect(runOver(dir, ["--check"]).status).toBe(0);
+			const rel = "docs/agents/rules/takes-value-vocabulary.txt";
+			fs.appendFileSync(
+				path.join(dir, rel),
+				"| `takes:invented` | not a value | — |\n",
 			);
-			const r = check();
+			const r = runOver(dir, ["--check"]);
 			expect(r.status).toBe(1);
 			expect(r.stderr).toContain(rel);
 			expect(r.stderr).toContain("gen:rule-fragments");
-		} finally {
-			fs.writeFileSync(file, before);
-		}
-		expect(check().status).toBe(0);
+		});
+	});
+});
+
+describe("an id anchored in two documents", () => {
+	it("--check refuses, naming both documents", () => {
+		scratch((dir) => {
+			const [first, second] = sourcesSkipped();
+			if (first === undefined || second === undefined)
+				throw new Error("the generator names fewer than two sources");
+			for (const rel of [first, second]) {
+				fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+				fs.writeFileSync(
+					path.join(dir, rel),
+					"<!-- rule:roadmap-gating:begin -->\ntext\n<!-- rule:roadmap-gating:end -->\n",
+				);
+			}
+			const r = runOver(dir, ["--check"]);
+			expect(r.stderr).toBe(
+				`generate-rule-fragments: rule:roadmap-gating is anchored in both ${first} and ${second}\n`,
+			);
+			expect(r.status).toBe(1);
+		});
 	});
 });
 
@@ -231,16 +261,6 @@ describe("the pre-commit row (#3118, #5172)", () => {
 		});
 		return ran;
 	}
-
-	const committed = () =>
-		Object.fromEntries(
-			[
-				...sourcesSkipped(),
-				...fs
-					.readdirSync(path.join(ROOT, STORE))
-					.map((f) => path.join(STORE, f)),
-			].map((rel) => [rel, fs.readFileSync(path.join(ROOT, rel), "utf8")]),
-		);
 
 	it("arms on every document the generator scans, as the generator names them", async () => {
 		expect(SOURCES).toEqual(sourcesSkipped());
