@@ -84,26 +84,50 @@ const routeAnswer = (a: RouteAnswer): GhAnswer => {
 const casePattern = (key: string) => key.split("*").map(shellQuote).join("*");
 
 const LINK_LIST_ROUTE =
-	/^repos\/([^/*]+\/[^/*]+)\/issues\/(\d+)\/(dependencies\/blocked_by|sub_issues)$/;
+	/^repos\/([^/*]+\/[^/*]+)\/issues\/(\d+)(?:\/(dependencies\/blocked_by|sub_issues))?$/;
 
-type LinkNode = { blockedBy?: unknown[]; subIssues?: unknown[] } | null;
+type LinkNode = {
+	state?: string;
+	body?: string;
+	blockedBy?: unknown[];
+	subIssues?: unknown[];
+} | null;
+
+type HeldNode = LinkNode | undefined;
+
+function issueNode(node: HeldNode, a: RouteAnswer): HeldNode {
+	if ("status" in a || node === null) return node;
+	const { state, body } = a.value as { state?: string; body?: string };
+	return { ...node, state, body };
+}
+
+function linkListNode(
+	node: HeldNode,
+	a: RouteAnswer,
+	field: "blockedBy" | "subIssues",
+): HeldNode {
+	if ("status" in a) return a.status === 0 ? node : null;
+	if (node === null) return null;
+	const rows = (a.value as Parameters<typeof blockerRow>[0][][])
+		.flat()
+		.map(blockerRow);
+	return { ...node, [field]: rows };
+}
 
 function buildLinkNodes(routes: Record<string, RouteAnswer>) {
-	const nodes: Record<string, LinkNode> = {};
+	const nodes: Record<string, HeldNode> = {};
 	for (const [key, a] of Object.entries(routes)) {
 		const m = key.match(LINK_LIST_ROUTE);
 		if (!m) continue;
 		const at = `${(m[1] as string).replace("{owner}/{repo}", "o/r").toLowerCase()}#${m[2]}`;
-		if ("status" in a) {
-			if (a.status !== 0) nodes[at] = null;
-			continue;
-		}
-		if (nodes[at] === null) continue;
-		const rows = (a.value as Parameters<typeof blockerRow>[0][][])
-			.flat()
-			.map(blockerRow);
-		const field = m[3] === "sub_issues" ? "subIssues" : "blockedBy";
-		nodes[at] = { ...nodes[at], [field]: rows };
+		nodes[at] =
+			m[3] === undefined
+				? issueNode(nodes[at], a)
+				: linkListNode(
+						nodes[at],
+						a,
+						m[3] === "sub_issues" ? "subIssues" : "blockedBy",
+					);
 	}
 	return nodes;
 }

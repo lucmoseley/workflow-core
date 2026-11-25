@@ -28,6 +28,8 @@ interface Blocker {
 interface Issue {
 	number: number;
 	repo?: string;
+	body?: string;
+	closed?: boolean;
 	parent?: number;
 	blockedBy?: Blocker[];
 	failBlockers?: boolean;
@@ -45,6 +47,23 @@ interface Fixture {
 
 const CALL_LOG = () => path.join(dir, "calls.log");
 const API = "https://api.github.com/repos";
+
+const issueRoutes = (issues: Issue[]) =>
+	Object.fromEntries(
+		issues
+			.filter((i) => i.body !== undefined || i.closed)
+			.map((i): [string, RouteAnswer] => [
+				`repos/${i.repo ?? "o/r"}/issues/${i.number}`,
+				{
+					kind: "issue",
+					value: {
+						number: i.number,
+						state: i.closed ? "closed" : "open",
+						body: i.body ?? "",
+					},
+				},
+			]),
+	);
 
 const stubGh = ({
 	issues,
@@ -69,6 +88,7 @@ const stubGh = ({
 							repository_url: b.repository_url ?? `${API}/${repoOf(i)}`,
 						})),
 					);
+	Object.assign(routes, issueRoutes(issues));
 	for (const p of issues)
 		routes[`repos/${repoOf(p)}/issues/${p.number}/sub_issues`] = page(
 			"subIssuesPage",
@@ -86,7 +106,7 @@ const stubGh = ({
 			page(
 				"issuesPage",
 				issues
-					.filter((i) => repoOf(i) === repo && !i.unlisted)
+					.filter((i) => repoOf(i) === repo && !i.unlisted && !i.closed)
 					.map((i) => ({
 						number: i.number,
 						title: `issue ${i.number}`,
@@ -170,6 +190,75 @@ describe("cycles", () => {
 			"#423 is blocked by #422",
 		])
 			expect(r.out).toContain(link);
+	});
+
+	const gatedOn = (ref: string) =>
+		`**Gated on:** ${ref} closes — abandon if: the adopter drops the module\n**Gate basis:** the adopter ticket consumes the build`;
+	const adopterBlocked = {
+		number: 3905,
+		repo: "m/t",
+		blockedBy: [{ ...open(5683), repository_url: `${API}/o/r` }],
+	};
+
+	it("reports #5683's loop, a Gated on line on one side and a blocked_by link on the other", async () => {
+		const r = await run(
+			{
+				corpus: ["o/r", "m/t"],
+				issues: [{ number: 5683, body: gatedOn("m/t#3905") }, adopterBlocked],
+			},
+			["--json"],
+		);
+		const j = r.json();
+		expect(j.cycleCount).toBe(1);
+		expect(j.cycles[0].members).toEqual(["#5683", "m/t#3905"]);
+		expect(j.cycles[0].path).toEqual(
+			expect.arrayContaining([
+				"#5683 is gated on m/t#3905",
+				"m/t#3905 is blocked by #5683",
+			]),
+		);
+	});
+
+	it.for([
+		{
+			what: "a fenced gate line",
+			body: `\`\`\`\n${gatedOn("m/t#3905")}\n\`\`\``,
+		},
+		{
+			what: "a reference in the abandon-if clause alone",
+			body: "**Gated on:** the next release — abandon if: m/t#3905 is closed won't-fix",
+		},
+	])("reads no edge from $what", async ({ body }) => {
+		const r = await run(
+			{
+				corpus: ["o/r", "m/t"],
+				issues: [{ number: 5683, body }, adopterBlocked],
+			},
+			["--json"],
+		);
+		expect(r.json().cycleCount).toBe(0);
+	});
+
+	it("follows no gate into a closed issue", async () => {
+		const r = await run(
+			{
+				issues: [
+					{ number: 1, body: gatedOn("#2") },
+					{ number: 2, closed: true, blockedBy: [open(1)] },
+				],
+			},
+			["--json"],
+		);
+		expect(r.status).toBe(0);
+		expect(r.json().cycleCount).toBe(0);
+	});
+
+	it("drops a gate naming no readable issue rather than calling the walk partial", async () => {
+		const r = await run({ issues: [{ number: 1, body: gatedOn("#77") }] }, [
+			"--json",
+		]);
+		expect(r.status, r.out).toBe(0);
+		expect(r.json().cycleCount).toBe(0);
 	});
 
 	it("reports a loop once, not once per member", async () => {

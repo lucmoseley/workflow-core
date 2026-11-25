@@ -89,7 +89,8 @@ function reportCycles(ctx, cycles, home) {
 	ctx.say(
 		"\n  Break the loop at the link that orders nothing. A sub-issue holds its parent open, so work\n" +
 			"  ruled not to hold its originator belongs beside it, not under it\n" +
-			"  (docs/agents/issue-tracker.md §Placing a new issue).",
+			"  (docs/agents/issue-tracker.md §Placing a new issue). A shipped ticket gated on an adopter's\n" +
+			"  issue closes, leaving the proof to that adopter ticket.",
 	);
 }
 
@@ -137,7 +138,7 @@ const SPEC = {
 			path: c.path.map((l) => linkText(l, home)),
 		}));
 		return {
-			okLine: `no loop among ${scope}, sub-issue and blocked_by links read together.`,
+			okLine: `no loop among ${scope}, sub-issue, blocked_by and Gated on links read together.`,
 			noun: "loop(s) among open issues",
 			data: {
 				issues: seeds.length,

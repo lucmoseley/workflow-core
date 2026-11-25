@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -1873,4 +1874,68 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 			expect(r.out).toContain("#520");
 		},
 	);
+});
+
+describe("a shipped ticket gated on an adopter's issue (#5698)", () => {
+	const git = (args: string[]) =>
+		execFileSync("git", args, {
+			cwd: dir,
+			encoding: "utf8",
+			env: {
+				...process.env,
+				GIT_AUTHOR_NAME: "t",
+				GIT_AUTHOR_EMAIL: "t@t",
+				GIT_COMMITTER_NAME: "t",
+				GIT_COMMITTER_EMAIL: "t@t",
+			},
+		}).trim();
+	const release = () => {
+		git(["init", "-q", "-b", "main"]);
+		git(["commit", "-q", "--allow-empty", "-m", "Build the module (#5683)"]);
+		const source = git(["rev-parse", "HEAD"]);
+		git([
+			"commit",
+			"-q",
+			"--allow-empty",
+			"-m",
+			`Release workflow-core v1.0.0, rendered from ${source}`,
+		]);
+		git(["tag", "v1.0.0"]);
+	};
+	const gated = (ref: string) =>
+		`**Gated on:** ${ref} closes — abandon if: the adopter drops the module\n**Gate basis:** the adopter ticket consumes the build`;
+	const shippedGated = async (issue: Issue) =>
+		(await run([], stubGh([issue]))).out;
+
+	it("warns where the ticket's build is in the newest release, naming the tag and the adopter ticket", async () => {
+		release();
+		const out = await shippedGated({
+			number: 5683,
+			body: gated("lucmoseley/mantahostels#3905"),
+		});
+		expect(out).toContain("SHIPPED-GATED");
+		expect(out).toContain("#5683");
+		expect(out).toContain("shipped in v1.0.0");
+		expect(out).toContain("lucmoseley/mantahostels#3905");
+	});
+
+	it.for([
+		{
+			what: "a ticket no released commit cites",
+			number: 5684,
+			ref: "m/t#3905",
+		},
+		{ what: "a gate on its own repo's issue", number: 5683, ref: "#12" },
+	])("stays silent on $what", async ({ number, ref }) => {
+		release();
+		expect(await shippedGated({ number, body: gated(ref) })).not.toContain(
+			"SHIPPED-GATED",
+		);
+	});
+
+	it("stays silent where the clone holds no release", async () => {
+		expect(
+			await shippedGated({ number: 5683, body: gated("m/t#3905") }),
+		).not.toContain("SHIPPED-GATED");
+	});
 });
