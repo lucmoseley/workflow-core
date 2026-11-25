@@ -8,6 +8,9 @@ const { readJson, writeJson } = require("./refill-json.js");
 const GATE_SWEEP_MS = 30 * 60 * 1000;
 // guess, #3092
 const JUDGE_EVERY_MS = 6 * 60 * 60 * 1000;
+// guess, lucmoseley/mantahostels#3869
+const REJUDGE_UNCHECKED_MS = 14 * 24 * 60 * 60 * 1000;
+const UNCHECKED = "NOT-STATED";
 const ROOT_SWEEP_TIMEOUT_MS = GATE_SWEEP_MS;
 
 const CHECK_GATES = path.join(__dirname, "..", "check-gates.js");
@@ -38,6 +41,10 @@ const buildJudgementPrompt = (n) =>
  */
 const buildRepairPrompt = (n, state) =>
 	`/triage ${n} — its Gated on: check reads ${state}. Judge the condition by hand: met, comment the evidence and strip the marker; unmet, rewrite the check: so that it prints what it saw (for example ${PRINTING_FIX}), run check-gates.js --issue ${n} to see it print, and end.`;
+
+/** @param {number} n */
+const buildUncheckedPrompt = (n) =>
+	`/triage ${n} — its Gated on: line carries no check:, so the sweep reads nothing and it must be judged by hand. Judge the condition: met, comment the evidence and strip the marker; unmet, leave the gate, and where one command could test the condition add it as the line's check: segment so that it prints what it saw (for example ${PRINTING_FIX}), run check-gates.js --issue ${n} to see it print, and end.`;
 
 /** @param {string} state */
 const buildRepairSeen = (state) => `[${state}]`;
@@ -103,7 +110,10 @@ function sweptRows(stdout) {
 		/** @returns {SweptRow[]} */ (r) => {
 			const { number, state, reading } = recordOf(r);
 			if (typeof number !== "number") return [];
-			if (typeof state === "string" && REPAIR_STATES.has(state))
+			if (
+				typeof state === "string" &&
+				(REPAIR_STATES.has(state) || state === UNCHECKED)
+			)
 				return [{ number, seen: buildRepairSeen(state), repair: state }];
 			return [
 				{
@@ -117,6 +127,27 @@ function sweptRows(stdout) {
 	);
 }
 
+/** @param {number} number @param {string|null} repair */
+function promptOf(number, repair) {
+	if (repair === null) return buildJudgementPrompt(number);
+	if (repair === UNCHECKED) return buildUncheckedPrompt(number);
+	return buildRepairPrompt(number, repair);
+}
+
+/**
+ * @param {SweptRow} row
+ * @param {string|undefined} stored
+ * @param {number|undefined} last
+ * @param {number} now
+ */
+function isDue({ seen, repair }, stored, last, now) {
+	if (seen === null) return false;
+	const unchanged = stored === seen;
+	if (unchanged && repair !== UNCHECKED) return false;
+	const bound = unchanged ? REJUDGE_UNCHECKED_MS : JUDGE_EVERY_MS;
+	return last === undefined || now - last >= bound;
+}
+
 /**
  * @param {Judgement[]} pending
  * @param {string} root
@@ -124,10 +155,7 @@ function sweptRows(stdout) {
  * @param {string|null} repair
  */
 function enqueue(pending, root, number, repair) {
-	const prompt =
-		repair === null
-			? buildJudgementPrompt(number)
-			: buildRepairPrompt(number, repair);
+	const prompt = promptOf(number, repair);
 	const at = pending.findIndex((j) => j.root === root && j.number === number);
 	if (at < 0) pending.push({ root, number, prompt });
 	else pending[at] = { root, number, prompt };
@@ -154,11 +182,11 @@ function withSweep(store, root, rows, now) {
 	const pending = store.pending.filter((j) => kept(keyOf(j.root, j.number)));
 	/** @type {number[]} */
 	const queued = [];
-	for (const { number, seen, repair } of rows) {
+	for (const row of rows) {
+		const { number, seen, repair } = row;
 		const key = keyOf(root, number);
-		if (seen === null || readings[key] === seen) continue;
-		const last = queuedAt[key];
-		if (last !== undefined && now - last < JUDGE_EVERY_MS) continue;
+		if (seen === null || !isDue(row, readings[key], queuedAt[key], now))
+			continue;
 		readings[key] = seen;
 		queuedAt[key] = now;
 		queued.push(number);
@@ -261,7 +289,7 @@ function gateSweeper({ file, runRoot, log, cadenceMs }) {
 			writeJson(file, store);
 			if (queued.length > 0)
 				log(
-					`gate sweep in ${root}: reading or repair state changed on ${queued.map((n) => `#${n}`).join(", ")}; judgement queued`,
+					`gate sweep in ${root}: reading or repair state changed, or an unchecked gate came due, on ${queued.map((n) => `#${n}`).join(", ")}; judgement queued`,
 				);
 		}
 	}

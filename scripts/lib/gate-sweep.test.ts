@@ -72,9 +72,7 @@ describe("which readings queue a judgement", () => {
 		expect(store.readings[`${WFC}#2046`]).toBe(
 			"every pair started and every run ended",
 		);
-		expect(lines.join("\n")).toContain(
-			"reading or repair state changed on #2046",
-		);
+		expect(lines.join("\n")).toContain("on #2046; judgement queued");
 	});
 
 	it("queues none on an unchanged reading", async () => {
@@ -154,12 +152,9 @@ describe("which readings queue a judgement", () => {
 		});
 	});
 
-	it("queues none for a row that is no segment to repair", async () => {
+	it("queues none for a marker that gates nothing", async () => {
 		const { store } = await sweepOnce(
-			envelope([
-				row(4, "no `check:` — judge the condition by hand", "NOT-STATED"),
-				row(6, "malformed marker", "GATES-NOTHING"),
-			]),
+			envelope([row(6, "malformed marker", "GATES-NOTHING")]),
 		);
 		expect(store.pending).toEqual([]);
 		expect(store.readings).toEqual({});
@@ -196,6 +191,61 @@ describe("which readings queue a judgement", () => {
 		const { store } = await sweepOnce(out.stdout);
 		expect(store.readings[`${WFC}#5`]).toBe("no match");
 		expect(store.pending).toHaveLength(1);
+	});
+});
+
+describe("a gate with no check: (lucmoseley/mantahostels#3869)", () => {
+	const day = 24 * 60 * 60 * 1000;
+	const unchecked = (n: number) =>
+		row(n, "no `check:` — judge the condition by hand", "NOT-STATED");
+
+	it("queues a by-hand judgement on its first sweep", async () => {
+		const { store } = await sweepOnce(envelope([unchecked(1551)]));
+		expect(store.pending).toHaveLength(1);
+		expect(store.pending[0].prompt).toMatch(
+			/^\/triage 1551 .*no check:.*by hand.*add it as the line's check:/,
+		);
+		expect(store.readings[`${WFC}#1551`]).toBe("[NOT-STATED]");
+	});
+
+	it("re-queues it only once its last queuing is 14 days old, across a restart", async () => {
+		const queuedOn = [];
+		for (const d of [0, 1, 7, 13, 14, 15, 27, 28]) {
+			const { store } = await sweepOnce(
+				envelope([unchecked(1551)]),
+				NOW + d * day,
+			);
+			if (store.pending.length > 0) queuedOn.push(d);
+			dropTried(file, [{ root: WFC, issues: [1551] }], throwOnLog);
+		}
+		expect(queuedOn).toEqual([0, 14, 28]);
+	});
+
+	it("leaves the cadence once it gains a check:, following reading-change judging", async () => {
+		await sweepOnce(envelope([unchecked(2723)]));
+		dropTried(file, [{ root: WFC, issues: [2723] }], throwOnLog);
+		const gained = await sweepOnce(
+			envelope([row(2723, "3 hostels signed")]),
+			NOW + day,
+		);
+		expect(gained.store.pending).toHaveLength(1);
+		expect(gained.store.pending[0].prompt).toMatch(/reading changed/);
+		dropTried(file, [{ root: WFC, issues: [2723] }], throwOnLog);
+		const later = await sweepOnce(
+			envelope([row(2723, "3 hostels signed")]),
+			NOW + 15 * day,
+		);
+		expect(later.store.pending).toEqual([]);
+	});
+
+	it("leaves a check-carrying gate's unchanged reading unqueued past 14 days", async () => {
+		await sweepOnce(envelope([row(2046, "3 of 4 runs ended")]));
+		dropTried(file, [{ root: WFC, issues: [2046] }], throwOnLog);
+		const { store } = await sweepOnce(
+			envelope([row(2046, "3 of 4 runs ended")]),
+			NOW + 30 * day,
+		);
+		expect(store.pending).toEqual([]);
 	});
 });
 
