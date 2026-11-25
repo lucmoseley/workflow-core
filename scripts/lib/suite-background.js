@@ -12,7 +12,13 @@ const {
 } = require("./suite-launch.js");
 const { launchTestFileCount } = require("./suite-bounded.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
-const { SNAPSHOT_RUN_TIMEOUT_MS } = require("./wait-text.js");
+const {
+	MOVED_RUN_WAIT,
+	SNAPSHOT_RUN_TIMEOUT_MS,
+	SUBAGENT_WAIT,
+	WAIT_SLOT,
+	withWait,
+} = require("./wait-text.js");
 
 /**
  * @typedef {object} BackgroundPorts
@@ -156,11 +162,17 @@ const isSnapshotRun = (launch, words) => {
 	);
 };
 
-const DETACHED_TEXT =
-	"This suite is DETACHED INSIDE THE SHELL — `&`, `nohup`, `setsid` or `disown` — so the call registers no job for the run and nothing will ever tell you it ended. `run_in_background` with a detachment does not help: the job is then the wrapper shell, which exits at once. An overrun is moved to the background and notifies: then end the turn with NO tool call — a notification arriving mid-call is almost never delivered. A `--full=<cause>` or `--queue` run may overrun, so wrap it in `scripts/bg-run.sh run <name>` in the same call: a `killed` notification often lies, so before relaunching read `scripts/bg-run.sh check <name>`, which tells KILLED from DONE. If guard-suite-concurrency refuses the re-issue, no job exists: take its corrected command rather than reporting `waiting:`. Genuinely need the detachment? Prefix the command with `WFC_SUITE_DETACH=1`.";
+const DETACHED_TEXT = `This suite is DETACHED INSIDE THE SHELL — \`&\`, \`nohup\`, \`setsid\` or \`disown\` — so the call registers no job for the run and nothing will ever tell you it ended. \`run_in_background\` with a detachment does not help: the job is then the wrapper shell, which exits at once. An overrun is moved to the background and notifies: then ${WAIT_SLOT} A \`--full=<cause>\` or \`--queue\` run may overrun, so wrap it in \`scripts/bg-run.sh run <name>\` in the same call: a \`killed\` notification often lies, so before relaunching read \`scripts/bg-run.sh check <name>\`, which tells KILLED from DONE. If guard-suite-concurrency refuses the re-issue, no job exists: take its corrected command rather than reporting \`waiting:\`. Genuinely need the detachment? Prefix the command with \`WFC_SUITE_DETACH=1\`.`;
 
-const TIMED_TEXT =
-	"This suite is WRAPPED IN A SHELL `timeout`, which kills it with no result and no pass/fail marker when the clock runs out — and the clock counts time spent waiting in the `--queue` too. The Bash tool's own timeout does not kill it: an overrun is moved to the background and notifies, and you end the turn with NO tool call. If guard-suite-concurrency refuses the re-issue, take its corrected command. A run naming its own test files is not refused. Genuinely need the shell timeout? Prefix the command with `WFC_SUITE_TIMEOUT=1`.";
+const PARENT_OVERRUN = {
+	detached:
+		"end the turn with NO tool call — a notification arriving mid-call is almost never delivered.",
+	timed: "end the turn with NO tool call.",
+};
+
+const PARENT_SNAPSHOT_OVERRUN = `keep working on independent work; with none left, end the turn with NO tool call, or in a background job hold it on ${MOVED_RUN_WAIT}.`;
+
+const TIMED_TEXT = `This suite is WRAPPED IN A SHELL \`timeout\`, which kills it with no result and no pass/fail marker when the clock runs out — and the clock counts time spent waiting in the \`--queue\` too. The Bash tool's own timeout does not kill it: an overrun is moved to the background and notifies, and you ${WAIT_SLOT} If guard-suite-concurrency refuses the re-issue, take its corrected command. A run naming its own test files is not refused. Genuinely need the shell timeout? Prefix the command with \`WFC_SUITE_TIMEOUT=1\`.`;
 
 /**
  * @param {string} command
@@ -243,8 +255,18 @@ function decide(command, ctx) {
 		fix = command;
 	}
 	let reason = `${fixOpener(snapshot)}${fix}`;
-	if (detached) reason += `\n${DETACHED_TEXT}`;
-	if (timed.length > 0) reason += `\n${TIMED_TEXT}`;
+	if (snapshot && ctx.agent)
+		reason += `\nPast ${SNAPSHOT_RUN_TIMEOUT_MS / 1000} s the run moves to the background; then ${SUBAGENT_WAIT}`;
+	const subagentOverrun = snapshot
+		? "hold your turn on it as the line above says, never ending it."
+		: SUBAGENT_WAIT;
+	/** @param {keyof typeof PARENT_OVERRUN} kind */
+	const overrun = (kind) => {
+		if (ctx.agent) return subagentOverrun;
+		return snapshot ? PARENT_SNAPSHOT_OVERRUN : PARENT_OVERRUN[kind];
+	};
+	if (detached) reason += `\n${withWait(DETACHED_TEXT, overrun("detached"))}`;
+	if (timed.length > 0) reason += `\n${withWait(TIMED_TEXT, overrun("timed"))}`;
 	return { deny: ctx.corePaths(reason.replace(/\n$/, "")) };
 }
 

@@ -81,7 +81,7 @@ async function main(
 		return EXIT.CEILING;
 	}
 	out(
-		"DONE: this session holds no live touched, named or changed test run; read each run's notification for its verdict.\n",
+		"DONE: this session holds no live touched, named, changed or isolated test run; read each run's notification for its verdict.\n",
 	);
 	return 0;
 }

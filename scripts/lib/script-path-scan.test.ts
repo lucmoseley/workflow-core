@@ -15,14 +15,10 @@ const { isShipped } = require("./plugin-tree") as {
 
 describe("messages a shipped script prints", () => {
 	const exempt = [
-		/^\t\t"Every issue-body edit goes through node scripts\/issue-body\.js",$/,
-		/: "node scripts\/check-ci-status\.js";$/,
 		/^\t"`node scripts\/session-arbiter\.js list`\.";$/,
 		/^\tconst overflow = `\\n {2}… and \$\{dropped\} more — node scripts\/session-arbiter\.js list`;$/,
-		/^\t"This suite is DETACHED INSIDE THE SHELL — .*`scripts\/bg-run\.sh run <name>`/,
-		/^\t"node scripts\/watch-artefact\.js <artefact> 120 --log <output_file>";$/,
-		/^const READ_REASON = `Instead: a subagent, one backgrounded \\`\$\{WATCH\}\\`;/,
-		/^\t"wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run\.sh job with `scripts\/bg-run\.sh wait <name>`/,
+		/^\t"`node scripts\/in-flight-runs\.js wait` in the foreground with `timeout: 600000`";$/,
+		/^const SUBAGENT_WAIT = `wait inside the turn — what you wait on in the foreground with \\`timeout: 600000\\`, a bg-run\.sh job with \\`scripts\/bg-run\.sh wait <name>\\`/,
 		/^\tbyHand: "`node scripts\/claim-issue\.js <n>` to claim an issue by hand",$/,
 		/^\t"node scripts\/lib\/resolve-core\.js scripts\/status-report\.js";$/,
 		/^\t\t\? "node scripts\/upgrade\.js"$/,
@@ -88,13 +84,17 @@ describe("messages a shipped script prints", () => {
 			)
 		);
 	};
+	const isSelfResolving = (
+		file: string,
+		text = fs.readFileSync(file, "utf8"),
+	) => resolvesWholeText.test(text) || resolvedByEmitter(file);
 
 	it("name no script by a bare command-shaped path", () => {
 		const files = [
 			...guardFiles,
 			...libNames
 				.map((f) => path.join(__dirname, f))
-				.filter((f) => !resolvedByEmitter(f)),
+				.filter((f) => !isSelfResolving(f)),
 		];
 		expect(
 			files.flatMap((f) => readBareLines(f, (l) => COMMAND_SHAPED.test(l))),
@@ -121,7 +121,7 @@ describe("messages a shipped script prints", () => {
 	) {
 		return rels
 			.map((rel) => path.join(SCRIPTS, "..", rel))
-			.filter((f) => !resolvesWholeText.test(fs.readFileSync(f, "utf8")))
+			.filter((f) => !isSelfResolving(f))
 			.flatMap((f) => readBareLines(f, shaped));
 	}
 
@@ -184,7 +184,7 @@ describe("messages a shipped script prints", () => {
 		const found: string[] = [];
 		for (const file of hookFiles) {
 			const text = fs.readFileSync(file, "utf8");
-			const resolves = resolvesWholeText.test(text) || resolvedByEmitter(file);
+			const resolves = isSelfResolving(file, text);
 			text.split("\n").forEach((line, i) => {
 				if (COMMENT_LINE.test(line)) return;
 				const skill = /\.claude\/skills\/[\w-]+\/SKILL\.md/.test(line);

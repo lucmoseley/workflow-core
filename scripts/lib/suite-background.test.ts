@@ -614,6 +614,77 @@ describe("its deliberate limits", () => {
 		expect(out?.permissionDecision).toBe("deny");
 	});
 
+	describe("a subagent's snapshot run (#5724)", () => {
+		const reasonFor = (command: string, agent?: string) =>
+			runCore(
+				"guard-suite-background",
+				{
+					session_id: "test",
+					...(agent === undefined ? {} : { agent_id: agent }),
+					hook_event_name: "PreToolUse",
+					tool_name: "Bash",
+					tool_input: { command },
+				},
+				{ root: dir },
+			).output?.permissionDecisionReason ?? "";
+
+		it("tells a subagent to hold its turn on the moved run", () => {
+			const lines = reasonFor("npm run test &", "sub").split("\n");
+			expect(lines[0]).toBe(`${SNAPSHOT_OPENER}npm run test`);
+			expect(lines[1]).toMatch(
+				/^Past 30 s the run moves to the background; then wait inside the turn — /,
+			);
+			expect(lines[1]).toContain("`node scripts/in-flight-runs.js wait`");
+			expect(lines[1]).toContain("re-run on `CEILING`");
+		});
+
+		it.each([
+			["npm run test &", ". A "],
+			["timeout 300 npm run test", ". If "],
+		])(
+			"tells the parent's snapshot run `%s` to keep working on independent work before ending its turn",
+			(command, next) => {
+				const reason = reasonFor(command);
+				expect(reason.split("\n")[0]).toBe(`${SNAPSHOT_OPENER}npm run test`);
+				expect(reason).not.toContain("Past 30 s");
+				expect(reason).not.toContain("You are a subagent");
+				expect(reason).toContain(
+					`keep working on independent work; with none left, end the turn with NO tool call, or in a background job hold it on \`node scripts/in-flight-runs.js wait\` in the foreground with \`timeout: 600000\`${next}`,
+				);
+			},
+		);
+
+		it("tells a subagent's held 600000 run to wait inside the turn", () => {
+			const reason = reasonFor("npm run test -- --full=x &", "sub");
+			expect(reason.split("\n")[0]).toBe(
+				`${HELD_OPENER}npm run test -- --full=x`,
+			);
+			expect(reason).not.toContain("Past 30 s");
+			expect(reason).toContain("and notifies: then wait inside the turn — ");
+			expect(reason).toContain("since nothing wakes you to resume it. A ");
+		});
+
+		it.each([
+			"npm run test &",
+			"timeout 300 npm run test",
+			"timeout 300 npm run test -- --full=x &",
+		])("never tells a subagent to end its turn on `%s`", (command) => {
+			expect(reasonFor(command, "sub")).not.toContain("end the turn");
+		});
+
+		it("tells a subagent's detached snapshot run to hold its turn", () => {
+			expect(reasonFor("npm run test &", "sub")).toContain(
+				"and notifies: then hold your turn on it as the line above says, never ending it. A ",
+			);
+		});
+
+		it("still tells the parent's held run to end its turn", () => {
+			const reason = reasonFor("timeout 300 npm run test -- --full=x &");
+			expect(reason).toContain("almost never delivered. A ");
+			expect(reason).toContain("end the turn with NO tool call. If ");
+		});
+	});
+
 	it("honours one segment's detach escape for the whole command", () => {
 		expect(verdict("WFC_SUITE_DETACH=1 npm run test; npm run test:py &")).toBe(
 			"allow",

@@ -218,6 +218,7 @@ const isPassStoreLaunch = (route, argv, env = process.env) =>
 module.exports = {
 	isPassStoreLaunch,
 	QUEUE_FLAG,
+	ISOLATED_FLAG,
 	SHARED_FLAG,
 	FULL_FLAG,
 	FULL_PREFIX,
