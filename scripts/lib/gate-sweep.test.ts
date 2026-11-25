@@ -17,6 +17,8 @@ const { launchBatch } = require("./refill-batch.js");
 
 const WFC = "/home/u/workflow-core";
 const NOW = Date.parse("2026-10-21T17:00:00Z");
+const hour = 60 * 60 * 1000;
+const day = 24 * hour;
 
 let dir: string;
 let file: string;
@@ -196,8 +198,108 @@ describe("which readings queue a judgement", () => {
 	});
 });
 
+describe("a reading's printed verdict orders its judging (#5696)", () => {
+	async function queuedAcross(n: number, steps: [number, string][]) {
+		const queuedOn: number[] = [];
+		for (const [at, reading] of steps) {
+			const { store } = await sweepOnce(envelope([row(n, reading)]), NOW + at);
+			if (store.pending.length > 0) queuedOn.push(at);
+			dropTried(file, [{ root: WFC, issues: [n] }], throwOnLog);
+		}
+		return queuedOn;
+	}
+
+	it("queues a reading turned met inside the 6-hour window at once", async () => {
+		expect(
+			await queuedAcross(5525, [
+				[0, "unmet: fantasy-books pins v3.2.0"],
+				[GATE_SWEEP_MS, "met: fantasy-books pins v3.2.1"],
+			]),
+		).toEqual([0, GATE_SWEEP_MS]);
+	});
+
+	it("queues none on a count that moves below its threshold, and one the sweep it reaches it", async () => {
+		expect(
+			await queuedAcross(5024, [
+				[0, "12 of 423 lander batches since f8203cdf0 reached main\nunmet"],
+				[
+					GATE_SWEEP_MS,
+					"13 of 423 lander batches since f8203cdf0 reached main\nunmet",
+				],
+				[
+					7 * hour,
+					"200 of 423 lander batches since f8203cdf0 reached main\nunmet",
+				],
+				[
+					7 * hour + GATE_SWEEP_MS,
+					"423 of 423 lander batches since f8203cdf0 reached main\nmet",
+				],
+			]),
+		).toEqual([0, 7 * hour + GATE_SWEEP_MS]);
+	});
+
+	it("keeps the 6-hour bound for a met reading that changes again, the judge having ruled", async () => {
+		expect(
+			await queuedAcross(5346, [
+				[0, "unmet: 1200 of 1308 precondition minutes"],
+				[GATE_SWEEP_MS, "met (clean): 1308 of 1308 precondition minutes"],
+				[2 * GATE_SWEEP_MS, "met (clean): 1309 of 1308 precondition minutes"],
+				[
+					GATE_SWEEP_MS + 6 * hour,
+					"met (clean): 1320 of 1308 precondition minutes",
+				],
+			]),
+		).toEqual([0, GATE_SWEEP_MS, GATE_SWEEP_MS + 6 * hour]);
+	});
+
+	it("reads a reading as met only where no line opens unmet and every count reaches its threshold", async () => {
+		expect(
+			await queuedAcross(3425, [
+				[0, "#3576 OPEN\n#3423 counts 0 of 15 adopter commits"],
+				[
+					GATE_SWEEP_MS,
+					"#3576 1 of 1 closed\n#3423 counts 4 of 15 adopter commits",
+				],
+				[2 * GATE_SWEEP_MS, "met: 15 of 15\nunmet: #3576 open"],
+			]),
+		).toEqual([0]);
+	});
+
+	it("reads a count with no verdict line by its threshold", async () => {
+		expect(
+			await queuedAcross(3425, [
+				[0, "#3576 CLOSED\n#3423 counts 0 of 15 adopter commits"],
+				[7 * hour, "#3576 CLOSED\n#3423 counts 4 of 15 adopter commits"],
+				[
+					7 * hour + GATE_SWEEP_MS,
+					"#3576 CLOSED\n#3423 counts 15 of 15 adopter commits",
+				],
+			]),
+		).toEqual([0, 7 * hour + GATE_SWEEP_MS]);
+	});
+
+	it("still judges a changed reading that reads unmet once 14 days pass, the judge deciding met", async () => {
+		expect(
+			await queuedAcross(5715, [
+				[0, "unmet: no release holds 6da0d8f18"],
+				[13 * day, "unmet: v3.2.3 lacks 6da0d8f18"],
+				[14 * day, "unmet: v3.2.4 lacks 6da0d8f18"],
+			]),
+		).toEqual([0, 14 * day]);
+	});
+
+	it("keeps the 6-hour bound for a changed reading that prints no verdict", async () => {
+		expect(
+			await queuedAcross(285, [
+				[0, "7"],
+				[GATE_SWEEP_MS, "8"],
+				[6 * hour, "9"],
+			]),
+		).toEqual([0, 6 * hour]);
+	});
+});
+
 describe("a gate with no check: (lucmoseley/mantahostels#3869)", () => {
-	const day = 24 * 60 * 60 * 1000;
 	const unchecked = (n: number) =>
 		row(n, "no `check:` — judge the condition by hand", "NOT-STATED");
 

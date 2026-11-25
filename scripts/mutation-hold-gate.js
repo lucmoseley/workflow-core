@@ -89,7 +89,7 @@ const SEED_VOICE = {
 	again: "seed again",
 };
 
-/* https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/core/src/config/config-file-formats.ts */
+/* The config file names Stryker v10.1.1 looks for: https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/core/src/config/config-file-formats.ts */
 const CONFIG_NAMES = ["", "."].flatMap((dot) =>
 	[".conf", ".config"].flatMap((kind) =>
 		["json", "js", "mjs", "cjs"].map((ext) => `${dot}stryker${kind}.${ext}`),
@@ -106,7 +106,7 @@ const DISABLE_TEXT = "Stryker disable";
 const COMPONENT = /\.(html|vue|svelte)$/;
 const SCRIPT = /(<script\b([^>]*)>)([\s\S]*?)<\/script\s*>/gi;
 const ATTRIBUTE = /([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g;
-/* https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/parsers/html-parser.ts */
+/* The script types Stryker v10.1.1's HTML parser mutates: https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/parsers/html-parser.ts */
 const TSX_SCRIPT_TYPES = ["tsx", "text/tsx"];
 const TS_SCRIPT_TYPES = ["ts", "text/typescript", "typescript"];
 const JS_SCRIPT_TYPES = ["js", "text/javascript", "javascript", "module"];
