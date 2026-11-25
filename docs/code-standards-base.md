@@ -164,7 +164,7 @@ A value that was chosen — a threshold, a size, a count, a timeout — states w
 
 ### §G3 · A retained escape hatch silences only a style-only or faulty rule, and names it — **hard**
 
-A suppression is K3: the tool's own directive naming the rule, inline on the line it excuses, one rule per directive, never bare and never a file-top blanket. It silences only a rule that is style-only or faulty, which `scripts/lib/style-only-rules.json` lists by tool. A `Stryker disable` clearing a mutant no test can kill takes K3's faulty-finding route instead: admitted on its reason, never through the list, and it may name `all` (#5720). A suppression of a correctness rule is refused: fix the code.
+A suppression is K3: the tool's own directive naming the rule, inline on the line it excuses, one rule per directive, never bare and never a file-top blanket. It silences only a rule that is style-only or faulty, which `scripts/lib/style-only-rules.json` lists by tool. A `Stryker disable` clearing a mutant no test can kill takes K3's faulty-finding route instead: K3's form binds it, not this paragraph's, so it is admitted on its reason, never through the list, and it may name several mutators or `all` and open a region a `Stryker restore` closes (#5720). A suppression of a correctness rule is refused: fix the code.
 
 An empty block is no escape hatch either: the code changes shape so the block holds a statement (#5488).
 

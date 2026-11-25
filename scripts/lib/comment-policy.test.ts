@@ -403,7 +403,7 @@ describe("the refused shapes", () => {
 			"SUPPRESSION@3",
 		]);
 		expect(out[0]?.why).toContain(
-			"a stryker suppression of EqualityOperator, not on the style-only list",
+			"a Stryker disable Stryker does not read, or one with no reason after its colon",
 		);
 		expect(tags(src(":"), "js")).toEqual(["SUPPRESSION@1", "SUPPRESSION@3"]);
 		expect(
@@ -446,14 +446,14 @@ describe("the refused shapes", () => {
 		]);
 	});
 
-	it("admits a Stryker restore only where Stryker reads one", () => {
+	it("admits a Stryker restore only where Stryker reads one (#5495)", () => {
 		const code = "\nconst a = 1;\n";
 		expect(tags(`// Stryker restore all${code}`, "js")).toEqual([]);
 		expect(tags(`/*\nStryker restore all\n*/${code}`, "js")).toEqual([]);
 		for (const head of ["//  Stryker restore all", "// stryker restore all"])
-			expect(
-				tags(`${head}: the mutant is equivalent${code}`, "js"),
-			).not.toEqual([]);
+			expect(tags(`${head}: the mutant is equivalent${code}`, "js")).toEqual([
+				"COMMENT@1",
+			]);
 	});
 
 	it("judges the prose beside a suppression on its own", () => {
