@@ -3,7 +3,7 @@ const { DENIES_THROUGH_BODY } = require("./deny-capable.js");
 const { SHIM_MARK } = require("./hook-shim.js");
 const { EXEMPT_MARKERS, ISSUE_REF, POINTER } = require("./exempt-markers.js");
 const { escapeRe } = require("./regex-group.js");
-const { docPath } = require("./script-path.js");
+const { docPath, scriptPath } = require("./script-path.js");
 const { scanJs } = require("./strip-comments.js");
 const {
 	parseStrykerDirective,
@@ -732,8 +732,8 @@ function suppressionWhy(d, bad) {
 	if (d.tool === "stryker")
 		return `a Stryker disable Stryker does not read, or one with no reason after its colon — write \`Stryker disable [next-line] <mutators|all>: <reason>\` as K3 gives it (${docPath("comment-kinds.md")}), or fix the code`;
 	return d.rules.length === 0
-		? `a ${d.tool} suppression naming no rule — name a rule on the style-only list (scripts/lib/style-only-rules.json), or fix the code`
-		: `a ${d.tool} suppression of ${bad.join(", ")}, not on the style-only list (scripts/lib/style-only-rules.json) — fix the code instead`;
+		? `a ${d.tool} suppression naming no rule — name a rule on the style-only list (${scriptPath("lib/style-only-rules.json")}), or fix the code`
+		: `a ${d.tool} suppression of ${bad.join(", ")}, not on the style-only list (${scriptPath("lib/style-only-rules.json")}) — fix the code instead`;
 }
 
 /**
