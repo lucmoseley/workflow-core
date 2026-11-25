@@ -199,10 +199,10 @@ function unfetchedCheckout(command) {
  * @param {string} dir
  */
 const buildUnfetchedRefusal = (command, dir) => {
-	const file = `\`gh api -H "Accept: application/vnd.github.raw+json" repos/<owner/repo>/contents/<path>\``;
+	const ghContentsRead = `\`gh api -H "Accept: application/vnd.github.raw+json" repos/<owner/repo>/contents/<path>\``;
 	const live = isCoreRepo()
-		? `for an adopter's workflow-core pin, \`node ${scriptPath("release-contains.js")} <sha> --pinned-by <owner/repo>\`; for any other file, ${file}`
-		: file;
+		? `for an adopter's workflow-core pin, \`node ${scriptPath("release-contains.js")} <sha> --pinned-by <owner/repo>\`; for any other file, ${ghContentsRead}`
+		: ghContentsRead;
 	return `the \`check:\` \`${command}\` on the \`**Gated on:**\` line reads an \`origin/\` ref in ${dir}, which nothing fetches, so its reading never changes and no judge is queued when the condition comes true (#5697). Read GitHub live instead: ${live}. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
 };
 

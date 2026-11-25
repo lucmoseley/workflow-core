@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -161,16 +162,17 @@ describe("a check reading an unfetched origin ref (#5697)", () => {
 		},
 	);
 
-	it("names only the gh api read in an adopter, which ships no release-contains.js", () => {
-		const notCore = fs.mkdtempSync(path.join(os.tmpdir(), "gate-adopter-"));
-		vi.stubEnv("GIT_DIR", notCore);
+	it("names only the gh api read in an adopter, which ships no release-contains.js, where the case above names both (#5757)", () => {
+		const adopter = fs.mkdtempSync(path.join(os.tmpdir(), "gate-adopter-"));
 		try {
+			execFileSync("git", ["init", "-q", adopter]);
+			vi.stubEnv("GIT_DIR", path.join(adopter, ".git"));
 			const { refusals } = verdictOf("", gate(`\`${pinRead}\``), false);
+			expect(refusals).toHaveLength(1);
 			expect(refusals[0]).toContain("gh api");
 			expect(refusals[0]).not.toContain("release-contains");
 		} finally {
-			vi.unstubAllEnvs();
-			fs.rmSync(notCore, { recursive: true, force: true });
+			fs.rmSync(adopter, { recursive: true, force: true });
 		}
 	});
 
