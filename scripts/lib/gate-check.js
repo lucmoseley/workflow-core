@@ -8,10 +8,11 @@ const {
 	isRunnerFailure,
 } = require("./run-budgeted.js");
 const { caught } = require("./caught.js");
-const { docPath, scriptPath } = require("./script-path");
+const { docPath, isCoreRepo, scriptPath } = require("./script-path");
 const { gateOnOf, parseAddedGateLines } = require("./issue-gate.js");
 const { hostRoot } = require("./host-root.js");
 const { isSameRepo } = require("./issue-ref.js");
+const { requiredGroup } = require("./regex-group.js");
 const {
 	buildCheckoutEnv,
 	homeDir,
@@ -166,6 +167,45 @@ function classifyExit(r, { out, err, timeoutMs, elapsedMs }) {
 const PRINTING_FIX =
 	'`git merge-base --is-ancestor X origin/main && echo "met: on main" || echo "unmet: not on main"`';
 
+const GIT_C_ORIGIN = /\bgit\s+-C\s+(\S+)\s[^;&|]*?\borigin\//g;
+const GIT_C_FETCH = /\bgit\s+-C\s+(\S+)\s+fetch\b/g;
+
+/** @param {string} dir */
+const sameCheckout = (dir) =>
+	dir
+		.replace(/^["']|["']$/g, "")
+		.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, "~");
+
+/**
+ * #5697
+ * @param {string} command
+ * @returns {string|null}
+ */
+function unfetchedCheckout(command) {
+	const fetched = [...command.matchAll(GIT_C_FETCH)].map((m) => ({
+		at: m.index,
+		dir: sameCheckout(requiredGroup(m, 1, GIT_C_FETCH)),
+	}));
+	for (const m of command.matchAll(GIT_C_ORIGIN)) {
+		const dir = requiredGroup(m, 1, GIT_C_ORIGIN);
+		const key = sameCheckout(dir);
+		if (!fetched.some((f) => f.at < m.index && f.dir === key)) return dir;
+	}
+	return null;
+}
+
+/**
+ * @param {string} command
+ * @param {string} dir
+ */
+const buildUnfetchedRefusal = (command, dir) => {
+	const ghContentsRead = `\`gh api -H "Accept: application/vnd.github.raw+json" repos/<owner/repo>/contents/<path>\``;
+	const live = isCoreRepo()
+		? `for an adopter's workflow-core pin, \`node ${scriptPath("release-contains.js")} <sha> --pinned-by <owner/repo>\`; for any other file, ${ghContentsRead}`
+		: ghContentsRead;
+	return `the \`check:\` \`${command}\` on the \`**Gated on:**\` line reads an \`origin/\` ref in ${dir}, which nothing fetches, so its reading never changes and no judge is queued when the condition comes true (#5697). Read GitHub live instead: ${live}. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
+};
+
 /**
  * @param {string} [repo]
  * @returns {{root: string, env?: NodeJS.ProcessEnv} | {why: string}}
@@ -202,6 +242,11 @@ function addedCheckVerdict(
 		const u = unwrap(gateOn.command);
 		if (!u.ok) {
 			refusals.push(buildSilentRefusal(gateOn.command, u.why, "NOT-A-COMMAND"));
+			continue;
+		}
+		const unfetched = unfetchedCheckout(u.command);
+		if (unfetched !== null) {
+			refusals.push(buildUnfetchedRefusal(u.command, unfetched));
 			continue;
 		}
 		if (!run) {

@@ -29214,6 +29214,7 @@
 			"scripts/refill-loop-run.test.ts",
 			"scripts/refill-loop.test.ts",
 			"scripts/register-doc.test.ts",
+			"scripts/release-contains.test.ts",
 			"scripts/release-issue-claim.test.ts",
 			"scripts/release-plugin.test.ts",
 			"scripts/repair-sweep-slot.test.ts",
