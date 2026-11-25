@@ -12,7 +12,7 @@ const { docPath, scriptPath } = require("./script-path");
 const { gateOnOf, parseAddedGateLines } = require("./issue-gate.js");
 const { hostRoot } = require("./host-root.js");
 const { isSameRepo } = require("./issue-ref.js");
-const { escapeRe } = require("./regex-group.js");
+const { requiredGroup } = require("./regex-group.js");
 const {
 	buildCheckoutEnv,
 	homeDir,
@@ -168,17 +168,28 @@ const PRINTING_FIX =
 	'`git merge-base --is-ancestor X origin/main && echo "on main" || echo "not on main"`';
 
 const GIT_C_ORIGIN = /\bgit\s+-C\s+(\S+)\s[^;&|]*?\borigin\//g;
+const GIT_C_FETCH = /\bgit\s+-C\s+(\S+)\s+fetch\b/g;
+
+/** @param {string} dir */
+const sameCheckout = (dir) =>
+	dir
+		.replace(/^["']|["']$/g, "")
+		.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, "~");
 
 /**
  * #5697
  * @param {string} command
  * @returns {string|null}
  */
-function unfetchedOriginRead(command) {
+function unfetchedCheckout(command) {
+	const fetched = [...command.matchAll(GIT_C_FETCH)].map((m) => ({
+		at: m.index,
+		dir: sameCheckout(requiredGroup(m, 1, GIT_C_FETCH)),
+	}));
 	for (const m of command.matchAll(GIT_C_ORIGIN)) {
-		const dir = m[1] ?? "";
-		const fetch = new RegExp(`\\bgit\\s+-C\\s+${escapeRe(dir)}\\s+fetch\\b`);
-		if (!fetch.test(command.slice(0, m.index))) return dir;
+		const dir = requiredGroup(m, 1, GIT_C_ORIGIN);
+		const key = sameCheckout(dir);
+		if (!fetched.some((f) => f.at < m.index && f.dir === key)) return dir;
 	}
 	return null;
 }
@@ -188,7 +199,7 @@ function unfetchedOriginRead(command) {
  * @param {string} dir
  */
 const buildUnfetchedRefusal = (command, dir) =>
-	`the \`check:\` \`${command}\` on the \`**Gated on:**\` line reads an \`origin/\` ref in ${dir}, which nothing fetches, so its reading never changes and no judge is queued when the condition comes true (#5697). Read GitHub live instead: for an adopter's workflow-core pin, \`node scripts/release-contains.js <sha> --pinned-by <owner/repo>\` in a workflow-core checkout; for any other file, \`gh api -H "Accept: application/vnd.github.raw+json" repos/<owner/repo>/contents/<path>\`. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
+	`the \`check:\` \`${command}\` on the \`**Gated on:**\` line reads an \`origin/\` ref in ${dir}, which nothing fetches, so its reading never changes and no judge is queued when the condition comes true (#5697). Read GitHub live instead: for an adopter's workflow-core pin on a workflow-core issue's gate, \`node ${scriptPath("release-contains.js")} <sha> --pinned-by <owner/repo>\`; for any other file, \`gh api -H "Accept: application/vnd.github.raw+json" repos/<owner/repo>/contents/<path>\`. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
 
 /**
  * @param {string} [repo]
@@ -228,7 +239,7 @@ function addedCheckVerdict(
 			refusals.push(buildSilentRefusal(gateOn.command, u.why, "NOT-A-COMMAND"));
 			continue;
 		}
-		const unfetched = unfetchedOriginRead(u.command);
+		const unfetched = unfetchedCheckout(u.command);
 		if (unfetched !== null) {
 			refusals.push(buildUnfetchedRefusal(u.command, unfetched));
 			continue;

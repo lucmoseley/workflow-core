@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { stubGhScript } from "./lib/gh-stub";
+import { printed, refused, stubGhRoutes } from "./lib/gh-stub";
 import {
 	defineTemplate,
 	identityRepoTemplate,
@@ -12,7 +12,6 @@ import {
 } from "./lib/git-fixture";
 import { buildReleaseMessage } from "./lib/release-tags.js";
 import { runInProcess } from "./lib/run-in-process";
-import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "release-contains.js");
 
@@ -69,10 +68,10 @@ const settingsPinning = (ref: string) =>
 	});
 
 const servingSettings = (settings: string) =>
-	stubGhScript(
-		dir,
-		`#!/bin/sh\ncase "$*" in *repos/o/adopter/contents/.claude/settings.json*) printf %s ${shellQuote(settings)} ;; *) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;; esac\n`,
-	).env;
+	stubGhRoutes(dir, {
+		"repos/o/adopter/contents/.claude/settings.json": printed(settings),
+		"*": refused("gh: Not Found (HTTP 404)"),
+	}).env;
 
 let first: string;
 let second: string;
@@ -159,18 +158,61 @@ describe("release-contains", () => {
 			expect(r.out).toContain("unmet: o/adopter pins v1.0.0");
 		});
 
-		it("exits 2 where the pin cannot be read or names no tag in this clone", () => {
-			const env = servingSettings(settingsPinning("v9.0.0"));
-			expect(askWith(env, first, "--pinned-by", "o/adopter").out).toContain(
-				"v9.0.0 is no release tag in this clone",
+		it("fetches a pinned tag this clone lacks from its origin before judging", () => {
+			const origin = path.join(dir, "origin");
+			fs.mkdirSync(origin);
+			gitIn(origin, "init", "-q", "--bare");
+			git("remote", "add", "origin", origin);
+			git("push", "-q", "origin", "HEAD:refs/heads/main", "v1.1.0");
+			git("tag", "-d", "v1.1.0");
+			const r = askWith(
+				servingSettings(settingsPinning("v1.1.0")),
+				second,
+				"--pinned-by",
+				"o/adopter",
 			);
-			const gone = askWith(env, first, "--pinned-by", "o/elsewhere");
-			expect(gone.status).toBe(2);
-			expect(gone.out).toContain("cannot read o/elsewhere's pin");
-			expect(
-				askWith(servingSettings("{}"), first, "--pinned-by", "o/adopter").out,
-			).toContain("pins no workflow-core ref");
-			expect(ask(first, "--pinned-by", "not-a-repo").status).toBe(2);
+			expect(r.status).toBe(0);
+			expect(r.out).toContain("met: o/adopter pins v1.1.0");
+		});
+
+		it.each([
+			[
+				"a release neither this clone nor its origin holds",
+				"o/adopter",
+				"v9.0.0",
+				"v9.0.0 is no release tag in this clone or on its origin",
+			],
+			[
+				"a repo GitHub does not serve",
+				"o/elsewhere",
+				"v1.1.0",
+				"cannot read o/elsewhere's pin: GitHub did not serve its settings",
+			],
+		])("exits 2 on %s", (_what, adopter, ref, says) => {
+			const r = askWith(
+				servingSettings(settingsPinning(ref)),
+				first,
+				"--pinned-by",
+				adopter,
+			);
+			expect(r.status).toBe(2);
+			expect(r.out).toContain(says);
+		});
+
+		it("exits 2 on settings pinning no workflow-core ref, and on a malformed repo", () => {
+			const none = askWith(
+				servingSettings("{}"),
+				first,
+				"--pinned-by",
+				"o/adopter",
+			);
+			expect(none.status).toBe(2);
+			expect(none.out).toContain("pins no workflow-core ref");
+			const bad = ask(first, "--pinned-by", "not-a-repo");
+			expect(bad.status).toBe(2);
+			expect(bad.out).toContain(
+				"--pinned-by takes <owner/repo>, not not-a-repo",
+			);
 		});
 	});
 });

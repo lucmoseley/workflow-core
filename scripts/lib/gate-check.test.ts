@@ -162,6 +162,7 @@ describe("a check reading an unfetched origin ref (#5697)", () => {
 	it("passes one that fetches that checkout first, and a read of the host's own origin", () => {
 		for (const check of [
 			`git -C ~/x fetch -q origin && ${pinRead}`,
+			`git -C "$HOME/x" fetch -q && ${pinRead}`,
 			"git merge-base --is-ancestor HEAD origin/main && echo on || echo off",
 		])
 			expect(verdictOf("", gate(check), false).refusals).toEqual([]);
