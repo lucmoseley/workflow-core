@@ -8,8 +8,8 @@ import {
 	awayLoadEnv,
 	epoch,
 	awayLoadEvents as events,
-	memwatchReading,
 	writeAwayLoadGate,
+	writeMemwatchReading,
 } from "./lib/away-load-fixture";
 import { gitBinary, gitSpawnOptions } from "./lib/git.js";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
@@ -70,7 +70,7 @@ describe("run", () => {
 	it("starts on 15 idle minutes, holds and loads, and stops on input", async () => {
 		const { env, files } = rig("run");
 		writeAwayLoadGate(env.WFC_AWAY_LOAD_STATE_DIR);
-		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 900));
+		writeMemwatchReading(env.MEMWATCH_WIN_OUT, epoch(), 1100, 900);
 		const child = keptSpawn("signal").spawn("node", [SCRIPT, "run"], {
 			env: { ...process.env, ...env },
 			stdio: "ignore",
@@ -92,10 +92,7 @@ describe("run", () => {
 				"-accepteula -d 64 -c 2\n-accepteula -d 64 -c 2\n-accepteula -d 64 -c 1\n",
 			);
 
-			fs.writeFileSync(
-				env.MEMWATCH_WIN_OUT,
-				memwatchReading(epoch() + 1, 1100, 3),
-			);
+			writeMemwatchReading(env.MEMWATCH_WIN_OUT, epoch() + 1, 1100, 3);
 			await until("the stop", () =>
 				events(env.WFC_AWAY_LOAD_LOG).some((e) => e.event === "stop"),
 			);
@@ -142,16 +139,13 @@ describe("run, by its readings", () => {
 	it("releases only the newest holders, about the shortfall (#5472, where a release ended them all)", async () => {
 		const { env, files } = rig("release");
 		writeAwayLoadGate(env.WFC_AWAY_LOAD_STATE_DIR);
-		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 900));
+		writeMemwatchReading(env.MEMWATCH_WIN_OUT, epoch(), 1100, 900);
 		let held: number[] = [];
 		let oldestKept = false;
 		await runUntil(env, "the release", () => {
 			if (held.length === 0 && readPids(files.holders).length === 3) {
 				held = readPids(files.holders);
-				fs.writeFileSync(
-					env.MEMWATCH_WIN_OUT,
-					memwatchReading(epoch() + 1, 700, 900),
-				);
+				writeMemwatchReading(env.MEMWATCH_WIN_OUT, epoch() + 1, 700, 900);
 			}
 			const released =
 				events(env.WFC_AWAY_LOAD_LOG).some((e) => e.event === "release") &&
@@ -169,16 +163,13 @@ describe("run, by its readings", () => {
 	it("ends the whole hold where Windows runs more Testlimits than it holds", async () => {
 		const { env, files, tasks } = rig("strays");
 		writeAwayLoadGate(env.WFC_AWAY_LOAD_STATE_DIR);
-		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 900));
+		writeMemwatchReading(env.MEMWATCH_WIN_OUT, epoch(), 1100, 900);
 		let held: number[] = [];
 		await runUntil(env, "the strays", () => {
 			if (held.length === 0 && readPids(files.holders).length === 3) {
 				held = readPids(files.holders);
 				tasks.setStrays(1);
-				fs.writeFileSync(
-					env.MEMWATCH_WIN_OUT,
-					memwatchReading(epoch() + 1, 800, 900),
-				);
+				writeMemwatchReading(env.MEMWATCH_WIN_OUT, epoch() + 1, 800, 900);
 			}
 			return (
 				events(env.WFC_AWAY_LOAD_LOG).some((e) => e.event === "strays") &&
@@ -196,7 +187,7 @@ describe("run, by its readings", () => {
 	it("logs the gate met while it waits, and writes the end", async () => {
 		const { env } = rig("finish");
 		writeAwayLoadGate(env.WFC_AWAY_LOAD_STATE_DIR);
-		fs.writeFileSync(env.MEMWATCH_WIN_OUT, memwatchReading(epoch(), 1100, 3));
+		writeMemwatchReading(env.MEMWATCH_WIN_OUT, epoch(), 1100, 3);
 		const row = JSON.stringify({
 			ts: "2026-11-24T19:00:00+0800",
 			cpu_busy_pct: 600,

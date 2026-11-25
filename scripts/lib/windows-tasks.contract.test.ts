@@ -9,8 +9,8 @@ import {
 	awayLoadEnv,
 	awayLoadEvents,
 	epoch,
-	memwatchReading,
 	writeAwayLoadGate,
+	writeMemwatchReading,
 } from "./away-load-fixture";
 import { keptSpawn } from "./kept-spawn.js";
 import { runInProcessAsync } from "./run-in-process.js";
@@ -98,10 +98,7 @@ describe.each([
 					.filter((l) => l.startsWith(`"${image}"`)).length;
 			const at = epoch();
 			const read = (n: number, availMb: number) =>
-				fs.writeFileSync(
-					env.MEMWATCH_WIN_OUT,
-					memwatchReading(at + n, availMb, 900),
-				);
+				writeMemwatchReading(env.MEMWATCH_WIN_OUT, at + n, availMb, 900);
 			read(0, 891);
 			writeAwayLoadGate(env.WFC_AWAY_LOAD_STATE_DIR);
 			const runner = keptSpawn("signal").spawn("node", [AWAY_LOAD, "run"], {

@@ -7,8 +7,17 @@ export const epoch = () => Math.floor(Date.now() / 1000);
 
 export const awayLoadEvents = (log: string) => readJsonl(log)?.rows ?? [];
 
-export const memwatchReading = (at: number, availMb: number, idleS: number) =>
-	`${at} ${availMb} 1 2 60 100 ${idleS}\n`;
+/* #5751 */
+export function writeMemwatchReading(
+	file: string,
+	at: number,
+	availMb: number,
+	idleS: number,
+) {
+	const tmp = `${file}.tmp`;
+	fs.writeFileSync(tmp, `${at} ${availMb} 1 2 60 100 ${idleS}\n`);
+	fs.renameSync(tmp, file);
+}
 
 export function awayLoadEnv(
 	dir: string,
