@@ -620,8 +620,8 @@ const DIRECTIVES = [
 		read: readsAsCode,
 	},
 	{
-		re: /^Stryker\s+disable\s+(?:next-line\s+)?([^:]*)/i,
-		read: suppresses("stryker"),
+		re: /^Stryker\s+disable\s+(?:next-line\s+)?([^:]*)(?::(.*))?/i,
+		read: (m) => (m[2] ? "code" : suppresses("stryker")(m)),
 	},
 	{ re: /^Stryker\s+restore\b/i, read: readsAsCode },
 	{

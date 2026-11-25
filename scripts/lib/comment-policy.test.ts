@@ -387,6 +387,27 @@ describe("the refused shapes", () => {
 		]);
 	});
 
+	it("passes a Stryker disable stating its reason, and refuses one stating none (#5720)", () => {
+		const src = (tail: string) =>
+			[
+				`// Stryker disable next-line EqualityOperator${tail}`,
+				"const a = b <= c;",
+				`/* Stryker disable all${tail} */`,
+				"const d = 1;",
+				"",
+			].join("\n");
+		expect(tags(src(": an equivalent mutant"), "js")).toEqual([]);
+		const out = judge(src(""), "js");
+		expect(out.map((b) => `${b.tag}@${b.line}`)).toEqual([
+			"SUPPRESSION@1",
+			"SUPPRESSION@3",
+		]);
+		expect(out[0]?.why).toContain(
+			"a stryker suppression of EqualityOperator, not on the style-only list",
+		);
+		expect(tags(src(":"), "js")).toEqual(["SUPPRESSION@1", "SUPPRESSION@3"]);
+	});
+
 	it("judges the prose beside a suppression on its own", () => {
 		expect(
 			tags(
