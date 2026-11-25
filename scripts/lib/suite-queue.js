@@ -794,15 +794,15 @@ const isMemoryHeldWaiter = (r) =>
 
 /**
  * #5703
- * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean, unreadMb?: () => number }} [options]
+ * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean, unreadMb: () => number }} options
  * @returns {import("./admission.js").Typechecks}
  */
 function readLiveTypechecks({
 	queueDir = defaultTscQueueDir(),
 	queueFs = fs,
 	alive = pidAlive,
-	unreadMb = () => launchChargeMb({ kind: "tsc" }),
-} = {}) {
+	unreadMb,
+}) {
 	const { markers, error } = readMarkers(queueDir, queueFs);
 	if (error !== null)
 		return {

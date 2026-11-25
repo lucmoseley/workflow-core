@@ -139,7 +139,7 @@ function cpuSlotsRow(cpu) {
  * @typedef {{ live: { pid: number, chargeMb: number, spawned: boolean, part: boolean }[], unread: UnreadReserve | null }} Gates
  * @typedef {{ live: { pid: number, chargeMb: number, spawned: boolean }[], unread: UnreadReserve | null }} Typechecks
  * @typedef {{ landers: Landers, gates: Gates, heldRuns: HeldRuns, typechecks: Typechecks, testsHeld: number }} Reserves
- * @typedef {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} HeldTree
+ * @typedef {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string>, selfPid?: string }} HeldTree
  * @typedef {{ pid: string, rssKb: number, args: string }} PsRow
  * @typedef {{ ok: true, rows: PsRow[] } | { ok: false, error: string }} PsRead
  * @typedef {import("./meminfo.js").MeminfoRead} MeminfoRead
@@ -677,20 +677,30 @@ function sessionsPssKb(ids, { pids, pairs, pssKbOf, children, gateSeatPids }) {
  * @param {HeldTree} tree
  * @returns {(pid: string) => number}
  */
-function undrawnTreeKb({ pssKbOf, children, sessionPids }) {
+function undrawnTreeKb({ pssKbOf, children, sessionPids, selfPid }) {
 	/** @type {string[]} */
 	const underSessions = [];
 	for (const pid of sessionPids)
-		descendantsPssKb(
-			pid,
-			{ children, stopPids: sessionPids, pssKbOf: () => 0 },
-			underSessions,
-		);
+		if (pid !== selfPid)
+			descendantsPssKb(
+				pid,
+				{ children, stopPids: sessionPids, pssKbOf: () => 0 },
+				underSessions,
+			);
 	return (pid) =>
 		underSessions.includes(pid)
 			? 0
 			: descendantsPssKb(pid, { children, stopPids: sessionPids, pssKbOf }, []);
 }
+
+/**
+ * @param {Map<string, number> | undefined} pids
+ * @param {string | undefined} id
+ */
+const selfPidOf = (pids, id) => {
+	const pid = id === undefined ? undefined : pids?.get(id);
+	return pid === undefined ? undefined : String(pid);
+};
 
 /**
  * @param {Landers} landers
@@ -1527,6 +1537,7 @@ function machineAdmission({
 		pssKbOf: readPssKb,
 		children,
 		sessionPids: new Set([...(listed.pids?.values() ?? [])].map(String)),
+		selfPid: selfPidOf(listed.pids, process.env.CLAUDE_CODE_SESSION_ID),
 	};
 	const reserveReadings = {
 		windows: readWindowsMemory(),

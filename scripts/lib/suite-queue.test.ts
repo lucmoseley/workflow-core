@@ -430,6 +430,7 @@ describe("readLiveTypechecks (#5703)", () => {
 			readLiveTypechecks({
 				queueDir: tscDir,
 				alive: (pid: number) => pid !== 44,
+				unreadMb: () => 0,
 			}),
 		).toEqual({
 			live: [
@@ -446,7 +447,10 @@ describe("readLiveTypechecks (#5703)", () => {
 
 	it("reads none where no queue exists", () => {
 		expect(
-			readLiveTypechecks({ queueDir: path.join(qdir(), "wfc-tsc-queue") }),
+			readLiveTypechecks({
+				queueDir: path.join(qdir(), "wfc-tsc-queue"),
+				unreadMb: () => 0,
+			}),
 		).toEqual({ live: [], unread: null });
 	});
 

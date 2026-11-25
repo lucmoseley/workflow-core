@@ -1784,7 +1784,7 @@ describe("buildWindowsLine (#4956)", () => {
 });
 
 describe("the type-check reserve (#5703)", () => {
-	const Tsc = 1497;
+	const chargeMb = launchChargeMb({ kind: "tsc" });
 	const pid = String(process.pid);
 	const big = {
 		mb: 9000,
@@ -1792,28 +1792,25 @@ describe("the type-check reserve (#5703)", () => {
 		pss: GROWN_PSS,
 	};
 
-	it("holds none where no type-check is queued or running", () => {
-		expect(run(big).json.typecheckReserveMb).toBe(0);
-	});
-
-	it("holds a queued type-check's charge, less the live sessions' suite share", () => {
+	it("holds none with no type-check queued or running, and a queued one's charge less the live sessions' suite share", () => {
 		const without = run(big).json;
+		expect(without.typecheckReserveMb).toBe(0);
 		const { json } = run({
 			...big,
-			typechecks: [{ pid: process.pid, chargeMb: Tsc }],
+			typechecks: [{ pid: process.pid, chargeMb }],
 		});
-		expect(json.typecheckReserveMb).toBe(Tsc - 147);
+		expect(json.typecheckReserveMb).toBe(chargeMb - 147);
 		expect(json.budgetMb).toBe(without.budgetMb - json.typecheckReserveMb);
 	});
 
 	it("holds a running type-check's charge less the PSS its tree already holds", () => {
 		const queued = run({
 			...big,
-			typechecks: [{ pid: process.pid, chargeMb: Tsc }],
+			typechecks: [{ pid: process.pid, chargeMb }],
 		}).json;
 		const { json } = run({
 			...big,
-			typechecks: [{ pid: process.pid, chargeMb: Tsc, spawned: true }],
+			typechecks: [{ pid: process.pid, chargeMb, spawned: true }],
 			pss: { ...GROWN_PSS, "9001": mbKb(600) },
 			parents: { "9001": pid },
 		});
@@ -1823,29 +1820,44 @@ describe("the type-check reserve (#5703)", () => {
 	it("holds the full charge for a type-check a session started, whose PSS the session's draw already counts", () => {
 		const queued = run({
 			...big,
-			typechecks: [{ pid: process.pid, chargeMb: Tsc }],
+			typechecks: [{ pid: process.pid, chargeMb }],
 		}).json;
 		const { json } = run({
 			...big,
-			typechecks: [{ pid: process.pid, chargeMb: Tsc, spawned: true }],
+			typechecks: [{ pid: process.pid, chargeMb, spawned: true }],
 			pss: { ...GROWN_PSS, "9001": mbKb(600) },
 			parents: { [pid]: "701", "9001": pid },
 		});
 		expect(json.typecheckReserveMb).toBe(queued.typecheckReserveMb);
 	});
 
+	it("subtracts the PSS of a running type-check the admitting session started, whose own PSS no draw counts", () => {
+		const queued = run({
+			...big,
+			typechecks: [{ pid: process.pid, chargeMb }],
+		}).json;
+		const { json } = run({
+			...big,
+			sessions: [`${SELF}@702`, GROWN],
+			typechecks: [{ pid: process.pid, chargeMb, spawned: true }],
+			pss: { ...GROWN_PSS, "9001": mbKb(600) },
+			parents: { [pid]: "702", "9001": pid },
+		});
+		expect(json.typecheckReserveMb).toBe(queued.typecheckReserveMb - 600);
+	});
+
 	it("charges a memory-held type-check once, by the held-run reserve", () => {
 		const { json } = run({
 			...big,
-			typechecks: [{ pid: process.pid, chargeMb: Tsc, memoryHeld: true }],
+			typechecks: [{ pid: process.pid, chargeMb, memoryHeld: true }],
 		});
 		expect(json.typecheckReserveMb).toBe(0);
-		expect(json.heldRunMb).toBe(Tsc);
+		expect(json.heldRunMb).toBe(chargeMb);
 	});
 
 	it("holds none for a dead type-check's marker", () => {
 		expect(
-			run({ ...big, typechecks: [{ pid: 2 ** 22 + 1, chargeMb: Tsc }] }).json
+			run({ ...big, typechecks: [{ pid: 2 ** 22 + 1, chargeMb }] }).json
 				.typecheckReserveMb,
 		).toBe(0);
 	});
@@ -1870,7 +1882,7 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 				landers: readLiveLanders(),
 				gates: readLiveGateSeats(),
 				heldRuns,
-				typechecks: readLiveTypechecks(),
+				typechecks: readLiveTypechecks({ unreadMb: () => 0 }),
 				testsHeld: 0,
 			},
 		});
