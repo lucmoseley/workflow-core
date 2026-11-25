@@ -153,7 +153,7 @@ function withStderr(job, stderr) {
 
 /**
  * @param {RepoCheck} entry
- * @param {{ root: string, spawn: Spawn }} at
+ * @param {Launcher} launcher
  * @param {{ ms: number, by: string }} limit
  * @param {string[]} extra
  * @returns {Job}
@@ -517,6 +517,7 @@ function writeStandingIssue(host, jobs, { file, startMs }) {
 }
 
 /**
+ * @typedef {{ root: string, spawn: Spawn }} Launcher
  * @typedef {(file: string, args: string[],
  *   options: import("node:child_process").SpawnSyncOptionsWithStringEncoding)
  *   => import("node:child_process").SpawnSyncReturns<string>} Spawn

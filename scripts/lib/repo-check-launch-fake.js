@@ -1,21 +1,26 @@
 // #5734
 const fs = require("node:fs");
+const { sleepSync } = require("./sleep-sync.js");
 
 /**
  * @typedef {{ id: string, launches: string, envelope?: object | null,
  *   onRescan?: object, exit?: number, sleepMs?: number, stderr?: string }} StubSpec
- * @typedef {{ status: number, stdout: string, stderr: string }} StubAnswer
+ * @typedef {{ status: number, stdout: string, stderr: string } | { timedOut: true }} StubAnswer
  */
 
 /**
  * @param {StubSpec} spec
  * @param {string[]} argv
+ * @param {number} [timeoutMs]
  * @returns {StubAnswer}
  */
-function call(spec, argv) {
+function answer(spec, argv, timeoutMs) {
 	fs.appendFileSync(spec.launches, `${JSON.stringify([spec.id, ...argv])}\n`);
-	if (spec.sleepMs)
-		Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, spec.sleepMs);
+	if (spec.sleepMs && timeoutMs !== undefined && spec.sleepMs >= timeoutMs) {
+		sleepSync(timeoutMs);
+		return { timedOut: true };
+	}
+	if (spec.sleepMs) sleepSync(spec.sleepMs);
 	const envelope =
 		spec.onRescan && argv.includes("--rescan") ? spec.onRescan : spec.envelope;
 	return {
@@ -28,16 +33,18 @@ function call(spec, argv) {
 /**
  * @param {StubSpec} spec
  * @param {NodeJS.Module} shim
- * @returns {{ call: (argv: string[]) => StubAnswer }}
+ * @returns {{ answer: (argv: string[], timeoutMs?: number) => StubAnswer }}
  */
 function stubChecker(spec, shim) {
 	if (require.main === shim) {
-		const r = call(spec, process.argv.slice(2));
-		process.stdout.write(r.stdout);
-		process.stderr.write(r.stderr);
-		process.exitCode = r.status;
+		const r = answer(spec, process.argv.slice(2));
+		if ("status" in r) {
+			process.stdout.write(r.stdout);
+			process.stderr.write(r.stderr);
+			process.exitCode = r.status;
+		}
 	}
-	return { call: (argv) => call(spec, argv) };
+	return { answer: (argv, timeoutMs) => answer(spec, argv, timeoutMs) };
 }
 
 /**
@@ -54,12 +61,25 @@ function writeStubChecker(file, spec) {
 /**
  * @param {string} _file
  * @param {string[]} args
+ * @param {{ timeout?: number }} [options]
  * @returns {import("node:child_process").SpawnSyncReturns<string>}
  */
-function inProcessSpawn(_file, args) {
+function inProcessSpawn(_file, args, options = {}) {
 	const [shim = "", ...argv] = args;
 	delete require.cache[require.resolve(shim)];
-	const r = require(shim).call(argv);
+	const r = require(shim).answer(argv, options.timeout);
+	if ("timedOut" in r)
+		return {
+			pid: 0,
+			output: [null, "", ""],
+			stdout: "",
+			stderr: "",
+			status: null,
+			signal: "SIGKILL",
+			error: Object.assign(new Error("spawnSync ETIMEDOUT"), {
+				code: "ETIMEDOUT",
+			}),
+		};
 	return {
 		pid: 0,
 		output: [null, r.stdout, r.stderr],

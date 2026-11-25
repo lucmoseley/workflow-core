@@ -5,13 +5,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { writeStubChecker } from "./lib/fixtures/stub-checker.js";
 import { stubGhScript } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
 import { plantDeadLock, plantLiveLock } from "./lib/pid-lock-testkit";
 import { projectSlug } from "./lib/project-slug";
+import { writeStubChecker } from "./lib/repo-check-launch-fake.js";
 import { REPO_CHECKS } from "./lib/repo-checks-registry";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -365,7 +365,7 @@ describe("repo-checks: the merged result", () => {
 			config: { ...ROADMAP_ONLY, tracker: "o/r" },
 			stubs: { "roadmap-valid": { envelope: finding, exit: 0 } },
 		});
-		run(f);
+		run(f, { launch: "spawned" });
 		const result = f.result();
 		expect(Object.keys(result).sort()).toEqual(
 			["collectedAt", "jobs", "repo", "workflow"].sort(),
