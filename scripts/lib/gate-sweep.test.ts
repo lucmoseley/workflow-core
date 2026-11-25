@@ -72,7 +72,9 @@ describe("which readings queue a judgement", () => {
 		expect(store.readings[`${WFC}#2046`]).toBe(
 			"every pair started and every run ended",
 		);
-		expect(lines.join("\n")).toContain("on #2046; judgement queued");
+		expect(lines).toContain(
+			`gate sweep in ${WFC}: reading or repair state changed, or an unchecked gate came due, on #2046; judgement queued`,
+		);
 	});
 
 	it("queues none on an unchanged reading", async () => {
@@ -200,7 +202,10 @@ describe("a gate with no check: (lucmoseley/mantahostels#3869)", () => {
 		row(n, "no `check:` — judge the condition by hand", "NOT-STATED");
 
 	it("queues a by-hand judgement on its first sweep", async () => {
-		const { store } = await sweepOnce(envelope([unchecked(1551)]));
+		const { store, lines } = await sweepOnce(envelope([unchecked(1551)]));
+		expect(lines).toEqual([
+			`gate sweep in ${WFC}: reading or repair state changed, or an unchecked gate came due, on #1551; judgement queued`,
+		]);
 		expect(store.pending).toHaveLength(1);
 		expect(store.pending[0].prompt).toMatch(
 			/^\/triage 1551 .*no check:.*by hand.*add it as the line's check:/,
@@ -236,6 +241,31 @@ describe("a gate with no check: (lucmoseley/mantahostels#3869)", () => {
 			NOW + 15 * day,
 		);
 		expect(later.store.pending).toEqual([]);
+	});
+
+	it("replaces a judgement still queued at the 14-day mark rather than queuing a second", async () => {
+		await sweepOnce(envelope([unchecked(1551)]));
+		const { store } = await sweepOnce(
+			envelope([unchecked(1551)]),
+			NOW + 14 * day,
+		);
+		expect(store.pending).toHaveLength(1);
+		expect(store.queuedAt[`${WFC}#1551`]).toBe(NOW + 14 * day);
+	});
+
+	it("queues a gate losing its check: as a changed reading, under the 6-hour bound", async () => {
+		await sweepOnce(envelope([row(2988, "2 of 5 signed")]));
+		dropTried(file, [{ root: WFC, issues: [2988] }], throwOnLog);
+		const inside = await sweepOnce(
+			envelope([unchecked(2988)]),
+			NOW + GATE_SWEEP_MS,
+		);
+		expect(inside.store.pending).toEqual([]);
+		const past = await sweepOnce(
+			envelope([unchecked(2988)]),
+			NOW + 6 * 60 * 60 * 1000,
+		);
+		expect(past.store.pending[0].prompt).toMatch(/no check:/);
 	});
 
 	it("leaves a check-carrying gate's unchanged reading unqueued past 14 days", async () => {

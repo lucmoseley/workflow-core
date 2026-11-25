@@ -11,6 +11,7 @@ const { resolveGate } = require("./lib/issue-gate");
 const { worktreeRoot } = require("./lib/host-root.js");
 const {
 	DEFAULT_TIMEOUT_S,
+	NOT_STATED,
 	REPAIR_STATES,
 	runCheckCommand,
 	unwrap,
@@ -35,7 +36,7 @@ function buildRowLines(reading) {
 }
 
 const REPAIRS = new Set([...REPAIR_STATES, "GATES-NOTHING"]);
-const WARNED = new Set([...REPAIRS, "NOT-STATED"]);
+const WARNED = new Set([...REPAIRS, NOT_STATED]);
 
 /**
  * @typedef {{number: number, title: string, url: string, condition: string|null, command: string|null, abandonIf: string|null, state: string, reading: string, detail: string|null}} GateRow
@@ -88,7 +89,7 @@ function gateRow(iss, timeoutMs) {
 	if (!gateOn.command) {
 		return {
 			...row,
-			state: "NOT-STATED",
+			state: NOT_STATED,
 			reading: "no `check:` — judge the condition by hand",
 		};
 	}

@@ -1,7 +1,7 @@
 const { execFile, spawn } = require("node:child_process");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
-const { PRINTING_FIX, REPAIR_STATES } = require("./gate-check.js");
+const { NOT_STATED, PRINTING_FIX, REPAIR_STATES } = require("./gate-check.js");
 const { readJson, writeJson } = require("./refill-json.js");
 
 // guess, #2279
@@ -10,7 +10,6 @@ const GATE_SWEEP_MS = 30 * 60 * 1000;
 const JUDGE_EVERY_MS = 6 * 60 * 60 * 1000;
 // guess, lucmoseley/mantahostels#3869
 const REJUDGE_UNCHECKED_MS = 14 * 24 * 60 * 60 * 1000;
-const UNCHECKED = "NOT-STATED";
 const ROOT_SWEEP_TIMEOUT_MS = GATE_SWEEP_MS;
 
 const CHECK_GATES = path.join(__dirname, "..", "check-gates.js");
@@ -92,7 +91,11 @@ function readGateStore(file, log) {
 	};
 }
 
-/** @typedef {{number: number, seen: string|null, repair: string|null}} SweptRow */
+/**
+ * @typedef {{number: number, seen: string|null} & (
+ *   {kind: "reading"} | {kind: "repair", state: string} | {kind: "unchecked"}
+ * )} SweptRow
+ */
 
 /**
  * @param {string} stdout
@@ -110,28 +113,34 @@ function sweptRows(stdout) {
 		/** @returns {SweptRow[]} */ (r) => {
 			const { number, state, reading } = recordOf(r);
 			if (typeof number !== "number") return [];
-			if (
-				typeof state === "string" &&
-				(REPAIR_STATES.has(state) || state === UNCHECKED)
-			)
-				return [{ number, seen: buildRepairSeen(state), repair: state }];
+			if (typeof state === "string" && REPAIR_STATES.has(state))
+				return [
+					{ number, seen: buildRepairSeen(state), kind: "repair", state },
+				];
+			if (state === NOT_STATED)
+				return [{ number, seen: buildRepairSeen(state), kind: "unchecked" }];
 			return [
 				{
 					number,
 					seen:
 						state === "READING" && typeof reading === "string" ? reading : null,
-					repair: null,
+					kind: "reading",
 				},
 			];
 		},
 	);
 }
 
-/** @param {number} number @param {string|null} repair */
-function promptOf(number, repair) {
-	if (repair === null) return buildJudgementPrompt(number);
-	if (repair === UNCHECKED) return buildUncheckedPrompt(number);
-	return buildRepairPrompt(number, repair);
+/** @param {SweptRow} row */
+function buildPrompt(row) {
+	switch (row.kind) {
+		case "reading":
+			return buildJudgementPrompt(row.number);
+		case "repair":
+			return buildRepairPrompt(row.number, row.state);
+		case "unchecked":
+			return buildUncheckedPrompt(row.number);
+	}
 }
 
 /**
@@ -139,11 +148,12 @@ function promptOf(number, repair) {
  * @param {string|undefined} stored
  * @param {number|undefined} last
  * @param {number} now
+ * @returns {row is SweptRow & {seen: string}}
  */
-function isDue({ seen, repair }, stored, last, now) {
-	if (seen === null) return false;
-	const unchanged = stored === seen;
-	if (unchanged && repair !== UNCHECKED) return false;
+function isDue(row, stored, last, now) {
+	if (row.seen === null) return false;
+	const unchanged = stored === row.seen;
+	if (unchanged && row.kind !== "unchecked") return false;
 	const bound = unchanged ? REJUDGE_UNCHECKED_MS : JUDGE_EVERY_MS;
 	return last === undefined || now - last >= bound;
 }
@@ -151,11 +161,11 @@ function isDue({ seen, repair }, stored, last, now) {
 /**
  * @param {Judgement[]} pending
  * @param {string} root
- * @param {number} number
- * @param {string|null} repair
+ * @param {SweptRow} row
  */
-function enqueue(pending, root, number, repair) {
-	const prompt = promptOf(number, repair);
+function enqueue(pending, root, row) {
+	const { number } = row;
+	const prompt = buildPrompt(row);
 	const at = pending.findIndex((j) => j.root === root && j.number === number);
 	if (at < 0) pending.push({ root, number, prompt });
 	else pending[at] = { root, number, prompt };
@@ -183,14 +193,12 @@ function withSweep(store, root, rows, now) {
 	/** @type {number[]} */
 	const queued = [];
 	for (const row of rows) {
-		const { number, seen, repair } = row;
-		const key = keyOf(root, number);
-		if (seen === null || !isDue(row, readings[key], queuedAt[key], now))
-			continue;
-		readings[key] = seen;
+		const key = keyOf(root, row.number);
+		if (!isDue(row, readings[key], queuedAt[key], now)) continue;
+		readings[key] = row.seen;
 		queuedAt[key] = now;
-		queued.push(number);
-		enqueue(pending, root, number, repair);
+		queued.push(row.number);
+		enqueue(pending, root, row);
 	}
 	return { store: { ...store, readings, queuedAt, pending }, queued };
 }

@@ -28,6 +28,8 @@ const MAX_BUFFER = 64e6;
 // guess, #2855
 const KILL_AFTER_MS = 5000;
 
+const NOT_STATED = "NOT-STATED";
+
 const REPAIR_STATES = new Set([
 	"NO-OUTPUT",
 	"NOT-A-COMMAND",
@@ -254,6 +256,7 @@ const buildSilentRefusal = (command, what, state) =>
 
 module.exports = {
 	DEFAULT_TIMEOUT_S,
+	NOT_STATED,
 	PRINTING_FIX,
 	REPAIR_STATES,
 	addedCheckVerdict,
