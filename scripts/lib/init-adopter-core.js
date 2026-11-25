@@ -635,11 +635,9 @@ function init(at) {
 	);
 	const isHeld = (/** @type {string} */ rel) =>
 		fs.existsSync(path.join(root, rel));
-	const paths = skeletonPaths(
-		(rel) => dryRun || isHeld(rel),
-		undefined,
+	const paths = skeletonPaths((rel) => dryRun || isHeld(rel), {
 		isHeld,
-	).join(" ");
+	}).join(" ");
 	out(`  git add -N ${paths}`);
 	out(`  git commit -m "<why this repo exists>" -- ${paths}`);
 	return 0;

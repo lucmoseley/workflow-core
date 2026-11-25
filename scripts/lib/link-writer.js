@@ -182,6 +182,7 @@ async function waitFor(listed, { retries, sleepMs, first = false }) {
 	return false;
 }
 
+// guess, #5495: nine digits sits far above any issue number a tracker here reaches.
 const LOCAL_NUMBER = /^#?([0-9]{1,9})$/;
 
 /**

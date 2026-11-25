@@ -537,12 +537,12 @@ describe("a new entry's paths (#1540)", () => {
 
 	it("reach the skeleton pathspec with no other edit", () => {
 		expect(bringCoreFiles(ctx(), added)).toContain(written);
-		expect(skeletonPaths(isPresent, added)).toContain(written);
+		expect(skeletonPaths(isPresent, { entries: added })).toContain(written);
 	});
 
 	it("leave out a declared path the run did not write, since a pathspec naming it fails", () => {
 		bringCoreFiles(ctx(), added);
-		expect(skeletonPaths(isPresent, added)).not.toContain(idle);
+		expect(skeletonPaths(isPresent, { entries: added })).not.toContain(idle);
 	});
 
 	it("name no path a skeleton root already covers", () => {

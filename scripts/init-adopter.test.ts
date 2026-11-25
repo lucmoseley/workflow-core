@@ -1042,6 +1042,26 @@ describe("init in a fresh repository", () => {
 		expect(r.stdout).not.toContain("resolve_core.py");
 	});
 
+	it("rewrites a held resolve_core.py on a re-run and keeps it in a dry run's pathspec (#5718)", () => {
+		const { dir } = initialised();
+		const held = path.join(dir, "scripts/lib/resolve_core.py");
+		fs.writeFileSync(held, "# a v3.0.0 copy\n");
+		const dry = init(
+			dir,
+			"--founder",
+			"A Founder",
+			"--no-tracker",
+			"--dry-run",
+		);
+		expect(dry.status, dry.stderr).toBe(0);
+		expect(dry.stdout).toMatch(/git add -N .*scripts\/lib\/resolve_core\.py/);
+		const again = init(dir, "--founder", "A Founder", "--no-tracker");
+		expect(again.status, again.stderr).toBe(0);
+		expect(fs.readFileSync(held, "utf8")).toBe(
+			fs.readFileSync(path.join(CORE, "scripts/lib/resolve_core.py"), "utf8"),
+		);
+	});
+
 	it("replaces an adopter's edit to the browser helper on a re-run (#133)", () => {
 		const { dir } = initialised();
 		fs.writeFileSync(path.join(dir, "scripts/browse.py"), "clobbered\n");

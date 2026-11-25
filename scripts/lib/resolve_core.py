@@ -4,8 +4,8 @@
 
 The Python mirror of scripts/lib/resolve-core.js: resolve_core() returns the
 workflow-core directory an adopter's Python scripts and pytest suite import the
-helper surface from. An adopter copies it once into its own tree and never
-re-syncs it.
+helper surface from. An adopter with Python code holds a copy in its own tree,
+which init and upgrade overwrite.
 
 FROZEN, as resolve-core.js is: a change to its lookup, its export or its
 variable names is a major release with a migration note. Standard library only,

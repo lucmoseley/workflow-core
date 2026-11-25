@@ -87,14 +87,15 @@ const SETTINGS = ".claude/settings.json";
  * @property {{marketplace: string, source: object, plugin: string}|null} pin
  * @property {import("./core-context-cost.js").Measurer} [measureCore]
  * @property {Labels} [labels]
+ * @property {boolean} [ifHeld]
  */
 
 /**
  * @param {Context} ctx
- * @param {{rel: string, body: string, mode?: number, lost?: string, ifHeld?: boolean}} file
+ * @param {{rel: string, body: string, mode?: number, lost?: string}} file
  * @returns {string[]}
  */
-function bringFile({ root, dryRun, out }, { rel, body, mode, lost, ifHeld }) {
+function bringFile({ root, dryRun, out, ifHeld }, { rel, body, mode, lost }) {
 	const at = path.join(root, rel);
 	const existing = readIfPresent(at);
 	if (existing === null && ifHeld) return [];
@@ -157,9 +158,9 @@ function bringHooks(ctx) {
 /**
  * @param {Context} ctx
  * @param {string} rel
- * @param {{mode?: number, ifHeld?: boolean}} [how]
+ * @param {{mode?: number}} [how]
  */
-function bringPluginCopy(ctx, rel, { mode, ifHeld } = {}) {
+function bringPluginCopy(ctx, rel, { mode } = {}) {
 	const body = readIfPresent(path.join(ctx.pluginRoot, rel));
 	if (body === null) {
 		ctx.out(`MISSING ${rel} — the plugin root carries no copy`);
@@ -169,7 +170,6 @@ function bringPluginCopy(ctx, rel, { mode, ifHeld } = {}) {
 		rel,
 		body,
 		mode,
-		ifHeld,
 		lost: "it differed from the plugin's copy, so any local edit to it is gone",
 	});
 }
@@ -179,8 +179,8 @@ const bringHelpers = (ctx) =>
 	HELPERS.flatMap((rel) => bringPluginCopy(ctx, rel, { mode: 0o755 }));
 
 /** @param {Context} ctx */
-const bringHeldCopies = (ctx) =>
-	COPIES_IF_HELD.flatMap((rel) => bringPluginCopy(ctx, rel, { ifHeld: true }));
+const bringCopiesIfHeld = (ctx) =>
+	COPIES_IF_HELD.flatMap((rel) => bringPluginCopy(ctx, rel));
 
 /** @param {Context} ctx */
 const bringCoreDocs = (ctx) =>
@@ -585,7 +585,7 @@ const ghLabels = (root) => ({
 const ENTRIES = [
 	{ bring: bringHooks, paths: HOOKS.map((hook) => `.husky/${hook}`) },
 	{ bring: bringHelpers, paths: HELPERS },
-	{ bring: bringHeldCopies, paths: COPIES_IF_HELD, ifHeld: true },
+	{ bring: bringCopiesIfHeld, paths: COPIES_IF_HELD, ifHeld: true },
 	{ bring: bringRules, paths: [RULES_FILE, REFERENCE_FILE] },
 	{ bring: bringCoreDocs, paths: CORE_DOCS },
 	{ bring: bringCi, paths: [CI_WORKFLOW] },
@@ -608,8 +608,8 @@ const ENTRIES = [
  * @returns {string[]}
  */
 function bringCoreFiles(ctx, entries = ENTRIES) {
-	return entries.flatMap(({ bring, paths }) => {
-		const wrote = bring(ctx);
+	return entries.flatMap(({ bring, paths, ifHeld }) => {
+		const wrote = bring({ ...ctx, ifHeld });
 		const undeclared = wrote.filter((rel) => !paths.includes(rel));
 		if (undeclared.length > 0)
 			throw new Error(
@@ -627,10 +627,12 @@ const SKELETON_ROOTS = ["CLAUDE.md", "AGENTS.md", ".claude", "docs", ".husky"];
 
 /**
  * @param {(rel: string) => boolean} isPresent
- * @param {Entry[]} [entries]
- * @param {(rel: string) => boolean} [isHeld]
+ * @param {{entries?: Entry[], isHeld?: (rel: string) => boolean}} [scope]
  */
-function skeletonPaths(isPresent, entries = ENTRIES, isHeld = isPresent) {
+function skeletonPaths(
+	isPresent,
+	{ entries = ENTRIES, isHeld = isPresent } = {},
+) {
 	return [
 		...SKELETON_ROOTS,
 		...entries

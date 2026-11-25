@@ -35,7 +35,7 @@ The release tree an adopter installs. Tests, fixtures and TypeScript are left ou
 
 - `.husky/pre-commit` `.husky/prepare-commit-msg` `.husky/commit-msg` `.husky/pre-merge-commit` `.husky/pre-applypatch` `.husky/post-commit` `.husky/post-merge` `.husky/post-checkout` `.husky/pre-push` — the hook shims, rewritten on every upgrade.
 - `scripts/browse.py` `scripts/lib/resolve-core.js` — helpers an adopter runs from its own tree, rewritten on every upgrade.
-- `scripts/lib/resolve_core.py` — the Python resolver an adopter with Python code copies in once, rewritten on every upgrade where it is present.
+- `scripts/lib/resolve_core.py` — the Python resolver an adopter with Python code copies in once, rewritten by init and every upgrade where it is present.
 - `.claude/workflow-core.md` — the session rules, loaded at session start, rewritten on every upgrade.
 - `.claude/workflow-core.reference.md` — what a session looks up rather than obeys, rewritten on every upgrade.
 - `.claude/workflow-core.glossary.md` — the core's terms, which the shipped rules cite; rewritten on every upgrade, never loaded at session start. The adopter's own `GLOSSARY.md`, if any, is its own and untouched.
