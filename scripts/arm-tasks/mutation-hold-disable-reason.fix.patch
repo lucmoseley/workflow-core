@@ -933,7 +933,7 @@ index a538d07a98e363a00ce25eaaaed6e8d7dea9da8f..b5df679960da5566a583fa784ada5c9c
  });
 -
 diff --git a/scripts/mutation-hold-gate.js b/scripts/mutation-hold-gate.js
-index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..83e82e5dc49f898c5aff0f70fd603809d4225227 100644
+index 4dd8c16ad5b752f2c4569dfe2fccedfa87e20b21..53e82a0b1a8a5d86e0bbcfefd415b297857b00ca 100644
 --- a/scripts/mutation-hold-gate.js
 +++ b/scripts/mutation-hold-gate.js
 @@ -12,19 +12,26 @@ const { pathToFileURL } = require("node:url");
@@ -988,7 +988,7 @@ index af2ea6ed9fd1de2df0e9405b7e5f00be771663b1..83e82e5dc49f898c5aff0f70fd603809
 +const COMPONENT = /\.(html|vue|svelte)$/;
 +const SCRIPT = /(<script\b([^>]*)>)([\s\S]*?)<\/script\s*>/gi;
 +const ATTRIBUTE = /([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g;
-+/* https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/parsers/html-parser.ts */
++/* The script types Stryker v10.1.1's HTML parser mutates: https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/parsers/html-parser.ts */
 +const TSX_SCRIPT_TYPES = ["tsx", "text/tsx"];
 +const TS_SCRIPT_TYPES = ["ts", "text/typescript", "typescript"];
 +const JS_SCRIPT_TYPES = ["js", "text/javascript", "javascript", "module"];

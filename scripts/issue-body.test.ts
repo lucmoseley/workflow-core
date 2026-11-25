@@ -548,7 +548,7 @@ describe("the CLI", () => {
 		);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("Nothing written: the `check:` `true`");
-		expect(r.stderr).toContain('|| echo "not on main"');
+		expect(r.stderr).toContain('|| echo "unmet: not on main"');
 		expect(readEdits()).toBe(0);
 	});
 
