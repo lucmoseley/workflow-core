@@ -252,7 +252,7 @@ function collect(root, write) {
 			const prior = seen.get(r.id);
 			if (prior)
 				throw new Error(
-					`rule:${r.id} is anchored in both ${prior.source} and ${r.source}`,
+					`rule:${r.id} is anchored in both ${prior.source} and ${r.source} — keep one region and delete the other`,
 				);
 			if (!TRIGGERS[r.id])
 				throw new Error(
