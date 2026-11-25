@@ -26,12 +26,11 @@ const { runInTree } = require("./lib/isolated-worktree.js");
 const { readRuleTextOr } = require("./lib/rule-text.js");
 const { matchSensitivePaths } = require("./lib/sensitive-paths.js");
 const { requiredGroup } = require("./lib/regex-group.js");
+const { HOST_CONFIG_FAULT, RESULT_FD } = require("./lib/stryker-comments.js");
 const {
-	HOST_CONFIG_FAULT,
-	RESULT_FD,
 	parseDirective,
 	unreasonedDisable,
-} = require("./lib/stryker-comments.js");
+} = require("./lib/stryker-directive.js");
 const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -393,7 +392,7 @@ function readCommentsInChild(root, strykerConfig, entries) {
 const findDirectiveLine = (c) =>
 	c.loc.start.line + (c.value.startsWith("\n") ? 1 : 0);
 
-/** @typedef {import("./lib/stryker-comments.js").ParsedDirective} ParsedDirective */
+/** @typedef {import("./lib/stryker-directive.js").ParsedDirective} ParsedDirective */
 /** @typedef {{comment: BabelComment, directive: ParsedDirective}} Directive */
 
 /**

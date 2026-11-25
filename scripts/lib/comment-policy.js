@@ -7,7 +7,7 @@ const { scanJs } = require("./strip-comments.js");
 const {
 	parseDirective: parseStrykerDirective,
 	unreasonedDisable,
-} = require("./stryker-comments.js");
+} = require("./stryker-directive.js");
 
 /**
  * @typedef {"js" | "py" | "sh"} Lang
