@@ -1,0 +1,1 @@
+a package's `preinstall` and `postinstall` run as you before anything reads a byte of it

@@ -1,0 +1,219 @@
+const { refuseOnce } = require("./refuse-once.js");
+const { denyText, ruleOrFallback } = require("./guard-verdict.js");
+const { parseCommand, walkCommands } = require("./shell-parse.js");
+const { literal } = require("./shell-words.js");
+const { trimEndRun } = require("./trim-run.js");
+
+const VAR_SLASH = /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\//;
+const VAR_NAME = /\$\{?([A-Za-z_][A-Za-z0-9_]*)/g;
+const RM_IN_SCRIPT = /(^|[ \t\n\v\f\r;&|(])rm[ \t\n\v\f\r]/;
+const DECLARATION = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
+
+/**
+ * @typedef {object} RmPorts
+ * @property {() => boolean} isLatchWritable
+ * @typedef {import("./kit-context.js").KitContext & RmPorts} RmContext
+ * @typedef {object} Scan
+ * @property {string} varSlash
+ * @property {string} cdGlob
+ * @property {string} shellRun
+ * @property {boolean} rmSeen
+ * @property {boolean} cdSeen
+ * @property {Set<string>} declared
+ */
+
+/** @param {string} s */
+
+/**
+ * @param {string} command
+ * @param {RmContext} ctx
+ * @returns {import("./guard-entry.js").Decision}
+ */
+function decide(command, ctx) {
+	const subject = trimEndRun(command, "\n");
+	const reason = reasonFor(scan(subject, ctx));
+	if (reason === null) return null;
+	return refuseOnce(
+		{
+			prefix: "rm-unchecked",
+			subject,
+			passed: "an unchecked rm allowed",
+			buildDeny: () => refusalText(reason, ctx),
+		},
+		ctx,
+	);
+}
+
+/** @param {string} subject @param {RmContext} ctx @returns {Scan} */
+function scan(subject, ctx) {
+	const parsed = parseCommand(subject);
+	/** @type {Scan} */
+	const seen = {
+		varSlash: "",
+		cdGlob: "",
+		shellRun: "",
+		rmSeen: false,
+		cdSeen: false,
+		declared: new Set(),
+	};
+	/** @param {string} w */
+	const lit = (w) => {
+		const r = literal(w, parsed.spans);
+		return { text: trimEndRun(r.text, "\n"), known: r.known };
+	};
+	walkCommands(
+		parsed,
+		({ runs, assigned }) => {
+			for (const run of runs()) judgeRun(run.words, { seen, lit, assigned });
+		},
+		ctx,
+	);
+	return seen;
+}
+
+/**
+ * @param {string[]} run
+ * @param {{ seen: Scan, lit: (w: string) => { text: string, known: boolean },
+ *   assigned: (name: string) => boolean }} with
+ */
+function judgeRun(run, { seen, lit, assigned }) {
+	if (run.length === 0) return;
+	const head = lit(run[0] ?? "");
+	if (!head.known) return;
+	const args = run.slice(1);
+	switch (head.text.slice(head.text.lastIndexOf("/") + 1)) {
+		case "rm":
+			return judgeRm(args, seen, lit, assigned);
+		case "cd":
+			seen.cdSeen = true;
+			return;
+		case "bash":
+		case "sh":
+		case "zsh":
+		case "dash":
+			if (!seen.shellRun) judgeShell(args, seen, lit);
+			return;
+		case "export":
+		case "declare":
+		case "typeset":
+		case "readonly":
+		case "local":
+			return judgeDeclare(args, seen, lit);
+	}
+}
+
+/**
+ * @param {string[]} args
+ * @param {Scan} seen
+ * @param {(w: string) => { text: string, known: boolean }} lit
+ * @param {(name: string) => boolean} assigned
+ */
+function judgeRm(args, seen, lit, assigned) {
+	seen.rmSeen = true;
+	let opts = true;
+	for (const word of args) {
+		if (opts) {
+			if (word === "--") {
+				opts = false;
+				continue;
+			}
+			if (word.startsWith("-")) continue;
+		}
+		const { text } = lit(word);
+		if (
+			!seen.varSlash &&
+			VAR_SLASH.test(text) &&
+			!allAssigned(text, seen, assigned)
+		)
+			seen.varSlash = text;
+		if (
+			seen.cdSeen &&
+			!seen.cdGlob &&
+			!text.startsWith("/") &&
+			!text.startsWith("$") &&
+			/[*?[]/.test(text)
+		)
+			seen.cdGlob = text;
+	}
+}
+
+/**
+ * @param {string} text
+ * @param {Scan} seen
+ * @param {(name: string) => boolean} assigned
+ */
+function allAssigned(text, seen, assigned) {
+	for (const m of text.matchAll(VAR_NAME)) {
+		const name = m[1] ?? "";
+		if (!assigned(name) && !seen.declared.has(name)) return false;
+	}
+	return true;
+}
+
+/**
+ * @param {string[]} args
+ * @param {Scan} seen
+ * @param {(w: string) => { text: string, known: boolean }} lit
+ */
+function judgeShell(args, seen, lit) {
+	let dashC = false;
+	for (let i = 0; i < args.length; i++) {
+		const kind = shellWord(args[i] ?? "");
+		if (kind === "value") i++;
+		else if (kind === "c") dashC = true;
+		else if (kind === "script")
+			return readScript(lit(args[i] ?? "").text, dashC, seen);
+	}
+}
+
+/** @param {string} a @returns {"value" | "c" | "flag" | "script"} */
+function shellWord(a) {
+	if (a === "-o" || a === "+o") return "value";
+	if (a.startsWith("--")) return "flag";
+	if (a.startsWith("-") && a.includes("c")) return "c";
+	return a.startsWith("-") || a.startsWith("+") ? "flag" : "script";
+}
+
+/** @param {string} text @param {boolean} dashC @param {Scan} seen */
+function readScript(text, dashC, seen) {
+	if (dashC) {
+		seen.shellRun = "-c";
+		if (RM_IN_SCRIPT.test(text)) seen.rmSeen = true;
+	} else if (text.includes("$")) seen.shellRun = text;
+}
+
+/**
+ * @param {string[]} args
+ * @param {Scan} seen
+ * @param {(w: string) => { text: string, known: boolean }} lit
+ */
+function judgeDeclare(args, seen, lit) {
+	for (const word of args) {
+		const m = DECLARATION.exec(word);
+		if (m && lit(m[2] ?? "").known) seen.declared.add(m[1] ?? "");
+	}
+}
+
+/** @param {Scan} seen */
+function reasonFor({ varSlash, cdGlob, shellRun, rmSeen }) {
+	if (varSlash)
+		return `its target \`${varSlash}\` opens on a variable, and holds one this command never sets, so the check reads it as \`/\` when that variable is empty`;
+	if (cdGlob)
+		return `its target \`${cdGlob}\` is a relative glob after a \`cd\`, which the check cannot resolve`;
+	if (rmSeen && shellRun)
+		return `it runs \`rm\` beside a shell running \`${shellRun}\`, a script the check cannot read, so it refuses every \`rm\` in the command, a literal one included`;
+	return null;
+}
+
+/** @param {string} reason @param {RmContext} ctx */
+function refusalText(reason, ctx) {
+	const rule = ruleOrFallback(
+		ctx,
+		"rm-unchecked",
+		"An rm Claude Code cannot check is a permission prompt no allow entry clears",
+	);
+	const text = `Refused once: Claude Code's built-in removal check would prompt on this command — ${reason}. Re-send it unchanged and it goes through to that check.\n\n${rule}`;
+	return denyText(ctx, "", text);
+}
+
+module.exports = { field: "command", noun: "command", decide };
