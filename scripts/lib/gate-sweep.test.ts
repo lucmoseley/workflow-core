@@ -17,6 +17,8 @@ const { launchBatch } = require("./refill-batch.js");
 
 const WFC = "/home/u/workflow-core";
 const NOW = Date.parse("2026-10-21T17:00:00Z");
+const hour = 60 * 60 * 1000;
+const day = 24 * hour;
 
 let dir: string;
 let file: string;
@@ -197,9 +199,6 @@ describe("which readings queue a judgement", () => {
 });
 
 describe("a reading's printed verdict orders its judging (#5696)", () => {
-	const hour = 60 * 60 * 1000;
-	const day = 24 * hour;
-
 	async function queuedAcross(n: number, steps: [number, string][]) {
 		const queuedOn: number[] = [];
 		for (const [at, reading] of steps) {
@@ -239,6 +238,33 @@ describe("a reading's printed verdict orders its judging (#5696)", () => {
 		).toEqual([0, 7 * hour + GATE_SWEEP_MS]);
 	});
 
+	it("keeps the 6-hour bound for a met reading that changes again, the judge having ruled", async () => {
+		expect(
+			await queuedAcross(5346, [
+				[0, "unmet: 1200 of 1308 precondition minutes"],
+				[GATE_SWEEP_MS, "met (clean): 1308 of 1308 precondition minutes"],
+				[2 * GATE_SWEEP_MS, "met (clean): 1309 of 1308 precondition minutes"],
+				[
+					GATE_SWEEP_MS + 6 * hour,
+					"met (clean): 1320 of 1308 precondition minutes",
+				],
+			]),
+		).toEqual([0, GATE_SWEEP_MS, GATE_SWEEP_MS + 6 * hour]);
+	});
+
+	it("reads a reading as met only where no line opens unmet and every count reaches its threshold", async () => {
+		expect(
+			await queuedAcross(3425, [
+				[0, "#3576 OPEN\n#3423 counts 0 of 15 adopter commits"],
+				[
+					GATE_SWEEP_MS,
+					"#3576 1 of 1 closed\n#3423 counts 4 of 15 adopter commits",
+				],
+				[2 * GATE_SWEEP_MS, "met: 15 of 15\nunmet: #3576 open"],
+			]),
+		).toEqual([0]);
+	});
+
 	it("reads a count with no verdict line by its threshold", async () => {
 		expect(
 			await queuedAcross(3425, [
@@ -274,7 +300,6 @@ describe("a reading's printed verdict orders its judging (#5696)", () => {
 });
 
 describe("a gate with no check: (lucmoseley/mantahostels#3869)", () => {
-	const day = 24 * 60 * 60 * 1000;
 	const unchecked = (n: number) =>
 		row(n, "no `check:` — judge the condition by hand", "NOT-STATED");
 
