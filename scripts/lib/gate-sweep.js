@@ -46,7 +46,7 @@ const buildUncheckedPrompt = (n) =>
 	`/triage ${n} — its Gated on: line carries no check:, so the sweep reads nothing and it must be judged by hand. Judge the condition: met, comment the evidence and strip the marker; unmet, leave the gate, and where one command could test the condition add it as the line's check: segment so that it prints what it saw (for example ${PRINTING_FIX}), run check-gates.js --issue ${n} to see it print, and end.`;
 
 /** @param {string} state */
-const buildRepairSeen = (state) => `[${state}]`;
+const buildStateSeen = (state) => `[${state}]`;
 
 /** @param {unknown} raw @returns {Record<string, unknown>} */
 const recordOf = (raw) =>
@@ -114,11 +114,9 @@ function sweptRows(stdout) {
 			const { number, state, reading } = recordOf(r);
 			if (typeof number !== "number") return [];
 			if (typeof state === "string" && REPAIR_STATES.has(state))
-				return [
-					{ number, seen: buildRepairSeen(state), kind: "repair", state },
-				];
+				return [{ number, seen: buildStateSeen(state), kind: "repair", state }];
 			if (state === NOT_STATED)
-				return [{ number, seen: buildRepairSeen(state), kind: "unchecked" }];
+				return [{ number, seen: buildStateSeen(state), kind: "unchecked" }];
 			return [
 				{
 					number,
