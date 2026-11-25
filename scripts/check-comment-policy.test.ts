@@ -372,6 +372,21 @@ describe("check-comment-policy", () => {
 			expect(run("--against", "HEAD").status).toBe(0);
 		});
 
+		it("reads the commentMarkers of the config the commit carries", () => {
+			write(
+				".claude/workflow-core.json",
+				JSON.stringify({ contract: 1, commentMarkers: ["@encodes"] }),
+			);
+			write(
+				"scripts/c.js",
+				"// @encodes docs/a.md § B :: 7c89\nconst a = 1;\n",
+			);
+			git("add", "-A");
+			const r = run("--against", "HEAD");
+			expect(r.out).not.toContain("scripts/c.js");
+			expect(r.status).toBe(0);
+		});
+
 		it("charges no comment added to a vendored or generated file", () => {
 			writeMarked("const a = 1;\n");
 			commit("attributes");

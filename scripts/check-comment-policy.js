@@ -12,7 +12,7 @@ const {
 	langOf,
 } = require("./lib/comment-policy.js");
 const { readText } = require("./lib/file-read.js");
-const { readConfig } = require("./lib/workflow-core-config.js");
+const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
 const STYLE_ONLY = require("./lib/style-only-rules.json").rules;
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
@@ -23,6 +23,7 @@ const SURFACE = "scripts/lib/helper-surface.json";
 const PLUGIN_SURFACE = path.join(__dirname, "lib", "helper-surface.json");
 const ADR_DIR = "docs/adr";
 const SUPPORT = [
+	CONFIG_PATH,
 	SURFACE,
 	ADR_DIR,
 	"package.json",
