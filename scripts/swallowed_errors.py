@@ -87,6 +87,14 @@ def reports_or_ends(handler, names):
     return False
 
 
+def exit_code(value):
+    return (
+        isinstance(value, ast.Constant)
+        and type(value.value) is int
+        and value.value != 0
+    )
+
+
 def fails_loudly(handler, names):
     if reports_or_ends(handler, names):
         return True
@@ -96,9 +104,10 @@ def fails_loudly(handler, names):
     )
     return prints and any(
         isinstance(n, ast.Return)
-        and isinstance(n.value, ast.Constant)
-        and type(n.value.value) is int
-        and n.value.value != 0
+        and (
+            exit_code(n.value)
+            or (isinstance(n.value, ast.Tuple) and any(map(exit_code, n.value.elts)))
+        )
         for n in nodes
     )
 

@@ -30,6 +30,20 @@ def test_a_handler_that_raises_exits_or_reports_passes():
         assert breach_lines(imported(handler(body), line)) == [], body
 
 
+def test_printing_and_returning_a_nonzero_code_passes_alone_or_in_a_tuple():
+    printed = "print('why', file=sys.stderr)\n    "
+    for ret in ("return 3", "return None, 3", "return (3, 'x')"):
+        assert breach_lines(handler(printed + ret)) == [], ret
+    for body in (
+        printed + "return None, None",
+        printed + "return None, 0",
+        printed + "return None, True",
+        "return None, 3",
+        "return 3",
+    ):
+        assert breach_lines(handler(body)) == [3], body
+
+
 def test_tallied_passes_under_any_caught_type():
     for line, body in (
         ("from fail_open import tallied", "tallied(e, t, 'unparsed')"),
