@@ -135,7 +135,7 @@ describe("the body", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("Nothing filed: the `check:` `true`");
 		expect(r.stderr).toContain("reads as NO-OUTPUT");
-		expect(r.stderr).toContain('|| echo "not on main"');
+		expect(r.stderr).toContain('|| echo "unmet: not on main"');
 		expect(readGhCalls()).toEqual([]);
 	});
 

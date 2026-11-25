@@ -10,6 +10,8 @@ const GATE_SWEEP_MS = 30 * 60 * 1000;
 const JUDGE_EVERY_MS = 6 * 60 * 60 * 1000;
 // guess, lucmoseley/mantahostels#3869
 const REJUDGE_UNCHECKED_MS = 14 * 24 * 60 * 60 * 1000;
+// guess, #5696
+const REJUDGE_UNMET_MS = 14 * 24 * 60 * 60 * 1000;
 const ROOT_SWEEP_TIMEOUT_MS = GATE_SWEEP_MS;
 
 const CHECK_GATES = path.join(__dirname, "..", "check-gates.js");
@@ -141,6 +143,32 @@ function buildPrompt(row) {
 	}
 }
 
+/** @param {string} reading @returns {"met"|"unmet"|null} */
+function printedVerdict(reading) {
+	if (/^[ \t]*met\b/im.test(reading)) return "met";
+	if (/^[ \t]*unmet\b/im.test(reading)) return "unmet";
+	const counts = [...reading.matchAll(/\b(\d+) of (\d+)\b/g)];
+	if (counts.length === 0) return null;
+	return counts.some(([, a, b]) => Number(a) >= Number(b)) ? "met" : "unmet";
+}
+
+/**
+ * @param {SweptRow & {seen: string}} row
+ * @param {boolean} unchanged
+ */
+function boundOf(row, unchanged) {
+	if (unchanged) return REJUDGE_UNCHECKED_MS;
+	if (row.kind !== "reading") return JUDGE_EVERY_MS;
+	switch (printedVerdict(row.seen)) {
+		case "met":
+			return 0;
+		case "unmet":
+			return REJUDGE_UNMET_MS;
+		default:
+			return JUDGE_EVERY_MS;
+	}
+}
+
 /**
  * @param {SweptRow} row
  * @param {string|undefined} stored
@@ -152,8 +180,11 @@ function isDue(row, stored, last, now) {
 	if (row.seen === null) return false;
 	const unchanged = stored === row.seen;
 	if (unchanged && row.kind !== "unchecked") return false;
-	const bound = unchanged ? REJUDGE_UNCHECKED_MS : JUDGE_EVERY_MS;
-	return last === undefined || now - last >= bound;
+	return (
+		last === undefined ||
+		now - last >=
+			boundOf(/** @type {SweptRow & {seen: string}} */ (row), unchanged)
+	);
 }
 
 /**
