@@ -12,6 +12,7 @@ const { docPath, scriptPath } = require("./script-path");
 const { gateOnOf, parseAddedGateLines } = require("./issue-gate.js");
 const { hostRoot } = require("./host-root.js");
 const { isSameRepo } = require("./issue-ref.js");
+const { escapeRe } = require("./regex-group.js");
 const {
 	buildCheckoutEnv,
 	homeDir,
@@ -166,6 +167,29 @@ function classifyExit(r, { out, err, timeoutMs, elapsedMs }) {
 const PRINTING_FIX =
 	'`git merge-base --is-ancestor X origin/main && echo "on main" || echo "not on main"`';
 
+const GIT_C_ORIGIN = /\bgit\s+-C\s+(\S+)\s[^;&|]*?\borigin\//g;
+
+/**
+ * #5697
+ * @param {string} command
+ * @returns {string|null}
+ */
+function unfetchedOriginRead(command) {
+	for (const m of command.matchAll(GIT_C_ORIGIN)) {
+		const dir = m[1] ?? "";
+		const fetch = new RegExp(`\\bgit\\s+-C\\s+${escapeRe(dir)}\\s+fetch\\b`);
+		if (!fetch.test(command.slice(0, m.index))) return dir;
+	}
+	return null;
+}
+
+/**
+ * @param {string} command
+ * @param {string} dir
+ */
+const buildUnfetchedRefusal = (command, dir) =>
+	`the \`check:\` \`${command}\` on the \`**Gated on:**\` line reads an \`origin/\` ref in ${dir}, which nothing fetches, so its reading never changes and no judge is queued when the condition comes true (#5697). Read GitHub live instead: for an adopter's workflow-core pin, \`node scripts/release-contains.js <sha> --pinned-by <owner/repo>\` in a workflow-core checkout; for any other file, \`gh api -H "Accept: application/vnd.github.raw+json" repos/<owner/repo>/contents/<path>\`. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
+
 /**
  * @param {string} [repo]
  * @returns {{root: string, env?: NodeJS.ProcessEnv} | {why: string}}
@@ -202,6 +226,11 @@ function addedCheckVerdict(
 		const u = unwrap(gateOn.command);
 		if (!u.ok) {
 			refusals.push(buildSilentRefusal(gateOn.command, u.why, "NOT-A-COMMAND"));
+			continue;
+		}
+		const unfetched = unfetchedOriginRead(u.command);
+		if (unfetched !== null) {
+			refusals.push(buildUnfetchedRefusal(u.command, unfetched));
 			continue;
 		}
 		if (!run) {

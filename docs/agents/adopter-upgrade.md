@@ -159,7 +159,7 @@ that turns the hooks into shims.
 
 ## Which release carries a commit
 
-`git tag --contains <sha>` is always empty: every release is a root commit, off every branch. In a workflow-core checkout, `node scripts/release-contains.js <sha>` answers it instead (#797). Where none carries it and work is blocked on it, a cut is due: from that checkout, `node scripts/report-release-due.js --because "<repo>#<n> is blocked on <sha>, which no release carries"` files the cut ticket (#5538).
+`git tag --contains <sha>` is always empty: every release is a root commit, off every branch. In a workflow-core checkout, `node scripts/release-contains.js <sha>` answers it instead (#797). `--pinned-by <owner/repo>` adds whether that adopter's pin, read from GitHub now, carries it. Where none carries it and work is blocked on it, a cut is due: from that checkout, `node scripts/report-release-due.js --because "<repo>#<n> is blocked on <sha>, which no release carries"` files the cut ticket (#5538).
 
 ## Enforcement
 

@@ -142,6 +142,40 @@ describe("a check on another repo's issue", () => {
 	});
 });
 
+describe("a check reading an unfetched origin ref (#5697)", () => {
+	const pinRead =
+		"git -C ~/x show origin/main:.claude/settings.json | grep v3.2.0";
+
+	it.each([true, false])(
+		"refuses it, naming the live reads, whether or not the route runs it (run: %s)",
+		(run) => {
+			const { refusals } = verdictOf("", gate(`\`${pinRead}\``), run);
+			expect(refusals).toHaveLength(1);
+			expect(refusals[0]).toContain("reads an `origin/` ref in ~/x");
+			expect(refusals[0]).toContain(
+				"release-contains.js <sha> --pinned-by <owner/repo>",
+			);
+			expect(refusals[0]).toContain("gh api");
+		},
+	);
+
+	it("passes one that fetches that checkout first, and a read of the host's own origin", () => {
+		for (const check of [
+			`git -C ~/x fetch -q origin && ${pinRead}`,
+			"git merge-base --is-ancestor HEAD origin/main && echo on || echo off",
+		])
+			expect(verdictOf("", gate(check), false).refusals).toEqual([]);
+	});
+
+	it("refuses one whose fetch comes after the read, or fetches another checkout", () => {
+		for (const check of [
+			`${pinRead}; git -C ~/x fetch`,
+			`git -C ~/y fetch && ${pinRead}`,
+		])
+			expect(verdictOf("", gate(check), false).refusals).toHaveLength(1);
+	});
+});
+
 describe("a check the write does not add", () => {
 	it("leaves an unchanged gate line and a gate with no check alone", () => {
 		const held = gate("true");
