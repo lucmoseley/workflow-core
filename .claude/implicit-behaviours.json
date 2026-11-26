@@ -135,9 +135,9 @@
 		"TREE": "both — base, diffs and the sensitive-path declaration from the session's tree; markers, the write ledger and the standards files from the host root."
 	},
 	"scripts/guard-automode-refusal.js": {
-		"IMPLICIT": "reads this session's own transcript at every Stop and refuses one turn carrying an auto-mode refusal it has not yet shown the rule for.",
+		"IMPLICIT": "reads the stopping agent's own transcript at every Stop and SubagentStop and refuses one turn carrying an auto-mode refusal it has not yet shown the rule for.",
 		"JUSTIFIED": "fail-safe — a session that ends on a refusal stalls the ticket, and the remedy is one sentence saying which way it went.",
-		"DEFEAT": "once per refused call and at most MAX_BLOCKS times per session; silent where the turn carries no refusal, and on every failure path.",
+		"DEFEAT": "once per refused call and at most MAX_BLOCKS times per session and per subagent; silent where the turn carries no refusal, and on every failure path.",
 		"TREE": "host — judges the transcript against a rule text the core ships"
 	},
 	"scripts/guard-dispatch.js": {
