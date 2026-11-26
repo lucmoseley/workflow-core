@@ -1953,3 +1953,41 @@ describe("billingStopsOf (#5479)", () => {
 		).toEqual([]);
 	});
 });
+
+describe("a held checkout's gate judgement through the tick (#5766)", () => {
+	const judgement = { root: DV, number: 532, prompt: "/triage 532" };
+	const held: [string, Partial<Control>, Partial<TickIo>][] = [
+		[
+			"paused",
+			{ repoPaused: { [DV]: { by: "no-progress", at: NOW, issues: [] } } },
+			{},
+		],
+		[
+			"probe-held",
+			{},
+			{
+				readTickHolds: () => ({
+					holds: [{ root: DV, kind: "probe", issue: null, raisedAt: null }],
+				}),
+			},
+		],
+	];
+
+	it.each(held)(
+		"reads the frontier past a %s checkout's judgement and launches the other's row",
+		async (_, controlOver, ioOver) => {
+			const c = control({ scope: normal([WFC, DV]), ...controlOver });
+			const { io, calls } = fakeIo(stateOf(), {
+				readControl: () => ({ control: c, damaged: null }),
+				readGateJudgements: () => [judgement],
+				...ioOver,
+			});
+			const { decision } = await tickOf(io, c);
+			expect(calls).toContain("readFrontier");
+			expect(decision).toMatchObject({
+				idle: null,
+				launches: [expect.objectContaining({ root: WFC, issues: [1] })],
+			});
+		},
+	);
+});

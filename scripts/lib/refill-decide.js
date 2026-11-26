@@ -1088,6 +1088,19 @@ function decideLaunches(
 
 const CHECKOUT_SKIPS = [PROBE_HELD, REPO_PAUSED, BREAKER_OPEN, UNPROVEN_HELD];
 
+const UNLAUNCHED_IDLES = [
+	SHORTLIST_FAILED,
+	NOTHING_LAUNCHABLE,
+	PROBE_HOLD_WAIT,
+	UNPROVEN_CAP,
+	CHECKOUTS_HELD,
+];
+
+/** @param {Decision} decision */
+const readsFrontier = (decision) =>
+	!("stop" in decision) &&
+	(decision.idle === null || UNLAUNCHED_IDLES.includes(decision.idle.reason));
+
 /**
  * @param {TickInput} input
  * @param {Skip[]} skipped
@@ -1234,6 +1247,7 @@ module.exports = {
 	buildSkipReason,
 	CLASH_PREFIX,
 	decideTick,
+	readsFrontier,
 	isClashSkip,
 	fitsLaunch,
 	hasRoom,

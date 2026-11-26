@@ -9,6 +9,7 @@ const {
 	decideTick,
 	pickMoveSeat,
 	readParkers,
+	readsFrontier,
 } = require("./refill-decide.js");
 
 const buildIdle = (reason: string, detail = "") => ({ reason, detail });
@@ -2298,5 +2299,57 @@ describe("readParkers (#3773)", () => {
 			expect.objectContaining({ root: Wfc, sessionId: "s-new" }),
 		]);
 		expect(read).toEqual([Wfc, Other]);
+	});
+});
+
+describe("a held checkout's gate judgement beside another's frontier (#5766)", () => {
+	const judgements = [{ root: "dv", number: 532, prompt: "/triage 532" }];
+	const Act = NOW - HOUR;
+	const holdsOf = {
+		paused: {
+			repoPaused: { dv: { by: "no-progress", at: NOW - HOUR, issues: [] } },
+		},
+		"probe-held": { holds: [{ root: "dv", kind: "probe" }] },
+		"breaker-open": { breakerRoom: { dv: 0 } },
+		"unproven-held": {
+			history: [0, 1, 2].map((i) => ({
+				root: "dv",
+				issues: [90 + i],
+				jobId: `j${i}`,
+				launchedAt: Act + 1 + i,
+				finishedAt: null,
+			})),
+			lastActAt: { dv: Act, wfc: NOW },
+		},
+	};
+
+	it.each(Object.entries(holdsOf))(
+		"reads the frontier where the %s checkout's judgement is all it weighed, and launches the other's row",
+		(_, held) => {
+			const first = tick({ ...held, frontier: [], judgements, freeSlots: 5 });
+			expect(first.launches).toEqual([]);
+			expect(readsFrontier(first)).toBe(true);
+			const d = tick({
+				...held,
+				frontier: [row("wfc", 1)],
+				judgements,
+				freeSlots: 5,
+			});
+			expect(launched(d)).toEqual(["wfc#1"]);
+		},
+	);
+
+	it("reads none past an idle no candidate weighs in", () => {
+		for (const d of [
+			tick({ frontier: [], judgements, freeSlots: 0 }),
+			tick({ frontier: [], judgements, stopRequested: true }),
+			tick({
+				frontier: [],
+				judgements,
+				paused: { by: "founder", at: NOW, issues: [] },
+			}),
+			tick({ frontier: [], judgements, seats: [seat("~/.claude3", 100, 20)] }),
+		])
+			expect(readsFrontier(d)).toBe(false);
 	});
 });
