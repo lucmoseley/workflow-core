@@ -810,6 +810,24 @@
 				]
 			},
 			{
+				"path": "docs/agents/issue-tracker.md",
+				"anchors": [
+					{
+						"anchor": "repair state, at most once each 6 hours",
+						"needle": "6 hours"
+					}
+				]
+			},
+			{
+				"path": "docs/agents/rules/roadmap-gating.txt",
+				"anchors": [
+					{
+						"anchor": "repair state, at most once each 6 hours",
+						"needle": "6 hours"
+					}
+				]
+			},
+			{
 				"path": "scripts/lib/gate-sweep.test.ts",
 				"anchors": [
 					{
