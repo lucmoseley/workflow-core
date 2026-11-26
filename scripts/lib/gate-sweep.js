@@ -1,7 +1,12 @@
 const { execFile, spawn } = require("node:child_process");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
-const { NOT_STATED, PRINTING_FIX, REPAIR_STATES } = require("./gate-check.js");
+const {
+	NOT_STATED,
+	PRINTING_FIX,
+	REPAIR_STATES,
+	parseVerdict,
+} = require("./gate-check.js");
 const { readJson, writeJson } = require("./refill-json.js");
 
 // guess, #2279
@@ -141,15 +146,6 @@ function buildPrompt(row) {
 		case "unchecked":
 			return buildUncheckedPrompt(row.number);
 	}
-}
-
-/** @param {string} reading @returns {"met"|"unmet"|null} */
-function parseVerdict(reading) {
-	if (/^[ \t]*unmet\b/im.test(reading)) return "unmet";
-	if (/^[ \t]*met\b/im.test(reading)) return "met";
-	const counts = [...reading.matchAll(/\b(\d+) of (\d+)\b/g)];
-	if (counts.length === 0) return null;
-	return counts.every(([, a, b]) => Number(a) >= Number(b)) ? "met" : "unmet";
 }
 
 /**

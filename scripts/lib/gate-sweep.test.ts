@@ -238,6 +238,19 @@ describe("a reading's printed verdict orders its judging (#5696)", () => {
 		).toEqual([0, 7 * hour + GATE_SWEEP_MS]);
 	});
 
+	it("queues none for 14 days on a count printed against its threshold that moves daily below it (#5756)", async () => {
+		const daily: [number, string][] = Array.from({ length: 14 }, (_, d) => [
+			d * day,
+			`${d} of 25 logged days in 22 Nov-16 Dec`,
+		]);
+		expect(await queuedAcross(225, daily)).toEqual([0]);
+		expect(
+			await queuedAcross(225, [
+				[14 * day, "14 of 25 logged days in 22 Nov-16 Dec"],
+			]),
+		).toEqual([14 * day]);
+	});
+
 	it("keeps the 6-hour bound for a met reading that changes again, the judge having ruled", async () => {
 		expect(
 			await queuedAcross(5346, [
