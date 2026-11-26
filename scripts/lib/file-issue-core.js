@@ -48,10 +48,11 @@ const {
 const { SIGNATURE_LABEL } = require("./signature-label.js");
 const { hostRoot, worktreeRoot } = require("./host-root.js");
 const { docPath, scriptPath } = require("./script-path.js");
+const { SHA, buildCauseLine } = require("./cause-line.js");
 
 const HUMAN_LABEL = takesLabel("human");
 
-const USAGE = `usage: node ${scriptPath("file-issue.js")} --title T --label L [--label L…] (--parent P | --standalone "<why>") --body-file F|- --origin <class> (--fault-signature <file> | --no-fault) [--assign-self] [--distinct-from N[,N…]] [--size-line-checked N[,N…]]\n       node ${scriptPath("file-issue.js")} --check "<title>"`;
+const USAGE = `usage: node ${scriptPath("file-issue.js")} --title T --label L [--label L…] (--parent P | --standalone "<why>") --body-file F|- --origin <class> (--fault-signature <file> | --no-fault) [--caused-by SHA[,SHA…]] [--assign-self] [--distinct-from N[,N…]] [--size-line-checked N[,N…]]\n       node ${scriptPath("file-issue.js")} --check "<title>"`;
 
 /** @type {import("./cli-args.js").CliSpec} */
 const SPEC = {
@@ -68,6 +69,7 @@ const SPEC = {
 		"--origin": "value",
 		"--fault-signature": "value",
 		"--no-fault": "boolean",
+		"--caused-by": "list",
 		"--check": "list",
 	},
 };
@@ -80,6 +82,7 @@ const SPEC = {
  *   {ok: string, warning?: string} | {error: string}} link
  * @property {(body: string) => {refusal: string|null, advice: string}} judge
  * @property {(file: string) => string} readBody
+ * @property {(rev: string) => ReturnType<typeof import("./commit-sha.js").readCommit>} readCommit
  * @property {() => number} now
  */
 
@@ -366,6 +369,8 @@ function checkFiling(io, ports, parsed) {
 	if (bodyStop) return bodyStop;
 	const declared = checkSignatureFile(io, opts.signatureFile);
 	if (isStop(declared)) return declared;
+	const causes = resolveCauses(io, ports, parsed.lists["--caused-by"]);
+	if (isStop(causes)) return causes;
 
 	const repo = readTracker(io);
 	if (isStop(repo)) return repo;
@@ -392,7 +397,37 @@ function checkFiling(io, ports, parsed) {
 		checkSimilar(io, ports, repo, opts) ??
 		checkSizeLine(io, ports, { repo, labels, body, opts });
 	if (before) return before;
-	return { opts, body, declared, repo, parent, added, labels };
+	return { opts, body, declared, causes, repo, parent, added, labels };
+}
+
+/**
+ * @param {Streams} io
+ * @param {FileIssuePorts} ports
+ * @param {string[]} [given]
+ * @returns {string[] | Stop}
+ */
+function resolveCauses(io, ports, given = []) {
+	const full = [];
+	for (const sha of given
+		.flatMap((csv) => csv.split(","))
+		.map((t) => t.trim())) {
+		/** @type {ReturnType<FileIssuePorts["readCommit"]>} */
+		const read = SHA.test(sha)
+			? ports.readCommit(sha)
+			: { ok: true, sha: null };
+		if (!read.ok)
+			return io.fail(
+				`could not check --caused-by '${sha}' against this repo: ${read.why}. Nothing filed.`,
+				1,
+			);
+		if (read.sha === null)
+			return io.fail(
+				`--caused-by '${sha}' names no commit in this repo: give a sha of 7 to 40 lowercase hex digits that \`git rev-parse\` resolves here. Nothing filed.`,
+				2,
+			);
+		full.push(read.sha);
+	}
+	return full;
 }
 
 /**
@@ -404,11 +439,14 @@ function checkFiling(io, ports, parsed) {
 function fileAndPlace(
 	io,
 	ports,
-	{ opts, body, declared, repo, parent, added, labels },
+	{ opts, body, declared, causes, repo, parent, added, labels },
 ) {
 	const hasOwnStandalone = hasStandaloneLine(body);
 	const { filedBody, pending } = buildFiledBody(ports, {
-		body,
+		body:
+			causes.length > 0
+				? `${body.trimEnd()}\n\n${buildCauseLine(causes)}\n`
+				: body,
 		standalone: hasOwnStandalone ? undefined : opts.standalone,
 		declared,
 	});

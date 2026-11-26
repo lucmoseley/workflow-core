@@ -278,6 +278,10 @@ Overrides `.agents/skills/to-tickets/SKILL.md`'s "numbers/titles" (vendored, has
 
 - Give the subject line alongside the hash. Work lands direct on `main` and gets rebased, so hashes written into comments go dead.
 
+## Naming the commit that caused a bug
+
+**Whoever establishes that a commit caused a bug writes `**Caused by:** <sha>[, <sha>…]` on its ticket** (#5781): the filer through `file-issue.js --caused-by <sha>`, or a triage or resolution comment once the cause is found. The weekly outcome review counts a `bug` ticket against a fix only through this line, so a cause named in prose alone never reaches it. Clearing a commit writes no line, nor does a guess or a list of suspects. **Unenforced** on comments: no hook reads a triage or close comment.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_ When `yes`, PRs run the same labels and states as issues via the `gh pr` equivalents, filtering `gh pr list --json …,authorAssociation` to `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR` or `NONE` to drop your own.

@@ -51,6 +51,7 @@ interface Issue {
 	createdAt?: string;
 	closedAt?: string;
 	labels?: string[];
+	comments?: string[];
 }
 
 interface Upstream {
@@ -215,7 +216,7 @@ const failingLog = ${JSON.stringify(failingLog)};
 const flag = (f) => argv[argv.indexOf(f) + 1];
 const inRepo = issues.filter((i) => (i.repo ?? ${JSON.stringify(TRACKER)}) === flag("--repo"));
 const created = (i) => i.createdAt ?? ${JSON.stringify(d(0))};
-const row = (i) => ({ number: i.number, title: i.title, body: i.body ?? "", createdAt: created(i), closedAt: i.closedAt ?? "", labels: (i.labels ?? []).map((name) => ({ name })) });
+const row = (i) => ({ number: i.number, title: i.title, body: i.body ?? "", createdAt: created(i), closedAt: i.closedAt ?? "", labels: (i.labels ?? []).map((name) => ({ name })), comments: (i.comments ?? []).map((body) => ({ body })) });
 const api = argv[0] === "api" && argv.find((a) => a.startsWith("repos/"))?.match(/^repos\\/([^/]+\\/[^/]+)\\/(commits|contents\\/[^?]+)\\?(.*)$/);
 if (api && api[2] === "commits") {
   const q = new URLSearchParams(api[3]);
@@ -242,7 +243,8 @@ if (api && api[2] === "commits") {
   out(notFound.stdout); err(notFound.stderr); exit(notFound.status);
 } else if (argv[0] === "issue" && argv[1] === "list" && argv.includes("--label")) {
   const closedOnly = flag("--state") === "closed";
-  out(JSON.stringify(inRepo.filter((i) => (i.labels ?? []).includes(flag("--label")) && (!closedOnly || i.closedAt)).map(row)));
+  const from = argv.includes("--search") ? Date.parse(flag("--search").match(/^created:>=(\\S+)$/)[1]) : -Infinity;
+  out(JSON.stringify(inRepo.filter((i) => (i.labels ?? []).includes(flag("--label")) && (!closedOnly || i.closedAt) && Date.parse(created(i)) >= from).map(row)));
 } else if (argv[0] === "issue" && argv[1] === "list" && flag("--state") === "closed") {
   out(JSON.stringify(inRepo.filter((i) => i.closedAt).map(row)));
 } else { err("unrouted: " + argv.join(" ") + "\\n"); exit(1); }
@@ -442,14 +444,14 @@ describe("measure-outcome-review.js", () => {
 				number: 9,
 				title: "lander hangs",
 				labels: ["bug"],
-				body: `Since ${sha.slice(0, 8)} the lander hangs.`,
+				body: `Since ${sha.slice(0, 8)} the lander hangs.\n\n**Caused by:** ${sha.slice(0, 8)}`,
 				createdAt: d(FIXED + 2),
 			},
 			{
 				number: 10,
 				title: "older",
 				labels: ["bug"],
-				body: "cites #1",
+				body: `**Caused by:** ${sha}`,
 				createdAt: d(FIXED - 1),
 			},
 		);
@@ -463,7 +465,28 @@ describe("measure-outcome-review.js", () => {
 		expect(out.unwinds.file[0]).toMatchObject({ harm: true, fixSha: sha });
 	});
 
-	it("counts no red-`main` ticket that names the fix only as `main`'s head (#5777)", () => {
+	const redMain = (sha: string, n: number, comments: string[]) => ({
+		number: n,
+		title: "The scheduled full-suite run is red on main",
+		labels: ["bug", "ci-red"],
+		body: [
+			"Filed automatically by `scripts/report-red-suite.js`.",
+			"",
+			"## The red run",
+			"",
+			`- **Head sha:** \`${sha}\``,
+			"",
+			"```",
+			`1 commit(s) since the last green run, 48a2308..${sha.slice(0, 7)}:`,
+			"",
+			`  ${sha.slice(0, 9)}  Stop the boom (#1)`,
+			"```",
+		].join("\n"),
+		createdAt: d(FIXED + 3),
+		comments,
+	});
+
+	it("counts no citation of the fix or finding, and no exonerated red-`main` ticket (#5781)", () => {
 		const f = scratch();
 		baselineOfOne(f);
 		const sha = fixedFinding(f);
@@ -471,44 +494,109 @@ describe("measure-outcome-review.js", () => {
 		f.issues.push(
 			{
 				number: 9,
-				title: "`main` is red: failures the queue lander blames on no member",
-				labels: ["bug", "origin:ci-red"],
-				body: `## What to build\n\nThe queue lander found these files failing.\n\n- Main: \`${sha}\`\n\nFailing:\n- \`scripts/lib/pypi-registry.contract.test.ts\`\n`,
+				title: "Fit the pre-commit gates under their hook budget",
+				labels: ["bug"],
+				body: `Waiting on load is banned (#1, ${sha.slice(0, 9)}), so the gates must fit.`,
 				createdAt: d(FIXED + 2),
 			},
 			{
+				number: 11,
+				title: "`main` is red: failures the queue lander blames on no member",
+				labels: ["bug", "origin:ci-red"],
+				body: `## What to build\n\n- Main: \`${sha}\`\n\nFailing:\n- \`scripts/lib/pypi-registry.contract.test.ts\`\n`,
+				createdAt: d(FIXED + 2),
+			},
+			redMain(sha, 10, [
+				`## Triage\n\nNeither commit in the range (${sha.slice(0, 9)}) touches the shell-guard files.`,
+			]),
+		);
+		const { out } = f.run();
+		expect(outcome(out)).toMatchObject({
+			verdict: "keep",
+			guardrails: { reverts: [], followOns: [] },
+		});
+	});
+
+	it("counts a red-`main` ticket whose comment carries a cause line naming the fix (#5781)", () => {
+		const f = scratch();
+		baselineOfOne(f);
+		const sha = fixedFinding(f);
+		afterFix(f, 5, 0);
+		f.issues.push(
+			redMain(sha, 10, [
+				"## Triage\n\nBisected the range.",
+				`**Caused by:** ${sha.slice(0, 9)}`,
+			]),
+		);
+		const { out } = f.run();
+		expect(outcome(out)).toMatchObject({
+			verdict: "unwind",
+			why: "guardrail harm",
+			guardrails: { reverts: [], followOns: [`${TRACKER}#10`] },
+		});
+	});
+
+	it("counts a body cause line by a 7-hex prefix, and none naming another commit, filed before the fix or on the finding (#5781)", () => {
+		const f = scratch();
+		baselineOfOne(f);
+		const sha = fixedFinding(f);
+		const other = f.commit("Another change", FIXED + 1);
+		afterFix(f, 5, 0);
+		f.issues.push({ number: 2, title: "older finding" });
+		f.signatureLine(2);
+		f.issues[0] = {
+			...f.issues[0],
+			labels: ["bug"],
+			comments: [`**Caused by:** ${sha}`],
+			createdAt: d(FIXED + 2),
+		};
+		f.issues.push(
+			{
+				number: 9,
+				title: "lander hangs",
+				labels: ["bug"],
+				body: `**Caused by:** ${sha.slice(0, 7)}`,
+				createdAt: new Date(Date.parse(d(FIXED)) + 3_600_000).toISOString(),
+			},
+			{
 				number: 10,
-				title: "The scheduled full-suite run is red on main",
-				labels: ["bug", "ci-red"],
-				body: [
-					"Filed automatically by `scripts/report-red-suite.js`.",
-					"",
-					"## The red run",
-					"",
-					`- **Head sha:** \`${sha}\``,
-					"",
-					"```",
-					`1 commit(s) since the last green run, 48a2308..${sha.slice(0, 7)}:`,
-					"",
-					`  ${sha.slice(0, 9)}  Stop the boom (#1)`,
-					"```",
-					"",
-					"## Read this before hunting a commit",
-				].join("\n"),
-				createdAt: d(FIXED + 3),
+				title: "queue stalls",
+				labels: ["bug"],
+				body: `**Caused by:** ${other.slice(0, 9)}`,
+				createdAt: d(FIXED + 2),
 			},
 			{
 				number: 11,
-				title: "The scheduled full-suite run is red on main",
-				labels: ["bug", "ci-red"],
-				body: `## The red run\n\n- **Head sha:** \`${sha}\`\n\n## Triage\n\nBisected to ${sha.slice(0, 9)}.`,
-				createdAt: d(FIXED + 4),
+				title: "older",
+				labels: ["bug"],
+				body: "Seen before the fix.",
+				comments: [`**Caused by:** ${sha}`],
+				createdAt: d(FIXED - 1),
 			},
 		);
 		const { out } = f.run();
 		expect(outcome(out)).toMatchObject({
 			verdict: "unwind",
-			guardrails: { reverts: [], followOns: [`${TRACKER}#11`] },
+			guardrails: { reverts: [], followOns: [`${TRACKER}#9`] },
+		});
+	});
+
+	it("reads no follow-on past search's result cap, saying so (#5782)", () => {
+		const f = scratch();
+		baselineOfOne(f);
+		fixedFinding(f);
+		afterFix(f, 5, 0);
+		for (let n = 100; n < 1100; n++)
+			f.issues.push({
+				number: n,
+				title: "noise",
+				labels: ["bug"],
+				createdAt: d(FIXED + 1),
+			});
+		const { out } = f.run();
+		expect(outcome(out)).toMatchObject({
+			verdict: "waiting",
+			why: `follow-ons unread: ${TRACKER}: bug issues unread: 1000 created since ${d(FIXED)} reach search's 1000-result cap`,
 		});
 	});
 
@@ -693,7 +781,7 @@ describe("measure-outcome-review.js", () => {
 			number: 30,
 			title: "fault 6 again",
 			labels: ["bug"],
-			body: "follows #6",
+			body: `**Caused by:** ${fixes[6]}`,
 			createdAt: d(FIXED + 1),
 		});
 		f.runLine({

@@ -734,6 +734,51 @@ describe("the filing declarations (#4796)", () => {
 		expect(readCreates()).toEqual([]);
 	});
 
+	it("writes a cause line with each --caused-by sha resolved to its full sha (#5781)", () => {
+		setUp();
+		const full = "92d78df557aa843d6cbf08f1db5c2792003a5853";
+		const other = "6a33d61d0aa843d6cbf08f1db5c2792003a5853";
+		const known: Record<string, string> = { "92d78df": full, [other]: other };
+		const r = run(
+			declaring(["--no-fault", "--caused-by", `92d78df,${other}`]),
+			{
+				ports: { readCommit: (sha) => ({ ok: true, sha: known[sha] ?? null }) },
+			},
+		);
+		expect(r.status).toBe(0);
+		expect(readBodySeen()).toContain(`**Caused by:** ${full}, ${other}`);
+	});
+
+	it.each([
+		["an unknown sha", "deadbee"],
+		["a non-sha", "HEAD"],
+	])("refuses --caused-by naming %s and files nothing (#5781)", (_, sha) => {
+		setUp();
+		const r = run(declaring(["--no-fault", "--caused-by", sha]), {
+			ports: {
+				readCommit: (s) => ({
+					ok: true,
+					sha: s === "HEAD" ? "a".repeat(40) : null,
+				}),
+			},
+		});
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`--caused-by '${sha}' names no commit`);
+		expect(readCreates()).toEqual([]);
+	});
+
+	it("refuses --caused-by when git cannot answer, and files nothing (#5781)", () => {
+		setUp();
+		const r = run(declaring(["--no-fault", "--caused-by", "deadbee"]), {
+			ports: { readCommit: () => ({ ok: false, why: "not a git repository" }) },
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"could not check --caused-by 'deadbee' against this repo: not a git repository",
+		);
+		expect(readCreates()).toEqual([]);
+	});
+
 	it("stamps origin:<class> on the create and logs nothing for --no-fault", () => {
 		setUp();
 		const r = run(declaring(["--no-fault"]));

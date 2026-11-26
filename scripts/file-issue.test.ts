@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -261,5 +262,46 @@ describe("the similar-title list", () => {
 		const r = run(["--check", "Anything"]);
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("could not list acme/widgets's issues");
+	});
+});
+
+describe("--caused-by against the real repo (#5781)", () => {
+	const commitIn = (repo: string) => {
+		const git = (args: string[]) =>
+			execFileSync("git", ["-C", repo, ...args], {
+				encoding: "utf8",
+				env: {
+					...process.env,
+					GIT_AUTHOR_NAME: "t",
+					GIT_AUTHOR_EMAIL: "t@t",
+					GIT_COMMITTER_NAME: "t",
+					GIT_COMMITTER_EMAIL: "t@t",
+				},
+			}).trim();
+		git(["init", "-q"]);
+		git(["commit", "-q", "--allow-empty", "-m", "Break the lander"]);
+		return git(["rev-parse", "HEAD"]);
+	};
+
+	it("writes a short sha the repo knows as its full sha", () => {
+		setUp();
+		const full = commitIn(sb.repo);
+		const r = run(
+			[...filing(["takes:implement"]), "--caused-by", full.slice(0, 9)],
+			{ cwd: sb.repo },
+		);
+		expect(r.status).toBe(0);
+		expect(readBodySeen()).toContain(`**Caused by:** ${full}`);
+	});
+
+	it("refuses a sha the repo does not know and files nothing", () => {
+		setUp();
+		commitIn(sb.repo);
+		const r = run([...filing(["takes:implement"]), "--caused-by", "deadbee"], {
+			cwd: sb.repo,
+		});
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("--caused-by 'deadbee' names no commit");
+		expect(readCreates()).toEqual([]);
 	});
 });
