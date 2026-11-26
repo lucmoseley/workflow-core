@@ -72,7 +72,6 @@ beforeEach(() => {
 	vi.stubEnv("WFC_REFILL_DIR", path.join(tmp, "refill"));
 });
 afterEach(() => {
-	vi.useRealTimers();
 	vi.unstubAllEnvs();
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -146,7 +145,7 @@ describe("the breaker's record", () => {
 			rate: 0.1,
 			workingHours: 13,
 		};
-		appendBreakerEvents([event], () => undefined);
+		appendBreakerEvents([event], { log: () => undefined });
 		expect(tickRead(tmp).record).toEqual([event]);
 	});
 
@@ -482,12 +481,6 @@ describe("a checkout's loop sessions (#5289)", () => {
 });
 
 describe("readThroughputWindow", () => {
-	// #5722
-	beforeEach(() => {
-		vi.useFakeTimers({ toFake: ["Date"] });
-		vi.setSystemTime(HI + HOUR);
-	});
-
 	it("reads a served checkout's window: its sessions' hours, its breaker at the end, the window's events", () => {
 		const seat = path.join(tmp, "seat");
 		const row = (at: number) =>
@@ -524,7 +517,7 @@ describe("readThroughputWindow", () => {
 				ev(HI - HOUR, "reopen"),
 				ev(HI - HOUR, "open", "/srv/other"),
 			],
-			() => undefined,
+			{ log: () => undefined, now: () => HI + HOUR },
 		);
 		const [dv] = readThroughputWindow({
 			roots: ["/srv/dv"],
