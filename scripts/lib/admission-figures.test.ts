@@ -167,16 +167,11 @@ describe("unread readings", () => {
 	});
 });
 
-describe("the per-slot pending pair (#2511, #2568)", () => {
-	it("charges each slot past the first its own pair", () => {
-		const f = measured(roomy, one, { launchMb: 250 });
-		expect(f.byMemory).toBe(3);
-		expect(f.needAtMb).toBe(2370 + 2 * 250);
-		expect(f.nextNeedMb).toBe(3058 + 3 * 250);
-	});
-
-	it("charges nothing without a launch price", () => {
-		expect(measured(roomy, one).byMemory).toBe(4);
+describe("one pair per launch (#5704)", () => {
+	it("prices k slots at k draws, each launch's claimed pair inside its own", () => {
+		const f = measured(roomy, one);
+		expect(f.byMemory).toBe(4);
+		expect(f.needAtMb).toBe(3058);
 	});
 });
 

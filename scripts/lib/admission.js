@@ -129,7 +129,7 @@ function cpuSlotsRow(cpu) {
  * @typedef {import("./claude-sessions.js").SparePair} SparePair
  * @typedef {import("./admission-figures.js").LenientProcs} LenientProcs
  * @typedef {({ ok: true, mb: number, idlePairs: number, perPairMb: number | null, drift: string[] }) | { ok: false, error: string }} SpareOverhead
- * @typedef {({ ok: true, mb: number, perPairMb: number, pendingMb: number }) | { ok: false, error: string }} PoolReserve
+ * @typedef {({ ok: true, mb: number }) | { ok: false, error: string }} PoolReserve
  * @typedef {{ ok: true, sessions: number, unvouched: boolean, processes: number | null, processesError: string | null } | { ok: false, error: string, processes: number | null, processesError: string | null }} LiveSessionsResult
  * @typedef {{ held: false } | { held: true, swapFreeMb: number, swapTotalMb: number, availableMb: number }} SwapHold
  * @typedef {{ meanMb: number, sigmaMb: number, declared: boolean, problem?: string }} SessionDraw
@@ -323,22 +323,6 @@ function buildLiveDrawLine(live) {
 	return notes.length > 0 ? `${line}; ${notes.join("; ")}` : line;
 }
 
-/**
- * @param {number} k
- * @param {number} launchMb
- */
-const buildPairsText = (k, launchMb) =>
-	launchMb > 0 && k > 1 ? `${k - 1} more spare pair(s) at ${launchMb} MB` : "";
-
-/**
- * @param {number} k
- * @param {number} launchMb
- */
-const pairsClause = (k, launchMb) => {
-	const pairs = buildPairsText(k, launchMb);
-	return pairs ? `, with ${pairs},` : "";
-};
-
 const shortOfOneMore = (/** @type {number} */ needMb) =>
 	`, under the ${needMb} MB the live sessions' draw and one more need at p95`;
 
@@ -474,29 +458,17 @@ function sessionPairPids(pairs, pid) {
 // 101-102 MB measured, #2283
 const IDLE_PAIR_MB = 106;
 
-// guess: one launch's spare replaces the pair it claims, lucmoseley/mantahostels#2588
-const LAUNCH_SPARES = 1;
-
 /**
  * @param {SpareOverhead} pool
- * @param {number} spares
  * @returns {PoolReserve}
  */
-function poolReserve(pool, spares) {
-	const pending = Number.isFinite(spares) && spares > 0 ? spares : 0;
-	if (!pool.ok)
-		return {
-			ok: false,
-			error: pending
-				? `${pool.error} — and with it the reserve for the ${pending} spare(s) this launch is about to warm`
-				: pool.error,
-		};
-	const perPairMb =
+function poolReserve(pool) {
+	if (!pool.ok) return { ok: false, error: pool.error };
+	const mb =
 		typeof pool.perPairMb === "number" && pool.perPairMb > 0
 			? pool.perPairMb
 			: IDLE_PAIR_MB;
-	const pendingMb = Math.round(pending * perPairMb);
-	return { ok: true, mb: perPairMb + pendingMb, perPairMb, pendingMb };
+	return { ok: true, mb };
 }
 
 /**
@@ -588,7 +560,7 @@ const readSwapHold = () => swapHoldOf(readMeminfoKb());
  *   pool: MemRow & { drift: string[] },
  *   unlisted: MemRow & { count: number | null, dirs: { dir: string, count: number }[] },
  *   other: MemRow & { overlapMb: number, largest: { pid: string, rssMb: number, command: string }[] },
- *   slots: { unknown: string | null, availableMb?: number, poolReserveMb?: number, held?: HeldReserve[], typecheckReserveMb?: number, windowsChargeMb?: number, floorMb?: number, marginMb?: number, reclaimMb?: number, budgetMb?: number, drawNeedMb?: number, nextNeedMb?: number, launchMb?: number, byMemory?: number, memorySlots?: number, slots?: number, overloaded?: boolean, testsHeld?: number },
+ *   slots: { unknown: string | null, availableMb?: number, poolReserveMb?: number, held?: HeldReserve[], typecheckReserveMb?: number, windowsChargeMb?: number, floorMb?: number, marginMb?: number, reclaimMb?: number, budgetMb?: number, drawNeedMb?: number, nextNeedMb?: number, byMemory?: number, memorySlots?: number, slots?: number, overloaded?: boolean, testsHeld?: number },
  *   cpu: CpuSlots,
  * }} MemoryBreakdown
  */
@@ -924,7 +896,6 @@ function slotsRow(verdict) {
 				budgetMb: verdict.budgetMb,
 				drawNeedMb: verdict.drawNeedMb,
 				nextNeedMb: verdict.nextNeedMb,
-				launchMb: verdict.launchMb,
 				byMemory: verdict.byMemory,
 				memorySlots: verdict.memorySlots,
 				slots: verdict.slots,
@@ -1138,7 +1109,7 @@ function buildSlotLine(s) {
 	else if (s.slots !== s.memorySlots)
 		slotsNote += `, capped to ${s.slots} by the cpu slots below`;
 	return s.unknown === null
-		? `${s.availableMb} free − ${s.poolReserveMb} pool${heldBackTerms(s)} − ${s.floorMb} floor − ${s.marginMb} margin + ${s.reclaimMb} reclaim = ${s.budgetMb} MB; the live sessions' draw needs ${s.drawNeedMb} MB of it, and with ${/** @type {number} */ (s.byMemory) + 1} more${pairsClause(/** @type {number} */ (s.byMemory) + 1, s.launchMb ?? 0)} ${s.nextNeedMb} MB, so ${s.byMemory} slot(s)${
+		? `${s.availableMb} free − ${s.poolReserveMb} pool${heldBackTerms(s)} − ${s.floorMb} floor − ${s.marginMb} margin + ${s.reclaimMb} reclaim = ${s.budgetMb} MB; the live sessions' draw needs ${s.drawNeedMb} MB of it, and with ${/** @type {number} */ (s.byMemory) + 1} more ${s.nextNeedMb} MB, so ${s.byMemory} slot(s)${
 				/** @type {number} */ (s.poolReserveMb) >
 				/** @type {number} */ (s.availableMb)
 					? ", the pool reserve exceeding free memory so the rest counting from 0"
@@ -1311,7 +1282,7 @@ function admissionFrom(mem, procs, readings = {}) {
 		freeSlots,
 		...shared,
 		admit: true,
-		reason: `${slotsClause(f.freeSlots, f.launchMb)}${reservedNote}${creditedNote}${buildCapNote(f, cpu)}`,
+		reason: `${slotsClause(f.freeSlots)}${reservedNote}${creditedNote}${buildCapNote(f, cpu)}`,
 	};
 }
 
@@ -1324,13 +1295,9 @@ function buildCapNote(f, cpu) {
 	return `; capped by the CPU: ${buildSessionCeilingText(cpu)}`;
 }
 
-/**
- * @param {number} freeSlots
- * @param {number} launchMb
- */
-function slotsClause(freeSlots, launchMb) {
-	const pairs = buildPairsText(freeSlots, launchMb);
-	return `${freeSlots} free slot${freeSlots === 1 ? "" : "s"} on the live sessions' draw at p95${pairs ? ` and ${pairs}` : ""}`;
+/** @param {number} freeSlots */
+function slotsClause(freeSlots) {
+	return `${freeSlots} free slot${freeSlots === 1 ? "" : "s"} on the live sessions' draw at p95`;
 }
 
 /**
@@ -1347,7 +1314,7 @@ function suiteCapacity(mb, reclaimedMb = 0, rawMb = mb) {
 }
 
 /**
- * @param {{ guaranteed: boolean, memorySlots: number, budgetMb: number, reservedMb: number, creditedNote: string, needAtMb: number, nextNeedMb: number, launchMb: number }} figures
+ * @param {{ guaranteed: boolean, memorySlots: number, budgetMb: number, reservedMb: number, creditedNote: string, needAtMb: number, nextNeedMb: number }} figures
  * @returns {string}
  */
 function buildStrictMemoryReason({
@@ -1358,13 +1325,12 @@ function buildStrictMemoryReason({
 	creditedNote,
 	needAtMb,
 	nextNeedMb,
-	launchMb,
 }) {
 	const head = `${budgetMb} MB available after reserving ${reservedMb} MB for the spare pool${creditedNote}`;
 	if (guaranteed)
 		return `${head}, under the ${nextNeedMb} MB one session's draw needs at p95, but no session is running, so one is admitted`;
 	if (memorySlots > 0)
-		return `${head}; the live sessions' draw and ${memorySlots} more${pairsClause(memorySlots, launchMb)} need ${needAtMb} MB at p95`;
+		return `${head}; the live sessions' draw and ${memorySlots} more need ${needAtMb} MB at p95`;
 	return `${head}${shortOfOneMore(nextNeedMb)}`;
 }
 
@@ -1429,7 +1395,6 @@ function buildWindowsLine({ windows, guestFreeMb, windowsChargeMb }) {
  *   budgetMb: number,
  *   drawNeedMb: number,
  *   nextNeedMb: number,
- *   launchMb: number,
  *   byMemory: number,
  *   memorySlots: number,
  *   reclaimableError: string | null,
@@ -1450,7 +1415,7 @@ function strictAdmission(mem, procs, readings = {}) {
 	if (!f.memRead) return { ok: false, error: `memory unreadable: ${f.error}` };
 	if (!procs.ok)
 		return { ok: false, error: `session count unreadable: ${procs.error}` };
-	const { load, cpu, held, launchMb, reservedMb, reclaimedMb } = f;
+	const { load, cpu, held, reservedMb, reclaimedMb } = f;
 	const creditedNote = `${
 		reclaimedMb ? `, credited ${reclaimedMb} MB about to be reclaimed` : ""
 	}${buildHeldBackNote(f)}${HELD_NOTE}`;
@@ -1462,7 +1427,6 @@ function strictAdmission(mem, procs, readings = {}) {
 		creditedNote,
 		needAtMb: f.needAtMb,
 		nextNeedMb: f.nextNeedMb,
-		launchMb,
 	});
 	return {
 		ok: /** @type {const} */ (true),
@@ -1483,7 +1447,6 @@ function strictAdmission(mem, procs, readings = {}) {
 		budgetMb: f.budgetMb,
 		drawNeedMb: f.drawNeedMb,
 		nextNeedMb: f.nextNeedMb,
-		launchMb,
 		byMemory: f.byMemory,
 		memorySlots: f.memorySlots,
 		reclaimableError: f.reclaimableError,
@@ -1504,22 +1467,15 @@ function strictAdmission(mem, procs, readings = {}) {
  * @param {{
  *   listed: Parameters<typeof memoryBreakdown>[0]["listed"] & Parameters<typeof liveDraw>[0] & Parameters<typeof liveSessions>[0],
  *   reclaimable: Parameters<typeof memoryBreakdown>[0]["reclaimable"],
- *   pendingSpares?: number,
  *   reserves: Reserves,
  * }} inputs
  */
-function machineAdmission({
-	listed,
-	reclaimable,
-	pendingSpares = 0,
-	reserves,
-}) {
+function machineAdmission({ listed, reclaimable, reserves }) {
 	const ps = readPsRows();
 	const children = readProcessChildren();
 	const pairs = readSparePairs(ps);
 	const pool = daemonSpareOverheadMb(ps, pairs);
-	const overhead = poolReserve(pool, pendingSpares);
-	const launchMb = overhead.ok ? overhead.pendingMb : 0;
+	const overhead = poolReserve(pool);
 	const meminfo = readMeminfoKb();
 	const mem = availableFrom(meminfo);
 	const procs = liveSessions(listed);
@@ -1557,7 +1513,6 @@ function machineAdmission({
 		load,
 		cpu,
 		held,
-		launchMb,
 		...reserveReadings,
 	});
 	const memory = memoryBreakdown({
@@ -1588,7 +1543,6 @@ function machineAdmission({
 		load,
 		cpu,
 		held,
-		launchMb,
 		reserveReadings,
 		verdict,
 		memory,
@@ -1608,7 +1562,6 @@ function selectionAdmission({ listed, reclaimable, reserves }) {
 		reclaimable: reclaimable.ok
 			? { ok: true, mb: 0, count: reclaimable.count }
 			: reclaimable,
-		pendingSpares: LAUNCH_SPARES,
 		reserves,
 	});
 	const admission = admissionFrom(readings.mem, readings.procs, {
@@ -1618,7 +1571,6 @@ function selectionAdmission({ listed, reclaimable, reserves }) {
 		load: readings.load,
 		cpu: readings.cpu,
 		held: readings.held,
-		launchMb: readings.launchMb,
 		...readings.reserveReadings,
 	});
 	return { ...readings, admission };
@@ -1635,7 +1587,6 @@ function selectionAdmission({ listed, reclaimable, reserves }) {
 module.exports = {
 	machineAdmission,
 	selectionAdmission,
-	LAUNCH_SPARES,
 	IDLE_PAIR_MB,
 	buildSessionDrawLine,
 	buildWindowsLine,

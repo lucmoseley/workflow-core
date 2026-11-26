@@ -46,7 +46,7 @@ const NO_LIVE_DRAW = {
 };
 
 /**
- * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, held?: HeldReserve[], launchMb?: number, typecheckChargeMb?: number, testsHeld?: number, windows?: WindowsRead, guestFreeMb?: number | null }} AdmissionReadings
+ * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, held?: HeldReserve[], typecheckChargeMb?: number, testsHeld?: number, windows?: WindowsRead, guestFreeMb?: number | null }} AdmissionReadings
  */
 
 // 587 − 440 MB measured, #2231
@@ -109,24 +109,13 @@ const heldFields = (held) =>
 	);
 
 /**
- * @param {LiveDraw} live
- * @param {SessionDraw} host
- * @param {number} k
- * @param {number} launchMb
- */
-function launchNeedFor(live, host, k, launchMb) {
-	return drawNeedFor(live, host, k) + Math.max(0, k - 1) * launchMb;
-}
-
-/**
  * @param {number} budgetMb
  * @param {LiveDraw} live
  * @param {SessionDraw} host
- * @param {number} launchMb
  */
-function drawSlots(budgetMb, live, host, launchMb) {
+function drawSlots(budgetMb, live, host) {
 	let k = 0;
-	while (launchNeedFor(live, host, k + 1, launchMb) <= budgetMb) k++;
+	while (drawNeedFor(live, host, k + 1) <= budgetMb) k++;
 	return k;
 }
 
@@ -154,7 +143,6 @@ function admissionFigures(
 		load = LOAD_UNREAD,
 		cpu = CPU_UNREAD,
 		held = [],
-		launchMb = 0,
 		typecheckChargeMb = 0,
 		testsHeld = 0,
 		windows = { state: "absent" },
@@ -168,7 +156,6 @@ function admissionFigures(
 		cpu,
 		held,
 		...heldFields(held),
-		launchMb,
 		testsHeld,
 		windows,
 		guestFreeMb,
@@ -195,7 +182,7 @@ function admissionFigures(
 		windowsChargeMb,
 		reclaimMb: reclaimedMb,
 	});
-	const byMemory = drawSlots(budgetMb, live, host, launchMb);
+	const byMemory = drawSlots(budgetMb, live, host);
 	const guaranteed = procs.ok && isGuaranteed(procs, byMemory);
 	const memorySlots = guaranteed ? 1 : byMemory;
 	const holdSlots = (/** @type {number} */ n) =>
@@ -210,12 +197,11 @@ function admissionFigures(
 		budgetMb,
 		typecheckReserveMb,
 		windowsChargeMb,
-		windowsCapped:
-			drawSlots(budgetMb + windowsChargeMb, live, host, launchMb) > byMemory,
+		windowsCapped: drawSlots(budgetMb + windowsChargeMb, live, host) > byMemory,
 		drawNeedMb: drawNeedFor(live, host, 0),
 		byMemory,
-		needAtMb: launchNeedFor(live, host, byMemory, launchMb),
-		nextNeedMb: launchNeedFor(live, host, byMemory + 1, launchMb),
+		needAtMb: drawNeedFor(live, host, byMemory),
+		nextNeedMb: drawNeedFor(live, host, byMemory + 1),
 		guaranteed,
 		freeSlots: holdSlots(byMemory),
 		memorySlots,

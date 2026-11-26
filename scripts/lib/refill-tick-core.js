@@ -82,7 +82,7 @@ const buildReviewSkip = ({ due, root, lastRunOn, today }) =>
 			}
 		: { lines: [], runOn: lastRunOn };
 
-const FREE_SLOT_ARGS = ["--json", "--launch", "--skip-allowance"];
+const FREE_SLOT_ARGS = ["--json", "--skip-allowance"];
 
 /**
  * @param {string[]} served

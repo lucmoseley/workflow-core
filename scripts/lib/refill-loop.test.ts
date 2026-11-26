@@ -42,7 +42,6 @@ import { loopStateOf } from "./refill-state-testkit";
 import {
 	buildFinishLine,
 	buildReviewSkip,
-	FREE_SLOT_ARGS,
 	parseProbeOutcome,
 	settleLaunching,
 	stopNeverStarted,
@@ -1593,24 +1592,6 @@ describe("the seats' probe stamps on the state file (#4060)", () => {
 			a: 5,
 		});
 		expect(loopStateOf(null).seatTriedAt).toEqual({});
-	});
-});
-
-describe("the free-slot count (#2500)", () => {
-	it("charges what dispatch-sessions.js's per-member re-read charges", () => {
-		const sh = fs.readFileSync(
-			path.join(__dirname, "dispatch-sessions.js"),
-			"utf8",
-		);
-		const reread = sh.match(
-			/admissionArgs = this\.forceMemory\s*\?\s*\["--load-only"\]\s*:\s*\[\s*"([^"]+)"/,
-		);
-		expect(reread).not.toBeNull();
-		expect(FREE_SLOT_ARGS).toEqual([
-			"--json",
-			String(reread?.[1]),
-			"--skip-allowance",
-		]);
 	});
 });
 

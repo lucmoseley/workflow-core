@@ -110,7 +110,7 @@ describe("admission", () => {
 		const r = await run({ issues: [{ number: 1 }] });
 		expect(r.out).toMatch(/free slots\s+0/);
 		expect(r.out).toMatch(
-			/HOLD — -906 MB available after reserving 212 MB for the spare pool, holding 794 \+ 300 MB above earlyoom's kill line, under the 577 MB the live sessions' draw and one more need at p95/,
+			/HOLD — -800 MB available after reserving 106 MB for the spare pool, holding 794 \+ 300 MB above earlyoom's kill line, under the 577 MB the live sessions' draw and one more need at p95/,
 		);
 		expect(r.out).not.toMatch(/START ONE NOW/);
 		expect(r.status).toBe(0);
@@ -203,9 +203,9 @@ describe("admission", () => {
 			...FIXTURE_DRAW,
 			reclaimable: 0,
 			reclaimableError: null,
-			reservedMb: 2 * IDLE_PAIR_MB,
+			reservedMb: IDLE_PAIR_MB,
 			reservedError: null,
-			budgetMb: 1766,
+			budgetMb: 1872,
 			drawNeedMb: -63,
 			freeSlots: 3,
 			admit: true,
@@ -263,7 +263,7 @@ describe("admission", () => {
 			);
 			const admitted = runInProcess(
 				path.resolve(__dirname, "admission.js"),
-				["--skip-allowance", "--launch"],
+				["--skip-allowance"],
 				{
 					cwd: host,
 					env: {
@@ -289,7 +289,7 @@ describe("admission", () => {
 			const theirs = breakdownOf(admitted.stdout);
 			expect(row(ours, "finished")).toMatch(/, 1 taken by the next reap$/);
 			expect(row(ours, "slot arithmetic")).toMatch(
-				/ = \d+ MB; the live sessions' draw needs \d+ MB of it, and with \d+ more, with \d+ more spare pair\(s\) at \d+ MB, \d+ MB, so \d+ slot\(s\)$/,
+				/ = \d+ MB; the live sessions' draw needs \d+ MB of it, and with \d+ more \d+ MB, so \d+ slot\(s\)$/,
 			);
 			expect(ours).toEqual(theirs);
 		});

@@ -99,7 +99,7 @@ each applies, the readiness-unknown count and the frontier issues whose
 (mantahostels#3363, the run that read a labelled issue as unlabelled). The text output prints the same figures as
 `RUN SUMMARY`, second-last block. **Its `admit`, `freeSlots` and `reclaimable`
 are the run's own reading and go stale where it matters** — §5 sends you to
-`node scripts/admission.js --launch` immediately before the dispatch lines (mantahostels#1144), and
+`node scripts/admission.js` immediately before the dispatch lines (mantahostels#1144), and
 that re-read is what §6 states.
 
 **One file holds whatever ran last, so check `generatedAt` and `repo` before
@@ -657,9 +657,8 @@ substrate is the real ceiling, name that file rather than reporting the slot
 count as the limit.
 
 **Re-read the machine here, immediately before writing §6's lines** — run `node
-scripts/admission.js --launch`, which reads `/proc/meminfo` and `claude agents --json`
-and prints the slot count, each slot priced with the spare pair its launch
-warms as the dispatcher's re-read prices it (#2568), instead of doing that arithmetic in prose off the
+scripts/admission.js`, which reads `/proc/meminfo` and `claude agents --json`
+and prints the slot count, instead of doing that arithmetic in prose off the
 figures §2's run printed (mantahostels#1144). **Exit 2 is a
 refusal — either figure unreadable — and it means start nothing**: an
 over-admission freezes the machine. Exit 1 is the HOLD, exit 0 the admit, and
@@ -676,7 +675,7 @@ a set below it is ordinary. **Nothing refuses a message on this figure, and noth
 **Once per wave, not once per run.** A two-wave dispatch (§4, §6) writes §6's
 lines twice, minutes apart, with the band read in between — the very interval
 this re-read exists to cover. So the closing wave runs `node
-scripts/admission.js --launch` again, against the machine as it now stands: wave 1's own
+scripts/admission.js` again, against the machine as it now stands: wave 1's own
 sessions are running by then and the figure has moved in both directions.
 
 Why re-read at all: §4's band read is minutes long by design and sessions finish
@@ -953,7 +952,7 @@ dropped members would have used — top them up before the founder-facing
 message goes out** (mantahostels#1529). **A `CAPPED:` cut frees nothing**: its
 members were dropped for allowance, not slots, so they are never topped up. §6's dispatch lines are drafted content, not yet
 sent — nothing stops here just because they exist. Re-read
-`node scripts/admission.js --launch` for the free-slot count now, and launch the next
+`node scripts/admission.js` for the free-slot count now, and launch the next
 candidates by §4's ordering — the tail already read, next in line, not a
 fresh `pick-next.js` run — until either the slots or the candidates run out.
 Repeat this same launch call for the top-up set; it is bound by the same
