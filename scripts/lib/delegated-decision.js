@@ -114,16 +114,28 @@ const ledgerPath = () => {
  *   session: string | null}} LedgerLine
  */
 
+// #5765
+/**
+ * @typedef {{before: string | null, after: string | null}} ZeroedRecord
+ */
+
 /**
  * @param {string} file
- * @returns {{lines: LedgerLine[], torn: number}}
+ * @returns {{lines: LedgerLine[], torn: number, zeroed: ZeroedRecord[]}}
  */
 function readLedgerLines(file) {
 	const read = readJsonl(file);
-	if (!read) return { lines: [], torn: 0 };
+	if (!read) return { lines: [], torn: 0, zeroed: [] };
+	/** @param {{row: Record<string, unknown>} | undefined} entry */
+	const at = (entry) =>
+		typeof entry?.row.at === "string" ? entry.row.at : null;
 	return {
 		lines: /** @type {LedgerLine[]} */ (read.rows),
 		torn: read.bad.length,
+		zeroed: read.zeroed.map((line) => ({
+			before: at(read.entries.findLast((e) => e.line < line)),
+			after: at(read.entries.find((e) => e.line >= line)),
+		})),
 	};
 }
 

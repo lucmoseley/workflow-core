@@ -135,13 +135,17 @@ function readRepo(ctx, root, windowSince, reviews) {
  */
 function readDecisions(root, repo) {
 	try {
-		const { lines, torn } = readLedger(root);
+		const { lines, torn, zeroed } = readLedger(root);
 		return {
 			entries: lines,
-			unread:
-				torn === 0
+			unread: [
+				...(torn === 0
 					? []
-					: [{ repo, why: `${torn} torn ledger line(s) skipped` }],
+					: [{ repo, why: `${torn} torn ledger line(s) skipped` }]),
+				...(zeroed.length === 0
+					? []
+					: [{ repo, why: buildZeroedText(zeroed) }]),
+			],
 		};
 	} catch (e) {
 		return {
@@ -150,6 +154,15 @@ function readDecisions(root, repo) {
 		};
 	}
 }
+
+/** @param {import("./delegated-decision.js").ZeroedRecord[]} zeroed */
+const buildZeroedText = (zeroed) =>
+	`${zeroed.length} ledger record(s) zeroed by a crash, written ${zeroed
+		.map(
+			({ before, after }) =>
+				`between ${before ?? "the ledger's start"} and ${after ?? "its end"}`,
+		)
+		.join("; ")}`;
 
 /**
  * @param {Ctx} ctx

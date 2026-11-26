@@ -969,6 +969,22 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 				expect(recovered).not.toContain("unread since");
 			});
 
+			it("lists a decision a crash prefixed with zero bytes, and names a zeroed record by its neighbours' times (#5765)", async () => {
+				seed([previousReview()]);
+				appendDecision(wfc(), "2026-10-10T10:00:00.000Z", 3, "Wfc: before");
+				fs.appendFileSync(ledger(), "\0".repeat(698));
+				appendDecision(wfc(), "2026-10-10T12:00:00.000Z", 4, "Wfc: after");
+				stubCloses();
+				await reviewAt(dayTwo);
+
+				const [body] = bodies();
+				once(body, "Wfc: before");
+				once(body, "Wfc: after");
+				expect(body).toContain(
+					"- acme/wfc: `1 ledger record(s) zeroed by a crash, written between 2026-10-10T10:00:00.000Z and 2026-10-10T12:00:00.000Z`",
+				);
+			});
+
 			it("keeps each kind's own start where a whole read fails after a part did", async () => {
 				const closesStart = "2026-10-09T07:00:00.000Z";
 				seed([
