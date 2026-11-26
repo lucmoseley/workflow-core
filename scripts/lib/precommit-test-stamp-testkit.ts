@@ -218,7 +218,7 @@ export function fixture({
 	const readLeftInGitDir = () =>
 		fs.readdirSync(gitDir).filter((f) => f.startsWith("commit-paths-"));
 	const readOtherWorktrees = () =>
-		String(git("worktree", "list", "--porcelain"))
+		git("worktree", "list", "--porcelain")
 			.split("\n")
 			.filter((l) => l.startsWith("worktree ") && l !== `worktree ${root}`);
 	const commitPathsArgs = (patch?: string) => [
@@ -301,7 +301,7 @@ export function fixture({
 			stepMs?: number;
 		} = {}) {
 			const before = readHead();
-			const readStaged = () => String(git("ls-files", "--stage"));
+			const readStaged = () => git("ls-files", "--stage");
 			const index = readStaged();
 			const e = commitPathsEnv(inherited);
 			if (unsetCore) {
@@ -376,7 +376,7 @@ export const reason = (why: string) => `${IN_HOOK}: ${why}.`;
 
 export const cutPatch = (f: ReturnType<typeof fixture>): string => {
 	fs.writeFileSync(path.join(f.root, "a.txt"), "mine\na.txt\ntheirs\n");
-	const diff = String(f.git("diff", "HEAD", "-U0", "--", "a.txt"));
+	const diff = f.git("diff", "HEAD", "-U0", "--", "a.txt");
 	const at = path.join(f.root, "stub-mine.patch");
 	fs.writeFileSync(at, diff.slice(0, diff.lastIndexOf("@@ -1,0")));
 	return at;

@@ -34,7 +34,7 @@ import {
 import { noop } from "./lib/noop.js";
 import { writeEnviron } from "./lib/proc-fake";
 import { isDead } from "./lib/process-fixture";
-import { gitIn } from "./lib/repo-tree-testkit";
+import { gitIn, gitTrimmedIn } from "./lib/repo-tree-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 import { stubLaunch } from "./lib/suite-handoff-testkit";
 import { WHOLE_SLOT_BOUND } from "./lib/whole-slot-bound";
@@ -4172,7 +4172,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		it("names the sha it is frozen at, not the tip a neighbour just moved", async () => {
 			const dir = repoWithDeps();
 			const out = sink();
-			const frozen = gitIn(dir, "rev-parse", "HEAD").trim();
+			const frozen = gitTrimmedIn(dir, "rev-parse", "HEAD");
 			const realExec = require("node:child_process").execFileSync;
 			await main(["--full=coverage"], {
 				root: dir,
@@ -4189,7 +4189,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				},
 				spawnFn: () => fakeChild({ code: 0 }),
 			});
-			const moved = gitIn(dir, "rev-parse", "HEAD").trim();
+			const moved = gitTrimmedIn(dir, "rev-parse", "HEAD");
 			expect(moved).not.toBe(frozen);
 			expect(out.text.join("")).toContain(frozen);
 			expect(out.text.join("")).not.toContain(moved);
@@ -5362,7 +5362,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				fs.writeFileSync(path.join(dir, "loose.txt"), "untracked\n");
 				fs.appendFileSync(
 					path.join(
-						gitIn(dir, "rev-parse", "--git-common-dir").trim(),
+						gitTrimmedIn(dir, "rev-parse", "--git-common-dir"),
 						"info",
 						"exclude",
 					),
@@ -5705,7 +5705,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 			it("falls back to the shared tree, saying so, where the snapshot cannot be written", async () => {
 				const dir = dirtyCheckout({ linked: true });
-				const blob = gitIn(dir, "rev-parse", "HEAD:mine.txt").trim();
+				const blob = gitTrimmedIn(dir, "rev-parse", "HEAD:mine.txt");
 				require("node:child_process").execFileSync(
 					"git",
 					["update-index", "--index-info"],
@@ -6018,10 +6018,10 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				fs.writeFileSync(path.join(dir, f), text);
 				gitIn(dir, "add", f);
 				gitIn(dir, "commit", "-qm", f);
-				return gitIn(dir, "rev-parse", "HEAD").trim();
+				return gitTrimmedIn(dir, "rev-parse", "HEAD");
 			};
 			gitIn(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
-			const base = gitIn(dir, "rev-parse", "HEAD").trim();
+			const base = gitTrimmedIn(dir, "rev-parse", "HEAD");
 			const mine = commit("mine.js", "1\n");
 			const theirs = commit("theirs.js", "1\n");
 			const loose = commit("loose.js", "1\n");
@@ -6204,10 +6204,10 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					fs.writeFileSync(path.join(dir, f), "1\n");
 					gitIn(dir, "add", f);
 					gitIn(dir, "commit", "-qm", f);
-					return gitIn(dir, "rev-parse", "HEAD").trim();
+					return gitTrimmedIn(dir, "rev-parse", "HEAD");
 				};
 				gitIn(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
-				const base = gitIn(dir, "rev-parse", "HEAD").trim();
+				const base = gitTrimmedIn(dir, "rev-parse", "HEAD");
 				const mine = commit("docs/own.md");
 				const theirs = commit("theirs.js");
 				return { base, mine, theirs, commit };

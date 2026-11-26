@@ -21,7 +21,7 @@ import {
 	runNodeGuard,
 	spawnGuard,
 } from "./lib/pretool-guard-testkit";
-import { gitIn } from "./lib/repo-tree-testkit";
+import { gitIn, gitTrimmedIn } from "./lib/repo-tree-testkit";
 import { readRuleText } from "./lib/rule-text";
 import { CONTRACT } from "./lib/workflow-core-config.js";
 
@@ -389,7 +389,7 @@ describe("the real adapters, crossed once", () => {
 					content: `// ${cite(900)}\n// ${cite(2015)}\n`,
 				},
 			},
-			{ WFC_CITATION_BASELINE: gitIn(repo, "rev-parse", "HEAD").trim() },
+			{ WFC_CITATION_BASELINE: gitTrimmedIn(repo, "rev-parse", "HEAD") },
 			{ project: link },
 		);
 		expect(out.additionalContext).toBe(
