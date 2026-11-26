@@ -46,7 +46,7 @@ describe("a check the write adds", () => {
 		["`echo 7`", "`7`"],
 		["`echo round-log rows: 0`", "`round-log rows: 0`"],
 	])(
-		"refuses %s, whose reading %s carries no verdict, naming both fixes (#5756)",
+		"refuses %s, whose reading %s carries no verdict, naming both fixes, where a check printing a verdict passes (#5756)",
 		(check, shown) => {
 			const { refusals } = verdictOf("", gate(check));
 			expect(refusals).toHaveLength(1);
@@ -78,9 +78,9 @@ describe("a check the write adds", () => {
 
 	it("judges only the parse where the route cannot run it", () => {
 		expect(verdictOf("", gate("true"), false).refusals).toEqual([]);
-		expect(verdictOf("", gate("true"), false).warnings[0]).toContain(
-			"was not run here",
-		);
+		const [warning] = verdictOf("", gate("true"), false).warnings;
+		expect(warning).toContain("was not run here");
+		expect(warning).toContain("of 25 rows");
 		expect(verdictOf("", gate("`echo `x``"), false).refusals).toHaveLength(1);
 	});
 });

@@ -178,6 +178,9 @@ const PRINTING_FIX =
 
 const COUNT_FIX = '`echo "$(grep -c . data/log.jsonl) of 25 rows"`';
 
+// guess, #5756
+const SHOWN_READING_CHARS = 120;
+
 const GIT_C_ORIGIN = /\bgit\s+-C\s+(\S+)\s[^;&|]*?\borigin\//g;
 const GIT_C_FETCH = /\bgit\s+-C\s+(\S+)\s+fetch\b/g;
 
@@ -262,7 +265,7 @@ function addedCheckVerdict(
 		}
 		if (!run) {
 			warnings.push(
-				`The \`check:\` \`${u.command}\` was not run here, so nothing says it prints a reading. Run \`node ${scriptPath("check-gates.js")} --issue <n>\` once it is filed; a NO-OUTPUT or DEAD row there is a check to rewrite so that it prints what it saw, for example ${PRINTING_FIX}.`,
+				`The \`check:\` \`${u.command}\` was not run here, so nothing says it prints a reading. Run \`node ${scriptPath("check-gates.js")} --issue <n>\` once it is filed; a NO-OUTPUT or DEAD row there, or a reading with no line opening \`met:\` or \`unmet:\` and no \`<a> of <b>\` count, is a check to rewrite so that it prints what it saw and a verdict, for example ${PRINTING_FIX} or ${COUNT_FIX}.`,
 			);
 			continue;
 		}
@@ -317,7 +320,7 @@ const buildSilentRefusal = (command, what, state) =>
  * @param {string} reading
  */
 const buildNoVerdictRefusal = (command, reading) =>
-	`the \`check:\` \`${command}\` on the \`**Gated on:**\` line prints \`${(reading.split("\n")[0] ?? "").slice(0, 120)}\`, which carries no verdict, so the gate sweep judges every change to it instead of waiting while it reads unmet (#5756). Open a line with \`met:\` or \`unmet:\`, for example ${PRINTING_FIX}, or print a count against its threshold as \`<a> of <b>\`, for example ${COUNT_FIX}. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
+	`the \`check:\` \`${command}\` on the \`**Gated on:**\` line prints \`${reading.replace(/\n[\s\S]*/, "").slice(0, SHOWN_READING_CHARS)}\`, which carries no verdict, so the gate sweep judges every change to it instead of waiting while it reads unmet (#5756). Open a line with \`met:\` or \`unmet:\`, for example ${PRINTING_FIX}, or print a count against its threshold as \`<a> of <b>\`, for example ${COUNT_FIX}. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
 
 module.exports = {
 	DEFAULT_TIMEOUT_S,
