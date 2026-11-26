@@ -614,7 +614,7 @@ describe("the rules that were already here", () => {
 			"FIX FIRST any finding in code the reviewed work wrote",
 		);
 		expect(ctx).toContain(
-			"and its defect at each site of the pattern it moved",
+			"and its defect at each site of a pattern it fixed or moved",
 		);
 		expect(ctx).toContain("ticket those and what else it only exposed");
 		expect(ctx).toContain(
