@@ -36,7 +36,6 @@ const ISSUE_LIST = path.join(__dirname, "fixtures/gh/issue-list.json");
 const MAP_LIST = path.join(__dirname, "fixtures/gh/map-list.json");
 const NOT_FOUND = path.join(__dirname, "fixtures/gh/not-found.json");
 const SUB_ISSUES = path.join(__dirname, "fixtures/gh/sub-issues.json");
-const ISSUE = path.join(__dirname, "fixtures/gh/issue.json");
 const SUB_ISSUES_NOT_FOUND = path.join(
 	__dirname,
 	"fixtures/gh/sub-issues-not-found.json",
@@ -46,6 +45,10 @@ const GRAPHQL_ISSUE_STATES = path.join(
 	"fixtures/gh/graphql-issue-states.json",
 );
 const GRAPHQL_LINKS = path.join(__dirname, "fixtures/gh/graphql-links.json");
+const ISSUE_WITH_STATUS = path.join(
+	__dirname,
+	"fixtures/gh/issue-with-status.json",
+);
 const ISSUES_PAGE = path.join(__dirname, "fixtures/gh/issues-page.json");
 const BLOCKED_BY_PAGE = path.join(
 	__dirname,
@@ -340,7 +343,7 @@ describe("live: read-only calls", () => {
 		},
 		{
 			what: "an issue with a status",
-			fixture: ISSUE,
+			fixture: ISSUE_WITH_STATUS,
 			args: ["api", "repos/{owner}/{repo}/issues/5708"],
 		},
 		{
@@ -933,7 +936,7 @@ exit 1
 describe("offline: the recorded shapes", () => {
 	it("builds from the fixture each live case holds", () => {
 		for (const fixture of [
-			ISSUE,
+			ISSUE_WITH_STATUS,
 			ISSUES_PAGE,
 			BLOCKED_BY_PAGE,
 			TIMELINE_PAGE,
@@ -981,6 +984,8 @@ describe("offline: the recorded shapes", () => {
 		).toEqual([
 			[{ number: 1, parent_issue_url: null, pull_request: { url: "x" } }],
 		]);
+		const status = { id: 2, name: "Backlog", category: "backlog" };
+		expect(asRecorded("issue", { status })).toBe(JSON.stringify({ status }));
 		expect(asRecorded("repo", { open_issues_count: 3 })).toBe(
 			'{"open_issues_count":3}',
 		);
@@ -1027,7 +1032,9 @@ describe("offline: the recorded shapes", () => {
 			kind,
 			what: `${kind}'s status of the wrong shape`,
 			value,
-			error: /\.status\.id is string where gh sends number/,
+			error: new RegExp(
+				`^${kind}: ${kind}(\\[\\])*\\.status\\.id is string where gh sends number$`,
+			),
 		})),
 		{
 			kind: "pullRequest",

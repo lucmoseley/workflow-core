@@ -17,7 +17,6 @@ import GRAPHQL_NO_REPO from "./fixtures/gh/graphql-no-repo.json" with {
 import IDLE_ISSUES_PAGE from "./fixtures/gh/idle-issues-page.json" with {
 	type: "json",
 };
-import ISSUE from "./fixtures/gh/issue.json" with { type: "json" };
 import ISSUE_CREATE from "./fixtures/gh/issue-create.json" with {
 	type: "json",
 };
@@ -27,6 +26,9 @@ import ISSUE_LIST_ROWS from "./fixtures/gh/issue-list-rows.json" with {
 };
 import ISSUE_STATE from "./fixtures/gh/issue-state.json" with { type: "json" };
 import ISSUE_VIEW from "./fixtures/gh/issue-view.json" with { type: "json" };
+import ISSUE_WITH_STATUS from "./fixtures/gh/issue-with-status.json" with {
+	type: "json",
+};
 import ISSUES_PAGE from "./fixtures/gh/issues-page.json" with { type: "json" };
 import LABELS_PAGE from "./fixtures/gh/labels-page.json" with { type: "json" };
 import LOGGED_OUT from "./fixtures/gh/logged-out.json" with { type: "json" };
@@ -306,7 +308,7 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 	// This tracker holds no pull request to record, so a listed one's key is
 	// GitHub's documented pull_request object (REST, "List repository issues").
 	recorded.issuesPage[0][0].pull_request = { url: "", html_url: "", diff_url: "", patch_url: "", merged_at: "" };
-	const filled = JSON.parse(${JSON.stringify(ISSUE.stdout)});
+	const withStatus = JSON.parse(${JSON.stringify(ISSUE_WITH_STATUS.stdout)});
 	for (const issue of [
 		recorded.issue,
 		recorded.issuesPage[0][0],
@@ -315,7 +317,7 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 		recorded.subIssuesPage[0][0],
 	])
 		for (const k of Object.keys(issue))
-			if (issue[k] === null && filled[k] != null) issue[k] = filled[k];
+			if (issue[k] === null && withStatus[k] != null) issue[k] = withStatus[k];
 	const typeOf = (v) => (Array.isArray(v) ? "array" : typeof v);
 	const walk = (t, v, at) => {
 		if (t === null || v === null) return;
