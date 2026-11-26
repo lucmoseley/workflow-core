@@ -985,6 +985,18 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 				);
 			});
 
+			it("names a zeroed record's missing neighbour as the ledger's end, and an undated one as undated", async () => {
+				seed([previousReview()]);
+				fs.appendFileSync(ledger(), '{"note":"undated"}\n');
+				fs.appendFileSync(ledger(), "\0".repeat(16));
+				stubCloses();
+				await reviewAt(dayTwo);
+
+				expect(bodies()[0]).toContain(
+					"- acme/wfc: `1 ledger record(s) zeroed by a crash, written between an undated row and its end`",
+				);
+			});
+
 			it("keeps each kind's own start where a whole read fails after a part did", async () => {
 				const closesStart = "2026-10-09T07:00:00.000Z";
 				seed([

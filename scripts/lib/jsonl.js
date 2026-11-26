@@ -7,7 +7,6 @@ const { readTail } = require("./file-read.js");
  * @typedef {(line: string) => boolean} Keep
  */
 
-// #5765
 const ZERO_RUN = /^\0+/;
 
 /** @param {string} line */
