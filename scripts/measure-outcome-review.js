@@ -15,6 +15,7 @@ const {
 	ghJson,
 	isNotFound,
 	retryingOnceSync,
+	SEARCH_CAP,
 } = require("./lib/gh");
 const { hostRoot } = require("./lib/host-root");
 const { configDirs } = require("./lib/arbiter-store");
@@ -41,7 +42,7 @@ const {
 const { RUN_RECORD } = require("./lib/retro-record");
 const { SIGNATURE_LABEL } = require("./lib/signature-label");
 const { canonicalJson } = require("./lib/canonical-json");
-const { withoutHeadShaLines } = require("./lib/head-sha-lines");
+const { parseCauseShas } = require("./lib/cause-line");
 
 const DAY_MS = 86_400_000;
 // guess, #4796
@@ -96,7 +97,8 @@ const USAGE = `usage: node ${scriptPath("measure-outcome-review.js")} [--now <is
  *   signature: Signature, baseline: Baseline | null, late: boolean}} Finding
  * @typedef {{sha: string, at: number, subject: string, message: string}} Commit
  * @typedef {{number: number, title: string, body?: string, createdAt?: string,
- *   closedAt?: string, labels: Array<{name: string}>}} IssueRow
+ *   closedAt?: string, labels: Array<{name: string}>,
+ *   comments?: Array<{body: string}>}} IssueRow
  * @typedef {{followOns: string[], reverts: string[]}} Guardrails
  * @typedef {"waiting" | "keep" | "extend" | "unwind"} Verdict
  * @typedef {{finding: string, fixSha: string | null, fixAt: string | null,
@@ -519,12 +521,8 @@ function followOnsOf(bugs, f, fix, { tracker, nowMs }) {
 			const created = Date.parse(b.createdAt ?? "");
 			if (!(created > fix.at && created <= nowMs)) return false;
 			if (tracker === f.repo && b.number === f.number) return false;
-			const body = withoutHeadShaLines(b.body ?? "");
-			return (
-				cites(body, f, tracker) ||
-				[...body.matchAll(/\b[0-9a-f]{7,40}\b/g)].some((m) =>
-					fix.sha.startsWith(m[0]),
-				)
+			return [b.body ?? "", ...(b.comments ?? []).map((c) => c.body)].some(
+				(text) => parseCauseShas(text).some((sha) => fix.sha.startsWith(sha)),
 			);
 		})
 		.map((b) => `${tracker}#${b.number}`);
@@ -705,6 +703,16 @@ function latestFix(repos, ref) {
 		if (fix && (!best || fix.at > best.fix.at)) best = { fix, commits };
 	}
 	return best;
+}
+
+/**
+ * @param {Finding[]} findings
+ * @param {Map<string, Repo>} repos
+ * @returns {number | null}
+ */
+function earliestFix(findings, repos) {
+	const ats = findings.flatMap((f) => latestFix(repos, f)?.fix.at ?? []);
+	return ats.length > 0 ? Math.min(...ats) : null;
 }
 
 /**
@@ -1210,12 +1218,12 @@ function buildText(r) {
 
 /**
  * @param {string} tracker
- * @param {number} nowMs
  * @param {string[]} failures
  */
-function readTracker(tracker, nowMs, failures) {
+const buildIssueLister =
+	(tracker, failures) =>
 	/** @param {string} what @param {string[]} args */
-	const list = (what, args) =>
+	(what, args) =>
 		readOrWhy(
 			`${tracker}: ${what} unread`,
 			() =>
@@ -1224,15 +1232,37 @@ function readTracker(tracker, nowMs, failures) {
 				),
 			failures,
 		);
+
+/**
+ * @param {string} tracker
+ * @param {number} fixMs
+ * @param {string[]} failures
+ */
+function readBugs(tracker, fixMs, failures) {
+	const read = buildIssueLister(tracker, failures)("bug issues", [
+		"--state",
+		"all",
+		"--label",
+		"bug",
+		"--search",
+		`created:>=${iso(fixMs).replace(/\.\d{3}Z$/, "Z")}`,
+		"--json",
+		"number,title,body,createdAt,labels,comments",
+	]);
+	if (typeof read === "string" || read.length < SEARCH_CAP) return read;
+	const why = `${tracker}: bug issues unread: ${read.length} created since ${iso(fixMs)} reach search's ${SEARCH_CAP}-result cap`;
+	failures.push(why);
+	return why;
+}
+
+/**
+ * @param {string} tracker
+ * @param {number} nowMs
+ * @param {string[]} failures
+ */
+function readTracker(tracker, nowMs, failures) {
+	const list = buildIssueLister(tracker, failures);
 	return {
-		bugs: list("bug issues", [
-			"--state",
-			"all",
-			"--label",
-			"bug",
-			"--json",
-			"number,title,body,createdAt,labels",
-		]),
 		closed: list("closed issues", [
 			"--state",
 			"closed",
@@ -1469,10 +1499,17 @@ function review({ root, seats, nowMs, tracker }) {
 		return { repo, ...issueLists };
 	});
 	const repos = reads.map((r) => r.repo);
+	const byTracker = new Map(repos.map((p) => [p.tracker, p]));
+	const fixFrom = earliestFix(open, byTracker);
 	const outcomes = readOutcomes(open, {
 		issues,
-		repos: new Map(repos.map((p) => [p.tracker, p])),
-		bugs: new Map(reads.map((t) => [t.repo.tracker, t.bugs])),
+		repos: byTracker,
+		bugs: new Map(
+			repos.map((p) => [
+				p.tracker,
+				fixFrom === null ? [] : readBugs(p.tracker, fixFrom, failures),
+			]),
+		),
 		nowMs,
 		failures,
 		extended,
