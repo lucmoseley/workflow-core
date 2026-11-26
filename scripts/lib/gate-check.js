@@ -12,7 +12,6 @@ const { docPath, isCoreRepo, scriptPath } = require("./script-path");
 const { gateOnOf, parseAddedGateLines } = require("./issue-gate.js");
 const { hostRoot } = require("./host-root.js");
 const { isSameRepo } = require("./issue-ref.js");
-const { requiredGroup } = require("./regex-group.js");
 const {
 	buildCheckoutEnv,
 	homeDir,
@@ -167,29 +166,59 @@ function classifyExit(r, { out, err, timeoutMs, elapsedMs }) {
 const PRINTING_FIX =
 	'`git merge-base --is-ancestor X origin/main && echo "met: on main" || echo "unmet: not on main"`';
 
-const GIT_C_ORIGIN = /\bgit\s+-C\s+(\S+)\s[^;&|]*?\borigin\//g;
-const GIT_C_FETCH = /\bgit\s+-C\s+(\S+)\s+fetch\b/g;
-
 /** @param {string} dir */
 const sameCheckout = (dir) =>
 	dir
 		.replace(/^["']|["']$/g, "")
-		.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, "~");
+		.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, "~")
+		.replace(/\/\.git\/?$|\/$/, "");
+
+const CHECKOUT_OPTIONS = new Set(["-C", "--git-dir", "--work-tree"]);
+const GIT_WORD = "git";
 
 /**
- * #5697
+ * #5755
+ * @param {string[]} words
+ * @returns {{dir: string|null, sub: string|undefined}}
+ */
+function parseGitWords(words) {
+	/** @type {string|null} */
+	let dir = null;
+	let i = 0;
+	for (; i < words.length && words[i]?.startsWith("-"); i++) {
+		const word = words[i] ?? "";
+		const eq = word.indexOf("=");
+		const name = eq > 0 ? word.slice(0, eq) : word;
+		if (CHECKOUT_OPTIONS.has(name))
+			dir = eq > 0 ? word.slice(eq + 1) : (words[++i] ?? null);
+		else if (word === "-c") i++;
+	}
+	return { dir, sub: words[i] };
+}
+
+/**
+ * #5697 #5755
  * @param {string} command
  * @returns {string|null}
  */
 function unfetchedCheckout(command) {
-	const fetched = [...command.matchAll(GIT_C_FETCH)].map((m) => ({
-		at: m.index,
-		dir: sameCheckout(requiredGroup(m, 1, GIT_C_FETCH)),
-	}));
-	for (const m of command.matchAll(GIT_C_ORIGIN)) {
-		const dir = requiredGroup(m, 1, GIT_C_ORIGIN);
-		const key = sameCheckout(dir);
-		if (!fetched.some((f) => f.at < m.index && f.dir === key)) return dir;
+	/** @type {string|null} */
+	let cwd = null;
+	const fetched = new Set();
+	for (const segment of command.split(/&&|\|\||[;|]/)) {
+		const words = segment.replace(/[()]/g, " ").trim().split(/\s+/);
+		if (words[0] === "cd") {
+			cwd = words[1] ?? null;
+			continue;
+		}
+		const at = words.indexOf(GIT_WORD);
+		if (at < 0) continue;
+		const named = parseGitWords(words.slice(at + 1));
+		const dir = named.dir ?? cwd;
+		if (dir === null) continue;
+		if (named.sub === "fetch") fetched.add(sameCheckout(dir));
+		else if (/\borigin\//.test(segment) && !fetched.has(sameCheckout(dir)))
+			return dir;
 	}
 	return null;
 }

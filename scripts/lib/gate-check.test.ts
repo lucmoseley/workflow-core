@@ -192,6 +192,42 @@ describe("a check reading an unfetched origin ref (#5697)", () => {
 		])
 			expect(verdictOf("", gate(check), false).refusals).toHaveLength(1);
 	});
+
+	const cdRead = "cd ~/x && git show origin/main:.claude/settings.json";
+	const gitDirRead =
+		"git --git-dir ~/x/.git show origin/main:.claude/settings.json";
+
+	it.each([
+		cdRead,
+		gitDirRead,
+		"git --git-dir=~/x/.git show origin/main:a",
+		"git --work-tree ~/x show origin/main:a",
+		"(cd ~/x; git log -1 origin/main)",
+	])(
+		"refuses one reading another checkout's origin through %s (#5755)",
+		(check) => {
+			const { refusals } = verdictOf("", gate(check), false);
+			expect(refusals).toHaveLength(1);
+			expect(refusals[0]).toContain("reads an `origin/` ref in ~/x");
+			expect(refusals[0]).toContain("gh api");
+		},
+	);
+
+	it("passes each spelling with a fetch of that checkout before it (#5755)", () => {
+		for (const check of [
+			"cd ~/x && git fetch -q && git show origin/main:a",
+			"git -C ~/x fetch && cd ~/x && git show origin/main:a",
+			"git --git-dir ~/x/.git fetch && git --git-dir ~/x/.git show origin/main:a",
+			`git -C ~/x fetch && ${gitDirRead}`,
+		])
+			expect(verdictOf("", gate(check), false).refusals).toEqual([]);
+	});
+
+	it("refuses a cd read whose fetch was of another checkout (#5755)", () => {
+		expect(
+			verdictOf("", gate(`git -C ~/y fetch && ${cdRead}`), false).refusals,
+		).toHaveLength(1);
+	});
 });
 
 describe("a check the write does not add", () => {
