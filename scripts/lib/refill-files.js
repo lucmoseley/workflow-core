@@ -47,7 +47,7 @@ function readControlChecked(log) {
 	const control = parseControl(value);
 	const why =
 		damage ??
-		(found && control === null ? "not a control: no noProgressFrom" : null);
+		(found && control === null ? "not a control: not a JSON object" : null);
 	if (why === null) {
 		const rawGoal =
 			isRecord(value) && isRecord(value.scope) ? value.scope.goal : null;
@@ -89,29 +89,6 @@ function withControlLock(write, waitMs) {
 	}
 }
 
-/**
- * @param {Record<string, import("./refill-decide.js").Pause>} pauses
- * @param {number} noProgressFrom
- * @param {(line: string) => void} log
- * @param {number} [waitMs]
- * @returns {Record<string, import("./refill-decide.js").Pause>|null}
- */
-function writeRepoPauses(pauses, noProgressFrom, log, waitMs) {
-	const written = withControlLock(() => {
-		const { control } = readControlChecked(log);
-		if (control === null || control.noProgressFrom !== noProgressFrom)
-			return null;
-		const repoPaused = { ...pauses, ...control.repoPaused };
-		writeControlFile({ ...control, repoPaused });
-		return repoPaused;
-	}, waitMs);
-	if ("busy" in written)
-		log(
-			`pauses not written, so the next tick decides them again: ${written.busy}`,
-		);
-	return "done" in written ? written.done : null;
-}
-
 /** @typedef {{bootId: string|null, at: number}} ManagerRestart */
 
 /** @param {number} at */
@@ -147,6 +124,5 @@ module.exports = {
 	readControlChecked,
 	withControlLock,
 	writeControlFile,
-	writeRepoPauses,
 	readControlFile,
 };

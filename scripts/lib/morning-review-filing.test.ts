@@ -581,7 +581,7 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 			fs.writeFileSync(
 				refillFile(".refill-loop-control.json"),
 				JSON.stringify({
-					noProgressFrom: Date.now(),
+					runFrom: Date.now(),
 					scope: { mode: "normal", repos: [served] },
 				}),
 			);
@@ -703,7 +703,7 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 			fs.writeFileSync(
 				refillFile(".refill-loop-control.json"),
 				JSON.stringify({
-					noProgressFrom: Date.now(),
+					runFrom: Date.now(),
 					scope: { mode: "normal", repos: [outside] },
 				}),
 			);
@@ -967,6 +967,34 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 				once(recovered, "Wfc: carried");
 				expect(recovered).not.toContain("acme/wfc#80");
 				expect(recovered).not.toContain("unread since");
+			});
+
+			it("lists a decision a crash prefixed with zero bytes, and names a zeroed record by its neighbours' times (#5765)", async () => {
+				seed([previousReview()]);
+				appendDecision(wfc(), "2026-10-10T10:00:00.000Z", 3, "Wfc: before");
+				fs.appendFileSync(ledger(), "\0".repeat(698));
+				appendDecision(wfc(), "2026-10-10T12:00:00.000Z", 4, "Wfc: after");
+				stubCloses();
+				await reviewAt(dayTwo);
+
+				const [body] = bodies();
+				once(body, "Wfc: before");
+				once(body, "Wfc: after");
+				expect(body).toContain(
+					"- acme/wfc: `1 ledger record(s) zeroed by a crash, written between 2026-10-10T10:00:00.000Z and 2026-10-10T12:00:00.000Z`",
+				);
+			});
+
+			it("names a zeroed record's missing neighbour as the ledger's end, and an undated one as undated", async () => {
+				seed([previousReview()]);
+				fs.appendFileSync(ledger(), '{"note":"undated"}\n');
+				fs.appendFileSync(ledger(), "\0".repeat(16));
+				stubCloses();
+				await reviewAt(dayTwo);
+
+				expect(bodies()[0]).toContain(
+					"- acme/wfc: `1 ledger record(s) zeroed by a crash, written between an undated row and its end`",
+				);
 			});
 
 			it("keeps each kind's own start where a whole read fails after a part did", async () => {

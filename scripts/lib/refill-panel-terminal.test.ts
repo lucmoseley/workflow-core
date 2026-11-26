@@ -11,7 +11,6 @@ const STATUS = JSON.stringify({
 	stopRequested: false,
 	codeSha: "abc1234",
 	paused: null,
-	repoPaused: {},
 	lastTick: null,
 	concurrency: { live: 1, ceiling: 2, working: 1, waiting: [] },
 	repos: [],

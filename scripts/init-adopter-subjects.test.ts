@@ -1,10 +1,10 @@
 // @vitest-environment node
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { adoptWith } from "./init-adopter-fixture";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
+import { gitIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const CORE = path.resolve(__dirname, "..");
@@ -27,8 +27,6 @@ const env = () => {
 	return e;
 };
 
-const gitIn = (cwd: string, ...args: string[]) =>
-	execFileSync("git", args, { cwd, encoding: "utf8" });
 const git = (...args: string[]) => gitIn(dir, ...args);
 
 const copiedRepo = defineTemplate((root) => {

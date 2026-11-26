@@ -369,7 +369,7 @@ describe("control commands from a stale checkout (#4337)", () => {
 		fs.writeFileSync(
 			controlFile(),
 			JSON.stringify({
-				noProgressFrom: 5,
+				runFrom: 5,
 				stopRequested: false,
 				launchHold: Hold,
 				seats: [],
@@ -682,7 +682,7 @@ describe("the boot link (#3891)", () => {
 		fs.writeFileSync(
 			path.join(state, ".refill-loop-control.json"),
 			JSON.stringify({
-				noProgressFrom: Date.now(),
+				runFrom: Date.now(),
 				stopRequested: false,
 				seats: [],
 				scope: { mode: "normal", repos: [main] },
@@ -725,7 +725,7 @@ describe("adoption", () => {
 		for (const f of kept)
 			fs.writeFileSync(
 				path.join(dir, f),
-				`{"stopRequested":true,"noProgressFrom":1,"of":"${f}"}\n`,
+				`{"stopRequested":true,"runFrom":1,"of":"${f}"}\n`,
 			);
 		const before = kept.map((f) => fs.readFileSync(path.join(dir, f)));
 		const tip = push({ "scripts/lib/marker.js": 'module.exports = "two";\n' });

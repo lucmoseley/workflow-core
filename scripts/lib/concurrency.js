@@ -1,4 +1,3 @@
-const path = require("node:path");
 const { heldFields } = require("./admission-figures.js");
 const { caught } = require("./caught.js");
 const { readJsonl, readLastJsonlRow } = require("./jsonl.js");
@@ -99,14 +98,6 @@ function policyFailing(input, decision) {
 		});
 	if (decision.idle?.reason === PROBE_HOLD_WAIT)
 		out.push({ limit: "probe hold", why: buildIdleText(decision.idle) });
-	for (const [root, pause] of Object.entries({
-		...input.repoPaused,
-		...decision.repoPauses,
-	}))
-		out.push({
-			limit: "repo pause",
-			why: `${path.basename(root)} ${buildPauseText(pause)}`,
-		});
 	const pick = input.freeSlots > 0 ? pickSeat(input) : null;
 	if (pick && pick.seat === null)
 		out.push({

@@ -173,7 +173,9 @@ alias.
    trace is a tool call the session made, with `"tool"` naming the tool
    (`"Bash"`); the case is then that `tool_use`
    record, never the session's prose about it. `"signature": null`
-   with a `why` where the fault leaves no countable trace. file-issue.js
+   with a `why` where the fault leaves no countable trace in a transcript,
+   such as a relaunch, whose trace is the refill loop's launch records
+   (`scripts/lib/refill-state.js`); the `why` names that record. file-issue.js
    refuses a signature that misses its case: fix the signature, or move the
    case to the line where the fault surfaces.
 

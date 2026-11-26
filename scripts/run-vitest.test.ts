@@ -34,6 +34,7 @@ import {
 import { noop } from "./lib/noop.js";
 import { writeEnviron } from "./lib/proc-fake";
 import { isDead } from "./lib/process-fixture";
+import { gitIn, gitTrimmedIn } from "./lib/repo-tree-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 import { stubLaunch } from "./lib/suite-handoff-testkit";
 import { WHOLE_SLOT_BOUND } from "./lib/whole-slot-bound";
@@ -3933,12 +3934,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 	const worktreeOf = (dir: string, pid: number) =>
 		path.join(dir, worktreeDir, `isolated-${pid}`);
 
-	const gitIn = (cwd: string, args: string[]): string =>
-		require("node:child_process").execFileSync("git", args, {
-			cwd,
-			encoding: "utf8",
-		});
-
 	describe("the worktree it runs in", () => {
 		it("is detached at HEAD, spawns vitest there, and has every shared artefact linked in", async () => {
 			const dir = repoWithDeps();
@@ -4013,8 +4008,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				path.join(dir, ".claude/workflow-core.json"),
 				JSON.stringify({ worktreeLinks: links }),
 			);
-			gitIn(dir, ["add", "-f", ".claude/workflow-core.json"]);
-			gitIn(dir, ["commit", "-qm", "links"]);
+			gitIn(dir, "add", "-f", ".claude/workflow-core.json");
+			gitIn(dir, "commit", "-qm", "links");
 			for (const rel of onDisk) {
 				fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
 				fs.writeFileSync(path.join(dir, rel), "canonical\n");
@@ -4024,7 +4019,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		it("links a declared path the checkout has, makes nothing for one it lacks, and keeps the worktree's own copy of one HEAD tracks (#1767)", () => {
 			const dir = repoWithDeps();
 			fs.writeFileSync(path.join(dir, "tracked.txt"), "committed\n");
-			gitIn(dir, ["add", "tracked.txt"]);
+			gitIn(dir, "add", "tracked.txt");
 			declaring(dir, [".env", "absent/x", "tracked.txt"], [".env"]);
 			fs.writeFileSync(path.join(dir, "tracked.txt"), "unsaved\n");
 			const made = createIsolated(dir, { pid: 4266 });
@@ -4097,8 +4092,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			const dir = repoWithDeps();
 			fs.mkdirSync(path.join(dir, "node_modules"), { recursive: true });
 			fs.writeFileSync(path.join(dir, "node_modules", "pinned.js"), "\n");
-			gitIn(dir, ["add", "-f", "node_modules/pinned.js"]);
-			gitIn(dir, ["commit", "-qm", "pinned"]);
+			gitIn(dir, "add", "-f", "node_modules/pinned.js");
+			gitIn(dir, "commit", "-qm", "pinned");
 			const made = createIsolated(dir, { pid: 4268, err: sink() });
 			expect(made.error).toContain("could not link node_modules");
 			expect(fs.existsSync(worktreeOf(dir, 4268))).toBe(false);
@@ -4122,13 +4117,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 			const before = readTreeSnapshot(made.dir);
 			const beforeShared = readTreeSnapshot(dir);
-			gitIn(dir, [
-				"commit",
-				"-q",
-				"--allow-empty",
-				"-m",
-				"a neighbour's commit",
-			]);
+			gitIn(dir, "commit", "-q", "--allow-empty", "-m", "a neighbour's commit");
 
 			const isolated = markerFrom(
 				before,
@@ -4153,8 +4142,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			const dir = repoWithDeps();
 			fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
 			fs.writeFileSync(path.join(dir, "scripts", "vitest-tree-watch.ts"), "");
-			gitIn(dir, ["add", "scripts/vitest-tree-watch.ts"]);
-			gitIn(dir, ["commit", "-q", "-m", "watch"]);
+			gitIn(dir, "add", "scripts/vitest-tree-watch.ts");
+			gitIn(dir, "commit", "-q", "-m", "watch");
 
 			const seen: { cwd?: string; bin?: string } = {};
 			await main(["--full=coverage"], {
@@ -4183,7 +4172,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		it("names the sha it is frozen at, not the tip a neighbour just moved", async () => {
 			const dir = repoWithDeps();
 			const out = sink();
-			const frozen = gitIn(dir, ["rev-parse", "HEAD"]).trim();
+			const frozen = gitTrimmedIn(dir, "rev-parse", "HEAD");
 			const realExec = require("node:child_process").execFileSync;
 			await main(["--full=coverage"], {
 				root: dir,
@@ -4195,12 +4184,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				execFn: (file: string, args: string[], opts: object) => {
 					const result = realExec(file, args, opts);
 					if (args[0] === "worktree" && args[1] === "add")
-						gitIn(dir, ["commit", "-q", "--allow-empty", "-m", "neighbour"]);
+						gitIn(dir, "commit", "-q", "--allow-empty", "-m", "neighbour");
 					return result;
 				},
 				spawnFn: () => fakeChild({ code: 0 }),
 			});
-			const moved = gitIn(dir, ["rev-parse", "HEAD"]).trim();
+			const moved = gitTrimmedIn(dir, "rev-parse", "HEAD");
 			expect(moved).not.toBe(frozen);
 			expect(out.text.join("")).toContain(frozen);
 			expect(out.text.join("")).not.toContain(moved);
@@ -4692,11 +4681,11 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			const dir = repoWithDeps();
 			const made = createIsolated(dir, { pid: 4253 });
 			fs.rmSync(made.dir, { recursive: true, force: true });
-			expect(gitIn(dir, ["worktree", "list"])).toContain("isolated-4253");
+			expect(gitIn(dir, "worktree", "list")).toContain("isolated-4253");
 
 			sweepIsolated(dir, { err: sink() });
 
-			expect(gitIn(dir, ["worktree", "list"])).not.toContain("isolated-4253");
+			expect(gitIn(dir, "worktree", "list")).not.toContain("isolated-4253");
 		});
 	});
 
@@ -5235,8 +5224,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				const files = ["mine.txt", "gone.txt", "held.txt", "orphan.txt"];
 				for (const f of files)
 					fs.writeFileSync(path.join(checkout, f), headText);
-				gitIn(checkout, ["add", ...files]);
-				gitIn(checkout, ["commit", "-q", "-m", "four files"]);
+				gitIn(checkout, "add", ...files);
+				gitIn(checkout, "commit", "-q", "-m", "four files");
 				fs.appendFileSync(
 					path.join(checkout, ".git", "info", "exclude"),
 					"node_modules\n",
@@ -5252,7 +5241,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 			function linkedWorktreeOf(checkout: string) {
 				const wt = path.join(path.dirname(checkout), "session-wt");
-				gitIn(checkout, ["worktree", "add", "-q", "--detach", wt]);
+				gitIn(checkout, "worktree", "add", "-q", "--detach", wt);
 				fs.symlinkSync(
 					path.join(checkout, "node_modules"),
 					path.join(wt, "node_modules"),
@@ -5312,7 +5301,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					) => {
 						seen.cwd = opts.cwd;
 						seen.env = opts.env;
-						seen.status = gitIn(opts.cwd, ["status", "--porcelain", "-uall"])
+						seen.status = gitIn(opts.cwd, "status", "--porcelain", "-uall")
 							.split("\n")
 							.filter(Boolean)
 							.map((line) => line.slice(3))
@@ -5368,12 +5357,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			it("carries staged, unstaged and untracked content, and leaves an ignored file out", async () => {
 				const dir = dirtyCheckout({ linked: true });
 				fs.writeFileSync(path.join(dir, "mine.txt"), "staged\n");
-				gitIn(dir, ["add", "mine.txt"]);
+				gitIn(dir, "add", "mine.txt");
 				fs.writeFileSync(path.join(dir, "orphan.txt"), "unstaged\n");
 				fs.writeFileSync(path.join(dir, "loose.txt"), "untracked\n");
 				fs.appendFileSync(
 					path.join(
-						gitIn(dir, ["rev-parse", "--git-common-dir"]).trim(),
+						gitTrimmedIn(dir, "rev-parse", "--git-common-dir"),
 						"info",
 						"exclude",
 					),
@@ -5544,9 +5533,9 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				const dir = dirtyCheckout();
 				const added = ["old.test.ts", "rm-gone.txt", "theirs-gone.txt"];
 				for (const f of added) fs.writeFileSync(path.join(dir, f), headText);
-				gitIn(dir, ["add", ...added]);
-				gitIn(dir, ["commit", "-q", "-m", "three more"]);
-				gitIn(dir, ["mv", "old.test.ts", "new.test.ts"]);
+				gitIn(dir, "add", ...added);
+				gitIn(dir, "commit", "-q", "-m", "three more");
+				gitIn(dir, "mv", "old.test.ts", "new.test.ts");
 				fs.writeFileSync(path.join(dir, "new.test.ts"), "edited\n");
 				fs.rmSync(path.join(dir, "rm-gone.txt"));
 				fs.rmSync(path.join(dir, "theirs-gone.txt"));
@@ -5596,13 +5585,14 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					sessionId: "mine",
 				});
 				expect(seen.tree).not.toBe(null);
-				const differs = gitIn(dir, [
+				const differs = gitIn(
+					dir,
 					"diff-tree",
 					"-r",
 					"--name-only",
 					"HEAD^{tree}",
 					seen.tree as string,
-				])
+				)
 					.split("\n")
 					.filter(Boolean);
 				expect(differs).toEqual([
@@ -5611,7 +5601,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					"mine.txt",
 					"orphan.txt",
 				]);
-				expect(gitIn(dir, ["cat-file", "-p", `${seen.tree}:mine.txt`])).toBe(
+				expect(gitIn(dir, "cat-file", "-p", `${seen.tree}:mine.txt`)).toBe(
 					"mine\n",
 				);
 			});
@@ -5651,7 +5641,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					expect(exit).toBe(code);
 					expect(fs.existsSync(worktreeOf(dir, 5407))).toBe(false);
 					expect(fs.existsSync(worktreeOf(dir, 5408))).toBe(false);
-					const listed = gitIn(dir, ["worktree", "list"]);
+					const listed = gitIn(dir, "worktree", "list");
 					expect(listed).not.toContain(worktreeOf(dir, 5407));
 					expect(listed).not.toContain(worktreeOf(dir, 5408));
 				}
@@ -5715,7 +5705,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 			it("falls back to the shared tree, saying so, where the snapshot cannot be written", async () => {
 				const dir = dirtyCheckout({ linked: true });
-				const blob = gitIn(dir, ["rev-parse", "HEAD:mine.txt"]).trim();
+				const blob = gitTrimmedIn(dir, "rev-parse", "HEAD:mine.txt");
 				require("node:child_process").execFileSync(
 					"git",
 					["update-index", "--index-info"],
@@ -5745,8 +5735,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					path.join(dir, config),
 					JSON.stringify({ worktreeLinks: [".env"] }),
 				);
-				gitIn(dir, ["add", "-f", config]);
-				gitIn(dir, ["commit", "-qm", "links", "--", config]);
+				gitIn(dir, "add", "-f", config);
+				gitIn(dir, "commit", "-qm", "links", "--", config);
 				fs.writeFileSync(path.join(dir, ".env"), "canonical\n");
 				fs.appendFileSync(path.join(dir, ".git", "info", "exclude"), ".env\n");
 				const seen = { deps: true, declared: false, walk: "" };
@@ -5849,8 +5839,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					const dir = dirtyCheckout();
 					fs.mkdirSync(path.join(dir, "docs"));
 					fs.writeFileSync(path.join(dir, EDGES_FILE), "stale\n");
-					gitIn(dir, ["add", EDGES_FILE]);
-					gitIn(dir, ["commit", "-q", "-m", "stale manifest"]);
+					gitIn(dir, "add", EDGES_FILE);
+					gitIn(dir, "commit", "-q", "-m", "stale manifest");
 					const argv: string[][] = [];
 					const claimed: string[] = [];
 					let env: Record<string, string> = {};
@@ -5893,12 +5883,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					fs.mkdirSync(path.join(dir, "scripts", "lib"), { recursive: true });
 					fs.writeFileSync(path.join(dir, EDGES_FILE), "stale\n");
 					fs.writeFileSync(path.join(dir, extractorFile), "old walk\n");
-					gitIn(dir, ["add", EDGES_FILE, extractorFile]);
-					gitIn(dir, ["commit", "-q", "-m", "stale manifest, old walk"]);
+					gitIn(dir, "add", EDGES_FILE, extractorFile);
+					gitIn(dir, "commit", "-q", "-m", "stale manifest, old walk");
 					const gateRead = vi.fn(() => {
 						if (gateRead.mock.calls.length === 1) {
 							fs.writeFileSync(path.join(dir, extractorFile), "new walk\n");
-							gitIn(dir, ["commit", "-q", "-am", "new walk"]);
+							gitIn(dir, "commit", "-q", "-am", "new walk");
 						}
 						return null;
 					});
@@ -6026,12 +6016,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		function ownRange(dir: string) {
 			const commit = (f: string, text: string) => {
 				fs.writeFileSync(path.join(dir, f), text);
-				gitIn(dir, ["add", f]);
-				gitIn(dir, ["commit", "-qm", f]);
-				return gitIn(dir, ["rev-parse", "HEAD"]).trim();
+				gitIn(dir, "add", f);
+				gitIn(dir, "commit", "-qm", f);
+				return gitTrimmedIn(dir, "rev-parse", "HEAD");
 			};
-			gitIn(dir, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
-			const base = gitIn(dir, ["rev-parse", "HEAD"]).trim();
+			gitIn(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+			const base = gitTrimmedIn(dir, "rev-parse", "HEAD");
 			const mine = commit("mine.js", "1\n");
 			const theirs = commit("theirs.js", "1\n");
 			const loose = commit("loose.js", "1\n");
@@ -6084,11 +6074,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 								fs.readFileSync(args[args.indexOf("--config") + 1], "utf8"),
 							) ?? [])[1] ?? "[]",
 						).map((p: string) => path.relative(opts.cwd, p))
-					: gitIn(opts.cwd, [
+					: gitIn(
+							opts.cwd,
 							"diff",
 							"--name-only",
 							ref?.startsWith("--") ? "HEAD" : ref,
-						])
+						)
 							.split("\n")
 							.filter(Boolean);
 			return `${asked
@@ -6196,8 +6187,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				});
 				expect(selecting.args).toContain("mine.test.js");
 				expect(selecting.out).not.toContain(note);
-				gitIn(dir, ["checkout", "--", "mine.js"]);
-				gitIn(dir, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+				gitIn(dir, "checkout", "--", "mine.js");
+				gitIn(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
 				const pushed = await runSeeing(dir, [SHARED_FLAG, "--changed"], {
 					sessionId: "me",
 					commitLedger: commitLedgerOf({ me: [r.mine], them: [r.theirs] }),
@@ -6211,12 +6202,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				const commit = (f: string) => {
 					fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
 					fs.writeFileSync(path.join(dir, f), "1\n");
-					gitIn(dir, ["add", f]);
-					gitIn(dir, ["commit", "-qm", f]);
-					return gitIn(dir, ["rev-parse", "HEAD"]).trim();
+					gitIn(dir, "add", f);
+					gitIn(dir, "commit", "-qm", f);
+					return gitTrimmedIn(dir, "rev-parse", "HEAD");
 				};
-				gitIn(dir, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
-				const base = gitIn(dir, ["rev-parse", "HEAD"]).trim();
+				gitIn(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+				const base = gitTrimmedIn(dir, "rev-parse", "HEAD");
 				const mine = commit("docs/own.md");
 				const theirs = commit("theirs.js");
 				return { base, mine, theirs, commit };
@@ -6264,7 +6255,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				const based = async (pushed: boolean) => {
 					const { dir, r } = withOwnRange("deps");
 					if (!pushed)
-						gitIn(dir, ["update-ref", "-d", "refs/remotes/origin/main"]);
+						gitIn(dir, "update-ref", "-d", "refs/remotes/origin/main");
 					let adds = 0;
 					const run = await runSeeing(dir, argv, {
 						sessionId: "me",

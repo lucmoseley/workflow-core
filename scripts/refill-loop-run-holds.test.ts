@@ -1013,7 +1013,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 			fs.writeFileSync(
 				at(".refill-loop-control.json"),
 				JSON.stringify({
-					noProgressFrom: Date.now(),
+					runFrom: Date.now(),
 					stopRequested: false,
 					seats: [seat, target()],
 					scope: { mode: "normal", repos: [repo], goal: null },

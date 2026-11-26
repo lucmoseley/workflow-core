@@ -61,13 +61,15 @@ describe("what it reports", () => {
 		expect(out).toContain("1 of 2");
 	});
 
-	it("counts a NUL-prefixed torn line — a real record with garbage ahead of it (#182)", () => {
+	it("counts a line's leading NUL run as a record a crash lost, keeping the record after it (#5765)", () => {
 		const file = path.join(markersDir(dir), FAIL_STORE);
 		fs.writeFileSync(file, `${marker("a")}\n${"\0".repeat(8)}${marker("b")}\n`);
 
 		const out = report(run());
 		expect(out).toContain("MARKER-TORN");
-		expect(out).toContain(FAIL_STORE);
+		expect(out).toContain(
+			`1 of 3 line(s) in .claude/tmp/markers/${FAIL_STORE}`,
+		);
 	});
 
 	it("counts a parsed object carrying no `sha`", () => {

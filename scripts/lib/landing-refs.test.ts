@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate } from "./git-fixture";
+import { gitIn } from "./repo-tree-testkit";
 import { runInProcess } from "./run-in-process";
 
 const { ownQueueRef, pushedRef, readUnpushedRef } =
@@ -22,9 +23,6 @@ beforeEach(() => {
 afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
-
-const gitIn = (cwd: string, ...args: string[]) =>
-	execFileSync("git", args, { cwd, stdio: "ignore" });
 
 const SESSION = "fix-it";
 

@@ -78,7 +78,7 @@ function bootVerdictOf({ control, damaged, stopped, pid, self }) {
 		);
 	return {
 		resume: true,
-		line: `boot resume: resumed the loop counting from ${new Date(control.noProgressFrom).toISOString()}`,
+		line: `boot resume: resumed the loop started at ${new Date(control.runFrom).toISOString()}`,
 	};
 }
 
