@@ -45,6 +45,10 @@ const GRAPHQL_ISSUE_STATES = path.join(
 	"fixtures/gh/graphql-issue-states.json",
 );
 const GRAPHQL_LINKS = path.join(__dirname, "fixtures/gh/graphql-links.json");
+const ISSUE_WITH_STATUS = path.join(
+	__dirname,
+	"fixtures/gh/issue-with-status.json",
+);
 const ISSUES_PAGE = path.join(__dirname, "fixtures/gh/issues-page.json");
 const BLOCKED_BY_PAGE = path.join(
 	__dirname,
@@ -336,6 +340,11 @@ describe("live: read-only calls", () => {
 				"--json",
 				"number,body",
 			],
+		},
+		{
+			what: "an issue with a status",
+			fixture: ISSUE_WITH_STATUS,
+			args: ["api", "repos/{owner}/{repo}/issues/5708"],
 		},
 		{
 			what: "a missing issue",
@@ -924,9 +933,18 @@ exit 1
 	});
 });
 
+const STATUS_AT: Record<string, (status: object) => unknown> = {
+	issue: (status) => ({ status }),
+	issuesPage: (status) => [[{ status }]],
+	blockedByPage: (status) => [[{ status }]],
+	parentPage: (status) => [{ status }],
+	subIssuesPage: (status) => [[{ status }]],
+};
+
 describe("offline: the recorded shapes", () => {
 	it("builds from the fixture each live case holds", () => {
 		for (const fixture of [
+			ISSUE_WITH_STATUS,
 			ISSUES_PAGE,
 			BLOCKED_BY_PAGE,
 			TIMELINE_PAGE,
@@ -979,6 +997,14 @@ describe("offline: the recorded shapes", () => {
 		);
 	});
 
+	it.for(Object.entries(STATUS_AT))(
+		"passes %s's status in gh's shape",
+		([kind, at]) => {
+			const value = at({ id: 2, name: "Backlog", category: "backlog" });
+			expect(asRecorded(kind, value)).toBe(JSON.stringify(value));
+		},
+	);
+
 	it.for([
 		{
 			kind: "issuesPage",
@@ -1010,6 +1036,14 @@ describe("offline: the recorded shapes", () => {
 			value: { topics: ["x"] },
 			error: /repo\.topics holds elements gh's recorded answer lacks/,
 		},
+		...Object.entries(STATUS_AT).map(([kind, at]) => ({
+			kind,
+			what: `${kind}'s status of the wrong shape`,
+			value: at({ id: "2" }),
+			error: new RegExp(
+				`^${kind}: ${kind}(\\[\\])*\\.status\\.id is string where gh sends number$`,
+			),
+		})),
 		{
 			kind: "pullRequest",
 			what: "a kind with no recording",
