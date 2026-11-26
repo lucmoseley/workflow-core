@@ -10,6 +10,7 @@ export type Get = { missing: true } | Http;
 
 export interface PyPI {
 	created: string;
+	latest?: string;
 	downloads: number | "404" | "FAIL" | "MISSING";
 	pypiOut?: Http;
 	statsFirstCode?: number;
@@ -17,10 +18,11 @@ export interface PyPI {
 
 export const buildPassingPyPI = (now: number): PyPI => ({
 	created: new Date(now - 4000 * 86_400_000).toISOString(),
+	latest: new Date(now - 30 * 86_400_000).toISOString(),
 	downloads: 9_000_000,
 });
 
-export const pypiBody = (created: string) =>
+export const pypiBody = (created: string, latest = created) =>
 	JSON.stringify({
 		info: { name: "the-package", version: "2.0.0" },
 		releases: {
@@ -35,8 +37,8 @@ export const pypiBody = (created: string) =>
 			"2.0.0": [
 				{
 					filename: "the_package-2.0.0-py3-none-any.whl",
-					upload_time: "2026-11-01T00:00:00",
-					upload_time_iso_8601: "2026-11-01T00:00:00.000000Z",
+					upload_time: latest.slice(0, 19),
+					upload_time_iso_8601: latest,
 				},
 			],
 		},
@@ -50,7 +52,7 @@ export function pypiAnswer(reg: PyPI): Get {
 	if (reg.created === "MISSING") return { missing: true };
 	if (reg.created === "FAIL") return { code: null, body: "" };
 	if (reg.created === "404") return NOT_FOUND;
-	return { code: 200, body: pypiBody(reg.created) };
+	return { code: 200, body: pypiBody(reg.created, reg.latest) };
 }
 
 export function statsAnswer(reg: PyPI): Get {

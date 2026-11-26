@@ -385,6 +385,46 @@ ${ESCAPE}`,
 		expect(allows(install, { created: daysAgo(180) })).toBe(true);
 	});
 
+	it("refuses a package with no upload past the idle floor, in full", () => {
+		expect(
+			denial(install, { created: daysAgo(4000), latest: daysAgo(1826) }),
+		).toBe(
+			`\`left-pad\` last had a file published 1826 days ago, past this guard's 1825-day floor: ${install}
+
+A package with no release in that long is abandoned or superseded, and no fix will reach it. One that is finished rather than dead is a founder decision, not a session's.
+
+${RULE}
+
+${ESCAPE}`,
+		);
+		expect(
+			allows(install, { created: daysAgo(4000), latest: daysAgo(1825) }),
+		).toBe(true);
+	});
+
+	it("dates idleness by the latest upload across every release", () => {
+		const body = JSON.parse(pypiBody(daysAgo(4000), daysAgo(3000)));
+		body.releases["0.0.1"] = [{ upload_time_iso_8601: daysAgo(1) }];
+		expect(
+			allows(install, { pypiOut: { code: 200, body: JSON.stringify(body) } }),
+		).toBe(true);
+	});
+
+	it("asks no downloads of a package too stale to pass", () => {
+		expect(
+			callsOf(install, { created: daysAgo(4000), latest: daysAgo(3000) }),
+		).toEqual(["pypi left-pad"]);
+	});
+
+	it("never asks PyPI about a declared package, however stale", () => {
+		expect(
+			callsOf(`pip install ${BIN} httpx`, {
+				created: daysAgo(4000),
+				latest: daysAgo(3000),
+			}),
+		).toEqual([]);
+	});
+
 	it("asks no downloads of a package too young to pass", () => {
 		expect(callsOf(install, { created: daysAgo(10) })).toEqual([
 			"pypi left-pad",
@@ -827,7 +867,7 @@ describe("its deliberate limits", () => {
 	});
 
 	it("vets only the packages named, never what they depend on", () => {
-		const body = JSON.parse(pypiBody(daysAgo(4000)));
+		const body = JSON.parse(pypiBody(daysAgo(4000), daysAgo(30)));
 		body.info.requires_dist = ["evil-dep>=1"];
 		expect(
 			callsOf(`pip install ${BIN} left-pad`, {

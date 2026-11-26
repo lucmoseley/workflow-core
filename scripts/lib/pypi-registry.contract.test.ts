@@ -48,6 +48,17 @@ const CASES: {
 		real: "live",
 	},
 	{
+		what: "a package with no upload in five years",
+		pkg: "toml",
+		reg: {
+			...PASSING,
+			latest: "2020-11-01T01:40:22.204866Z",
+		},
+		ports: ["pypi"],
+		verdict: /^`toml` last had a file published \d+ days ago/,
+		real: "live",
+	},
+	{
 		what: "a made-up name",
 		pkg: "wfc-contract-no-such-package-5232",
 		reg: { created: "404", downloads: "404" },
