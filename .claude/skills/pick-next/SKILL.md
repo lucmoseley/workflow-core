@@ -658,7 +658,7 @@ count as the limit.
 
 **Re-read the machine here, immediately before writing §6's lines** — run `node
 scripts/admission.js`, which reads `/proc/meminfo` and `claude agents --json`
-and prints the slot count, priced as the dispatcher's re-read prices it, instead of doing that arithmetic in prose off the
+and prints the slot count, instead of doing that arithmetic in prose off the
 figures §2's run printed (mantahostels#1144). **Exit 2 is a
 refusal — either figure unreadable — and it means start nothing**: an
 over-admission freezes the machine. Exit 1 is the HOLD, exit 0 the admit, and

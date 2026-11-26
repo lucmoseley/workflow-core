@@ -1984,7 +1984,7 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 			psLines: [idleSpare],
 			cwds: idleAt("111"),
 		});
-		expect(admission.admit).toBe(true);
+		expect(admission.freeSlots).toBe(2);
 		expect(admission.reason).toMatch(
 			/no session is running, so one is admitted whatever the headroom after reserving 590 MB for the spare pool/,
 		);

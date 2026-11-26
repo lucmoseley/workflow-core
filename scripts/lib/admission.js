@@ -129,7 +129,7 @@ function cpuSlotsRow(cpu) {
  * @typedef {import("./claude-sessions.js").SparePair} SparePair
  * @typedef {import("./admission-figures.js").LenientProcs} LenientProcs
  * @typedef {({ ok: true, mb: number, idlePairs: number, perPairMb: number | null, drift: string[] }) | { ok: false, error: string }} SpareOverhead
- * @typedef {({ ok: true, mb: number, perPairMb: number }) | { ok: false, error: string }} PoolReserve
+ * @typedef {({ ok: true, mb: number }) | { ok: false, error: string }} PoolReserve
  * @typedef {{ ok: true, sessions: number, unvouched: boolean, processes: number | null, processesError: string | null } | { ok: false, error: string, processes: number | null, processesError: string | null }} LiveSessionsResult
  * @typedef {{ held: false } | { held: true, swapFreeMb: number, swapTotalMb: number, availableMb: number }} SwapHold
  * @typedef {{ meanMb: number, sigmaMb: number, declared: boolean, problem?: string }} SessionDraw
@@ -464,11 +464,11 @@ const IDLE_PAIR_MB = 106;
  */
 function poolReserve(pool) {
 	if (!pool.ok) return { ok: false, error: pool.error };
-	const perPairMb =
+	const mb =
 		typeof pool.perPairMb === "number" && pool.perPairMb > 0
 			? pool.perPairMb
 			: IDLE_PAIR_MB;
-	return { ok: true, mb: perPairMb, perPairMb };
+	return { ok: true, mb };
 }
 
 /**
