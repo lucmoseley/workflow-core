@@ -76,13 +76,14 @@ const readLines = (file: string) =>
 		: [];
 
 describe("claude agents --json unions (#3320)", () => {
-	it.each([
-		["a plain run", ["--json"]],
-		["a launch's re-read", ["--json", "--launch"]],
-	])("one admission run lists once: %s", (_, args) => {
-		const r = runInProcess(path.resolve(__dirname, "admission.js"), args, {
-			env: buildMachineEnv(),
-		});
+	it("one admission run lists once", () => {
+		const r = runInProcess(
+			path.resolve(__dirname, "admission.js"),
+			["--json"],
+			{
+				env: buildMachineEnv(),
+			},
+		);
 		expect(r.status).toBe(0);
 		const verdict = JSON.parse(r.stdout);
 		expect(verdict.ok).toBe(true);

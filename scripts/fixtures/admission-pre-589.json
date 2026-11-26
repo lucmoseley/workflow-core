@@ -1,6 +1,6 @@
 {
 	"admit": {
-		"args": ["--launch"],
+		"args": [],
 		"meminfo": "MemTotal:       10240000 kB\nMemFree:          554820 kB\nMemAvailable:    6144000 kB\n",
 		"agents": [
 			{
@@ -55,7 +55,7 @@
 		],
 		"expected": {
 			"status": 0,
-			"stdout": "available memory   6000 MB\nlive sessions      2 alongside this one\nsession draw       mean 600 MB, σ 200 MB — this repo's declared sessionMeanMb and sessionSigmaMb, its sessions' tools included\nlive draw          1 live session(s): mean 600 MB + 1.645 × σ 200 MB − 488 MB they already hold\npending spares     253 MB reserved for the 1 spare(s) this launch will warm, at 253 MB a pair, and as much again for each slot past the first (#2511)\nreclaimable        420 MB about to be reaped\nslots              4 — ADMIT: 4820 MB available after reserving 506 MB for the spare pool, credited 420 MB about to be reclaimed, holding 794 + 300 MB above earlyoom's kill line; the live sessions' draw and 4 more, with 3 more spare pair(s) at 253 MB, need 4007 MB at p95\ntest suites        3 concurrent\nallowance          weekly allowance reading is absent — admitting anyway; session allowance reading is absent — admitting anyway\n",
+			"stdout": "available memory   6000 MB\nlive sessions      2 alongside this one\nsession draw       mean 600 MB, σ 200 MB — this repo's declared sessionMeanMb and sessionSigmaMb, its sessions' tools included\nlive draw          1 live session(s): mean 600 MB + 1.645 × σ 200 MB − 488 MB they already hold\nreclaimable        420 MB about to be reaped\nslots              6 — ADMIT: 5073 MB available after reserving 253 MB for the spare pool, credited 420 MB about to be reclaimed, holding 794 + 300 MB above earlyoom's kill line; the live sessions' draw and 6 more need 4583 MB at p95\ntest suites        3 concurrent\nallowance          weekly allowance reading is absent — admitting anyway; session allowance reading is absent — admitting anyway\n",
 			"stderr": ""
 		}
 	},

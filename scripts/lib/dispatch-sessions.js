@@ -887,12 +887,10 @@ class Dispatch {
 
 	/** @param {string} prompt */
 	async admitMember(prompt) {
-		const admissionArgs = this.forceMemory
-			? ["--load-only"]
-			: [
-					"--launch",
-					...(this.force || this.overflow ? ["--skip-allowance"] : []),
-				];
+		/** @type {string[]} */
+		let admissionArgs = [];
+		if (this.forceMemory) admissionArgs = ["--load-only"];
+		else if (this.force || this.overflow) admissionArgs = ["--skip-allowance"];
 		const r = await this.run("admission.js", admissionArgs);
 		const text = chomp(r.stdout + r.stderr);
 		const lines = text.split("\n");

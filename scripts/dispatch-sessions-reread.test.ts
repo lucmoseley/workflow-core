@@ -415,23 +415,6 @@ describe("the launch stagger (mantahostels#2553)", () => {
 	});
 });
 
-describe("the pending-spare charge on the re-read (mantahostels#2588)", () => {
-	it("relays the pending-spare reserve in a refusal, so the flag is visibly in force", async () => {
-		stubClaude({ agentsJson: agentsListing(true) });
-		fs.writeFileSync(fx.meminfo, "MemAvailable:    600000 kB\n");
-		const r = await runCore(["sonnet", "/implement 341"]);
-		expect(r.stderr).toContain("pending spares");
-		expect(r.stderr).toContain("106 MB");
-	});
-
-	it("charges nothing extra under --force-memory, which re-reads the load alone", async () => {
-		stubClaude({ agentsJson: agentsListing(true) });
-		fs.writeFileSync(fx.meminfo, "MemAvailable:    600000 kB\n");
-		const r = await runCore(["--force-memory", "sonnet", "/implement 341"]);
-		expect(r.stderr).not.toContain("pending spares");
-	});
-});
-
 describe("the lander read on the re-read (#2889)", () => {
 	const refused = async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
