@@ -33,6 +33,7 @@ describe("readJsonl", () => {
 				{ row: { a: 2 }, line: 2 },
 			],
 			bad: [3],
+			zeroed: [],
 			torn: true,
 		});
 	});
@@ -45,6 +46,7 @@ describe("readJsonl", () => {
 				{ row: { a: 2 }, line: 2 },
 			],
 			bad: [],
+			zeroed: [],
 			torn: false,
 		});
 	});
@@ -59,6 +61,7 @@ describe("readJsonl", () => {
 				{ row: { a: 2 }, line: 6 },
 			],
 			bad: [2, 3, 4, 5],
+			zeroed: [],
 			torn: false,
 		});
 	});
@@ -68,6 +71,7 @@ describe("readJsonl", () => {
 			rows: [{ a: 1 }],
 			entries: [{ row: { a: 1 }, line: 1 }],
 			bad: [2],
+			zeroed: [],
 			torn: false,
 		});
 	});
@@ -80,6 +84,34 @@ describe("readJsonl", () => {
 				{ row: { a: 2 }, line: 4 },
 			],
 			bad: [],
+			zeroed: [],
+			torn: false,
+		});
+	});
+
+	it("keeps the row after a line's leading zero bytes, listing the line as zeroed, never bad (#5765)", () => {
+		const zeros = "\0".repeat(698);
+		expect(
+			readJsonl(write(`{"a":1}\n${zeros}{"a":2}\n${zeros}\n${zeros}{"a":`)),
+		).toEqual({
+			rows: [{ a: 1 }, { a: 2 }],
+			entries: [
+				{ row: { a: 1 }, line: 1 },
+				{ row: { a: 2 }, line: 2 },
+			],
+			bad: [4],
+			zeroed: [2, 3, 4],
+			torn: true,
+		});
+	});
+
+	it("lists a zeroed line keep refuses, since the record it lost may be one keep wants", () => {
+		const keep = (line: string) => line.includes('"k"');
+		expect(parseJsonl('\0\0{"a":1}\n\0\0{"k":2}\n', keep)).toEqual({
+			rows: [{ k: 2 }],
+			entries: [{ row: { k: 2 }, line: 2 }],
+			bad: [],
+			zeroed: [1, 2],
 			torn: false,
 		});
 	});
@@ -89,6 +121,7 @@ describe("readJsonl", () => {
 			rows: [],
 			entries: [],
 			bad: [],
+			zeroed: [],
 			torn: false,
 		});
 	});
@@ -108,6 +141,7 @@ describe("parseJsonl", () => {
 			rows: [{ a: 1 }],
 			entries: [{ row: { a: 1 }, line: 1 }],
 			bad: [2, 3],
+			zeroed: [],
 			torn: true,
 		});
 	});
@@ -122,6 +156,7 @@ describe("parseJsonl", () => {
 			rows: [{ k: 1 }],
 			entries: [{ row: { k: 1 }, line: 1 }],
 			bad: [4],
+			zeroed: [],
 			torn: true,
 		});
 		expect(seen).toEqual(['{"k":1}', "bad", '{"a":2}', '{"k":']);
@@ -132,6 +167,7 @@ describe("parseJsonl", () => {
 			rows: [{ a: 1 }],
 			entries: [{ row: { a: 1 }, line: 1 }],
 			bad: [2],
+			zeroed: [],
 			torn: false,
 		});
 	});
@@ -144,6 +180,8 @@ describe("parseJsonlRow", () => {
 		expect(parseJsonlRow("bad")).toBeUndefined();
 		expect(parseJsonlRow("[1]")).toBeUndefined();
 		expect(parseJsonlRow("null")).toBeUndefined();
+		expect(parseJsonlRow('\0\0{"a":1}')).toEqual({ a: 1 });
+		expect(parseJsonlRow("\0\0")).toBeNull();
 	});
 });
 
@@ -155,6 +193,7 @@ describe("readLastJsonlRow", () => {
 		"bad and blank lines after the last row": '{"a":1}\n[1]\nnot json\n\n\n',
 		"CRLF endings": '{"a":1}\r\n{"a":2}\r\n',
 		"one row": '{"a":1}',
+		"a last row after zero bytes": '{"a":1}\n\0\0{"a":2}\n\0\0\n',
 		"no row": "not json\n\n",
 		"an empty file": "",
 		"a last row longer than one read, split inside a multi-byte character": `{"a":1}\n{"a":"${"é".repeat(70_000)}"}\n`,

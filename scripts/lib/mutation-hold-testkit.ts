@@ -58,7 +58,10 @@ const { pathToFileURL } = require("node:url");
 		fs.writeFileSync(path.join(process.env.STUB_REPO, ${JSON.stringify(MONEY)}), fs.readFileSync(mid));
 		fs.rmSync(mid);
 	}
-	if (fs.existsSync(path.join(dir, "red"))) {
+	const hostReadMarker = path.join(dir, "reads");
+	const hostRead = fs.existsSync(hostReadMarker) && path.join(process.cwd(), fs.readFileSync(hostReadMarker, "utf8"));
+	const hostReadMissing = hostRead !== false && !(config.inPlace === true && fs.existsSync(hostRead));
+	if (hostReadMissing || fs.existsSync(path.join(dir, "red"))) {
 		console.log("ERROR Stryker There were failed tests in the initial test run.");
 		process.exit(1);
 	}

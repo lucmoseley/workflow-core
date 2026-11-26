@@ -1,29 +1,21 @@
 // @vitest-environment node
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate } from "./git-fixture";
+import { gitIn, writeIn } from "./repo-tree-testkit";
 
 const { isCarried, levelUntilCarried, readRunCode, readSupersededFiles } =
 	createRequire(__filename)("./lander-code.js");
 
 const OWN = "scripts/queue-lander.js";
 let repo = "";
-const gitIn =
-	(at: string) =>
-	(...args: string[]) =>
-		execFileSync("git", args, { cwd: at, encoding: "utf8" }).trim();
-const git = (...args: string[]) => gitIn(repo)(...args);
-const writeIn = (at: string, file: string, text: string) => {
-	fs.mkdirSync(path.dirname(path.join(at, file)), { recursive: true });
-	fs.writeFileSync(path.join(at, file), text);
-};
+const git = (...args: string[]) => gitIn(repo, ...args).trim();
 const write = (file: string, text: string) => writeIn(repo, file, text);
 const commitIn = (at: string, file: string, text: string) => {
-	const g = gitIn(at);
+	const g = (...args: string[]) => gitIn(at, ...args).trim();
 	writeIn(at, file, text);
 	g("add", "-A");
 	g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", file);
@@ -32,7 +24,7 @@ const commitIn = (at: string, file: string, text: string) => {
 const commit = (file: string, text: string) => commitIn(repo, file, text);
 
 const seeded = defineTemplate((dir) => {
-	gitIn(dir)("init", "-q");
+	gitIn(dir, "init", "-q");
 	commitIn(dir, OWN, "module.exports = 1;\n");
 	commitIn(dir, "docs/notes.md", "v1\n");
 });
