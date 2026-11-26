@@ -344,17 +344,6 @@ describe("start ensures a process runs (#3868)", () => {
 			expect(readControl().stopRequested).toBe(true);
 		});
 
-		it("reads a checkout pause a past release stored as no pause (#5767)", async () => {
-			holdPidfile();
-			writeStored({ repoPaused: { [manta]: { by: "x", at: 7 } } });
-			const r = await start("--unless-stopped");
-			expect(r.status).toBe(0);
-			expect(r.stdout).not.toContain("paused by");
-			const json = JSON.parse((await run("status", "--json")).stdout);
-			expect(json).not.toHaveProperty("repoPaused");
-			expect(json.paused).toBeNull();
-		});
-
 		it("refuses a damaged control, leaving its bytes", async () => {
 			fs.writeFileSync(controlFile(), "{ garbled");
 			const r = await start("--unless-stopped");

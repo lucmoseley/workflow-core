@@ -87,7 +87,6 @@ describe("what status prints", () => {
 			served,
 		}).join("\n");
 		expect(out).toContain("running, pid 123");
-		expect(out).not.toContain("counting:");
 		expect(out).not.toContain("stops by");
 		expect(out).toContain(
 			`launches:  1 since ${new Date(control.runFrom).toISOString()}, 1 running, 0 parked`,

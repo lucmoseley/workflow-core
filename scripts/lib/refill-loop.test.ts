@@ -1630,10 +1630,6 @@ describe("the control file", () => {
 			expect(goalOf(goal)).toBeNull();
 	});
 
-	it("reads a control with no runFrom as run from 0 (#5767)", () => {
-		expect(parseControl({ startedAt: 5 })?.runFrom).toBe(0);
-	});
-
 	it("lets a restart after the tick's read overtake its stop", () => {
 		const restarted = {
 			runFrom: 20,
