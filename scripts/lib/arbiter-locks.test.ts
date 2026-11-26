@@ -23,6 +23,7 @@ import {
 } from "./arbiter-testkit";
 import { cutWorktree, defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { noop } from "./noop.js";
+import { writeIn } from "./repo-tree-testkit";
 import { sleepSync } from "./sleep-sync.js";
 
 const sb = freshSandbox();
@@ -1410,8 +1411,6 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 describe("a claim read in its holder's tree, not the reader's (#4457)", () => {
 	const rel = "docs/x.md";
 	let wt = "";
-	const writeIn = (tree: string, text: string) =>
-		fs.writeFileSync(path.join(tree, rel), text);
 	const inDir = <T>(dir: string, fn: () => T): T => {
 		const back = process.cwd();
 		process.chdir(dir);
@@ -1428,8 +1427,7 @@ describe("a claim read in its holder's tree, not the reader's (#4457)", () => {
 			path.join(dir, ".git", "config"),
 			"[user]\n\temail = t@t\n\tname = t\n",
 		);
-		fs.mkdirSync(path.join(dir, "docs"));
-		writeIn(dir, "as committed\n");
+		writeIn(dir, rel, "as committed\n");
 		execFileSync("git", ["add", "-A"], { cwd: dir });
 		execFileSync(
 			"git",
@@ -1447,7 +1445,7 @@ describe("a claim read in its holder's tree, not the reader's (#4457)", () => {
 	const holdDirtyInWorktree = () => {
 		const me = live(sb, "alice");
 		inDir(wt, () => store.acquire(rel, me));
-		writeIn(wt, "half-written in the worktree\n");
+		writeIn(wt, rel, "half-written in the worktree\n");
 		return me;
 	};
 
@@ -1474,7 +1472,7 @@ describe("a claim read in its holder's tree, not the reader's (#4457)", () => {
 	it("leaves a worktree-dirty claim out of the clean ones, read from the main checkout", () => {
 		const me = holdDirtyInWorktree();
 		inDir(sb.repo, () => expect(store.readHeldClean(me.sessionId)).toEqual([]));
-		writeIn(wt, "as committed\n");
+		writeIn(wt, rel, "as committed\n");
 		inDir(sb.repo, () =>
 			expect(store.readHeldClean(me.sessionId)).toEqual([rel]),
 		);
@@ -1482,8 +1480,8 @@ describe("a claim read in its holder's tree, not the reader's (#4457)", () => {
 
 	it("releases a worktree claim from the main checkout once the worktree is clean, though the main checkout is dirty", () => {
 		const me = holdDirtyInWorktree();
-		writeIn(wt, "as committed\n");
-		writeIn(sb.repo, "a main-checkout edit\n");
+		writeIn(wt, rel, "as committed\n");
+		writeIn(sb.repo, rel, "a main-checkout edit\n");
 		inDir(sb.repo, () =>
 			expect(store.release(rel, me).verdict).toBe("released"),
 		);

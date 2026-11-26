@@ -3898,6 +3898,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		createIsolated,
 		removeIsolated,
 		sweepIsolated,
+		unlinkArtefacts,
 	} = require("./lib/isolated-worktree.js");
 	const isolatedFlag = "--isolated";
 	const worktreeDir = path.join(".claude", "worktrees");
@@ -4042,6 +4043,38 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			);
 			expect(fs.existsSync(made.dir)).toBe(false);
 		});
+
+		it("links and unlinks a declared directory written with a trailing slash as the #1767 case links one written without (#5769)", () => {
+			const dir = repoWithDeps();
+			declaring(dir, ["./.cache/shared/"], [".cache/shared/x"]);
+			const made = createIsolated(dir, { pid: 4269 });
+			expect(made.error).toBe(null);
+			if (made.dir === null) return;
+			const link = path.join(made.dir, ".cache/shared");
+			expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+			unlinkArtefacts(made.dir);
+			expect(fs.existsSync(link)).toBe(false);
+			removeIsolated(dir, made.dir, { err: sink() });
+			expect(fs.readFileSync(path.join(dir, ".cache/shared/x"), "utf8")).toBe(
+				"canonical\n",
+			);
+			expect(fs.existsSync(made.dir)).toBe(false);
+		});
+
+		it.each([["node_modules"], ["node_modules/"]])(
+			"makes the worktree where %s is declared, linking the shared artefact once (#5769)",
+			(entry) => {
+				const dir = repoWithDeps();
+				declaring(dir, [entry], []);
+				const made = createIsolated(dir, { pid: 4270, err: sink() });
+				expect(made.error).toBe(null);
+				if (made.dir === null) return;
+				expect(
+					fs.lstatSync(path.join(made.dir, "node_modules")).isSymbolicLink(),
+				).toBe(true);
+				removeIsolated(dir, made.dir, { err: sink() });
+			},
+		);
 
 		it("unlinks no declared path that resolves through another link, so the canonical link it names survives teardown (#1767)", () => {
 			const dir = repoWithDeps();
