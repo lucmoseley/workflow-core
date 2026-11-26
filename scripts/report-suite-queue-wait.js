@@ -170,7 +170,7 @@ const minute = (t) =>
 /**
  * @param {QueueExit[]} logged
  * @param {number} nowMs
- * @param {{ unparsed: number, zeroed: number }} lost
+ * @param {{ unparsed: number, zeroed: number }} unread
  * @param {boolean} core
  * @returns {{ waitS: number, body: string }}
  */
@@ -275,8 +275,8 @@ function reading(logged, nowMs, { unparsed, zeroed }, core) {
  * @returns {string}
  */
 function readAndFile(logFile, nowMs, dryRun, core) {
-	const { exits, ...lost } = readExits(logFile);
-	const { waitS, body } = reading(exits, nowMs, lost, core);
+	const { exits, ...unread } = readExits(logFile);
+	const { waitS, body } = reading(exits, nowMs, unread, core);
 	const figure = `${hours(waitS)} h of session wall-clock queue wait in the last 24 h, against the ${LIMIT_H} h limit`;
 	if (dryRun) return `${body}\n\nDry run: ${figure}; nothing filed.`;
 	if (waitS < LIMIT_H * 3600) return `${figure}; nothing filed.`;

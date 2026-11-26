@@ -158,15 +158,10 @@ function describeLost(lost) {
  * @param {Loss[]} fresh
  * @param {Map<string, {name: string, input: unknown}>} calls
  * @param {string} transcript
- * @param {{skipped: number, zeroed: number}} [lost]
+ * @param {{skipped: number, zeroed: number}} unread
  * @returns {string}
  */
-function reportFor(
-	fresh,
-	calls,
-	transcript,
-	{ skipped, zeroed } = { skipped: 0, zeroed: 0 },
-) {
+function reportFor(fresh, calls, transcript, { skipped, zeroed }) {
 	/** @type {Map<string, Loss[]>} */
 	const byCall = new Map();
 	for (const loss of fresh) {
