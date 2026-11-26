@@ -83,11 +83,11 @@ WL_EOF
 }
 
 skip_undeclared() {
-  dc_status=$?
-  if [ "$dc_status" -ge 2 ]; then
+  su_status=$?
+  if [ "$su_status" -ge 2 ]; then
     exit 1
   fi
-  return "$dc_status"
+  return "$su_status"
 }
 
 GATE_TMPDIRS=""

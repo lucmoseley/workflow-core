@@ -32,7 +32,8 @@
 		"scripts/**/*_test.py": "test",
 		"scripts/conftest.py": "test",
 		"scripts/pytest_pass_plugin.py": "test",
-		"scripts/**/*.py": "program"
+		"scripts/**/*.py": "program",
+		".agents/skills/**": "none"
 	},
 	"capacityLadder": false,
 	"admissionGate": true,

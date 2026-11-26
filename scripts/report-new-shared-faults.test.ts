@@ -6,7 +6,11 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { coreFile } from "./lib/core-path-testkit";
-import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
+import {
+	defineTemplate,
+	identityRepoTemplate,
+	mkScratchDir,
+} from "./lib/git-fixture";
 import {
 	hookEnv,
 	linkedCommit,
@@ -39,23 +43,18 @@ interface Repo {
 	git: (...args: string[]) => Buffer;
 }
 
-const emptyRepo = defineTemplate((root) => {
-	for (const args of [
-		["init", "-q", "."],
-		["config", "user.email", "t@t"],
-		["config", "user.name", "t"],
-	])
-		execFileSync("git", args, { cwd: root });
-});
+const identityRepo = defineTemplate(identityRepoTemplate);
 
 let repo: Repo;
 
-beforeEach(() => {
-	const root = mkScratchDir("report-new-shared-faults-");
-	temps.push(root);
-	emptyRepo.instantiate(root);
-	repo = { root, git: (...args) => execFileSync("git", args, { cwd: root }) };
-});
+function copyIdentityRepoBeforeEach() {
+	beforeEach(() => {
+		const root = mkScratchDir("report-new-shared-faults-");
+		temps.push(root);
+		identityRepo.instantiate(root);
+		repo = { root, git: (...args) => execFileSync("git", args, { cwd: root }) };
+	});
+}
 
 const REPO_ROOT = path.join(__dirname, "..");
 
@@ -121,6 +120,8 @@ function commitEnvelope(envelope: unknown, message: string): string {
 }
 
 describe("report-new-shared-faults", () => {
+	copyIdentityRepoBeforeEach();
+
 	it("reports a fault the commit added and not one it inherited", () => {
 		commitEnvelope({ findings: [fail()] }, "base");
 		const child = commitEnvelope(
@@ -433,6 +434,8 @@ process.stdout.write('{"findings":[]}');
 });
 
 describe("the notice the session reads", () => {
+	copyIdentityRepoBeforeEach();
+
 	function commitOneAddedFault() {
 		commitEnvelope({ findings: [] }, "base");
 		const child = commitEnvelope(
@@ -608,6 +611,8 @@ describe("lib/shared-fault-notices.js's NOTICES", () => {
 });
 
 describe(".husky/post-commit's fault-notice step", () => {
+	copyIdentityRepoBeforeEach();
+
 	function commitOne() {
 		fs.writeFileSync(path.join(repo.root, "a.txt"), "a");
 		repo.git("add", "-A");
