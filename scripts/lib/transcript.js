@@ -53,7 +53,7 @@ function parseContentText(content) {
 /**
  * @param {string} text
  * @param {"main" | "subagent"} tier
- * @param {{skipped: number}} [stats]
+ * @param {{skipped: number, zeroed: number}} [stats]
  * @returns {Generator<TranscriptRecord>}
  */
 function* mainChainRecords(text, tier, stats) {
@@ -61,8 +61,11 @@ function* mainChainRecords(text, tier, stats) {
 		throw new TypeError(
 			`mainChainRecords needs tier "main" or "subagent", got ${JSON.stringify(tier)}.`,
 		);
-	const { rows, bad } = parseJsonl(text);
-	if (stats) stats.skipped += bad.length;
+	const { rows, bad, zeroed } = parseJsonl(text);
+	if (stats) {
+		stats.skipped += bad.length;
+		stats.zeroed += zeroed.length;
+	}
 	for (const record of rows) {
 		if (tier === "main" && record.isSidechain) continue;
 		yield record;

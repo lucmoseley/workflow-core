@@ -179,7 +179,7 @@ describe("the away reminder (#4846)", () => {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({
-				noProgressFrom: 0,
+				runFrom: 0,
 				seats: [],
 				scope: { mode, repos: [], goal: null },
 				...(away ? { away } : {}),

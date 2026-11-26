@@ -64,10 +64,6 @@ const STATUS_SKIPS = 10;
 /** @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch */
 /** @typedef {import("./refill-state.js").LoopState} LoopState */
 
-/** @param {number} from */
-const buildCountingLine = (from) =>
-	`counting:  no-progress count from ${iso(from)}`;
-
 /** @param {string[]} roots */
 const buildRepoNames = (roots) =>
 	roots.map((r) => path.basename(r)).join(", ") || "none";
@@ -194,10 +190,7 @@ function changeFields(control, ask, context) {
 			: [
 					(/** @type {Control} */ c) => {
 						const change = buildPauseChange(c, pause, context);
-						if (
-							change.write &&
-							(pause || c.paused !== undefined || c.repoPaused !== undefined)
-						)
+						if (change.write && (pause || c.paused !== undefined))
 							pauseSet = pause;
 						return change;
 					},
@@ -246,7 +239,7 @@ function changeFields(control, ask, context) {
  * @returns {Control}
  */
 const buildFreshControl = (root, seats, now) => ({
-	noProgressFrom: now,
+	runFrom: now,
 	stopRequested: false,
 	seats,
 	scope: { mode: "normal", repos: [root], goal: null },
@@ -259,7 +252,7 @@ const buildFreshControl = (root, seats, now) => ({
  */
 function withStopCleared(control, now) {
 	const { stopRequestedAt: _cleared, ...rest } = control;
-	return { ...rest, stopRequested: false, noProgressFrom: now };
+	return { ...rest, stopRequested: false, runFrom: now };
 }
 
 /**
@@ -390,7 +383,6 @@ function buildUntickedLines({ scope }, root) {
  * @returns {SetChange}
  */
 function buildPauseChange(control, pause, { running, now }) {
-	if (!pause && control.repoPaused) return buildResume(control, running, now);
 	if (pause === (control.paused !== undefined) && (pause || running))
 		return {
 			write: null,
@@ -412,20 +404,15 @@ function buildPauseChange(control, pause, { running, now }) {
  * @returns {SetChange}
  */
 function buildResume(control, running, now) {
-	const {
-		paused: _resumed,
-		repoPaused: _lifted,
-		stopRequestedAt,
-		...rest
-	} = control;
+	const { paused: _resumed, stopRequestedAt, ...rest } = control;
 	return {
 		write: {
 			...rest,
 			...(running && stopRequestedAt !== undefined ? { stopRequestedAt } : {}),
 			stopRequested: running && control.stopRequested,
-			noProgressFrom: now,
+			...(running ? {} : { runFrom: now }),
 		},
-		lines: ["not paused", buildCountingLine(now)],
+		lines: ["not paused"],
 	};
 }
 
@@ -758,10 +745,6 @@ function buildScopeLines(
 	const launchHold = liveLaunchHold(control.launchHold, now);
 	return [
 		...(control.paused ? [buildPausedWaitText(control.paused)] : []),
-		...Object.entries(control.repoPaused ?? {}).map(
-			([root, pause]) =>
-				`${path.basename(root)}: ${buildPausedWaitText(pause)}`,
-		),
 		...(launchHold ? [buildLaunchHoldText(launchHold)] : []),
 		`mode:      ${scope.mode}`,
 		`repos:     ${buildRepoNames(served)}`,
@@ -850,7 +833,7 @@ function launchStateOf(l) {
  */
 function shownLaunches(control, state) {
 	const shown = state.launches.filter(
-		(l) => l.launchedAt >= control.noProgressFrom || l.finishedAt === null,
+		(l) => l.launchedAt >= control.runFrom || l.finishedAt === null,
 	);
 	const listed = shown.filter(
 		(l, i) =>
@@ -866,9 +849,8 @@ function shownLaunches(control, state) {
  *   goalProgress: LoopState["goalProgress"]}} opts
  */
 function buildControlLines(control, state, opts) {
-	const lines = [buildCountingLine(control.noProgressFrom)];
-	lines.push(...buildScopeLines(control, opts));
-	const since = launchesSince(state, control.noProgressFrom);
+	const lines = buildScopeLines(control, opts);
+	const since = launchesSince(state, control.runFrom);
 	const { shown, listed } = shownLaunches(control, state);
 	const kinds = shown.map(launchKindOf);
 	const running = kinds.filter(
@@ -878,7 +860,7 @@ function buildControlLines(control, state, opts) {
 		(k) => k === "park-stopped" || k === "parked",
 	).length;
 	lines.push(
-		`launches:  ${since} since then, ${running} running, ${parked} parked`,
+		`launches:  ${since} since ${iso(control.runFrom)}, ${running} running, ${parked} parked`,
 	);
 	for (const l of listed) {
 		const at = launchStateOf(l);
@@ -1057,7 +1039,6 @@ function buildStatusJson({
 		stopRequested: control?.stopRequested ?? false,
 		...readEnding(control, state, pid),
 		paused: control?.paused ?? null,
-		repoPaused: control?.repoPaused ?? {},
 		launchHold: liveLaunchHold(control?.launchHold, now) ?? null,
 		lastTick: lastTick && {
 			at: lastTick.at,

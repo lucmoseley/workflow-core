@@ -233,7 +233,7 @@ describe("a seat's reading (#2606)", () => {
 			decideTick({
 				now: NOW,
 				mode: "normal" as const,
-				noProgressFrom: NOW - 60 * MIN,
+				runFrom: NOW - 60 * MIN,
 				stopRequested: false,
 				frontier: [],
 				retroBundles: [],
@@ -780,7 +780,7 @@ describe("the cap's launch count (#2278)", () => {
 			decideTick({
 				now: NOW,
 				mode: "away" as const,
-				noProgressFrom: NOW - 4 * 60 * MIN,
+				runFrom: NOW - 4 * 60 * MIN,
 				stopRequested: false,
 				frontier: [1, 2, 3].map((number) => row("wfc", number)),
 				retroBundles: [],

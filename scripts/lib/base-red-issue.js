@@ -1,6 +1,7 @@
 const { buildFileList } = require("./drop-evidence.js");
 const { short } = require("./lander-git.js");
 const { queueIssueFiler } = require("./queue-issue.js");
+const { BASE_RED_MAIN } = require("./head-sha-lines.js");
 
 const TITLE = "`main` is red: failures the queue lander blames on no member";
 
@@ -13,7 +14,7 @@ const buildBaseRedBody = (sha, files) => `## What to build
 
 The queue lander (#4458) found ${files.length > 0 ? "these files" : "the whole suite, naming no file,"} failing on \`main\` as well as on a batch it tested, so it blamed them on no member. Until they pass on \`main\`, a batch red only on them is held where \`main\` takes only a sha a CI run passed, as on Actions, and lands past them elsewhere.
 
-- Main: \`${sha}\`
+${BASE_RED_MAIN} \`${sha}\`
 ${
 	files.length > 0
 		? `

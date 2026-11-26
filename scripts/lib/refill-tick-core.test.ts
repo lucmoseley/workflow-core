@@ -60,7 +60,6 @@ const ACTS = {
 	recordListedOverflowSessions: true,
 	stopOverAllowance: true,
 	sendHoldNotices: true,
-	sendPauseNotices: true,
 	tendClosedParks: true,
 	actOnOutside: true,
 	releaseAwayParks: true,
@@ -68,7 +67,6 @@ const ACTS = {
 	probeDueSeats: true,
 	startDueConsoleReads: true,
 	launchBatch: true,
-	writePauses: true,
 	runReview: true,
 	updateState: true,
 	dropSettledLifted: true,
@@ -80,7 +78,7 @@ const ACTS = {
 const SEAT = "/home/u/.claude3";
 
 const control = (over: Partial<Control> = {}): Control => ({
-	noProgressFrom: NOW - 60 * MIN,
+	runFrom: NOW - 60 * MIN,
 	stopRequested: false,
 	seats: [SEAT],
 	scope: normal([WFC]),
@@ -192,7 +190,6 @@ function fakeIo(
 		readSwapHold: () =>
 			({ held: false }) as unknown as ReturnType<TickIo["readSwapHold"]>,
 		sendHoldNotices: recorded("sendHoldNotices", () => undefined),
-		sendPauseNotices: recorded("sendPauseNotices", () => undefined),
 		readProgress: recorded("readProgress", () => ({ acts: {} })),
 		readLoopLastActAt: () => ({}),
 		readThroughput: () => NO_THROUGHPUT,
@@ -231,7 +228,6 @@ function fakeIo(
 			})),
 			refused: [],
 		})),
-		writePauses: recorded("writePauses", (pauses) => pauses),
 		runReview: recorded("runReview", (lastRunOn) => lastRunOn),
 		updateState: recorded("updateState", onDisk),
 		readOmittedDirs: () => [],
@@ -1346,54 +1342,6 @@ describe("the hold notices' agent read (#3871)", () => {
 	});
 });
 
-describe("the pause notices' read of the pause (#4222)", () => {
-	const noticedPauses = async (c: Control) => {
-		const seen: unknown[] = [];
-		const { io } = fakeIo(stateOf(), {
-			sendPauseNotices: (paused) => {
-				seen.push(paused);
-			},
-		});
-		await tickOf(io, c);
-		return seen;
-	};
-
-	it("hands the control's checkout pauses, or none, to the pause notices each tick (#5275)", async () => {
-		const repoPaused = { [WFC]: { by: "no-progress", at: 7, issues: [] } };
-		expect(await noticedPauses(control({ repoPaused }))).toEqual([repoPaused]);
-		expect(await noticedPauses(control())).toEqual([{}]);
-	});
-
-	it("sends the raise on the tick that writes a checkout's no-progress pause, and none where the write is refused", async () => {
-		const stalledTick = async (isWritten: boolean) => {
-			const sent: unknown[] = [];
-			const finished = [1, 2, 3].map(
-				(n) =>
-					({
-						...record({ sessionId: `s-${n}`, seat: SEAT }),
-						jobId: `j${n}`,
-						launchedAt: NOW - 30 * MIN,
-						finishedAt: NOW - n * MIN,
-						acts: {},
-					}) as Launch,
-			);
-			const { io } = fakeIo(stateOf({ launches: finished }), {
-				writePauses: (pauses) => (isWritten ? pauses : null),
-				sendPauseNotices: (paused) => {
-					sent.push(paused);
-				},
-			});
-			await tickOf(io);
-			return sent;
-		};
-		const written = await stalledTick(true);
-		expect(written[0]).toEqual({});
-		expect(written).toHaveLength(2);
-		expect(written[1]).toHaveProperty([DV, "by"], "no-progress");
-		expect(await stalledTick(false)).toEqual([{}]);
-	});
-});
-
 describe("the sessions parked on a lifted repo hold (#3863)", () => {
 	const keptLifted = async (c: Control) => {
 		const dropped: unknown[] = [];
@@ -1957,11 +1905,6 @@ describe("billingStopsOf (#5479)", () => {
 describe("a held checkout's gate judgement through the tick (#5766)", () => {
 	const judgement = { root: DV, number: 532, prompt: "/triage 532" };
 	const held: [string, Partial<Control>, Partial<TickIo>][] = [
-		[
-			"paused",
-			{ repoPaused: { [DV]: { by: "no-progress", at: NOW, issues: [] } } },
-			{},
-		],
 		[
 			"probe-held",
 			{},

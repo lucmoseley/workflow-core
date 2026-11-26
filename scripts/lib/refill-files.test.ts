@@ -9,7 +9,6 @@ import {
 	appendLoopLog,
 	readControlChecked,
 	withControlLock,
-	writeRepoPauses,
 } from "./refill-files.js";
 import { readJson } from "./refill-json.js";
 import { NOW } from "./refill-loop-fixture";
@@ -39,79 +38,6 @@ describe("a loop file's read (#3380)", () => {
 		expect(lines).toHaveLength(1);
 		expect(lines[0]).toContain(file);
 		expect(lines[0]).toMatch(/JSON/);
-	});
-});
-
-describe("the checkout pauses' write (#3859, #5275)", () => {
-	const From = 5;
-	const pause = { by: "no-progress", at: 9, issues: [] };
-	let tmp: string;
-	const control = () => path.join(tmp, ".refill-loop-control.json");
-	const writeStored = (over: object = {}) =>
-		fs.writeFileSync(
-			control(),
-			JSON.stringify({
-				noProgressFrom: From,
-				stopRequested: false,
-				seats: [],
-				scope: { mode: "normal", repos: [] },
-				...over,
-			}),
-		);
-	const stored = () => JSON.parse(fs.readFileSync(control(), "utf8"));
-	beforeEach(() => {
-		tmp = fs.mkdtempSync(path.join(os.tmpdir(), "refill-pause-"));
-		vi.stubEnv("WFC_REFILL_DIR", tmp);
-	});
-	afterEach(() => {
-		fs.rmSync(tmp, { recursive: true, force: true });
-	});
-
-	it("writes each checkout's pause beside those already set, changing no other field", () => {
-		const earlier = { by: "no-progress", at: 3, issues: [] };
-		writeStored({ seats: ["/s"], repoPaused: { "/a": earlier } });
-		expect(writeRepoPauses({ "/b": pause }, From, () => undefined)).toEqual({
-			"/a": earlier,
-			"/b": pause,
-		});
-		expect(stored()).toMatchObject({
-			repoPaused: { "/a": earlier, "/b": pause },
-			seats: ["/s"],
-		});
-		expect(fs.existsSync(`${control()}.lock`)).toBe(false);
-	});
-
-	it("keeps a checkout's pause set since the tick read the control", () => {
-		const earlier = { by: "no-progress", at: 3, issues: [] };
-		writeStored({ repoPaused: { "/a": earlier } });
-		writeRepoPauses({ "/a": pause }, From, () => undefined);
-		expect(stored().repoPaused).toEqual({ "/a": earlier });
-	});
-
-	it("writes nothing where a resume moved the count since", () => {
-		writeStored({ noProgressFrom: From + 1 });
-		expect(writeRepoPauses({ "/a": pause }, From, () => undefined)).toBe(null);
-		expect(stored()).not.toHaveProperty("repoPaused");
-	});
-
-	it("logs a lock kept past the wait and writes nothing, for the next tick to decide again", () => {
-		writeStored();
-		const holder = spawn(
-			process.execPath,
-			["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
-			{ stdio: "ignore" },
-		);
-		try {
-			fs.writeFileSync(`${control()}.lock`, String(holder.pid));
-			const lines: string[] = [];
-			expect(
-				writeRepoPauses({ "/a": pause }, From, (l) => lines.push(l), 0),
-			).toBe(null);
-			expect(stored()).not.toHaveProperty("repoPaused");
-			expect(lines.join()).toContain("the next tick decides them again");
-		} finally {
-			holder.kill();
-		}
 	});
 });
 
@@ -178,7 +104,7 @@ describe("the tick's control read (#3389)", () => {
 		decideTick({
 			now: NOW,
 			mode: "normal" as const,
-			noProgressFrom: NOW,
+			runFrom: NOW,
 			stopRequested: true,
 			controlDamaged: damaged,
 			frontier: [],
@@ -198,12 +124,8 @@ describe("the tick's control read (#3389)", () => {
 
 	it.each([
 		["unparseable", "{ not json", /JSON/],
-		["a JSON null", "null", /no noProgressFrom/],
-		[
-			"not a control",
-			JSON.stringify({ stopRequested: false }),
-			/no noProgressFrom/,
-		],
+		["a JSON null", "null", /not a JSON object/],
+		["a JSON number", "5", /not a JSON object/],
 	])(
 		"stops on an %s control under its own reason, naming the file",
 		(_, body, why) => {
@@ -222,10 +144,26 @@ describe("the tick's control read (#3389)", () => {
 		},
 	);
 
+	it("reads a control with no run start as run from 0, ignoring fields it no longer knows (#5767)", () => {
+		fs.writeFileSync(
+			file(),
+			JSON.stringify({
+				countFrom: 5,
+				stopRequested: false,
+				repoPaused: { "/a": { by: "x", at: 3 } },
+			}),
+		);
+		const r = read();
+		expect(r.damaged).toBeNull();
+		expect(r.control).toMatchObject({ runFrom: 0, stopRequested: false });
+		expect(r.control).not.toHaveProperty("repoPaused");
+		expect(r.control).not.toHaveProperty("countFrom");
+	});
+
 	it("reads a whole control as itself", () => {
-		fs.writeFileSync(file(), JSON.stringify({ noProgressFrom: 5 }));
+		fs.writeFileSync(file(), JSON.stringify({ runFrom: 5 }));
 		expect(read()).toMatchObject({
-			control: { noProgressFrom: 5 },
+			control: { runFrom: 5 },
 			damaged: null,
 		});
 	});
@@ -235,7 +173,7 @@ describe("the tick's control read (#3389)", () => {
 			fs.writeFileSync(
 				file(),
 				JSON.stringify({
-					noProgressFrom: 5,
+					runFrom: 5,
 					stopRequested: false,
 					seats: [],
 					scope: { mode: "normal", repos: ["/r/wfc"], goal },

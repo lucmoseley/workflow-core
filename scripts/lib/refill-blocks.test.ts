@@ -1686,7 +1686,7 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		};
 	};
 
-	it("drops nothingToRepeat with parkStopped, or noProgressRun passes over its resume (#3949)", () => {
+	it("drops nothingToRepeat with parkStopped (#3949)", () => {
 		const { out } = queueOn([
 			record({
 				jobId: "p",

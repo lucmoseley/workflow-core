@@ -71,7 +71,7 @@ const HOST_TEXT = {
 
 /**
  * @param {string} file
- * @returns {{ exits: QueueExit[], unparsed: number }}
+ * @returns {{ exits: QueueExit[], unparsed: number, zeroed: number }}
  */
 function readExits(file) {
 	let read;
@@ -83,7 +83,7 @@ function readExits(file) {
 			cause: e,
 		});
 	}
-	if (!read) return { exits: [], unparsed: 0 };
+	if (!read) return { exits: [], unparsed: 0, zeroed: 0 };
 	const exits = /** @type {QueueExit[]} */ (
 		read.rows.filter(
 			(row) =>
@@ -93,6 +93,7 @@ function readExits(file) {
 	return {
 		exits,
 		unparsed: read.bad.length + read.rows.length - exits.length,
+		zeroed: read.zeroed.length,
 	};
 }
 
@@ -169,11 +170,11 @@ const minute = (t) =>
 /**
  * @param {QueueExit[]} logged
  * @param {number} nowMs
- * @param {number} unparsed
+ * @param {{ unparsed: number, zeroed: number }} unread
  * @param {boolean} core
  * @returns {{ waitS: number, body: string }}
  */
-function reading(logged, nowMs, unparsed, core) {
+function reading(logged, nowMs, { unparsed, zeroed }, core) {
 	const host = HOST_TEXT[core ? "core" : "adopter"];
 	const from = nowMs - DAY_MS;
 	const skipped = total(logged, from, nowMs, (e) => e.skipped === true);
@@ -217,6 +218,9 @@ function reading(logged, nowMs, unparsed, core) {
 		"Read from `.suite-queue-exits.jsonl` by `scripts/report-suite-queue-wait.js` (#1219), at most hourly at session start. While this issue is open, each reading at or over the limit refreshes this body; once it is closed, only a 24 h window starting after the close files it again.",
 		...(unparsed
 			? ["", `${unparsed} log line(s) would not parse and are not counted.`]
+			: []),
+		...(zeroed
+			? ["", `${zeroed} log record(s) zeroed by a crash are not counted.`]
 			: []),
 		"",
 		"Each run's wait is counted only where it falls inside the window or day. A wait with no launching session counts on its own. The kind and session tables below sum per run: they say where the wait went, not how much session time it cost (#5740).",
@@ -271,8 +275,8 @@ function reading(logged, nowMs, unparsed, core) {
  * @returns {string}
  */
 function readAndFile(logFile, nowMs, dryRun, core) {
-	const { exits, unparsed } = readExits(logFile);
-	const { waitS, body } = reading(exits, nowMs, unparsed, core);
+	const { exits, ...unread } = readExits(logFile);
+	const { waitS, body } = reading(exits, nowMs, unread, core);
 	const figure = `${hours(waitS)} h of session wall-clock queue wait in the last 24 h, against the ${LIMIT_H} h limit`;
 	if (dryRun) return `${body}\n\nDry run: ${figure}; nothing filed.`;
 	if (waitS < LIMIT_H * 3600) return `${figure}; nothing filed.`;

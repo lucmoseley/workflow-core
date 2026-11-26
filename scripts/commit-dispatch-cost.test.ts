@@ -505,6 +505,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"lib/rule-emission.js",
 			"lib/rule-text.js",
 			"lib/run-ledger.js",
+			"lib/safe-id.js",
 			"lib/scratch-dir.js",
 			"lib/script-claim.js",
 			"lib/script-path.js",

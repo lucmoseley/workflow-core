@@ -237,6 +237,17 @@ describe("reduction", () => {
 			"L2 09:00:00 FOUNDER: please fix the guard",
 		]);
 	});
+
+	it("counts a record a crash zeroed apart from an unparseable line, keeping the record after the zeros (#5775)", () => {
+		const log = sessionLog([`\0\0\0${JSON.stringify(KEPT[0])}`, "\0\0\0\0"]);
+		const r = run([log]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/2 log records zeroed by a crash/);
+		expect(r.stdout).not.toMatch(/unparseable/);
+		expect(readTranscript(r.stdout)).toEqual([
+			"L1 09:00:00 FOUNDER: please fix the guard",
+		]);
+	});
 });
 
 const TOKENS: [string, string][] = [

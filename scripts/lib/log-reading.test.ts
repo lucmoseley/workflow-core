@@ -1,6 +1,9 @@
 // @vitest-environment node
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { isRead, readingAt } from "./log-reading.js";
+import { isRead, readingAt, readLogs } from "./log-reading.js";
 
 const point = { point: 1000, ceiling: 2000, fixed: true, clock: 0 };
 
@@ -47,5 +50,21 @@ describe("isRead", () => {
 
 	it("leaves out an event stamped after it", () => {
 		expect(isRead(at, new Date(1001).toISOString())).toBe(false);
+	});
+});
+
+describe("readLogs", () => {
+	it("refuses a log holding a record zeroed by a crash, naming its line (#5775)", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "log-reading-"));
+		try {
+			const file = path.join(dir, "log.jsonl");
+			const row = JSON.stringify({ at: "2026-01-01T00:00:00Z" });
+			fs.writeFileSync(file, `${row}\n\0\0\0${row}\n`);
+			expect(() => readLogs(new Map([["repo", dir]]), () => file)).toThrow(
+				`${file}:2 holds a record zeroed by a crash`,
+			);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

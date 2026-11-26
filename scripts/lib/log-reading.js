@@ -161,6 +161,9 @@ function readLog(file) {
 	if (!read) return [];
 	const [bad] = read.bad;
 	if (bad !== undefined) throw new Error(`${file}:${bad} is not a JSON object`);
+	const [zeroed] = read.zeroed;
+	if (zeroed !== undefined)
+		throw new Error(`${file}:${zeroed} holds a record zeroed by a crash`);
 	for (const { row, line } of read.entries)
 		if (Number.isNaN(Date.parse(String(row.at))))
 			throw new Error(`${file}:${line} has no readable "at"`);

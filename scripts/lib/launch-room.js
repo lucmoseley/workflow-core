@@ -1,8 +1,7 @@
 // guess, #1920
-const NO_PROGRESS_RUN = 3;
+const UNPROVEN_LIMIT = 3;
 
-const UNPROVEN_HELD = `${NO_PROGRESS_RUN} launches since its checkout's last act are running`;
-const REPO_PAUSED = "a no-progress pause stops launches into its checkout";
+const UNPROVEN_HELD = `${UNPROVEN_LIMIT} launches since its checkout's last act are running`;
 const BREAKER_OPEN = "its checkout's throughput breaker is open";
 const PROBE_HELD = "a probe hold stops launches into its checkout";
 
@@ -10,7 +9,6 @@ const PROBE_HELD = "a probe hold stops launches into its checkout";
  * @typedef {{history: import("./refill-decide.js").LaunchRecord[],
  *   lastActAt: Record<string, number>,
  *   resumable?: import("./refill-decide.js").HeldResume[],
- *   repoPaused?: Record<string, import("./refill-decide.js").Pause>,
  *   breakerRoom?: Record<string, number>,
  *   holds?: import("./refill-decide.js").TickHold[]}} RoomInput
  */
@@ -35,7 +33,7 @@ function unprovenRoom({ history, lastActAt, resumable = [] }, root) {
 			!(l.jobId && due.has(l.jobId)) &&
 			(since === null || unprovenFrom(l) > since),
 	).length;
-	return Math.max(0, NO_PROGRESS_RUN - unproven);
+	return Math.max(0, UNPROVEN_LIMIT - unproven);
 }
 
 /**
@@ -62,13 +60,12 @@ function buildSpentRoom(roomOf) {
  * @param {RoomInput} input
  */
 function buildLaunchRoom(input) {
-	const { repoPaused = {}, breakerRoom = {} } = input;
+	const { breakerRoom = {} } = input;
 	const probeHeld = buildProbeHeldRoots(input.holds);
 	/** @param {string} root @returns {string|null} */
 	const heldWhy = (root) => {
 		if (probeHeld.has(root)) return PROBE_HELD;
-		if ((breakerRoom[root] ?? 1) <= 0) return BREAKER_OPEN;
-		return repoPaused[root] === undefined ? null : REPO_PAUSED;
+		return (breakerRoom[root] ?? 1) <= 0 ? BREAKER_OPEN : null;
 	};
 	const launch = buildSpentRoom((root) =>
 		heldWhy(root) === null
@@ -102,9 +99,8 @@ module.exports = {
 	BREAKER_OPEN,
 	buildLaunchRoom,
 	buildProbeHeldRoots,
-	NO_PROGRESS_RUN,
+	UNPROVEN_LIMIT,
 	PROBE_HELD,
-	REPO_PAUSED,
 	buildSpentRoom,
 	UNPROVEN_HELD,
 };

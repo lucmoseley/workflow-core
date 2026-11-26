@@ -1,11 +1,12 @@
 // @vitest-environment node
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
+import { gitIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-roadmap-pair.js");
@@ -14,14 +15,9 @@ const DIGEST = "docs/roadmap-digest.md";
 
 let repo: string;
 
-const gitIn =
-	(at: string) =>
-	(...args: string[]) =>
-		execFileSync("git", args, { cwd: at, encoding: "utf8" });
-
 const stageIn = (at: string, file: string, body: string) => {
 	fs.writeFileSync(path.join(at, file), body);
-	gitIn(at)("add", file);
+	gitIn(at, "add", file);
 };
 const stage = (file: string, body: string) => stageIn(repo, file, body);
 
@@ -35,7 +31,7 @@ const pairedRepo = defineTemplate((at) => {
 	fs.mkdirSync(path.join(at, "docs"));
 	stageIn(at, HTML, "roadmap v1\n");
 	stageIn(at, DIGEST, "digest v1\n");
-	gitIn(at)("commit", "-qm", "init");
+	gitIn(at, "commit", "-qm", "init");
 });
 
 beforeEach(() => {

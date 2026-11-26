@@ -69,6 +69,9 @@ function readRecord() {
 	const [bad] = read.bad;
 	if (bad !== undefined)
 		throw new Error(`${RECORD}:${bad} is not a JSON object`);
+	const [zeroed] = read.zeroed;
+	if (zeroed !== undefined)
+		throw new Error(`${RECORD}:${zeroed} holds a record zeroed by a crash`);
 	return read.rows;
 }
 

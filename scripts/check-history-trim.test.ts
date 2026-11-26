@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate } from "./lib/git-fixture";
+import { gitIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { seatDirs, seatEnv } from "./lib/seat-testkit";
 
@@ -132,6 +133,20 @@ describe("one seat's reading", () => {
 			lineCount: 2,
 		});
 	});
+
+	it("counts a line a crash zeroed whole, and a zeroed line it still reads, once each (#5775)", () => {
+		fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(home, ".claude", "history.jsonl"),
+			`${JSON.stringify({ timestamp: NOW - 10 * HOUR })}\n\0\0\0\n\0\0${JSON.stringify({ timestamp: NOW - 20 * HOUR })}\n`,
+		);
+		expect(readRoot(path.join(home, ".claude"))).toEqual({
+			dir: ".claude",
+			state: "ok",
+			oldestMs: NOW - 20 * HOUR,
+			lineCount: 3,
+		});
+	});
 });
 
 describe("readRoots", () => {
@@ -246,6 +261,14 @@ describe("the watch-file reading", () => {
 	it("reads undefined, never null, where the watch file exists but its newest line will not parse", () => {
 		const watch = path.join(home, "w.jsonl");
 		fs.writeFileSync(watch, "not json at all\n");
+		expect(readBaseline(watch)).toBeUndefined();
+	});
+
+	it("reads undefined where the watch file's newest line is a record a crash zeroed whole (#5775)", () => {
+		const watch = path.join(home, "w.jsonl");
+		history(".claude", [NOW - 20 * HOUR]);
+		recordReading(readRoots(seatDirs(home)), NOW, watch);
+		fs.appendFileSync(watch, "\0\0\0\0\n");
 		expect(readBaseline(watch)).toBeUndefined();
 	});
 
@@ -385,8 +408,6 @@ describe("end to end", () => {
 		repoAndTreeTemplate.instantiate(home);
 		const repo = path.join(home, "repo");
 		const tree = path.join(home, "tree");
-		const gitIn = (dir: string, ...args: string[]) =>
-			execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
 		const git = (...args: string[]) => gitIn(repo, ...args);
 		history(".claude", [NOW - 5 * HOUR]);
 		const env: Record<string, string | undefined> = {

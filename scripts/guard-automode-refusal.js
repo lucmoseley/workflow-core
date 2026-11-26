@@ -5,10 +5,13 @@ const { describeCall, reportOnce } = require("./lib/report-once");
 const { readRuleParagraph } = require("./lib/rule-text");
 const sessionTranscript = require("./lib/session-transcript");
 const stopGuard = require("./lib/stop-guard");
+const { isSafeId } = require("./lib/safe-id");
+const { isSubagentPayload } = require("./lib/subagent-payload");
 const { isSubagentTranscript, mainChainRecords } = require("./lib/transcript");
 
 /**
- * @typedef {{session_id?: string, transcript_path?: string}} Payload
+ * @typedef {{session_id?: string, transcript_path?: string,
+ *   agent_id?: unknown, agent_transcript_path?: unknown}} Payload
  * @typedef {{id: string, call: string, reason: string}} Refusal
  */
 
@@ -97,10 +100,32 @@ function refusalOf(record, block, uses) {
 }
 
 /**
+ * @param {Payload} payload
+ * @param {string} sid
+ * @returns {{file: string | null, tier: "main" | "subagent", budgetKey: string} | null}
+ */
+function whoseTurn(payload, sid) {
+	if (!isSubagentPayload(payload)) {
+		const file = sessionTranscript.resolve(payload, sid);
+		const tier = file && isSubagentTranscript(file) ? "subagent" : "main";
+		return { file, tier, budgetKey: sid };
+	}
+	const agent = payload.agent_id;
+	if (!isSafeId(agent)) return null;
+	const own = payload.agent_transcript_path;
+	return {
+		file: typeof own === "string" && own !== "" ? own : null,
+		tier: "subagent",
+		budgetKey: `${sid}-${agent}`,
+	};
+}
+
+/**
  * @param {Refusal[]} fresh
+ * @param {"main" | "subagent"} tier
  * @returns {string}
  */
-function reportFor(fresh) {
+function reportFor(fresh, tier) {
 	return [
 		`THE AUTO-MODE CLASSIFIER REFUSED ${fresh.length === 1 ? "A CALL" : `${fresh.length} CALLS`} THIS TURN, and the turn is ending:`,
 		"",
@@ -109,7 +134,7 @@ function reportFor(fresh) {
 		readRuleParagraph("founder-handover", PARAGRAPH_HEAD),
 		"",
 		"Before ending the turn, say which applies to each: reached the goal another way (how), dropped it (why), or handing over a `!` line naming what you tried.",
-		`Each refused call is shown this once, and this guard costs at most ${hookBlock.MAX_BLOCKS} turns a session.`,
+		`Each refused call is shown this once, and this guard costs at most ${hookBlock.MAX_BLOCKS} turns ${tier === "subagent" ? "a subagent" : "a session"}.`,
 	].join("\n");
 }
 
@@ -119,18 +144,15 @@ function reportFor(fresh) {
  * @returns {boolean}
  */
 function review({ sessionId: sid, payload, root, note }) {
-	const file = sessionTranscript.resolve(payload, sid);
-	if (!file) {
+	const turn = whoseTurn(payload, sid);
+	if (!turn?.file) {
 		note("no-transcript", payload);
 		return false;
 	}
+	const { file, tier, budgetKey } = turn;
 	let refusals;
 	try {
-		const text = sessionTranscript.read(file);
-		refusals = refusalsThisTurn(
-			text,
-			isSubagentTranscript(file) ? "subagent" : "main",
-		);
+		refusals = refusalsThisTurn(sessionTranscript.read(file), tier);
 	} catch {
 		note("unreadable-transcript", payload);
 		return false;
@@ -150,8 +172,8 @@ function review({ sessionId: sid, payload, root, note }) {
 		block: (fresh) =>
 			hookBlock.blockStop({
 				prefix: ".automode-refusal-nagged-",
-				sessionId: sid,
-				reason: reportFor(fresh),
+				sessionId: budgetKey,
+				reason: reportFor(fresh, tier),
 			}),
 	});
 }

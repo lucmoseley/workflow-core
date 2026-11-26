@@ -326,3 +326,103 @@ describe("failing open", () => {
 		expect(r.reason).not.toContain("never the end of the work");
 	});
 });
+
+describe("a subagent's stop", () => {
+	const agent = "a31a1d0c342581619";
+	const agentFile = () =>
+		path.join(dir, sid, "subagents", `agent-${agent}.jsonl`);
+	const agentTranscript = (records: object[]) => {
+		fs.mkdirSync(path.dirname(agentFile()), { recursive: true });
+		fs.writeFileSync(
+			agentFile(),
+			`${records.map((r) => JSON.stringify({ ...r, isSidechain: true })).join("\n")}\n`,
+		);
+	};
+	const subagentRun = (over: Record<string, unknown> = {}) =>
+		run({
+			payload: {
+				hook_event_name: "SubagentStop",
+				agent_id: agent,
+				agent_transcript_path: agentFile(),
+				...over,
+			},
+		});
+
+	it("blocks on a refusal in the subagent's own transcript, the parent's holding none", () => {
+		transcript([
+			prompt(),
+			buildBashCall("ls", "toolu_P"),
+			result("toolu_P", "ok"),
+		]);
+		agentTranscript([
+			prompt("sweep the hooks"),
+			buildBashCall("sed -i '' .husky/pre-commit", "toolu_S"),
+			refused("toolu_S"),
+		]);
+
+		const r = subagentRun();
+
+		expect(r.blocked).toBe(true);
+		expect(r.reason).toContain("Bash: sed -i '' .husky/pre-commit");
+		expect(r.reason).toContain("AN AUTO-MODE REFUSAL");
+		expect(r.reason).toContain("turns a subagent");
+	});
+
+	it("passes where only the parent's transcript carries a refusal", () => {
+		transcript([
+			prompt(),
+			buildBashCall("git push", "toolu_P"),
+			refused("toolu_P"),
+		]);
+		agentTranscript([
+			prompt("sweep the hooks"),
+			buildBashCall("ls", "toolu_S"),
+			result("toolu_S", "ok"),
+		]);
+
+		expect(subagentRun().blocked).toBe(false);
+	});
+
+	it("passes, never reading the parent's transcript, where the payload names no agent transcript", () => {
+		transcript([
+			prompt(),
+			buildBashCall("git push", "toolu_P"),
+			refused("toolu_P"),
+		]);
+
+		expect(subagentRun({ agent_transcript_path: undefined }).blocked).toBe(
+			false,
+		);
+	});
+
+	it("passes an agent id that is no safe file-name part", () => {
+		agentTranscript([
+			prompt(),
+			buildBashCall("ls", "toolu_S"),
+			refused("toolu_S"),
+		]);
+
+		expect(subagentRun({ agent_id: "../escape" }).blocked).toBe(false);
+	});
+
+	it("spends its own block budget, not the parent's", () => {
+		agentTranscript([
+			prompt(),
+			buildBashCall("ls", "toolu_S"),
+			refused("toolu_S"),
+		]);
+		fs.mkdirSync(markersDir(dir), { recursive: true });
+		fs.writeFileSync(
+			path.join(markersDir(dir), `.automode-refusal-nagged-${sid}`),
+			"3\n",
+		);
+
+		expect(subagentRun().blocked).toBe(true);
+		expect(
+			fs.readFileSync(
+				path.join(markersDir(dir), `.automode-refusal-nagged-${sid}-${agent}`),
+				"utf8",
+			),
+		).toBe("1\n");
+	});
+});

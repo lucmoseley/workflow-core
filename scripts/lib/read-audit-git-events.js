@@ -18,8 +18,10 @@ function buildGitEventsReader(dir) {
 		const read = readText(path.join(dir, name));
 		if (read.state !== "read")
 			return `a git call (${shown}) left no log of what it ran`;
-		const { rows, bad } = parseJsonl(read.data);
+		const { rows, bad, zeroed } = parseJsonl(read.data);
 		if (bad.length > 0) return `a git call (${shown}) left a torn log`;
+		if (zeroed.length > 0)
+			return `a git call (${shown}) left a log holding a record zeroed by a crash`;
 		return otherChildDoubt(rows, shown);
 	};
 }

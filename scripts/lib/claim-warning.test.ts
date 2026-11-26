@@ -1,6 +1,5 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -19,14 +18,10 @@ import { buildHostPorts } from "./claimed-bash-write-host.js";
 import { defineTemplate, identityRepoTemplate } from "./git-fixture";
 import { runCore } from "./guard-core-testkit";
 import { buildBashPayload } from "./pretool-guard-testkit";
+import { gitIn } from "./repo-tree-testkit";
 
 const lockFile = (rel: string) =>
 	`${createHash("sha256").update(rel).digest("hex").slice(0, 16)}.json`;
-
-const gitIn =
-	(cwd: string) =>
-	(...args: string[]) =>
-		execFileSync("git", args, { cwd, stdio: "ignore" });
 
 const sandboxRepo = defineTemplate((dir) => {
 	fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
@@ -40,7 +35,8 @@ const sandboxRepo = defineTemplate((dir) => {
 
 const sb = freshSandbox((fresh) => {
 	sandboxRepo.instantiate(fresh.repo);
-	gitIn(fresh.repo)(
+	gitIn(
+		fresh.repo,
 		"config",
 		"core.hooksPath",
 		path.join(fresh.dir, "no-hooks"),

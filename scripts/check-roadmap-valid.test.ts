@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -13,6 +13,7 @@ import {
 } from "../.claude/skills/roadmap-edit/scripts/roadmap-fixture";
 import { seenFrom } from "./lib/core-path-testkit";
 import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
+import { gitIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-roadmap-valid.js");
@@ -20,8 +21,6 @@ const HTML = "docs/reference-roadmap.html";
 
 let repo: string;
 
-const gitIn = (cwd: string, ...args: string[]) =>
-	execFileSync("git", args, { cwd, encoding: "utf8" });
 const git = (...args: string[]) => gitIn(repo, ...args);
 
 const configuredRepo = defineTemplate(identityRepoTemplate);

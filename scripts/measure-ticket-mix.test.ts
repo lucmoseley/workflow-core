@@ -320,6 +320,32 @@ describe("counting", () => {
 		expect(r.stdout).toMatch(/^Ticket mix, .*: 1 issue\(s\)/);
 	});
 
+	it("names a run line a crash zeroed and exits 1, still counting the rest (#5775)", () => {
+		const f = write(
+			"runs.jsonl",
+			'{"mode":"weekly"}\n\0\0\0{"mode":"weekly"}\n',
+		);
+		const r = runInProcess(
+			SCRIPT,
+			[
+				"--issues",
+				`${REPO}=${write("tracker.json", issues(1, 1))}`,
+				"--week-start",
+				START,
+				"--week-end",
+				END,
+				"--runs",
+				f,
+				"--kinds",
+				write("kinds.json", []),
+			],
+			{ cwd: dir },
+		);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toMatch(/line 2 holds a record zeroed by a crash/);
+		expect(r.stdout).toMatch(/^Ticket mix, .*: 1 issue\(s\)/);
+	});
+
 	it("refuses a week whose end is not after its start, exit 2", () => {
 		const r = runInProcess(
 			SCRIPT,

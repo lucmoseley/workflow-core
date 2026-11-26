@@ -174,6 +174,20 @@ describe("what it reports", () => {
 		);
 	});
 
+	it("says the list may be short where a crash zeroed a record of the transcript, apart from a line that would not parse (#5775)", () => {
+		guardFile("guard-branch.sh", true);
+		const file = transcript([fileCall("git push", "toolu_A"), killed()]);
+		fs.appendFileSync(file, "\0\0\0\0\n");
+
+		const r = run();
+
+		expect(r.blocked).toBe(true);
+		expect(r.reason).toContain(
+			"1 record(s) of the transcript were zeroed by a crash",
+		);
+		expect(r.reason).not.toContain("would not parse");
+	});
+
 	it("says nothing about skipped lines where the transcript parsed whole", () => {
 		guardFile("guard-branch.sh", true);
 		transcript([fileCall("git push", "toolu_A"), killed()]);

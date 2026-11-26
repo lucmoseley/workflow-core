@@ -446,6 +446,21 @@ describe("a wait loop gated on machine load is refused (#5325)", () => {
 			"while :; do l=$(cut -d. -f1 /proc/loadavg); busy=$((l>5)); [ $busy = 0 ] && break; sleep 15; done",
 			"a variable assigned from a load variable",
 		],
+		[
+			"for i in $(seq 1 54); do l=$(cut -d' ' -f1 /proc/loadavg); awk -v l=$l 'BEGIN{exit !(l<10)}' && { echo \"load $l\"; exit 0; }; sleep 10; done",
+			"an exit in a brace group the load test opens (#5778)",
+		],
+		[
+			"while :; do [ $(cut -d. -f1 /proc/loadavg) -lt 6 ] && { echo hi; [ -f /tmp/s ] && { exit 0; }; }; sleep 5; done",
+			"an exit in a group nested inside the one the load test opens",
+		],
+		[
+			String.raw`while :; do l=$(cut -d. -f1 /proc/loadavg); [ \${l} -lt 6 ] && { echo \${HOME}; break; }; sleep 5; done`.replaceAll(
+				"\\",
+				"",
+			),
+			"a group opened by a load test whose head holds a parameter expansion",
+		],
 	])("%s — %s", (command) => {
 		const v = run(command);
 		expect(v.denied).toBe(true);
@@ -574,6 +589,18 @@ describe("what a load read leaves alone", () => {
 		[
 			`while true; do gh run view 1 | grep -q completed && break; echo "load $(cut -d' ' -f1 /proc/loadavg)"; sleep 30; done`,
 			"a CI poll that logs load beside a break on its run",
+		],
+		[
+			`while true; do [ -f /tmp/stop ] && { echo "load $(cut -d' ' -f1 /proc/loadavg)"; break; }; sleep 5; done`,
+			"a stop file opening a group that logs load before its break",
+		],
+		[
+			"while true; do [ $(cut -d. -f1 /proc/loadavg) -lt 6 ] && {\n echo low\n}\n [ -f /tmp/stop ] && break; sleep 5; done",
+			"a closed load group on its own lines before a stop file's break",
+		],
+		[
+			"while true; do [ $(cut -d. -f1 /proc/loadavg) -lt 6 ] && { echo low; }; [ -f /tmp/stop ] && { break; }; sleep 5; done",
+			"a closed load group before a stop file's own group",
 		],
 	])(
 		"%s — %s: a break something else decides is no load gate (#5328)",

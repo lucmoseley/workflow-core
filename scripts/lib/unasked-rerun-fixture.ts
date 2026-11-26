@@ -1,9 +1,9 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, vi } from "vitest";
 import { defineTemplate } from "./git-fixture";
+import { gitTrimmedIn } from "./repo-tree-testkit";
 import { FAIL_STORE, STORE, storePath } from "./test-pass-marker.js";
 
 export const SID = "sess-815";
@@ -17,27 +17,20 @@ const { paths } = require("./arbiter-core.js") as {
 	};
 };
 
-export const gitIn = (cwd: string, ...args: string[]) =>
-	execFileSync("git", args, {
-		cwd,
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "ignore"],
-	}).trim();
-
 const template = defineTemplate((root) => {
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-	gitIn(root, "init", "-q", "-b", "main");
-	gitIn(root, "config", "user.email", "t@example.com");
-	gitIn(root, "config", "user.name", "t");
-	gitIn(root, "commit", "-q", "--allow-empty", "-m", "root");
+	gitTrimmedIn(root, "init", "-q", "-b", "main");
+	gitTrimmedIn(root, "config", "user.email", "t@example.com");
+	gitTrimmedIn(root, "config", "user.name", "t");
+	gitTrimmedIn(root, "commit", "-q", "--allow-empty", "-m", "root");
 	fs.writeFileSync(
 		path.join(root, ".claude/workflow-core.json"),
 		JSON.stringify({ commands: { test: "node scripts/run-vitest.js" } }),
 	);
 	fs.writeFileSync(path.join(root, ".gitignore"), ".claude/\n");
-	gitIn(root, "add", ".gitignore");
-	gitIn(root, "commit", "-q", "-m", "ignore");
-	gitIn(root, "update-ref", "refs/remotes/origin/main", "HEAD");
+	gitTrimmedIn(root, "add", ".gitignore");
+	gitTrimmedIn(root, "commit", "-q", "-m", "ignore");
+	gitTrimmedIn(root, "update-ref", "refs/remotes/origin/main", "HEAD");
 });
 
 export const narrowedIn = (
@@ -63,7 +56,7 @@ export const narrowedIn = (
 		changed: "x",
 		admissible: true,
 	},
-	treeAtEnd: gitIn(tree, "rev-parse", `${sha}^{tree}`),
+	treeAtEnd: gitTrimmedIn(tree, "rev-parse", `${sha}^{tree}`),
 	closure: rels,
 	changedPaths: rels,
 });
@@ -84,7 +77,7 @@ export function rerunFixture() {
 		fs.rmSync(f.dir, { recursive: true, force: true });
 	});
 
-	const git = (...args: string[]) => gitIn(f.project, ...args);
+	const git = (...args: string[]) => gitTrimmedIn(f.project, ...args);
 	const markers = () => path.join(f.project, ".claude/tmp/markers");
 
 	function commitTouching(...rels: string[]) {

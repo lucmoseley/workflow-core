@@ -9,3 +9,6 @@ export const writeIn = (root: string, file: string, body: string) => {
 
 export const gitIn = (root: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd: root, encoding: "utf8" });
+
+export const gitTrimmedIn = (root: string, ...args: string[]) =>
+	gitIn(root, ...args).trim();

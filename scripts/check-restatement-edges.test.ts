@@ -1,11 +1,11 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
+import { gitIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-restatement-edges.js");
@@ -15,16 +15,12 @@ const ALLOWLIST = "docs/doc-map-restatement-allowlist.json";
 
 let repo: string;
 
-const gitIn =
-	(at: string) =>
-	(...args: string[]) =>
-		execFileSync("git", args, { cwd: at, encoding: "utf8" });
-const git = (...args: string[]) => gitIn(repo)(...args);
+const git = (...args: string[]) => gitIn(repo, ...args);
 
 const trackIn = (at: string, file: string, body: string) => {
 	fs.mkdirSync(path.join(at, path.dirname(file)), { recursive: true });
 	fs.writeFileSync(path.join(at, file), body);
-	gitIn(at)("add", "--", file);
+	gitIn(at, "add", "--", file);
 };
 const track = (file: string, body: string) => trackIn(repo, file, body);
 

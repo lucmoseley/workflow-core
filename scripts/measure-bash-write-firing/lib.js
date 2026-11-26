@@ -50,13 +50,14 @@ const writesSomething = (cmd) => WRITE_CALL.some((re) => re.test(cmd));
 
 /**
  * @param {string} text
- * @returns {{rows: {s: string, c: string}[], unparsed: number}}
+ * @returns {{rows: {s: string, c: string}[], unparsed: number, zeroed: number}}
  */
 function parseRows(text) {
-	const { rows, bad } = parseJsonl(text);
+	const { rows, bad, zeroed } = parseJsonl(text);
 	return {
 		rows: /** @type {{s: string, c: string}[]} */ (rows),
 		unparsed: bad.length,
+		zeroed: zeroed.length,
 	};
 }
 

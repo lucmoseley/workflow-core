@@ -477,7 +477,7 @@ function rowScopedBars(bars, at) {
 }
 
 /**
- * @param {{ at: string, seats: any[] }[] & { dropped?: number }} history
+ * @param {{ at: string, seats: any[] }[] & { dropped?: number, zeroed?: number }} history
  * @param {import("./trial-window").TrialDeclaration} decl
  */
 function trialReview(history, decl) {
@@ -541,6 +541,7 @@ function trialReview(history, decl) {
 		readingCount: usable,
 		largestGapHours: largest,
 		droppedLines: history.dropped ?? 0,
+		zeroedRecords: history.zeroed ?? 0,
 		fires,
 		voids,
 		annotations,
@@ -549,16 +550,16 @@ function trialReview(history, decl) {
 
 /**
  * @param {string} [file]
- * @returns {{ at: string, seats: any[] }[] & { dropped: number }}
+ * @returns {{ at: string, seats: any[] }[] & { dropped: number, zeroed: number }}
  */
 function readHistory(file = HISTORY_FILE()) {
 	const read = orFallback(() => readJsonl(file), null);
-	if (!read) return Object.assign([], { dropped: 0 });
+	if (!read) return Object.assign([], { dropped: 0, zeroed: 0 });
 	const rows = /** @type {{ at: string, seats: any[] }[]} */ (
 		read.rows.filter((row) => typeof row.at === "string")
 	);
 	const dropped = read.rows.length - rows.length + read.bad.length;
-	return Object.assign(rows, { dropped });
+	return Object.assign(rows, { dropped, zeroed: read.zeroed.length });
 }
 
 module.exports = {
