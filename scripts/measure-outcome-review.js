@@ -41,7 +41,7 @@ const {
 const { RUN_RECORD } = require("./lib/retro-record");
 const { SIGNATURE_LABEL } = require("./lib/signature-label");
 const { canonicalJson } = require("./lib/canonical-json");
-const { withoutHeadShaLines } = require("./lib/head-sha-lines");
+const { causeShas } = require("./lib/cause-line");
 
 const DAY_MS = 86_400_000;
 // guess, #4796
@@ -96,7 +96,8 @@ const USAGE = `usage: node ${scriptPath("measure-outcome-review.js")} [--now <is
  *   signature: Signature, baseline: Baseline | null, late: boolean}} Finding
  * @typedef {{sha: string, at: number, subject: string, message: string}} Commit
  * @typedef {{number: number, title: string, body?: string, createdAt?: string,
- *   closedAt?: string, labels: Array<{name: string}>}} IssueRow
+ *   closedAt?: string, labels: Array<{name: string}>,
+ *   comments?: Array<{body: string}>}} IssueRow
  * @typedef {{followOns: string[], reverts: string[]}} Guardrails
  * @typedef {"waiting" | "keep" | "extend" | "unwind"} Verdict
  * @typedef {{finding: string, fixSha: string | null, fixAt: string | null,
@@ -519,12 +520,8 @@ function followOnsOf(bugs, f, fix, { tracker, nowMs }) {
 			const created = Date.parse(b.createdAt ?? "");
 			if (!(created > fix.at && created <= nowMs)) return false;
 			if (tracker === f.repo && b.number === f.number) return false;
-			const body = withoutHeadShaLines(b.body ?? "");
-			return (
-				cites(body, f, tracker) ||
-				[...body.matchAll(/\b[0-9a-f]{7,40}\b/g)].some((m) =>
-					fix.sha.startsWith(m[0]),
-				)
+			return [b.body ?? "", ...(b.comments ?? []).map((c) => c.body)].some(
+				(text) => causeShas(text).some((sha) => fix.sha.startsWith(sha)),
 			);
 		})
 		.map((b) => `${tracker}#${b.number}`);
@@ -1231,7 +1228,7 @@ function readTracker(tracker, nowMs, failures) {
 			"--label",
 			"bug",
 			"--json",
-			"number,title,body,createdAt,labels",
+			"number,title,body,createdAt,labels,comments",
 		]),
 		closed: list("closed issues", [
 			"--state",

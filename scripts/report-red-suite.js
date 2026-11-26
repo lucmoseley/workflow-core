@@ -10,7 +10,6 @@ const { codeRepoArgs, hostRoot } = require("./lib/workflow-core-config.js");
 const { gitOrNull } = require("./lib/git.js");
 const { takesLabel } = require("./lib/takes-label");
 const { URGENT_LABEL } = require("./lib/urgent-label.js");
-const { RED_RUN_HEADING } = require("./lib/head-sha-lines.js");
 
 const TITLE = "The scheduled full-suite run is red on main";
 const LABEL = "ci-red";
@@ -229,7 +228,7 @@ function body(red, green) {
 		"Filed automatically by `scripts/report-red-suite.js`, from the daily",
 		`repo-checks run, for a red run on \`main\`: ${red.workflow.about}.`,
 		"",
-		RED_RUN_HEADING,
+		"## The red run",
 		"",
 		...buildEventLines(red, green),
 		"",
