@@ -28,12 +28,21 @@ describe("parseCauseShas (#5781)", () => {
 		).toEqual([]);
 	});
 
-	it("finds a sha that prose or punctuation touches", () => {
+	it("stops at the first token that is not a sha, so prose blames nothing", () => {
 		expect(
 			parseCauseShas(
 				`**Caused by:** ${B}. Bisected to Stop the boom (${A.slice(0, 9)}).`,
 			),
-		).toEqual([B, A.slice(0, 9)]);
+		).toEqual([B]);
+		expect(
+			parseCauseShas(`**Caused by:** not ${B}, it predates the red`),
+		).toEqual([]);
+	});
+
+	it("reads no sha off a marker that does not open its line", () => {
+		expect(
+			parseCauseShas(`The triage wrongly wrote **Caused by:** ${B}`),
+		).toEqual([]);
 	});
 
 	it("reads no sha off a line without the marker", () => {
