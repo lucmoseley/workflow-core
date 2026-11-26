@@ -559,13 +559,13 @@ describe("the rules that were already here", () => {
 	it("keeps a spec in re-review only for a live finding, with no pass count (#3811)", () => {
 		const triage = inject("/triage 849");
 		expect(triage).toContain(
-			"Live: it names a route ordinary use reaches and the wrong behaviour on it; file it under the spec",
+			"Live: it names a route ordinary use reaches and the wrong behaviour on it; it files under the spec",
 		);
 		expect(triage).toContain(
-			"Corner: it needs an unusual input or state; file it standalone, its body citing the spec",
+			"Corner: it needs an unusual input or state; it files standalone, its body citing the spec",
 		);
 		expect(triage).toContain(
-			"Tidying: it changes no behaviour; file it standalone, one ticket per pass.",
+			"Tidying: it changes no behaviour; it files standalone, one ticket per pass.",
 		);
 		expect(triage).toContain(
 			"The first pass that files no live finding closes the spec, naming any open standalone tickets on `**Outstanding:**`",
@@ -586,13 +586,13 @@ describe("the rules that were already here", () => {
 			"the `review-finding-destination` rule /code-review hands you says which findings are FIXED here and which TICKETED, and what a TICKETED line names",
 		);
 		expect(triage).toContain(
-			"each TICKETED finding gets a class, picking only where it is filed",
+			"a finding an exception left unfixed, and no other, gets a class, which picks only where it is filed",
 		);
 	});
 
 	it("tells a whole-spec review to fix a corner or tidying finding even where the spec only exposed it (#5771)", () => {
 		expect(inject("/triage 849")).toContain(
-			"On any pass, `exposed, not caused` tickets only a live fault: a corner or tidying finding is FIXED here",
+			"On any pass, `exposed, not caused` excepts only a live fault: a corner or tidying finding with no other exception is FIXED or DECLINED, never filed",
 		);
 	});
 
