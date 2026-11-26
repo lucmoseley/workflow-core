@@ -1913,14 +1913,11 @@ const releaseBuilt = (
 		gitIn(root, ["tag", "v1.0.0"]);
 	});
 
-const released = releaseBuilt(
-	(source) => `Release workflow-core v1.0.0, rendered from ${source}`,
-);
+const coreRelease = (source: string) =>
+	`Release workflow-core v1.0.0, rendered from ${source}`;
+const released = releaseBuilt(coreRelease);
 const unrendered = releaseBuilt(() => "Release workflow-core v1.0.0");
-const adopterReleased = releaseBuilt(
-	(source) => `Release v1.0.0, rendered from ${source}`,
-	"adopter",
-);
+const adopterReleased = releaseBuilt(coreRelease, "adopter");
 
 describe("a shipped ticket gated on an adopter's issue (#5698)", () => {
 	const gated = (ref: string) =>
@@ -1954,7 +1951,7 @@ describe("a shipped ticket gated on an adopter's issue (#5698)", () => {
 		);
 	});
 
-	it("stays silent in an adopter, whose tags cut no workflow-core release", async () => {
+	it("stays silent in an adopter on the release the core-host case warns on (#5758)", async () => {
 		adopterReleased.instantiate(dir);
 		const out = await shippedGated({ number: 5683, body: gated("m/t#3905") });
 		expect(out).not.toContain("SHIPPED-GATED");
