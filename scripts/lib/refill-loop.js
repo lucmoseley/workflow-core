@@ -21,11 +21,10 @@ const { buildSeatName } = require("./refill-seats.js");
 
 /**
  * @typedef {object} Control
- * @property {number} noProgressFrom
+ * @property {number} runFrom
  * @property {boolean} stopRequested
  * @property {number} [stopRequestedAt]
  * @property {import("./refill-decide.js").Pause} [paused]
- * @property {Record<string, import("./refill-decide.js").Pause>} [repoPaused]
  * @property {import("./refill-decide.js").LaunchHold} [launchHold]
  * @property {import("./refill-decide.js").AwaySwitch} [away]
  * @property {string[]} seats
@@ -89,15 +88,6 @@ function parseScope(raw) {
 
 /**
  * @param {unknown} raw
- * @returns {raw is import("./refill-decide.js").PauseIssue}
- */
-const isPauseIssue = (raw) =>
-	isRecord(raw) &&
-	typeof raw.root === "string" &&
-	typeof raw.number === "number";
-
-/**
- * @param {unknown} raw
  * @returns {{paused?: import("./refill-decide.js").Pause}}
  */
 function parsePause(raw) {
@@ -107,26 +97,8 @@ function parsePause(raw) {
 		paused: {
 			by: typeof r.by === "string" ? r.by : "an unreadable record",
 			at: typeof r.at === "number" ? r.at : 0,
-			...(Array.isArray(r.issues)
-				? { issues: r.issues.filter(isPauseIssue) }
-				: {}),
 		},
 	};
-}
-
-/**
- * @param {unknown} raw
- * @returns {{repoPaused?: Record<string, import("./refill-decide.js").Pause>}}
- */
-function parseRepoPaused(raw) {
-	if (!isRecord(raw)) return {};
-	/** @type {Record<string, import("./refill-decide.js").Pause>} */
-	const repoPaused = {};
-	for (const [root, value] of Object.entries(raw)) {
-		const { paused } = parsePause(value);
-		if (paused) repoPaused[root] = paused;
-	}
-	return Object.keys(repoPaused).length > 0 ? { repoPaused } : {};
 }
 
 /**
@@ -154,16 +126,13 @@ function parseAway(raw) {
  */
 function parseControl(raw) {
 	if (!isRecord(raw)) return null;
-	const { noProgressFrom } = raw;
-	if (typeof noProgressFrom !== "number") return null;
 	return {
-		noProgressFrom,
+		runFrom: typeof raw.runFrom === "number" ? raw.runFrom : 0,
 		stopRequested: raw.stopRequested === true,
 		...(typeof raw.stopRequestedAt === "number"
 			? { stopRequestedAt: raw.stopRequestedAt }
 			: {}),
 		...parsePause(raw.paused),
-		...parseRepoPaused(raw.repoPaused),
 		...parseLaunchHold(raw.launchHold),
 		...parseAway(raw.away),
 		seats: parseStrings(raw.seats),
@@ -415,7 +384,7 @@ const limitHoldsOf = (launches) =>
  * @param {number} since
  */
 const isRestartedSince = (control, since) =>
-	control !== null && !control.stopRequested && control.noProgressFrom > since;
+	control !== null && !control.stopRequested && control.runFrom > since;
 
 /**
  * @param {Control|null} control

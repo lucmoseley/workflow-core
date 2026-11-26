@@ -1,4 +1,3 @@
-const path = require("node:path");
 const { caught, orFallback } = require("./caught.js");
 const { localDate } = require("./local-date.js");
 const { ESC } = require("./refill-panel-input.js");
@@ -81,7 +80,6 @@ const ROLE_STYLES = {
 };
 
 /**
- * @typedef {{root: string, number: number}} PauseIssue
  * @typedef {{seat: string, keyVar: string, why: string}
  *   | {seat: null, why: string}
  *   | {seat: string, keyVar: string, grantUsd: number, headroomUsd: number, exhausted: boolean,
@@ -90,8 +88,7 @@ const ROLE_STYLES = {
  * @typedef {Exclude<OverflowKey, {why: string}>} ReadKey
  * @typedef {{running: boolean, stopRequested: boolean,
  *   stop: {reason: string, at: number, detail: string}|null, crashed: boolean,
- *   paused: {by: string, at: number, issues?: PauseIssue[], why?: string}|null,
- *   repoPaused: Record<string, {by: string, at: number, issues?: PauseIssue[]}>,
+ *   paused: {by: string, at: number, why?: string}|null,
  *   lastTick: {at: number, idle: import("./refill-decide.js").Idle|null,
  *     paused: boolean, planWait: {resets: number|null}|null}|null,
  *   concurrency: import("./seat-aliases.js").ConcurrencyView,
@@ -191,16 +188,6 @@ const buildCurrentTick = ({ lastTick, paused }) =>
 const NEEDS_YOU = { text: "needs you", role: "needsYou" };
 
 /**
- * @param {PauseIssue[]} issues
- */
-function buildIssueRefs(issues) {
-	const spans = new Set(issues.map((i) => i.root)).size > 1;
-	return issues
-		.map((i) => `${spans ? path.basename(i.root) : ""}#${i.number}`)
-		.join(", ");
-}
-
-/**
  * @param {PanelStatus} status
  * @param {number} now
  */
@@ -218,23 +205,6 @@ function buildWaitingRowText(status, now) {
 		return `Probe hold${tick?.idle?.detail ?? ""}`;
 	return WAITING_WORDS.get(reason) ?? reason;
 }
-
-/**
- * @param {PanelStatus["repoPaused"]} repoPaused
- * @returns {[Row, Row]}
- */
-function buildRepoPausedLines(repoPaused) {
-	const refs = buildIssueRefs(
-		Object.values(repoPaused).flatMap((p) => p.issues ?? []),
-	);
-	return [
-		NEEDS_YOU,
-		{ text: `No progress${refs && `: ${refs}`}`, role: "value" },
-	];
-}
-
-/** @param {PanelStatus} status */
-const hasRepoPauses = (status) => Object.keys(status.repoPaused).length > 0;
 
 /**
  * @param {NonNullable<PanelStatus["paused"]>} paused
@@ -328,7 +298,6 @@ function buildObservedLines(status, now) {
 			},
 		];
 	if (paused) return buildPausedLines(paused, status, now);
-	if (hasRepoPauses(status)) return buildRepoPausedLines(status.repoPaused);
 	if (crashed)
 		return [
 			NEEDS_YOU,
@@ -573,7 +542,7 @@ const isLaunching = ({ running, stopRequested, paused }) =>
 function buildLoopState({ status, presses }) {
 	if (presses.loop.pending) return "pending";
 	if (!status) return "unknown";
-	return isLaunching(status) && !hasRepoPauses(status) ? "on" : "off";
+	return isLaunching(status) ? "on" : "off";
 }
 
 /**
@@ -997,8 +966,7 @@ function buildUnpointedRows(view, now) {
 /** @param {PanelView} view */
 function buildLoopPress({ status, presses }) {
 	if (presses.loop.pending || !status) return null;
-	if (status.paused || hasRepoPauses(status))
-		return { argv: ["set", "--resume"], on: true };
+	if (status.paused) return { argv: ["set", "--resume"], on: true };
 	if (isLaunching(status)) return { argv: ["set", "--pause"], on: false };
 	if (!status.running && (status.crashed || status.stop))
 		return { argv: ["set", "--resume"], on: true };

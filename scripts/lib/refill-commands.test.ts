@@ -42,7 +42,7 @@ const NO_CONCURRENCY = {
 
 describe("what status prints", () => {
 	const control = {
-		noProgressFrom: NOW - 60 * MIN,
+		runFrom: NOW - 60 * MIN,
 		stopRequested: false,
 		seats: ["/home/u/.claude3", "/home/u/.claude2"],
 		scope: normal(
@@ -87,11 +87,10 @@ describe("what status prints", () => {
 			served,
 		}).join("\n");
 		expect(out).toContain("running, pid 123");
-		expect(out).toContain(
-			`counting:  no-progress count from ${new Date(control.noProgressFrom).toISOString()}`,
-		);
 		expect(out).not.toContain("stops by");
-		expect(out).toContain("launches:  1 since then, 1 running, 0 parked");
+		expect(out).toContain(
+			`launches:  1 since ${new Date(control.runFrom).toISOString()}, 1 running, 0 parked`,
+		);
 		expect(out).toContain("/implement 1  running");
 		expect(out).not.toContain("/implement 2");
 		expect(out).toContain("/implement 42  finished");
@@ -127,7 +126,9 @@ describe("what status prints", () => {
 			pid: 123,
 			served,
 		}).join("\n");
-		expect(out).toContain("launches:  2 since then, 1 running, 1 parked");
+		expect(out).toContain(
+			`launches:  2 since ${new Date(control.runFrom).toISOString()}, 1 running, 1 parked`,
+		);
 		expect(out).toContain("/implement 9  parked, stopped");
 	});
 
@@ -288,7 +289,7 @@ describe("the launch lines status shows (#2850)", () => {
 			seats: NO_SEATS,
 			now: NOW,
 			control: {
-				noProgressFrom: NOW - 60 * MIN,
+				runFrom: NOW - 60 * MIN,
 				stopRequested: false,
 				seats: [],
 				scope: normal([DV]),
@@ -458,7 +459,7 @@ describe("the launch lines status shows (#2850)", () => {
 
 describe("a launch row's seat and reason (#3732)", () => {
 	const control = {
-		noProgressFrom: NOW - 60 * MIN,
+		runFrom: NOW - 60 * MIN,
 		stopRequested: false,
 		seats: [],
 		scope: normal([DV]),
@@ -613,7 +614,7 @@ describe("a handed-off launch (#2659)", () => {
 			seats: NO_SEATS,
 			now: NOW,
 			control: {
-				noProgressFrom: NOW - 60 * MIN,
+				runFrom: NOW - 60 * MIN,
 				stopRequested: false,
 				seats: [],
 				scope: normal([DV]),
@@ -966,7 +967,7 @@ describe("the seats: line (#3733)", () => {
 
 describe("planSet's resume with no process (#3861)", () => {
 	const control = {
-		noProgressFrom: 5,
+		runFrom: 5,
 		stopRequested: false,
 		seats: ["/seat"],
 		scope: away(["/repo"], issuesGoal(["/repo", 7])),
@@ -994,7 +995,7 @@ describe("planSet's resume with no process (#3861)", () => {
 		],
 	])("starts from the stored settings where it %s", (_name, over) => {
 		const plan = resume(over, false);
-		const expected = { ...control, noProgressFrom: NowMs };
+		const expected = { ...control, runFrom: NowMs };
 		expect(plan).toMatchObject({ write: expected, startFrom: expected });
 		const { write } = plan as { write: object };
 		expect(write).not.toHaveProperty("paused");
@@ -1012,7 +1013,7 @@ describe("planSet's resume with no process (#3861)", () => {
 describe("a set's switch to away (#3870)", () => {
 	it("dates the switch now, so only a later prompt reads as his return", () => {
 		const back = {
-			noProgressFrom: 5,
+			runFrom: 5,
 			stopRequested: false,
 			seats: ["/s"],
 			scope: normal(["/repo"]),
@@ -1039,7 +1040,7 @@ describe("a set's switch to away (#3870)", () => {
 
 describe("a set unticks a repo its owner opted out (#4188)", () => {
 	const control = {
-		noProgressFrom: 5,
+		runFrom: 5,
 		stopRequested: false,
 		seats: ["/s"],
 		scope: normal(["/h/core", "/h/books"]),
@@ -1062,7 +1063,7 @@ describe("a set unticks a repo its owner opted out (#4188)", () => {
 
 describe("the launch hold a manual /pick-next takes (#4354)", () => {
 	const control = {
-		noProgressFrom: 5,
+		runFrom: 5,
 		stopRequested: false,
 		seats: ["/s"],
 		scope: normal([WFC]),
@@ -1125,7 +1126,7 @@ describe("the launch hold a manual /pick-next takes (#4354)", () => {
 		expect(held?.paused).toEqual({ by: "founder", at: 3 });
 		const released = set(held, { holdMinutes: null }).write;
 		expect(released?.paused).toEqual({ by: "founder", at: 3 });
-		expect(released?.noProgressFrom).toBe(5);
+		expect(released?.runFrom).toBe(5);
 	});
 
 	it("shows on status while live, and not once past its end", () => {
@@ -1146,7 +1147,7 @@ describe("the launch hold a manual /pick-next takes (#4354)", () => {
 describe("planStart (#3868)", () => {
 	const root = "/h/core";
 	const stored = {
-		noProgressFrom: 5,
+		runFrom: 5,
 		stopRequested: false,
 		seats: ["/seat"],
 		scope: { mode: "away" as const, repos: ["/h/manta"], goal: null },
@@ -1220,7 +1221,7 @@ describe("planStart (#3868)", () => {
 		const plain = { unlessStopped: false };
 		expect(plan(sound(), plain)).toMatchObject({
 			action: "start",
-			write: { seats: ["/file-seat"], noProgressFrom: 100 },
+			write: { seats: ["/file-seat"], runFrom: 100 },
 		});
 		expect(plan(sound(), { ...plain, pid: 9 })).toEqual({
 			write: null,
@@ -1245,7 +1246,7 @@ describe("planStart (#3868)", () => {
 			write: {
 				scope: stopped.scope,
 				paused,
-				noProgressFrom: 100,
+				runFrom: 100,
 				stopRequested: false,
 			},
 		});

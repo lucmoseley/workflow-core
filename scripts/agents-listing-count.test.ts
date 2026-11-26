@@ -113,7 +113,7 @@ describe("claude agents --json unions (#3320)", () => {
 		fs.writeFileSync(
 			at(".refill-loop-control.json"),
 			JSON.stringify({
-				noProgressFrom: Date.now(),
+				runFrom: Date.now(),
 				stopRequested: false,
 				seats: [at("seat")],
 			}),

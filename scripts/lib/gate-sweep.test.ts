@@ -501,7 +501,7 @@ describe("the decision core launches a queued judgement", () => {
 	const tick = (over: Record<string, unknown> = {}) =>
 		decideTick({
 			now: NOW,
-			noProgressFrom: NOW - 1000,
+			runFrom: NOW - 1000,
 			stopRequested: false,
 			frontier: [],
 			retroBundles: [],
@@ -554,7 +554,7 @@ describe("a judgement refused on admission stays queued (#5125)", () => {
 	const tick = (freeSlots: number) =>
 		decideTick({
 			now: NOW,
-			noProgressFrom: NOW - 1000,
+			runFrom: NOW - 1000,
 			stopRequested: false,
 			frontier: [],
 			retroBundles: [],

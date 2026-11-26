@@ -39,7 +39,7 @@ const readGateRunRecord = (root: string) => {
 
 it("runs the pre-lock and the in-lock test as commit gates, each one gate-run record line naming the tree its commit holds (#5274, #5448)", () => {
 	const f = fixture();
-	const headTree = () => String(f.git("rev-parse", "HEAD^{tree}")).trim();
+	const headTree = () => f.git("rev-parse", "HEAD^{tree}").trim();
 	f.edit("a.txt", "changed\n");
 	const pre = f.commitPaths();
 	expect(pre.code, pre.out).toBe(0);
@@ -111,7 +111,7 @@ it("links each gitignored path worktreeLinks declares into the pre-lock worktree
 	expect(r.code, r.out).toBe(0);
 	expect(r.landed).toBe(true);
 	expect(r.runs).toEqual(["lock=0 stamp=unset staged=a.txt"]);
-	expect(String(f.git("ls-files", "--", "gen.txt")).trim()).toBe("");
+	expect(f.git("ls-files", "--", "gen.txt").trim()).toBe("");
 	expect(fs.readFileSync(path.join(f.root, "gen.txt"), "utf8")).toBe(
 		"generated\n",
 	);
@@ -344,7 +344,7 @@ it("runs the declared test once under --patch, before the commit, on the patch's
 	expect(r.runs).toEqual(["lock=0 stamp=unset staged=a.txt"]);
 	expect(r.out).not.toContain(IN_HOOK);
 	expect(readStaged()).toBe("mine\na.txt\nmine\na.txt\n");
-	expect(String(f.git("show", "HEAD:a.txt"))).toBe("mine\na.txt\n");
+	expect(f.git("show", "HEAD:a.txt")).toBe("mine\na.txt\n");
 	expect(r.leftInGitDir).toEqual([]);
 });
 

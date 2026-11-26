@@ -980,7 +980,7 @@ node scripts/refill-loop.js start --unless-stopped [--repo <dir>]… [--goal <§
 The release lifts only the hold, never a pause. `start` starts the machine's one
 loop only where its process ended with no explicit stop, from its settings as they were, or on a machine's first run, ticking this
 repo. It never undoes a setting (#2526): a stopped loop stays stopped, a paused one
-paused, a checkout's no-progress pause included, and a bare run changes none. A damaged
+paused, and a bare run changes none. A damaged
 control file exits 1, naming it: copy that into the message. `--repo` ticks each
 sibling checkout the founder's command named, by its directory name. `--goal`
 replaces the loop's goal with §1's set, each ref written `<dir>#N`, or its `drain`

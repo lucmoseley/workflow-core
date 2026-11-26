@@ -45,9 +45,7 @@ it("stands down where another commit to a path this commit does not name lands w
 	expect(r.code, r.out).toBe(0);
 	expect(r.landed).toBe(true);
 	expect(r.runs).toEqual(["lock=0 stamp=unset staged=a.txt"]);
-	expect(String(f.git("log", "-1", "--format=%s", "HEAD~1")).trim()).toBe(
-		"other",
-	);
+	expect(f.git("log", "-1", "--format=%s", "HEAD~1").trim()).toBe("other");
 	expect(r.leftInGitDir).toEqual([]);
 });
 
@@ -63,9 +61,7 @@ it("stands down where another commit gives an unborn branch its first commit, to
 	expect(r.code, r.out).toBe(0);
 	expect(r.landed).toBe(true);
 	expect(r.runs).toEqual(["lock=0 stamp=unset staged=a.txt,stub.sh"]);
-	expect(String(f.git("log", "-1", "--format=%s", "HEAD~1")).trim()).toBe(
-		"other",
-	);
+	expect(f.git("log", "-1", "--format=%s", "HEAD~1").trim()).toBe("other");
 });
 
 it("writes no stamp where another commit to a named path changes what this commit adds, and the hook runs the test in the lock", () => {
@@ -98,7 +94,7 @@ it("stands down where another commit to a named path lands while the pre-lock ru
 	expect(r.code, r.out).toBe(0);
 	expect(r.landed).toBe(true);
 	expect(r.runs).toEqual(["lock=0 stamp=unset staged=a.txt"]);
-	expect(String(f.git("show", "HEAD:a.txt"))).toBe("changed\n");
+	expect(f.git("show", "HEAD:a.txt")).toBe("changed\n");
 	expect(r.leftInGitDir).toEqual([]);
 });
 

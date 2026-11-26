@@ -581,7 +581,7 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 			fs.writeFileSync(
 				refillFile(".refill-loop-control.json"),
 				JSON.stringify({
-					noProgressFrom: Date.now(),
+					runFrom: Date.now(),
 					scope: { mode: "normal", repos: [served] },
 				}),
 			);
@@ -703,7 +703,7 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 			fs.writeFileSync(
 				refillFile(".refill-loop-control.json"),
 				JSON.stringify({
-					noProgressFrom: Date.now(),
+					runFrom: Date.now(),
 					scope: { mode: "normal", repos: [outside] },
 				}),
 			);

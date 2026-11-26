@@ -1,5 +1,4 @@
 // @vitest-environment node
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +7,7 @@ import { defineTemplate } from "./git-fixture";
 import { redPathAtRest } from "./lander-records.js";
 import type { QueueEvent } from "./queue-log.js";
 import { buildQueueRefLine, readQueueRefStates } from "./queue-ref-status.js";
+import { gitTrimmedIn } from "./repo-tree-testkit";
 
 const SINCE = Date.parse("2026-11-01T00:00:00Z");
 const REF = "refs/heads/queue/alpha";
@@ -19,14 +19,10 @@ let member: string;
 let merged: string;
 let later: string;
 
-const gitIn =
-	(at: string) =>
-	(...args: string[]) =>
-		execFileSync("git", args, { cwd: at, encoding: "utf8" }).trim();
-const git = (...args: string[]) => gitIn(root)(...args);
+const git = (...args: string[]) => gitTrimmedIn(root, ...args);
 
 const commitIn = (at: string, name: string) => {
-	const g = gitIn(at);
+	const g = (...args: string[]) => gitTrimmedIn(at, ...args);
 	fs.writeFileSync(path.join(at, `${name}.txt`), name);
 	g("add", "-A");
 	g("commit", "-qm", name);
@@ -37,7 +33,7 @@ const markers = () => path.join(root, ".claude", "tmp", "markers");
 const short = (sha: string) => sha.slice(0, 9);
 
 const history = defineTemplate((dir) => {
-	const g = gitIn(dir);
+	const g = (...args: string[]) => gitTrimmedIn(dir, ...args);
 	g("init", "-q", "-b", "main");
 	g("config", "user.email", "t@t");
 	g("config", "user.name", "t");

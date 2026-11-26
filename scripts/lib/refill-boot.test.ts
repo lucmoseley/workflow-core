@@ -26,7 +26,7 @@ import { loopStateOf } from "./refill-state-testkit";
 
 const START = 1000;
 const control = {
-	noProgressFrom: START,
+	runFrom: START,
 	stopRequested: false,
 	seats: [],
 	scope: { mode: "normal" as const, repos: [], goal: null },
@@ -51,7 +51,7 @@ describe("bootVerdictOf", () => {
 	])("resumes on %s, naming the start it keeps", (_name, over) => {
 		expect(bootVerdictOf({ ...found, ...over })).toEqual({
 			resume: true,
-			line: `boot resume: resumed the loop counting from ${new Date(START).toISOString()}`,
+			line: `boot resume: resumed the loop started at ${new Date(START).toISOString()}`,
 		});
 	});
 
@@ -573,7 +573,7 @@ describe("boot-resume, watch and run's hold, on their ports (#4356)", () => {
 			expect(runBootResume(io)).toBe(0);
 			expect(readRawState().heldAt).toBeNull();
 			expect(noted).toEqual([
-				`boot resume: resumed the loop counting from ${new Date(START).toISOString()}, pid 42`,
+				`boot resume: resumed the loop started at ${new Date(START).toISOString()}, pid 42`,
 			]);
 		});
 	});
