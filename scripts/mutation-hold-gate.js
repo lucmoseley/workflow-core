@@ -739,6 +739,8 @@ function runStryker({ root, work, mutate, tree, voice }) {
 	const cache = cachePath();
 	const controlled = {
 		mutate,
+		// #5768
+		inPlace: true,
 		incremental: true,
 		incrementalFile: incremental,
 		reporters: ["json"],
