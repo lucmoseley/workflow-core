@@ -51,7 +51,14 @@ describe("queueExitLogger's store (#1215)", () => {
 
 	it("keeps 30 days, over the 14-day series #1157 files, once the oldest is a day past it", () => {
 		const file = path.join(tmp(), "log.jsonl");
-		const ages = [32 * DAY_MS, 30 * DAY_MS + hourMs, 30 * DAY_MS - hourMs];
+		const daily = Array.from({ length: 29 }, (_, i) => (29 - i) * DAY_MS);
+		const ages = [
+			32 * DAY_MS,
+			31 * DAY_MS,
+			30 * DAY_MS + hourMs,
+			30 * DAY_MS - hourMs,
+			...daily,
+		];
 		fs.writeFileSync(
 			file,
 			ages.map((ago) => `${JSON.stringify({ at: at(ago) })}\n`).join(""),
@@ -59,17 +66,28 @@ describe("queueExitLogger's store (#1215)", () => {
 		const { log, said } = logTo(file);
 		log("opened", 0);
 		const lines = read(file);
-		expect(lines.map((l) => l.at)).toEqual([at(30 * DAY_MS - hourMs), at(0)]);
-		expect(lines[1]).toMatchObject({ reason: "opened", kind: "bare" });
+		expect(lines.map((l) => l.at)).toEqual(
+			[30 * DAY_MS - hourMs, ...daily, 0].map(at),
+		);
+		expect(lines.at(-1)).toMatchObject({ reason: "opened", kind: "bare" });
 		expect(said).toEqual([]);
 	});
 
 	it("leaves the file alone until the oldest line is a day past retention", () => {
-		const file = path.join(tmp(), "log.jsonl");
-		const old = at(31 * DAY_MS - hourMs);
-		fs.writeFileSync(file, `${JSON.stringify({ at: old })}\nnot json\n`);
-		logTo(file).log("opened", 0);
-		expect(fs.readFileSync(file, "utf8").split("\n")[1]).toBe("not json");
+		const afterLogging = (...oldest: number[]) => {
+			const file = path.join(tmp(), "log.jsonl");
+			const daily = Array.from({ length: 30 }, (_, i) => (30 - i) * DAY_MS);
+			const rows = [...oldest, ...daily].map((ago) =>
+				JSON.stringify({ at: at(ago) }),
+			);
+			fs.writeFileSync(file, `${rows.join("\n")}\nnot json\n`);
+			logTo(file).log("opened", 0);
+			return fs.readFileSync(file, "utf8");
+		};
+		expect(afterLogging(31 * DAY_MS - hourMs)).toContain("\nnot json\n");
+		expect(
+			afterLogging(31 * DAY_MS + hourMs, 30 * DAY_MS + hourMs),
+		).not.toContain("not json");
 	});
 
 	it("says a line that did not land rather than throwing, and is silent with no log", () => {

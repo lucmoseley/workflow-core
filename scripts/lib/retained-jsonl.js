@@ -54,14 +54,20 @@ function appendRetained(
 function prune(file, retainMs, now) {
 	ignoreFailure(() =>
 		replaceCarrying(file, (text) => {
-			const { rows } = parseJsonl(text);
-			const ageOf = (/** @type {Record<string, unknown>} */ row) =>
-				now - Date.parse(String(row.at));
-			const [oldest] = rows;
-			if (oldest === undefined || !(ageOf(oldest) > retainMs + DAY_MS)) return;
-			return rows
-				.filter((row) => ageOf(row) <= retainMs)
-				.map((row) => `${JSON.stringify(row)}\n`)
+			const dated = parseJsonl(text).rows.map((row) => ({
+				row,
+				at: Date.parse(String(row.at)),
+			}));
+			const ageOf = timeline(
+				dated.map(({ at }) => at).filter((at) => !Number.isNaN(at)),
+				now,
+			);
+			const [oldest] = dated;
+			if (oldest === undefined || !(ageOf(oldest.at) > retainMs + DAY_MS))
+				return;
+			return dated
+				.filter(({ at }) => ageOf(at) <= retainMs)
+				.map(({ row }) => `${JSON.stringify(row)}\n`)
 				.join("");
 		}),
 	);
