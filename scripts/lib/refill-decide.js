@@ -1077,7 +1077,8 @@ function decideLaunches(
 		Math.min(launchPick.fits, launchSlots),
 		room,
 	);
-	if (out.launches.length > 0) return { ...out, idle: null, held, resumes };
+	if (out.launches.length > 0)
+		return { ...out, idle: null, held, resumes, weighed: true };
 	return {
 		...out,
 		idle: buildUnlaunchedIdle(input, out.skipped),
@@ -1091,8 +1092,7 @@ const CHECKOUT_SKIPS = [PROBE_HELD, REPO_PAUSED, BREAKER_OPEN, UNPROVEN_HELD];
 
 /** @param {Decision} decision */
 const isFrontierDependent = (decision) =>
-	!("stop" in decision) &&
-	(decision.idle === null || decision.weighed === true);
+	!("stop" in decision) && decision.weighed === true;
 
 /**
  * @param {TickInput} input
