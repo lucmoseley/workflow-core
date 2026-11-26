@@ -416,11 +416,10 @@ function isMarkerStale(
 	record,
 	{ alive = pidAlive, startTime = readStartTimeOf } = {},
 ) {
-	const reused =
-		typeof record.start === "number" &&
-		record.start > 0 &&
-		startTime(record.pid) !== record.start;
-	return !alive(record.pid) || reused;
+	if (!alive(record.pid)) return true;
+	if (typeof record.start !== "number" || record.start <= 0) return false;
+	const current = startTime(record.pid);
+	return current > 0 && current !== record.start;
 }
 
 /**

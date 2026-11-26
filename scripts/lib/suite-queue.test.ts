@@ -166,6 +166,15 @@ describe("isMarkerStale", () => {
 		).toBe(true);
 	});
 
+	it("is live when the pid is alive but its start time will not read", () => {
+		expect(
+			isMarkerStale(
+				{ pid: 11, start: 500 },
+				{ alive: () => true, startTime: () => 0 },
+			),
+		).toBe(false);
+	});
+
 	it("is live when the pid is alive and its start time still matches", () => {
 		expect(
 			isMarkerStale(
@@ -1188,8 +1197,8 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 		const queueDir = qdir();
 		const mine = joined(queueDir, 11, 100);
 		fs.writeFileSync(
-			path.join(queueDir, "wfc-suite-queue-12.json"),
-			JSON.stringify({ pid: 12, at: 50, start: 999_999_999 }),
+			path.join(queueDir, `wfc-suite-queue-${process.pid}.json`),
+			JSON.stringify({ pid: process.pid, at: 50, start: 999_999_999 }),
 		);
 		expect(await turnOpen({ queueDir, pid: 11 })).toBe(true);
 		expect(fs.readdirSync(queueDir)).toEqual([path.basename(mine.ticket)]);

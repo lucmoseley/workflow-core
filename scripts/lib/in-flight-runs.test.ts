@@ -130,7 +130,7 @@ describe("the session's in-flight test runs, read from the launcher's run record
 		expect(fs.readdirSync(dir)).toEqual([]);
 	});
 
-	it("keeps a live run's record whose start time will not read, counting it for nothing", () => {
+	it("keeps and counts a live run's record whose start time will not read", () => {
 		const dir = queueDir();
 		join(dir, process.pid);
 		expect(
@@ -139,7 +139,7 @@ describe("the session's in-flight test runs, read from the launcher's run record
 				alive: () => true,
 				startTime: () => 0,
 			}),
-		).toEqual([]);
+		).toHaveLength(1);
 		expect(fs.readdirSync(dir)).toHaveLength(1);
 	});
 
@@ -168,7 +168,7 @@ describe("the session's in-flight test runs, read from the launcher's run record
 			readInFlightRuns(S, {
 				queueDir: dir,
 				alive: () => true,
-				startTime: () => -1,
+				startTime: () => 1,
 			}),
 		).toEqual([]);
 	});

@@ -98,19 +98,6 @@ function readRunRecord(file) {
 }
 
 /**
- * @param {RunRecord} record
- * @param {Required<Pick<InFlightOptions, "alive" | "startTime">>} probes
- * @returns {boolean}
- */
-function isGone(record, { alive, startTime }) {
-	if (!alive(record.pid)) return true;
-	const current = startTime(record.pid);
-	return (
-		current > 0 && typeof record.start === "number" && current !== record.start
-	);
-}
-
-/**
  * @param {string} file
  * @param {Required<Pick<InFlightOptions, "alive" | "startTime">>} probes
  * @returns {RunRecord | null}
@@ -119,8 +106,7 @@ function readLiveRecordDeletingGone(file, probes) {
 	const record = readRunRecord(file);
 	if (!record) return null;
 	if (!isMarkerStale(record, probes)) return record;
-	if (isGone(record, probes))
-		ignoreFailure(() => fs.rmSync(file, { force: true }));
+	ignoreFailure(() => fs.rmSync(file, { force: true }));
 	return null;
 }
 
