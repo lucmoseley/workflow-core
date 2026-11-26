@@ -95,12 +95,13 @@ describe("the guard, end to end", () => {
 		);
 	});
 
-	it("asks PyPI and pypistats about a known package, and passes one that clears both", () => {
+	it("asks PyPI, its simple API and pypistats about a known package, and passes one that clears all three", () => {
 		expect(
 			emission("python3 -m pip install --only-binary :all: Playwright"),
 		).toBeNull();
 		expect(readStubCalls()).toBe(
 			"curl -sS --max-time 8 -w \n%{http_code} https://pypi.org/pypi/playwright/json\n" +
+				"curl -sS --max-time 8 -H Accept: application/vnd.pypi.simple.v1+json -w \n%{http_code} https://pypi.org/simple/playwright/\n" +
 				"curl -sS --max-time 8 -w \n%{http_code} https://pypistats.org/api/packages/playwright/recent\n",
 		);
 	});
@@ -113,6 +114,7 @@ describe("the guard, end to end", () => {
 		).toBeNull();
 		expect(readStubCalls()).toBe(
 			"curl -sS --max-time 8 -w \n%{http_code} https://pypi.org/pypi/playwright/json\n" +
+				"curl -sS --max-time 8 -H Accept: application/vnd.pypi.simple.v1+json -w \n%{http_code} https://pypi.org/simple/playwright/\n" +
 				"curl -sS --max-time 8 -w \n%{http_code} https://pypistats.org/api/packages/playwright/recent\n" +
 				"curl -sS --max-time 3 -w \n%{http_code} https://pypistats.org/api/packages/playwright/recent\n",
 		);
@@ -130,7 +132,7 @@ describe("the guard, end to end", () => {
 		expect(readStubCalls()).toBe("");
 	});
 
-	it("reads the stub's age and downloads against the real clock", () => {
+	it("reads the stub's age, status and downloads against the real clock", () => {
 		const days = (n: number) =>
 			new Date(Date.now() - n * 86_400_000).toISOString();
 		const cmd = "uv add --no-build left-pad";
@@ -139,6 +141,9 @@ describe("the guard, end to end", () => {
 		);
 		expect(denial(cmd, { downloads: 999 })).toMatch(/downloaded 999 time/);
 		expect(denial(cmd, { downloads: "404" })).toMatch(/downloaded 0 time/);
+		expect(denial(cmd, { status: "quarantined" })).toMatch(
+			/^PyPI marks `left-pad` as `quarantined`/,
+		);
 		expect(denial(cmd, { created: "FAIL" })).toMatch(
 			/^PyPI could not be reached/,
 		);

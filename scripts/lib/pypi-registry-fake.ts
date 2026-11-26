@@ -12,7 +12,9 @@ export interface PyPI {
 	created: string;
 	latest?: string;
 	downloads: number | "404" | "FAIL" | "MISSING";
+	status?: string;
 	pypiOut?: Http;
+	statusOut?: Http | { missing: true };
 	statsFirstCode?: number;
 }
 
@@ -20,6 +22,7 @@ export const buildPassingPyPI = (now: number): PyPI => ({
 	created: new Date(now - 4000 * 86_400_000).toISOString(),
 	latest: new Date(now - 30 * 86_400_000).toISOString(),
 	downloads: 9_000_000,
+	status: "active",
 });
 
 export const pypiBody = (created: string, latest = created) =>
@@ -55,6 +58,25 @@ export function pypiAnswer(reg: PyPI): Get {
 	return { code: 200, body: pypiBody(reg.created, reg.latest) };
 }
 
+export function statusAnswer(reg: PyPI): Get {
+	if (reg.statusOut) return reg.statusOut;
+	if (reg.created === "MISSING") return { missing: true };
+	if (reg.created === "FAIL") return { code: null, body: "" };
+	if (reg.created === "404") return NOT_FOUND;
+	return {
+		code: 200,
+		body: JSON.stringify({
+			meta: { "_last-serial": 1, "api-version": "1.4" },
+			name: "the-package",
+			...(reg.status === undefined
+				? {}
+				: { "project-status": { status: reg.status } }),
+			files: [],
+			versions: [],
+		}),
+	};
+}
+
 export function statsAnswer(reg: PyPI): Get {
 	if (reg.downloads === "MISSING") return { missing: true };
 	if (reg.downloads === "FAIL") return { code: null, body: "" };
@@ -82,6 +104,7 @@ export function writePyPIStub(dir: string) {
 echo ${shellQuote("curl ")}"$*" >> "$STUB_CALLS"
 case "$*" in
   *pypistats.org*) side=STATS ;;
+  *pypi.org/simple/*) side=STATUS ;;
   *) side=PYPI ;;
 esac
 out="STUB_\${side}_OUT"; code="STUB_\${side}_CODE"
@@ -104,13 +127,14 @@ printf '%s\\n%s' "\${!out}" "\${!code}"
 				};
 	return (reg: PyPI): NodeJS.ProcessEnv => {
 		const pypi = pypiAnswer(reg);
+		const status = statusAnswer(reg);
 		const stats = statsAnswer(reg);
 		return {
-			WFC_CURL:
-				"missing" in pypi || "missing" in stats
-					? path.join(dir, "no-such-curl")
-					: file,
+			WFC_CURL: [pypi, status, stats].some((got) => "missing" in got)
+				? path.join(dir, "no-such-curl")
+				: file,
 			...served("PYPI", pypi),
+			...served("STATUS", status),
 			...served("STATS", stats),
 			STUB_STATS_FIRST:
 				reg.statsFirstCode === undefined ? "" : String(reg.statsFirstCode),

@@ -9,6 +9,7 @@ import {
 	pypiAnswer,
 	pypiBody,
 	statsAnswer,
+	statusAnswer,
 } from "./pypi-registry-fake";
 import { readRuleText } from "./rule-text";
 import { treePortsFake } from "./tree-ports-fake";
@@ -86,6 +87,10 @@ function harness(reg: Partial<PyPI> = {}, over: Over = {}) {
 		pypi: (name: string): Get => {
 			calls.push(`pypi ${name}`);
 			return pypiAnswer(full);
+		},
+		status: (name: string): Get => {
+			calls.push(`status ${name}`);
+			return statusAnswer(full);
 		},
 		stats: (name: string): Get => {
 			calls.push(`stats ${name}`);
@@ -346,6 +351,7 @@ describe("check 2 — new-package legitimacy", () => {
 	it("asks PyPI and pypistats for the PEP 503 name", () => {
 		expect(callsOf(`pip install ${BIN} Left_Pad.Py==1.0`)).toEqual([
 			"pypi left-pad-py",
+			"status left-pad-py",
 			"stats left-pad-py",
 		]);
 	});
@@ -408,6 +414,83 @@ ${ESCAPE}`,
 		expect(
 			allows(install, { pypiOut: { code: 200, body: JSON.stringify(body) } }),
 		).toBe(true);
+	});
+
+	it.each(["archived", "deprecated", "quarantined"])(
+		"refuses a package PyPI marks %s, in full",
+		(status) => {
+			expect(denial(install, { status })).toBe(
+				`PyPI marks \`left-pad\` as \`${status}\` (PEP 792): ${install}
+
+An archived project takes no new releases, a deprecated one is no longer recommended, and a quarantined one is withheld by PyPI's administrators. None will receive a fix. Installing one anyway is a founder decision, not a session's.
+
+${RULE}
+
+${ESCAPE}`,
+			);
+		},
+	);
+
+	it("passes an active status, or none at all", () => {
+		expect(allows(install, { status: "active" })).toBe(true);
+		expect(allows(install, { status: undefined })).toBe(true);
+	});
+
+	it("asks no downloads of a package with an inactive status", () => {
+		expect(callsOf(install, { status: "archived" })).toEqual([
+			"pypi left-pad",
+			"status left-pad",
+		]);
+	});
+
+	it("never asks the status of a declared package", () => {
+		expect(callsOf(`pip install ${BIN} httpx`, { status: "archived" })).toEqual(
+			[],
+		);
+	});
+
+	it("asks no status of a package too stale to pass", () => {
+		expect(
+			callsOf(install, {
+				created: daysAgo(4000),
+				latest: daysAgo(3000),
+				status: "archived",
+			}),
+		).toEqual(["pypi left-pad"]);
+	});
+
+	it.each([
+		["the simple API unanswered", { code: null, body: "" }],
+		["the simple API erroring", { code: 503, body: "" }],
+		["the simple API not finding it", { code: 404, body: "" }],
+		["the simple API's JSON not JSON", { code: 200, body: "<html>" }],
+		[
+			"a project-status with no status",
+			{ code: 200, body: JSON.stringify({ "project-status": {} }) },
+		],
+		[
+			"a status PEP 792 does not name",
+			{
+				code: 200,
+				body: JSON.stringify({ "project-status": { status: "haunted" } }),
+			},
+		],
+		[
+			"a status not a string",
+			{ code: 200, body: JSON.stringify({ "project-status": { status: 1 } }) },
+		],
+	] as const)("refuses on %s as unreachable", (_who, statusOut) => {
+		expect(denial(install, { statusOut })).toMatch(
+			/^PyPI could not be reached to check `left-pad`/,
+		);
+	});
+
+	it("refuses and logs where curl will not start for the status", () => {
+		const h = harness({ statusOut: { missing: true } });
+		expect(decide(install, h.ctx)?.deny).toMatch(/^PyPI could not be reached/);
+		expect(h.logs).toEqual([
+			"curl not found — project status of left-pad could not be checked, denying",
+		]);
 	});
 
 	it("asks no downloads of a package too stale to pass", () => {
@@ -560,7 +643,11 @@ describe("the tool runners (#5239)", () => {
 		"pipx run --pip-args=--only-binary=:all: left-pad",
 		`pipx inject ${PIPX} ruff left-pad`,
 	])("asks PyPI of `%s` once its window is shut", (command) => {
-		expect(callsOf(command)).toEqual(["pypi left-pad", "stats left-pad"]);
+		expect(callsOf(command)).toEqual([
+			"pypi left-pad",
+			"status left-pad",
+			"stats left-pad",
+		]);
 	});
 
 	it.each([
@@ -575,8 +662,10 @@ describe("the tool runners (#5239)", () => {
 	it("reads uv's `--with` commas as uv splits them", () => {
 		expect(callsOf("uvx --no-build --with 'aaa[x,y]>=1,<2,bbb' ruff")).toEqual([
 			"pypi aaa",
+			"status aaa",
 			"stats aaa",
 			"pypi bbb",
+			"status bbb",
 			"stats bbb",
 		]);
 	});
@@ -633,7 +722,11 @@ describe("the tool runners (#5239)", () => {
 		`pipx install ${PIPX} -i https://example.com/simple left-pad`,
 		`pipx inject ${PIPX} --requirement r.txt ruff left-pad`,
 	])("reads pipx's value-taking `-i` and `--requirement`: `%s`", (command) => {
-		expect(callsOf(command)).toEqual(["pypi left-pad", "stats left-pad"]);
+		expect(callsOf(command)).toEqual([
+			"pypi left-pad",
+			"status left-pad",
+			"stats left-pad",
+		]);
 	});
 
 	it("refuses a pip editable named like a package as unvettable", () => {
@@ -675,7 +768,11 @@ describe("pipx runpip and pipx upgrade --install (#5242)", () => {
 		`pipx runpip ruff 'install ${BIN} left-pad'`,
 		`pipx upgrade --install ${PIPX} left-pad`,
 	])("asks PyPI of `%s` once its window is shut", (command) => {
-		expect(callsOf(command)).toEqual(["pypi left-pad", "stats left-pad"]);
+		expect(callsOf(command)).toEqual([
+			"pypi left-pad",
+			"status left-pad",
+			"stats left-pad",
+		]);
 	});
 
 	it.each([
@@ -693,7 +790,7 @@ describe("pipx runpip and pipx upgrade --install (#5242)", () => {
 		).toContain("declare — left-pad — and does not carry");
 		expect(
 			callsOf(`pipx install ${PIPX} -i https://example.com/simple left-pad`),
-		).toEqual(["pypi left-pad", "stats left-pad"]);
+		).toEqual(["pypi left-pad", "status left-pad", "stats left-pad"]);
 	});
 
 	it.each([
@@ -833,6 +930,7 @@ describe("its deliberate limits", () => {
 	])("asks PyPI whatever index the command names: `%s`", (index) => {
 		expect(callsOf(`pip install ${BIN} ${index} left-pad`)).toEqual([
 			"pypi left-pad",
+			"status left-pad",
 			"stats left-pad",
 		]);
 	});
@@ -840,6 +938,7 @@ describe("its deliberate limits", () => {
 	it("reads an option by its whole spelling, so `--req reqs.txt` asks PyPI for `reqs.txt`", () => {
 		expect(callsOf(`pip install ${BIN} --req reqs.txt`)).toEqual([
 			"pypi reqs-txt",
+			"status reqs-txt",
 			"stats reqs-txt",
 		]);
 	});
@@ -873,6 +972,6 @@ describe("its deliberate limits", () => {
 			callsOf(`pip install ${BIN} left-pad`, {
 				pypiOut: { code: 200, body: JSON.stringify(body) },
 			}),
-		).toEqual(["pypi left-pad", "stats left-pad"]);
+		).toEqual(["pypi left-pad", "status left-pad", "stats left-pad"]);
 	});
 });

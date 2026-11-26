@@ -17,7 +17,7 @@ const BUDGET_S = 30;
  * @property {() => number} startedAt
  * @property {boolean} allowNewPackage
  * @typedef {import("./guard-verdict.js").RulePorts & VettingPorts} VettingContext
- * @typedef {"missing" | "young" | "stale" | "thin" | "budget" | "unreachable"} Refusal
+ * @typedef {"missing" | "young" | "stale" | "inactive" | "thin" | "budget" | "unreachable"} Refusal
  * @typedef {{ kind: "ok" } | { kind: Refusal, n: string }} RegistryVerdict
  */
 
@@ -124,6 +124,14 @@ ${escapeNote(ctx)}`,
 			`\`${name}\` last had a file published ${days} days ago, past this guard's ${MAX_IDLE_DAYS}-day floor: @CMD@
 
 A package with no release in that long is abandoned or superseded, and no fix will reach it. One that is finished rather than dead is a founder decision, not a session's.
+
+${vettedRule(ctx)}
+
+${escapeNote(ctx)}`,
+		inactive: (name, status, ctx) =>
+			`PyPI marks \`${name}\` as \`${status}\` (PEP 792): @CMD@
+
+An archived project takes no new releases, a deprecated one is no longer recommended, and a quarantined one is withheld by PyPI's administrators. None will receive a fix. Installing one anyway is a founder decision, not a session's.
 
 ${vettedRule(ctx)}
 

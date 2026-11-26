@@ -19,6 +19,7 @@ const { literal, scanFlags } = require("./shell-words.js");
  * @typedef {{ missing: true } | { code: number | null, body: string }} Http
  * @typedef {object} PipInstallPorts
  * @property {(name: string) => Http} pypi
+ * @property {(name: string) => Http} status
  * @property {(name: string) => Http} stats
  * @typedef {import("./kit-context.js").KitContext & PipInstallPorts
  *   & import("./package-vetting.js").VettingPorts
@@ -360,8 +361,41 @@ const opensHeader = (text, m, brackets) => {
  * @returns {RegistryVerdict}
  */
 function registryVerdict(name, ctx) {
-	const age = uploadsVerdict(name, ctx);
-	return age.kind === "ok" ? downloadsVerdict(name, ctx) : age;
+	for (const check of [uploadsVerdict, statusVerdict, downloadsVerdict]) {
+		const v = check(name, ctx);
+		if (v.kind !== "ok") return v;
+	}
+	return { kind: "ok" };
+}
+
+const INACTIVE = new Set(["archived", "deprecated", "quarantined"]);
+
+/**
+ * @param {string} name
+ * @param {PipInstallContext} ctx
+ * @returns {RegistryVerdict}
+ */
+function statusVerdict(name, ctx) {
+	const got = ctx.status(name);
+	if ("missing" in got) {
+		ctx.log(
+			`curl not found — project status of ${name} could not be checked, denying`,
+		);
+		return UNREACHABLE;
+	}
+	if (got.code !== 200) return UNREACHABLE;
+	const body = jsonOf(got.body);
+	if (body === null || typeof body !== "object") return UNREACHABLE;
+	if (!("project-status" in body)) return { kind: "ok" };
+	const marker = body["project-status"];
+	const status =
+		marker !== null && typeof marker === "object" && "status" in marker
+			? marker.status
+			: undefined;
+	if (status === "active") return { kind: "ok" };
+	return typeof status === "string" && INACTIVE.has(status)
+		? { kind: "inactive", n: status }
+		: UNREACHABLE;
 }
 
 /**

@@ -12,6 +12,7 @@ import {
 	type PyPI,
 	pypiAnswer,
 	statsAnswer,
+	statusAnswer,
 	writePyPIStub,
 } from "./pypi-registry-fake";
 import { treePortsFake } from "./tree-ports-fake";
@@ -24,7 +25,7 @@ const { URLS, buildHostPorts } = require("./pip-install-host.js") as {
 	buildHostPorts: () => Record<Port, (name: string) => Get>;
 };
 
-type Port = "pypi" | "stats";
+type Port = "pypi" | "status" | "stats";
 type Real = "live" | "cut" | "absent";
 
 const PASSING = buildPassingPyPI(Date.now());
@@ -43,7 +44,7 @@ const CASES: {
 		what: "a known package",
 		pkg: "playwright",
 		reg: PASSING,
-		ports: ["pypi", "stats"],
+		ports: ["pypi", "status", "stats"],
 		verdict: null,
 		real: "live",
 	},
@@ -59,6 +60,14 @@ const CASES: {
 		real: "live",
 	},
 	{
+		what: "a package its maintainers archived",
+		pkg: "typed-ast",
+		reg: { ...PASSING, status: "archived" },
+		ports: ["status"],
+		verdict: /^PyPI marks `typed-ast` as `archived` \(PEP 792\)/,
+		real: "live",
+	},
+	{
 		what: "a made-up name",
 		pkg: "wfc-contract-no-such-package-5232",
 		reg: { created: "404", downloads: "404" },
@@ -71,7 +80,7 @@ const CASES: {
 		what: "an unreachable PyPI",
 		pkg: "playwright",
 		reg: { created: "FAIL", downloads: "FAIL" },
-		ports: ["pypi", "stats"],
+		ports: ["pypi", "status", "stats"],
 		verdict: /^PyPI could not be reached/,
 		real: "cut",
 	},
@@ -79,7 +88,7 @@ const CASES: {
 		what: "a curl that will not start",
 		pkg: "playwright",
 		reg: { created: "MISSING", downloads: "MISSING" },
-		ports: ["pypi", "stats"],
+		ports: ["pypi", "status", "stats"],
 		verdict: /^PyPI could not be reached/,
 		real: "absent",
 	},
@@ -89,6 +98,7 @@ function verdictOf(port: Port, pkg: string, answer: Get): string | null {
 	const ctx = kitContextFake({
 		tree: () => treePortsFake({}),
 		pypi: () => pypiAnswer(PASSING),
+		status: () => statusAnswer(PASSING),
 		stats: () => statsAnswer(PASSING),
 		[port]: () => answer,
 		now: () => Date.now(),
@@ -118,6 +128,10 @@ function shapeOf(answer: Get): unknown {
 			code: answer.code,
 			releases: [...new Set(files.map((f) => typeof f.upload_time_iso_8601))],
 		};
+	}
+	if ("meta" in b) {
+		const marker = b["project-status"] as Record<string, unknown> | undefined;
+		return { code: answer.code, status: marker?.status ?? "absent" };
 	}
 	if ("data" in b)
 		return {
@@ -156,12 +170,18 @@ const stubAnswer = (port: Port, c: (typeof CASES)[number]) => {
 	return buildHostPorts()[port](c.pkg);
 };
 
+const FAKES: Record<Port, (reg: PyPI) => Get> = {
+	pypi: pypiAnswer,
+	status: statusAnswer,
+	stats: statsAnswer,
+};
+
 const fakeAnswer = (port: Port, c: (typeof CASES)[number]) =>
-	port === "pypi" ? pypiAnswer(c.reg) : statsAnswer(c.reg);
+	FAKES[port](c.reg);
 
 let liveSkip: { reason: string | undefined } | undefined;
 function liveSkipReason(): string | undefined {
-	for (const url of [URLS.pypi("playwright"), URLS.stats("playwright")])
+	for (const url of Object.values(URLS).map((at) => at("playwright")))
 		if (!isAnswered(url, { okOnly: true }))
 			return `PyPI or pypistats is unreachable: ${url}`;
 	return undefined;
