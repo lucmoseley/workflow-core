@@ -1,4 +1,5 @@
 const { spawnSync } = require("node:child_process");
+const path = require("node:path");
 
 const { brokenError } = require("./check");
 const {
@@ -12,7 +13,6 @@ const { docPath, isCoreRepo, scriptPath } = require("./script-path");
 const { gateOnOf, parseAddedGateLines } = require("./issue-gate.js");
 const { hostRoot } = require("./host-root.js");
 const { isSameRepo } = require("./issue-ref.js");
-const { requiredGroup } = require("./regex-group.js");
 const {
 	buildCheckoutEnv,
 	homeDir,
@@ -181,29 +181,313 @@ const COUNT_FIX = '`echo "$(grep -c . data/log.jsonl) of 25 rows"`';
 // guess, #5756
 const SHOWN_READING_CHARS = 120;
 
-const GIT_C_ORIGIN = /\bgit\s+-C\s+(\S+)\s[^;&|]*?\borigin\//g;
-const GIT_C_FETCH = /\bgit\s+-C\s+(\S+)\s+fetch\b/g;
-
-/** @param {string} dir */
-const sameCheckout = (dir) =>
-	dir
-		.replace(/^["']|["']$/g, "")
-		.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, "~");
+const SUBSTITUTED = "$(…)";
+const GIT_WORD = "git";
+const SHELLS = new Set(["bash", "sh", "zsh", "dash"]);
+const SHELL_KEYWORDS = new Set(
+	"if then else elif fi do done while until ! { } time".split(" "),
+);
+const ASSIGNMENT = /^\w+=/;
+const GIT_ENV_CHECKOUT = /^(?:GIT_DIR|GIT_WORK_TREE)=(.*)$/s;
+const CHECKOUT_DIR_OPTIONS = new Set(["--git-dir", "--work-tree"]);
+const OPTIONS_WITH_VALUE = new Set([
+	"-C",
+	...CHECKOUT_DIR_OPTIONS,
+	"-c",
+	"--namespace",
+	"--config-env",
+]);
+const FETCHES = new Set(["fetch", "pull", "remote update"]);
 
 /**
- * #5697
+ * #5755
+ * @template T
+ * @param {T[]} stack
+ * @returns {T}
+ */
+function topOf(stack) {
+	const top = stack.at(-1);
+	if (top === undefined) throw new Error("gate-check: empty shell stack");
+	return top;
+}
+
+/** @param {string} word */
+const unquoted = (word) => word.replace(/["']/g, "");
+
+/** @param {string} dir */
+const checkoutKey = (dir) =>
+	path.posix
+		.normalize(unquoted(dir).replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, "~"))
+		.replace(/\/\.git\/?$|\/$/, "");
+
+/**
+ * #5755
+ * @typedef {{key: string, anchor: string}} Checkout
+ */
+
+/**
+ * #5755
+ * @param {string} target
+ * @param {Checkout|null} base
+ * @returns {Checkout|null|undefined}
+ */
+function resolveCheckout(target, base) {
+	const bare = unquoted(target);
+	if (bare === "" || bare === "-" || bare.includes(SUBSTITUTED)) return;
+	if (/\$(?!HOME\b|\{HOME\})/.test(bare)) return;
+	if (/^(?:~|\$HOME|\$\{HOME\}|\/)/.test(bare)) return named(bare);
+	if (base !== null)
+		return {
+			key: checkoutKey(path.posix.join(base.key, bare)),
+			anchor: base.anchor,
+		};
+	if (/^\.\.(?:\/\.\.)*\/?$/.test(bare)) return null;
+	return bare.startsWith("..") ? named(bare) : null;
+}
+
+/** @param {string} dir */
+const named = (dir) => ({ key: checkoutKey(dir), anchor: checkoutKey(dir) });
+
+/**
+ * #5755
+ * @param {string} value
+ * @param {Checkout|null} base
+ */
+const gitCheckout = (value, base) => {
+	const placed = resolveCheckout(value, base);
+	return placed === undefined ? named(value) : placed;
+};
+
+/**
+ * #5755
+ * @param {string[]} words
+ * @param {Checkout|null} cwd
+ * @param {Checkout|null} envDir
+ */
+function parseGit(words, cwd, envDir) {
+	let base = cwd;
+	let gitDir = envDir;
+	let i = 0;
+	for (let word = words[i]; word?.startsWith("-"); word = words[++i]) {
+		const [name = "", inline] = word.split(/[=](.*)/s);
+		const value =
+			inline ?? (OPTIONS_WITH_VALUE.has(name) ? (words[++i] ?? "") : "");
+		if (name === "-C") base = gitCheckout(value, base);
+		else if (CHECKOUT_DIR_OPTIONS.has(name)) gitDir = gitCheckout(value, base);
+	}
+	return { dir: gitDir ?? base, sub: words[i], next: words[i + 1] };
+}
+
+/**
+ * #5755
+ * @typedef {{kind: "word", text: string} | {kind: "end" | "pipe" | "open" | "close"}} ShellToken
+ * @typedef {{word: string, quote: string, closer: string}} LexFrame
+ */
+class ShellLexer {
+	/** @param {string} command */
+	constructor(command) {
+		this.command = command;
+		this.i = 0;
+		/** @type {LexFrame[]} */
+		this.frames = [{ word: "", quote: "", closer: "" }];
+		/** @type {ShellToken[]} */
+		this.out = [];
+	}
+
+	get frame() {
+		return topOf(this.frames);
+	}
+
+	/** @param {number} offset */
+	peek(offset) {
+		return this.command.charAt(this.i + offset);
+	}
+
+	lex() {
+		for (; this.i < this.command.length; this.i++) this.step(this.peek(0));
+		while (this.frames.length > 1) this.close();
+		this.end("end");
+		return this.out;
+	}
+
+	/** @param {string} c */
+	step(c) {
+		const { quote } = this.frame;
+		if (quote === "'") this.quoted(c);
+		else if (c === "\\") this.frame.word += c + this.command.charAt(++this.i);
+		else if (quote === '"' && c !== "$" && c !== "`") this.quoted(c);
+		else if (c === "$" && this.peek(1) === "(") {
+			this.i++;
+			this.open("$)");
+		} else if (c === "`") this.backtick();
+		else if (quote === '"') this.frame.word += c;
+		else this.unquotedChar(c);
+	}
+
+	/** @param {string} c */
+	quoted(c) {
+		if (c === this.frame.quote) this.frame.quote = "";
+		this.frame.word += c;
+	}
+
+	backtick() {
+		if (this.frame.closer === "`") this.close();
+		else this.open("`");
+	}
+
+	/** @param {string} c */
+	unquotedChar(c) {
+		if (c === "(") {
+			this.endWord();
+			this.open(")");
+		} else if (c === ")" && this.frame.closer.endsWith(")")) this.close();
+		else if (c === "|") this.bar();
+		else if (/[;&\n]/.test(c) && !this.isRedirect(c)) this.end("end");
+		else if (/\s/.test(c)) this.endWord();
+		else {
+			if (c === "'" || c === '"') this.frame.quote = c;
+			this.frame.word += c;
+		}
+	}
+
+	bar() {
+		const next = this.peek(1);
+		if (next === "|" || next === "&") this.i++;
+		this.end(next === "|" ? "end" : "pipe");
+	}
+
+	/** @param {string} c */
+	isRedirect(c) {
+		return c === "&" && (this.peek(-1) === ">" || this.peek(1) === ">");
+	}
+
+	endWord() {
+		if (this.frame.word !== "")
+			this.out.push({ kind: "word", text: this.frame.word });
+		this.frame.word = "";
+	}
+
+	/** @param {"end" | "pipe"} kind */
+	end(kind) {
+		this.endWord();
+		this.out.push({ kind });
+	}
+
+	/** @param {string} closer */
+	open(closer) {
+		this.frames.push({ word: "", quote: "", closer });
+		this.out.push({ kind: "open" });
+	}
+
+	close() {
+		this.end("end");
+		const { closer } = this.frame;
+		this.frames.pop();
+		this.out.push({ kind: "close" });
+		if (closer !== ")") this.frame.word += SUBSTITUTED;
+	}
+}
+
+/**
+ * #5755
+ * @param {string[]} words
+ * @param {Checkout|null} cwd
+ */
+function commandStart(words, cwd) {
+	const at = words.findIndex(
+		(w) => !SHELL_KEYWORDS.has(w) && !ASSIGNMENT.test(w),
+	);
+	/** @type {Checkout|null} */
+	let envDir = null;
+	for (const word of at < 0 ? words : words.slice(0, at)) {
+		const value = GIT_ENV_CHECKOUT.exec(word)?.[1];
+		if (value !== undefined) envDir = gitCheckout(value, cwd);
+	}
+	return { words: at < 0 ? [] : words.slice(at), envDir };
+}
+
+/**
+ * #5755
+ * @param {string[]} words
+ * @returns {string|undefined}
+ */
+function innerScript(words) {
+	const strip = (/** @type {string} */ w) => w.replace(/^(["'])(.*)\1$/s, "$2");
+	if (words[0] === "eval") return words.slice(1).map(strip).join(" ");
+	if (!SHELLS.has(path.posix.basename(words[0] ?? ""))) return;
+	const script = words[words.indexOf("-c") + 1];
+	return words.includes("-c") && script !== undefined
+		? strip(script)
+		: undefined;
+}
+
+/** @param {string} word */
+const isGitWord = (word) => path.posix.basename(word) === GIT_WORD;
+
+/**
+ * #5755
+ * @typedef {{cwd: Checkout|null, words: string[], piped: boolean}} ShellScope
+ * @param {ShellScope} scope
+ * @param {Set<string>} fetched
+ * @param {boolean} piped
+ * @returns {string|null}
+ */
+function unfetchedReadOf(scope, fetched, piped) {
+	const { words, envDir } = commandStart(scope.words.splice(0), scope.cwd);
+	if (words[0] === "cd") {
+		const target = words.slice(1).find((w) => w === "-" || !w.startsWith("-"));
+		if (!piped)
+			scope.cwd =
+				target === undefined
+					? null
+					: (resolveCheckout(target, scope.cwd) ?? null);
+		return null;
+	}
+	const inner = innerScript(words);
+	if (inner !== undefined) return unfetchedCheckout(inner);
+	const at = words.findIndex(
+		(w, i) => isGitWord(w) && !isGitWord(words[i + 1] ?? ""),
+	);
+	if (at < 0) return null;
+	const git = parseGit(words.slice(at + 1), scope.cwd, envDir);
+	const { dir } = git;
+	if (dir === null) return null;
+	if (FETCHES.has(`${git.sub}`) || FETCHES.has(`${git.sub} ${git.next}`))
+		fetched.add(dir.key);
+	else if (
+		words.some((w) => w.includes("origin/")) &&
+		!fetched.has(dir.key) &&
+		!fetched.has(dir.anchor)
+	)
+		return dir.key;
+	return null;
+}
+
+/**
+ * #5697 #5755
  * @param {string} command
  * @returns {string|null}
  */
 function unfetchedCheckout(command) {
-	const fetched = [...command.matchAll(GIT_C_FETCH)].map((m) => ({
-		at: m.index,
-		dir: sameCheckout(requiredGroup(m, 1, GIT_C_FETCH)),
-	}));
-	for (const m of command.matchAll(GIT_C_ORIGIN)) {
-		const dir = requiredGroup(m, 1, GIT_C_ORIGIN);
-		const key = sameCheckout(dir);
-		if (!fetched.some((f) => f.at < m.index && f.dir === key)) return dir;
+	/** @type {Set<string>} */
+	const fetched = new Set();
+	/** @type {ShellScope[]} */
+	const scopes = [{ cwd: null, words: [], piped: false }];
+	for (const token of new ShellLexer(command).lex()) {
+		const scope = topOf(scopes);
+		if (token.kind === "word") scope.words.push(token.text);
+		else if (token.kind === "open")
+			scopes.push({ cwd: scope.cwd, words: [], piped: false });
+		else if (token.kind === "close") scopes.pop();
+		else {
+			const dir = unfetchedReadOf(
+				scope,
+				fetched,
+				scope.piped || token.kind === "pipe",
+			);
+			scope.piped = token.kind === "pipe";
+			if (dir !== null) return dir;
+		}
 	}
 	return null;
 }
