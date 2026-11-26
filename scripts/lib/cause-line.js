@@ -4,7 +4,7 @@ const CAUSED_BY = "**Caused by:**";
 
 const HEX = "[0-9a-f]{7,40}";
 const SHA = new RegExp(`^${HEX}$`);
-const LINE = new RegExp(`^\\s*(?:[-*]\\s+)?${escapeRe(CAUSED_BY)}(.*)$`);
+const CAUSE_LINE = new RegExp(`^\\s*(?:[-*]\\s+)?${escapeRe(CAUSED_BY)}(.*)$`);
 const NEXT_SHA = new RegExp(`^\\s*\`?(${HEX})\`?(?![0-9A-Za-z])\\s*(,?)`);
 
 /**
@@ -21,7 +21,7 @@ function parseCauseShas(text) {
 	return text.split(/\r?\n/).flatMap((line) => {
 		/** @type {string[]} */
 		const shas = [];
-		let rest = LINE.exec(line)?.[1] ?? "";
+		let rest = CAUSE_LINE.exec(line)?.[1] ?? "";
 		for (;;) {
 			const [token, sha, comma] = NEXT_SHA.exec(rest) ?? [];
 			if (token === undefined || sha === undefined) return shas;

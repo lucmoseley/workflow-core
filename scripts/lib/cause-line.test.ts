@@ -22,6 +22,12 @@ describe("parseCauseShas (#5781)", () => {
 		expect(parseCauseShas(body)).toEqual([B, A.slice(0, 7)]);
 	});
 
+	it("reads a cause line from a body with CRLF line ends", () => {
+		expect(
+			parseCauseShas(`## Triage\r\n**Caused by:** ${B}\r\nNothing else.`),
+		).toEqual([B]);
+	});
+
 	it("ignores tokens under 7 hex, non-hex tokens and issue refs", () => {
 		expect(
 			parseCauseShas("**Caused by:** abc123, 6a33d6g0x, #5745, o/t#12"),
