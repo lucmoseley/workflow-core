@@ -213,6 +213,11 @@ describe("a check reading an unfetched origin ref (#5697)", () => {
 		'[ "$(git -C ~/x rev-parse origin/main)" = abc ] && echo met',
 		"git -C ~/y fetch & git -C ~/x show origin/main:a",
 		"git -C ~/x log --format='%h;%s' origin/main",
+		'echo "a\\"b"; git -C ~/x show origin/main:a',
+		"git -C ~ fetch && git -C ~/x show origin/main:a",
+		"bash -c 'git -C ~/x show origin/main:a'",
+		'eval "git -C ~/x show origin/main:a"',
+		"sudo -u git git -C ~/x show origin/main:a",
 	])(
 		"refuses one reading another checkout's origin through %s (#5755)",
 		(check) => {
@@ -230,13 +235,14 @@ describe("a check reading an unfetched origin ref (#5697)", () => {
 			"git --git-dir ~/x/.git fetch && git --git-dir ~/x/.git show origin/main:a",
 			`git -C ~/x fetch && ${gitDirRead}`,
 			"cd ~/x && git -C . fetch && git show origin/main:a",
-			"git -C ~/x remote update && cd ~/x/scripts && git show origin/main:a",
+			"git -C ~/x remote update && cd ~/x && cd scripts && git show origin/main:a",
+			'git -C "$REPO" fetch && git -C "$REPO" show origin/main:a',
 			"cd ~/x && git pull -q && git show origin/main:a 2>&1",
 		])
 			expect(verdictOf("", gate(check), false).refusals).toEqual([]);
 	});
 
-	it("passes a read of the host's own origin through a cd it cannot place in another checkout (#5755)", () => {
+	it("passes a read of the host's own origin (#5755)", () => {
 		for (const check of [
 			"cd scripts && git log -1 origin/main",
 			'cd "$(git rev-parse --show-toplevel)" && git show origin/main:a',
@@ -244,8 +250,22 @@ describe("a check reading an unfetched origin ref (#5697)", () => {
 			"cd ~/x && ls; cd - && git show origin/main:a",
 			"git --git-dir .git show origin/main:a",
 			"git -C . show origin/main:a",
+			"cd ~/x | true; git show origin/main:a",
+			"cd .. && git show origin/main:a",
 		])
 			expect(verdictOf("", gate(check), false).refusals).toEqual([]);
+	});
+
+	it("refuses a git -C or --git-dir it cannot place, naming what it read (#5755)", () => {
+		for (const [check, dir] of [
+			['git -C "$REPO" show origin/main:a', "$REPO"],
+			["for d in ~/x; do git -C $d show origin/main:a; done", "$d"],
+			["git --git-dir $(echo ~/x)/.git show origin/main:a", "$(…)"],
+		]) {
+			const { refusals } = verdictOf("", gate(check), false);
+			expect(refusals).toHaveLength(1);
+			expect(refusals[0]).toContain(`reads an \`origin/\` ref in ${dir}`);
+		}
 	});
 
 	it("refuses a cd read whose fetch was of another checkout (#5755)", () => {
