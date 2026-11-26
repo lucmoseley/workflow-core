@@ -374,6 +374,7 @@ const GATES = [
 			"not on the style-only list",
 			"suppression naming no rule",
 			"names no file under docs/adr/",
+			"a Stryker disable Stryker does not read",
 		],
 		notice: {
 			scope: "every JS, TS, Python and shell file",
