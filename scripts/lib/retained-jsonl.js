@@ -63,10 +63,10 @@ function prune(file, retainMs, now) {
 			const stamps = stamped
 				.map(({ at }) => at)
 				.filter((at) => !Number.isNaN(at));
+			if (stamps.length === 0) return;
 			const ageOf = timeline(stamps, now);
-			const [oldest] = stamps;
-			if (oldest === undefined || !(ageOf(oldest) > retainMs + PRUNE_GRACE_MS))
-				return;
+			const oldest = stamps.reduce((x, y) => Math.min(x, y));
+			if (!(ageOf(oldest) > retainMs + PRUNE_GRACE_MS)) return;
 			return stamped
 				.filter(({ at }) => ageOf(at) <= retainMs)
 				.map(({ row }) => `${JSON.stringify(row)}\n`)

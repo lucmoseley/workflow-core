@@ -107,6 +107,15 @@ describe("appending to a log due a prune", () => {
 		expect(lines()).toEqual(["ahead", ...kept(RETAIN_DAYS), "new"]);
 	});
 
+	it("still prunes when that line a year ahead is the log's first (#5789)", () => {
+		seed(
+			{ n: "ahead", at: new Date(yearAhead()).toISOString() },
+			...daily(RETAIN_DAYS + 2),
+		);
+		appendRetained(log, { n: "new", at: ago(0) }, RETAIN);
+		expect(lines()).toEqual(["ahead", ...kept(RETAIN_DAYS), "new"]);
+	});
+
 	it("counts a quiet spell in the log as one day of its age", () => {
 		seed(...daily(RETAIN_DAYS, 30));
 		appendRetained(log, { n: "new", at: ago(0) }, RETAIN);
