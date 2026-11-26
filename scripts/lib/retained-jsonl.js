@@ -54,12 +54,12 @@ function appendRetained(
 function prune(file, retainMs, now) {
 	ignoreFailure(() =>
 		replaceCarrying(file, (text) => {
-			const { rows } = parseJsonl(text);
-			const ages = timelineAges(rows, now);
-			if (!((ages[0] ?? 0) > retainMs + DAY_MS)) return;
-			return rows
-				.filter((_, i) => (ages[i] ?? 0) <= retainMs)
-				.map((row) => `${JSON.stringify(row)}\n`)
+			const aged = agedRows(parseJsonl(text).rows, now);
+			const [oldest] = aged;
+			if (oldest === undefined || !(oldest.age > retainMs + DAY_MS)) return;
+			return aged
+				.filter(({ age }) => age <= retainMs)
+				.map(({ row }) => `${JSON.stringify(row)}\n`)
 				.join("");
 		}),
 	);
@@ -68,24 +68,26 @@ function prune(file, retainMs, now) {
 /**
  * @param {Record<string, unknown>[]} rows
  * @param {number} now
- * @returns {number[]}
  */
-function timelineAges(rows, now) {
-	const at = rows.map((row) => Date.parse(String(row.at)));
-	/** @type {number[]} */
-	const position = [];
-	let t = 0;
-	let latest = Number.NEGATIVE_INFINITY;
-	for (const a of at) {
-		if (a > latest) {
-			if (latest > Number.NEGATIVE_INFINITY)
-				t += Math.min(a - latest, MAX_GAP_MS);
-			latest = a;
-		}
-		position.push(t);
+function agedRows(rows, now) {
+	const aged = rows.map((row) => {
+		const at = Date.parse(String(row.at));
+		return { row, at, stamp: Math.min(at, now), elapsed: 0, age: Number.NaN };
+	});
+	const dated = aged
+		.filter(({ at }) => !Number.isNaN(at))
+		.sort((x, y) => x.stamp - y.stamp);
+	let elapsed = 0;
+	let previous = Number.NaN;
+	for (const entry of dated) {
+		if (!Number.isNaN(previous))
+			elapsed += Math.min(entry.stamp - previous, MAX_GAP_MS);
+		entry.elapsed = elapsed;
+		previous = entry.stamp;
 	}
-	const end = t + Math.min(Math.max(now - latest, 0), MAX_GAP_MS);
-	return at.map((a, i) => Math.min(now - a, end - (position[i] ?? end)));
+	for (const entry of dated)
+		entry.age = Math.min(now - entry.at, elapsed - entry.elapsed);
+	return aged;
 }
 
 /**
