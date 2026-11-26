@@ -36,8 +36,8 @@ const lines = () =>
 
 const holdLock = () => fs.mkdirSync(`${log}.lock`);
 
-const racing = () => {
-	let t = Date.now();
+const racing = (start = Date.now()) => {
+	let t = start;
 	return () => {
 		t += 3000;
 		return t;
@@ -195,7 +195,7 @@ describe("sweeping logs untouched past the store's own retention", () => {
 		seed(fresh);
 		ageOut(log);
 		holdLock();
-		sweepRetained(dir, retention, racing());
+		sweepRetained(dir, retention, racing(Date.now() - 3000));
 		expect(fs.existsSync(log)).toBe(true);
 	});
 
