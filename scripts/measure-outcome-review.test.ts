@@ -11,7 +11,11 @@ import { GH_NOT_FOUND, readGhAnswer } from "./lib/gh-fake";
 import { stubGhHandler } from "./lib/gh-stub";
 import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
-import { transcriptRecords, writeTranscript } from "./lib/transcript-testkit";
+import {
+	buildBashCall,
+	transcriptRecords,
+	writeTranscript,
+} from "./lib/transcript-testkit";
 
 const SCRIPT = path.join(__dirname, "measure-outcome-review.js");
 const TRACKER = "o/t";
@@ -457,6 +461,82 @@ describe("measure-outcome-review.js", () => {
 			guardrails: { reverts: [revert], followOns: [`${TRACKER}#9`] },
 		});
 		expect(out.unwinds.file[0]).toMatchObject({ harm: true, fixSha: sha });
+	});
+
+	it("counts no red-`main` ticket that names the fix only as `main`'s head (#5777)", () => {
+		const f = scratch();
+		baselineOfOne(f);
+		const sha = fixedFinding(f);
+		afterFix(f, 5, 0);
+		f.issues.push(
+			{
+				number: 9,
+				title: "`main` is red: failures the queue lander blames on no member",
+				labels: ["bug", "origin:ci-red"],
+				body: `## What to build\n\nThe queue lander found these files failing.\n\n- Main: \`${sha}\`\n\nFailing:\n- \`scripts/lib/pypi-registry.contract.test.ts\`\n`,
+				createdAt: d(FIXED + 2),
+			},
+			{
+				number: 10,
+				title: "The scheduled full-suite run is red on main",
+				labels: ["bug", "ci-red"],
+				body: [
+					"Filed automatically by `scripts/report-red-suite.js`.",
+					"",
+					"## The red run",
+					"",
+					`- **Head sha:** \`${sha}\``,
+					"",
+					"```",
+					`1 commit(s) since the last green run, 48a2308..${sha.slice(0, 7)}:`,
+					"",
+					`  ${sha.slice(0, 9)}  Stop the boom (#1)`,
+					"```",
+					"",
+					"## Read this before hunting a commit",
+				].join("\n"),
+				createdAt: d(FIXED + 3),
+			},
+		);
+		const { out } = f.run();
+		expect(outcome(out)).toMatchObject({
+			verdict: "keep",
+			guardrails: { reverts: [], followOns: [] },
+		});
+	});
+
+	it("counts no call that names the finding's own issue, such as its close quoting the fault (#5777)", () => {
+		const f = scratch();
+		const callSession = (id: string, day: number, commands: string[]) => {
+			const dir = path.join(f.seats[0], "projects", "-repo");
+			fs.mkdirSync(dir, { recursive: true });
+			const r = transcriptRecords(d(day));
+			writeTranscript(
+				path.join(dir, `${id}.jsonl`),
+				r.founder("go"),
+				...commands.map((c, i) => JSON.stringify(buildBashCall(c, `t${i}`))),
+				r.assistant("done"),
+			);
+		};
+		for (const [i, day] of [21, 23, 25, 27].entries())
+			callSession(`b${i}`, day, ["echo BOOM"]);
+		f.issues.push({ number: 1, title: "BOOM in the lander" });
+		f.signatureLine(1, {
+			signature: { ...SIG, scope: "main", reads: "call", tool: "Bash" },
+		});
+		f.commit("Stop the boom (#1)", FIXED);
+		for (let i = 0; i < 5; i++)
+			callSession(`a${i}`, FIXED + 1 + i, [
+				"cat > c.md <<'EOF'\nStopped the BOOM (#1).\nEOF",
+				"gh issue view 1 | grep BOOM",
+				"echo BOOM; node scripts/resolve-ticket.js 1 --comment-file c.md",
+			]);
+		const { out } = f.run();
+		expect(outcome(out)).toMatchObject({
+			verdict: "keep",
+			baseline: { count: 4, sessions: 4 },
+			observed: 0,
+		});
 	});
 
 	it("grows the window until the baseline predicts 3", () => {

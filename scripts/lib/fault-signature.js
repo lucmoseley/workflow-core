@@ -228,16 +228,16 @@ const compile = (sig) => new RegExp(sig.pattern, sig.flags ?? "");
  * @param {string} text
  * @param {Signature} sig
  * @param {"main" | "subagent"} tier
- * @param {Registry} registry
+ * @param {{registry: Registry, skip?: RegExp}} read
  * @returns {Array<{at: string|null}>}
  */
-function signatureHits(text, sig, tier, registry) {
+function signatureHits(text, sig, tier, { registry, skip }) {
 	if (!readsTier(sig, tier)) return [];
 	if (sig.kind === "needle")
 		return transcriptFires(text, [needleSubject(sig, registry)], tier).map(
 			(f) => ({ at: f.at }),
 		);
-	return transcriptMatches(text, compile(sig), tier, sig);
+	return transcriptMatches(text, compile(sig), tier, { ...sig, skip });
 }
 
 /**

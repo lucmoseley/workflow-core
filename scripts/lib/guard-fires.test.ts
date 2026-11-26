@@ -609,6 +609,32 @@ describe("transcriptMatches — the regex route", () => {
 		).toEqual([]);
 	});
 
+	it("skips a call whose input also matches `skip`, and never an output record on it (#5777)", () => {
+		const call = (uuid: string, command: string) =>
+			line({
+				type: "assistant",
+				uuid,
+				timestamp: At,
+				message: {
+					content: [
+						{ type: "tool_use", id: uuid, name: "Bash", input: { command } },
+					],
+				},
+			});
+		const text = [
+			call("a1", "echo BOOM; node scripts/resolve-ticket.js 7"),
+			call("a2", "echo BOOM"),
+			said("u1", At, "BOOM in #7"),
+		].join("\n");
+		const skip = /\.js\s+7\b|#7\b/;
+		expect(
+			transcriptMatches(text, /BOOM/, "main", { reads: "call", skip }),
+		).toHaveLength(1);
+		expect(
+			transcriptMatches(text, /BOOM/, "main", { reads: "output", skip }),
+		).toHaveLength(1);
+	});
+
 	const typed = (uuid: string, content: string, extra: object = {}) =>
 		line({ type: "user", uuid, timestamp: At, message: { content }, ...extra });
 

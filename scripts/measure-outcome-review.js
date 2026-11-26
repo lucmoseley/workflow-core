@@ -41,6 +41,7 @@ const {
 const { RUN_RECORD } = require("./lib/retro-record");
 const { SIGNATURE_LABEL } = require("./lib/signature-label");
 const { canonicalJson } = require("./lib/canonical-json");
+const { withoutHeadShaLines } = require("./lib/head-sha-lines");
 
 const DAY_MS = 86_400_000;
 // guess, #4796
@@ -146,18 +147,27 @@ function poissonCdf(k, lambda) {
 	return Math.min(1, sum);
 }
 
+/** @param {string} repo @param {number} n */
+const qualifiedRef = (repo, n) => `(?<![\\w.-])${escapeRe(repo)}#${n}(?!\\w)`;
+/** @param {number} n */
+const bareRef = (n) => `(?<![\\w/.#-])#${n}(?!\\w)`;
+
 /**
  * @param {string} text
  * @param {{repo: string, number: number}} ref
  * @param {string} tracker
  */
 function cites(text, { repo, number: n }, tracker) {
-	if (new RegExp(`(?<![\\w.-])${escapeRe(repo)}#${n}(?!\\w)`).test(text))
-		return true;
-	return (
-		repo === tracker && new RegExp(`(?<![\\w/.#-])#${n}(?!\\w)`).test(text)
-	);
+	if (new RegExp(qualifiedRef(repo, n)).test(text)) return true;
+	return repo === tracker && new RegExp(bareRef(n)).test(text);
 }
+
+// #5777
+/** @param {{repo: string, number: number}} ref */
+const namesFinding = ({ repo, number: n }) =>
+	new RegExp(
+		`${qualifiedRef(repo, n)}|${bareRef(n)}|(?:\\bgh issue [a-z-]+|\\.js)\\s+${n}(?!\\w)`,
+	);
 
 /**
  * @param {unknown} row
@@ -373,7 +383,7 @@ function sessionStart(file) {
 
 /**
  * @param {string} mainLog
- * @param {Array<{i: number, sig: Signature}>} wanted
+ * @param {Array<{i: number, sig: Signature, skip?: RegExp}>} wanted
  * @param {Registry} registry
  * @returns {Map<number, number>}
  */
@@ -386,7 +396,10 @@ function sessionHits(mainLog, wanted, registry) {
 	for (const { file, tier } of logs) {
 		const text = fs.readFileSync(file, "utf8");
 		for (const t of tallies)
-			t.hits += signatureHits(text, t.sig, tier, registry).length;
+			t.hits += signatureHits(text, t.sig, tier, {
+				registry,
+				skip: t.skip,
+			}).length;
 	}
 	return new Map(tallies.map((t) => [t.i, t.hits]));
 }
@@ -420,17 +433,17 @@ function indexSessions(seats, fromMs, { failures, notes }) {
 }
 
 /**
- * @param {Array<{sig: Signature, sessions: Session[]}>} requests
+ * @param {Array<{sig: Signature, skip?: RegExp, sessions: Session[]}>} requests
  * @param {Registry} registry
  * @param {string[]} failures
  * @returns {Array<number[] | null>}
  */
 function hitsFor(requests, registry, failures) {
-	/** @type {Map<string, Array<{i: number, sig: Signature}>>} */
+	/** @type {Map<string, Array<{i: number, sig: Signature, skip?: RegExp}>>} */
 	const wanted = new Map();
-	requests.forEach((r, i) => {
-		for (const s of r.sessions)
-			wanted.set(s.file, [...(wanted.get(s.file) ?? []), { i, sig: r.sig }]);
+	requests.forEach(({ sessions, ...r }, i) => {
+		for (const s of sessions)
+			wanted.set(s.file, [...(wanted.get(s.file) ?? []), { i, ...r }]);
 	});
 	/** @type {Map<string, Map<number, number>>} */
 	const got = new Map();
@@ -487,7 +500,7 @@ function followOnsOf(bugs, f, fix, { tracker, nowMs }) {
 			const created = Date.parse(b.createdAt ?? "");
 			if (!(created > fix.at && created <= nowMs)) return false;
 			if (tracker === f.repo && b.number === f.number) return false;
-			const body = b.body ?? "";
+			const body = withoutHeadShaLines(b.body ?? "");
 			return (
 				cites(body, f, tracker) ||
 				[...body.matchAll(/\b[0-9a-f]{7,40}\b/g)].some((m) =>
@@ -737,7 +750,7 @@ const baselineFrom = (/** @type {number} */ filedAt) =>
 	filedAt - (TRIGGER_DAYS + BASELINE_WEEKS * 7) * DAY_MS;
 
 /**
- * @param {Array<{sig: Signature, filedAt: number}>} requests
+ * @param {Array<{sig: Signature, skip?: RegExp, filedAt: number}>} requests
  * @param {Session[]} sessions
  * @param {Registry} registry
  * @param {string[]} failures
@@ -750,6 +763,7 @@ function countBaselines(requests, sessions, registry, failures) {
 			const end = r.filedAt - TRIGGER_DAYS * DAY_MS;
 			return {
 				sig: r.sig,
+				skip: r.skip,
 				sessions: sessions.filter((s) => s.start >= start && s.start < end),
 			};
 		}),
@@ -779,7 +793,11 @@ function countReadings(
 	const sessions = indexSessions(seats, from, { failures, notes });
 	const owed = reading.filter((r) => !r.f.baseline);
 	const counted = countBaselines(
-		owed.map((r) => ({ sig: r.f.signature, filedAt: r.f.filedAt })),
+		owed.map((r) => ({
+			sig: r.f.signature,
+			skip: namesFinding(r.f),
+			filedAt: r.f.filedAt,
+		})),
 		sessions,
 		registry,
 		failures,
@@ -801,7 +819,11 @@ function countReadings(
 			: [];
 	});
 	const winHits = hitsFor(
-		reading.map((r, i) => ({ sig: r.f.signature, sessions: takes[i] ?? [] })),
+		reading.map((r, i) => ({
+			sig: r.f.signature,
+			skip: namesFinding(r.f),
+			sessions: takes[i] ?? [],
+		})),
 		registry,
 		failures,
 	);
