@@ -102,57 +102,69 @@ function replaceCarrying(file, next) {
 
 /**
  * @param {string} dir
- * @param {number} untouchedMs
+ * @param {number} retentionMs
  * @param {() => number} [now]
  */
-function sweepRetained(dir, untouchedMs, now = Date.now) {
+function sweepRetained(dir, retentionMs, now = Date.now) {
 	const entries = fs.readdirSync(dir).flatMap((name) => {
-		if (!name.endsWith(".jsonl") && !name.includes(".jsonl.")) return [];
+		const shard = name.endsWith(".jsonl");
+		if (!shard && !name.includes(".jsonl.")) return [];
 		const stat = fs.statSync(path.join(dir, name), { throwIfNoEntry: false });
-		return stat === undefined ? [] : [{ name, mtimeMs: stat.mtimeMs }];
+		return stat === undefined ? [] : [{ name, shard, mtimeMs: stat.mtimeMs }];
 	});
-	const ages = timelineAges(
-		entries.map(({ mtimeMs }) => mtimeMs),
+	const ageOf = timeline(
+		entries.filter(({ shard }) => shard).map(({ mtimeMs }) => mtimeMs),
 		now(),
 	);
-	entries.forEach(({ name, mtimeMs }, i) => {
-		if (!((ages[i] ?? 0) > untouchedMs)) return;
+	for (const { name, shard, mtimeMs } of entries) {
+		if (ageOf(mtimeMs) <= retentionMs) continue;
 		const entry = path.join(dir, name);
-		if (name.endsWith(".jsonl")) removeUntouched(entry, mtimeMs, now);
+		if (shard) removeUntouched(entry, mtimeMs, now);
 		else fs.rmSync(entry, { recursive: true, force: true });
-	});
+	}
 }
 
 /**
  * @param {number[]} stamps
  * @param {number} now
- * @returns {number[]}
+ * @returns {(at: number) => number}
  */
-function timelineAges(stamps, now) {
-	const order = stamps
-		.map((at, i) => ({ i, stamp: Math.min(at, now) }))
-		.sort((x, y) => x.stamp - y.stamp);
-	const elapsed = new Array(stamps.length).fill(0);
-	let total = 0;
-	order.forEach(({ i, stamp }, k) => {
-		const previous = order[k - 1];
-		if (previous) total += Math.min(stamp - previous.stamp, MAX_GAP_MS);
-		elapsed[i] = total;
-	});
-	return stamps.map((at, i) => Math.min(now - at, total - elapsed[i]));
+function timeline(stamps, now) {
+	/** @type {{stamp: number, elapsed: number}[]} */
+	const points = [];
+	for (const stamp of stamps
+		.map((at) => Math.min(at, now))
+		.sort((x, y) => x - y))
+		points.push({ stamp, elapsed: elapsedTo(points, stamp) });
+	const total = points.at(-1)?.elapsed ?? 0;
+	return (at) =>
+		Math.min(now - at, total - elapsedTo(points, Math.min(at, now)));
+}
+
+/**
+ * @param {{stamp: number, elapsed: number}[]} points
+ * @param {number} stamp
+ */
+function elapsedTo(points, stamp) {
+	const before = points.findLast((point) => point.stamp <= stamp);
+	if (before !== undefined)
+		return before.elapsed + Math.min(stamp - before.stamp, MAX_GAP_MS);
+	const [first] = points;
+	return first === undefined ? 0 : -Math.min(first.stamp - stamp, MAX_GAP_MS);
 }
 
 /**
  * @param {string} file
- * @param {number} mtimeMs
+ * @param {number} listedMtimeMs
  * @param {() => number} now
  */
-function removeUntouched(file, mtimeMs, now) {
+function removeUntouched(file, listedMtimeMs, now) {
 	withDirLock(
 		lockOf(file),
 		(held) => {
 			const stat = fs.statSync(file, { throwIfNoEntry: false });
-			if (held && stat?.mtimeMs === mtimeMs) replaceCarrying(file, () => null);
+			if (held && stat?.mtimeMs === listedMtimeMs)
+				replaceCarrying(file, () => null);
 		},
 		now,
 	);

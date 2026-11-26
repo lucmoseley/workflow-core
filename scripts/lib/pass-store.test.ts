@@ -1474,15 +1474,15 @@ describe("where the store lives", () => {
 		expect(fs.existsSync(shardOf(dir, B))).toBe(true);
 	});
 
-	it("keeps every shard when one record's clock runs a year ahead (#5787)", () => {
+	it("keeps every shard when one record's clock runs a year ahead, where one untouched for a day past the retention goes (#5787)", () => {
 		const dir = repo();
 		run(dir, [A]);
-		const real = Date.now;
-		vi.spyOn(Date, "now").mockImplementation(() => real() + 365 * DAY);
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(Date.now() + 365 * DAY);
 		try {
 			run(dir, [B]);
 		} finally {
-			vi.restoreAllMocks();
+			vi.useRealTimers();
 		}
 		expect(fs.existsSync(shardOf(dir, A))).toBe(true);
 	});

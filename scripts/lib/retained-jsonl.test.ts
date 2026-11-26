@@ -36,10 +36,11 @@ const lines = () =>
 
 const holdLock = () => fs.mkdirSync(`${log}.lock`);
 
+const STEP_MS = 3000;
 const racing = (start = Date.now()) => {
 	let t = start;
 	return () => {
-		t += 3000;
+		t += STEP_MS;
 		return t;
 	};
 };
@@ -174,7 +175,7 @@ describe("sweeping logs untouched past the store's own retention", () => {
 		expect(fs.existsSync(log)).toBe(true);
 	});
 
-	it("keeps every log when the sweeping clock runs a year ahead", () => {
+	it("keeps every log when the sweeping clock runs a year ahead, where one the store has written past for longer goes (#5787)", () => {
 		seed(fresh);
 		touch(log, 2);
 		dailyHistory(1);
@@ -182,12 +183,32 @@ describe("sweeping logs untouched past the store's own retention", () => {
 		expect(fs.existsSync(log)).toBe(true);
 	});
 
-	it("ages the rest by one gap when a write lands a year ahead", () => {
+	it("ages the rest by one gap, no more, when a write lands a year ahead, where a log is kept without it (#5787)", () => {
 		seed(fresh);
-		touch(log, 2);
-		dailyHistory(1);
-		touch(path.join(dir, "daily-0.jsonl"), -365);
-		sweepRetained(dir, retention, () => Date.now() + 365 * DAY_MS);
+		touch(log, 3.5);
+		dailyHistory(5);
+		const older = path.join(dir, "older.jsonl");
+		fs.writeFileSync(older, "");
+		touch(older, 6.5);
+		const window = 6.5 * DAY_MS;
+		sweepRetained(dir, window);
+		expect(fs.existsSync(older)).toBe(true);
+		const ahead = path.join(dir, "ahead.jsonl");
+		fs.writeFileSync(ahead, "");
+		touch(ahead, -365);
+		sweepRetained(dir, window, () => Date.now() + 365 * DAY_MS);
+		expect(fs.existsSync(older)).toBe(false);
+		expect(fs.existsSync(log)).toBe(true);
+	});
+
+	it("ages a crashed writer's leftover on the shards' timeline without moving it", () => {
+		seed(fresh);
+		touch(log, 9);
+		dailyHistory(5);
+		const leftover = `${log}.lock`;
+		fs.mkdirSync(leftover);
+		touch(leftover, 7);
+		sweepRetained(dir, 6.5 * DAY_MS);
 		expect(fs.existsSync(log)).toBe(true);
 	});
 
@@ -195,7 +216,7 @@ describe("sweeping logs untouched past the store's own retention", () => {
 		seed(fresh);
 		ageOut(log);
 		holdLock();
-		sweepRetained(dir, retention, racing(Date.now() - 3000));
+		sweepRetained(dir, retention, racing(Date.now() - STEP_MS));
 		expect(fs.existsSync(log)).toBe(true);
 	});
 
