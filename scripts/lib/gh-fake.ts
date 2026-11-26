@@ -17,6 +17,7 @@ import GRAPHQL_NO_REPO from "./fixtures/gh/graphql-no-repo.json" with {
 import IDLE_ISSUES_PAGE from "./fixtures/gh/idle-issues-page.json" with {
 	type: "json",
 };
+import ISSUE from "./fixtures/gh/issue.json" with { type: "json" };
 import ISSUE_CREATE from "./fixtures/gh/issue-create.json" with {
 	type: "json",
 };
@@ -304,9 +305,17 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 	};
 	// This tracker holds no pull request to record, so a listed one's key is
 	// GitHub's documented pull_request object (REST, "List repository issues").
-	// Residual: no live case holds pull_request, and nothing holds the stub
-	// at or below a key recorded as null (milestone, pinned_comment, intent).
 	recorded.issuesPage[0][0].pull_request = { url: "", html_url: "", diff_url: "", patch_url: "", merged_at: "" };
+	const filled = JSON.parse(${JSON.stringify(ISSUE.stdout)});
+	for (const issue of [
+		recorded.issue,
+		recorded.issuesPage[0][0],
+		recorded.blockedByPage[0][0],
+		recorded.parentPage[0],
+		recorded.subIssuesPage[0][0],
+	])
+		for (const k of Object.keys(issue))
+			if (issue[k] === null && filled[k] != null) issue[k] = filled[k];
 	const typeOf = (v) => (Array.isArray(v) ? "array" : typeof v);
 	const walk = (t, v, at) => {
 		if (t === null || v === null) return;

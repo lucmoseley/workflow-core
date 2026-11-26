@@ -36,6 +36,7 @@ const ISSUE_LIST = path.join(__dirname, "fixtures/gh/issue-list.json");
 const MAP_LIST = path.join(__dirname, "fixtures/gh/map-list.json");
 const NOT_FOUND = path.join(__dirname, "fixtures/gh/not-found.json");
 const SUB_ISSUES = path.join(__dirname, "fixtures/gh/sub-issues.json");
+const ISSUE = path.join(__dirname, "fixtures/gh/issue.json");
 const SUB_ISSUES_NOT_FOUND = path.join(
 	__dirname,
 	"fixtures/gh/sub-issues-not-found.json",
@@ -336,6 +337,11 @@ describe("live: read-only calls", () => {
 				"--json",
 				"number,body",
 			],
+		},
+		{
+			what: "an issue with a status",
+			fixture: ISSUE,
+			args: ["api", "repos/{owner}/{repo}/issues/5708"],
 		},
 		{
 			what: "a missing issue",
@@ -927,6 +933,7 @@ exit 1
 describe("offline: the recorded shapes", () => {
 	it("builds from the fixture each live case holds", () => {
 		for (const fixture of [
+			ISSUE,
 			ISSUES_PAGE,
 			BLOCKED_BY_PAGE,
 			TIMELINE_PAGE,
@@ -1010,6 +1017,18 @@ describe("offline: the recorded shapes", () => {
 			value: { topics: ["x"] },
 			error: /repo\.topics holds elements gh's recorded answer lacks/,
 		},
+		...Object.entries({
+			issue: { status: { id: "2" } },
+			issuesPage: [[{ status: { id: "2" } }]],
+			blockedByPage: [[{ status: { id: "2" } }]],
+			parentPage: [{ status: { id: "2" } }],
+			subIssuesPage: [[{ status: { id: "2" } }]],
+		}).map(([kind, value]) => ({
+			kind,
+			what: `${kind}'s status of the wrong shape`,
+			value,
+			error: /\.status\.id is string where gh sends number/,
+		})),
 		{
 			kind: "pullRequest",
 			what: "a kind with no recording",
