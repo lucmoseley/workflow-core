@@ -35,7 +35,6 @@ const WORD_RE = new RegExp(`^([^${SP};&|)'"]+)[${SP}]*`);
 const DURATION_RE = /^([0-9]*)(\.([0-9]*))?([smhd]?)$/;
 
 const QUOTE_RE = /^([^'"]*)(['"])/;
-const DQUOTED_RE = /^((?:[^"\\]|\\[\s\S])*)"/;
 const C_FLAG = "-[A-Za-z]*c";
 const SHELL_C_RE = new RegExp(`(^|[${SP}])${C_FLAG}[${SP}]+$`);
 const SCRIPT_RE = new RegExp(
@@ -236,10 +235,55 @@ function closeQuote(q, text) {
 		return text.includes("'")
 			? { span: before(text, "'"), rest: after(text, "'") }
 			: null;
-	const d = DQUOTED_RE.exec(text);
-	return d
-		? { span: requiredGroup(d, 1, DQUOTED_RE), rest: text.slice(d[0].length) }
-		: null;
+	const end = dquoteEnd(text, 0);
+	return end < 0
+		? null
+		: { span: text.slice(0, end), rest: text.slice(end + 1) };
+}
+
+/** @param {string} text @param {number} from */
+function dquoteEnd(text, from) {
+	for (let i = from; i < text.length; i++) {
+		const c = text[i];
+		if (c === '"') return i;
+		if (c === "\\") i++;
+		else if (c === "`") i = tickEnd(text, i + 1);
+		else if (c === "$" && text[i + 1] === "(") i = parenEnd(text, i + 2);
+		if (i < 0) return -1;
+	}
+	return -1;
+}
+
+/** @param {string} text @param {number} from */
+function tickEnd(text, from) {
+	for (let i = from; i < text.length; i++) {
+		if (text[i] === "`") return i;
+		if (text[i] === "\\") i++;
+	}
+	return -1;
+}
+
+/** @param {string} text @param {number} from */
+function parenEnd(text, from) {
+	let depth = 1;
+	for (let i = from; i < text.length; i++) {
+		const c = text[i];
+		if (c === "(") depth++;
+		else if (c === ")" && --depth === 0) return i;
+		else i = skipped(text, i);
+		if (i < 0) return -1;
+	}
+	return -1;
+}
+
+/** @param {string} text @param {number} i */
+function skipped(text, i) {
+	const c = text[i];
+	if (c === "\\") return i + 1;
+	if (c === "'") return text.indexOf("'", i + 1);
+	if (c === '"') return dquoteEnd(text, i + 1);
+	if (c === "`") return tickEnd(text, i + 1);
+	return i;
 }
 
 /**
@@ -265,26 +309,14 @@ function substitutions(span, how) {
 		if (!m) break;
 		const token = requiredGroup(m, 1, SUB_OPEN_RE);
 		const at = m.index + m[0].length - token.length;
-		const tick = token === "`";
-		const open = rest.slice(at + (tick ? 1 : 2));
-		const end = tick ? open.indexOf("`") : closingParen(open);
+		const from = at + token.length;
+		const end = token === "`" ? tickEnd(rest, from) : parenEnd(rest, from);
 		if (end < 0) break;
-		found.push(open.slice(0, end));
-		rest = open.slice(end + 1);
+		found.push(rest.slice(from, end));
+		rest = rest.slice(end + 1);
 	}
 	const params = span.match(PARAM_RE) ?? [];
 	return [...found.map((sub) => mask(sub, how)), ...params].join(" ");
-}
-
-/** @param {string} text */
-function closingParen(text) {
-	let depth = 1;
-	for (let i = 0; i < text.length; i++) {
-		if (text[i] === "(") depth++;
-		if (text[i] === ")") depth--;
-		if (depth === 0) return i;
-	}
-	return -1;
 }
 
 /** @param {string} text @returns {string} */

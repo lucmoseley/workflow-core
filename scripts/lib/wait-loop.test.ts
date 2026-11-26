@@ -419,6 +419,22 @@ describe("a wait loop gated on machine load is refused (#5325)", () => {
 			"inside a double-quoted bash -c, its inner quotes escaped",
 		],
 		[
+			`timeout 840 bash -c 'until [ "$(cut -d" " -f1 /proc/loadavg | cut -d. -f1)" -lt 40 ]; do sleep 20; done'`,
+			"the load read in a quoted $(…) that holds its own double quotes (#5779)",
+		],
+		[
+			`until [ "$(cut -d" " -f1 /proc/loadavg | cut -d. -f1)" -lt 6 ]; do sleep 20; done`,
+			"the same nested quotes with no bash -c",
+		],
+		[
+			'until [ "$(cut -d")" -f1 /proc/loadavg)" -lt 6 ]; do sleep 20; done',
+			"a close paren quoted inside the $(…)",
+		],
+		[
+			'until [ "`cut -d" " -f1 /proc/loadavg | cut -d. -f1`" -lt 6 ]; do sleep 20; done',
+			"nested quotes inside a backtick substitution",
+		],
+		[
 			"while :; do l=$(cut -d. -f1 /proc/loadavg); if [ $l -lt 6 ]; then echo go; break; fi; sleep 15; done",
 			"an if on a load variable around the break",
 		],
