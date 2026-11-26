@@ -320,7 +320,7 @@ const buildSilentRefusal = (command, what, state) =>
  * @param {string} reading
  */
 const buildNoVerdictRefusal = (command, reading) =>
-	`the \`check:\` \`${command}\` on the \`**Gated on:**\` line prints \`${reading.replace(/\n[\s\S]*/, "").slice(0, SHOWN_READING_CHARS)}\`, which carries no verdict, so the gate sweep judges every change to it instead of waiting while it reads unmet (#5756). Open a line with \`met:\` or \`unmet:\`, for example ${PRINTING_FIX}, or print a count against its threshold as \`<a> of <b>\`, for example ${COUNT_FIX}. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
+	`the \`check:\` \`${command}\` on the \`**Gated on:**\` line prints \`${reading.replace(/\n[\s\S]*/, "").slice(0, SHOWN_READING_CHARS)}\`, which carries no verdict (#5756). Open a line with \`met:\` or \`unmet:\`, for example ${PRINTING_FIX}, or print a count against its threshold as \`<a> of <b>\`, for example ${COUNT_FIX}. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
 
 module.exports = {
 	DEFAULT_TIMEOUT_S,
