@@ -164,8 +164,22 @@ function classifyExit(r, { out, err, timeoutMs, elapsedMs }) {
 	};
 }
 
+/** @param {string} reading @returns {"met"|"unmet"|null} */
+function parseVerdict(reading) {
+	if (/^[ \t]*unmet\b/im.test(reading)) return "unmet";
+	if (/^[ \t]*met\b/im.test(reading)) return "met";
+	const counts = [...reading.matchAll(/\b(\d+) of (\d+)\b/g)];
+	if (counts.length === 0) return null;
+	return counts.every(([, a, b]) => Number(a) >= Number(b)) ? "met" : "unmet";
+}
+
 const PRINTING_FIX =
 	'`git merge-base --is-ancestor X origin/main && echo "met: on main" || echo "unmet: not on main"`';
+
+const COUNT_FIX = '`echo "$(grep -c . data/log.jsonl) of 25 rows"`';
+
+// guess, #5756
+const SHOWN_READING_CHARS = 120;
 
 const SUBSTITUTED = "$(…)";
 const GIT_WORD = "git";
@@ -535,7 +549,7 @@ function addedCheckVerdict(
 		}
 		if (!run) {
 			warnings.push(
-				`The \`check:\` \`${u.command}\` was not run here, so nothing says it prints a reading. Run \`node ${scriptPath("check-gates.js")} --issue <n>\` once it is filed; a NO-OUTPUT or DEAD row there is a check to rewrite so that it prints what it saw, for example ${PRINTING_FIX}.`,
+				`The \`check:\` \`${u.command}\` was not run here, so nothing says it prints a reading. Run \`node ${scriptPath("check-gates.js")} --issue <n>\` once it is filed; a NO-OUTPUT or DEAD row there, or a reading with no line opening \`met:\` or \`unmet:\` and no \`<a> of <b>\` count, is a check to rewrite so that it prints what it saw and a verdict, for example ${PRINTING_FIX} or ${COUNT_FIX}.`,
 			);
 			continue;
 		}
@@ -569,6 +583,8 @@ function judgeRun(command, where, timeoutMs, { refusals, warnings }) {
 	}
 	if (r.state === "NO-OUTPUT" || r.state === "DEAD")
 		refusals.push(buildSilentRefusal(command, r.reading, r.state));
+	else if (r.state === "READING" && parseVerdict(r.reading) === null)
+		refusals.push(buildNoVerdictRefusal(command, r.reading));
 	else if (r.state === "OVER-BUDGET")
 		warnings.push(
 			`The \`check:\` \`${command}\` ran past its ${Math.round(timeoutMs / 1000)} s budget, so the gate sweep will read it as OVER-BUDGET and its judge will run it by hand. Where it is not meant to run that long, make it print what it saw sooner.`,
@@ -583,12 +599,20 @@ function judgeRun(command, where, timeoutMs, { refusals, warnings }) {
 const buildSilentRefusal = (command, what, state) =>
 	`the \`check:\` \`${command}\` on the \`**Gated on:**\` line reads as ${state} (${what}), so the gate sweep gets no reading to judge (#3487). Make the command print what it saw, for example ${PRINTING_FIX}. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
 
+/**
+ * @param {string} command
+ * @param {string} reading
+ */
+const buildNoVerdictRefusal = (command, reading) =>
+	`the \`check:\` \`${command}\` on the \`**Gated on:**\` line prints \`${reading.replace(/\n[\s\S]*/, "").slice(0, SHOWN_READING_CHARS)}\`, which carries no verdict, so the gate sweep judges every change to it instead of waiting while it reads unmet (#5756). Open a line with \`met:\` or \`unmet:\`, for example ${PRINTING_FIX}, or print a count against its threshold as \`<a> of <b>\`, for example ${COUNT_FIX}. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`;
+
 module.exports = {
 	DEFAULT_TIMEOUT_S,
 	NOT_STATED,
 	PRINTING_FIX,
 	REPAIR_STATES,
 	addedCheckVerdict,
+	parseVerdict,
 	runCheckCommand,
 	unwrap,
 };
