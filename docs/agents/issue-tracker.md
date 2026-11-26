@@ -280,7 +280,7 @@ Overrides `.agents/skills/to-tickets/SKILL.md`'s "numbers/titles" (vendored, has
 
 ## Naming the commit that caused a bug
 
-**Whoever establishes that a commit caused a bug writes `**Caused by:** <sha>[, <sha>…]` on its ticket** (#5781): the filer through `file-issue.js --caused-by <sha>`, which checks each sha against the local repo, or a triage or resolution comment once the cause is found. The weekly outcome review counts a `bug` ticket against a fix only through this line, so a cause named in prose alone never reaches it. Clearing a commit writes no line, nor does a guess or a list of suspects. **Unenforced** on comments: no hook reads a triage or close comment.
+**Whoever establishes that a commit caused a bug writes `**Caused by:** <sha>[, <sha>…]` on its ticket** (#5781): the filer through `file-issue.js --caused-by <sha>`, or a triage or resolution comment once the cause is found. The weekly outcome review counts a `bug` ticket against a fix only through this line, so a cause named in prose alone never reaches it. Clearing a commit writes no line, nor does a guess or a list of suspects. **Unenforced** on comments: no hook reads a triage or close comment.
 
 ## Pull requests as a triage surface
 
