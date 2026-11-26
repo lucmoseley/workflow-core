@@ -706,7 +706,7 @@ function sweepOrSay(storeRoot, err) {
 
 /** @param {string} storeRoot */
 function sweepShards(storeRoot) {
-	sweepRetained(storeDir(storeRoot), Date.now() - ARCHIVE_MS - DAY_MS);
+	sweepRetained(storeDir(storeRoot), ARCHIVE_MS + DAY_MS);
 }
 
 /**

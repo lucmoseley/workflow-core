@@ -6,6 +6,8 @@ const { withDirLock } = require("./dir-lock.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+// guess, #5785
+const MAX_GAP_MS = DAY_MS;
 
 /** @param {string} file */
 const lockOf = (file) => `${file}.lock`;
@@ -100,38 +102,57 @@ function replaceCarrying(file, next) {
 
 /**
  * @param {string} dir
- * @param {number} beforeMs
+ * @param {number} untouchedMs
  * @param {() => number} [now]
  */
-function sweepRetained(dir, beforeMs, now = Date.now) {
-	for (const name of fs.readdirSync(dir)) {
+function sweepRetained(dir, untouchedMs, now = Date.now) {
+	const entries = fs.readdirSync(dir).flatMap((name) => {
+		if (!name.endsWith(".jsonl") && !name.includes(".jsonl.")) return [];
+		const stat = fs.statSync(path.join(dir, name), { throwIfNoEntry: false });
+		return stat === undefined ? [] : [{ name, mtimeMs: stat.mtimeMs }];
+	});
+	const ages = timelineAges(
+		entries.map(({ mtimeMs }) => mtimeMs),
+		now(),
+	);
+	entries.forEach(({ name, mtimeMs }, i) => {
+		if (!((ages[i] ?? 0) > untouchedMs)) return;
 		const entry = path.join(dir, name);
-		if (name.endsWith(".jsonl")) removeUntouched(entry, beforeMs, now);
-		else if (name.includes(".jsonl.") && writtenBefore(entry, beforeMs))
-			fs.rmSync(entry, { recursive: true, force: true });
-	}
+		if (name.endsWith(".jsonl")) removeUntouched(entry, mtimeMs, now);
+		else fs.rmSync(entry, { recursive: true, force: true });
+	});
+}
+
+/**
+ * @param {number[]} stamps
+ * @param {number} now
+ * @returns {number[]}
+ */
+function timelineAges(stamps, now) {
+	const order = stamps
+		.map((at, i) => ({ i, stamp: Math.min(at, now) }))
+		.sort((x, y) => x.stamp - y.stamp);
+	const elapsed = new Array(stamps.length).fill(0);
+	let total = 0;
+	order.forEach(({ i, stamp }, k) => {
+		const previous = order[k - 1];
+		if (previous) total += Math.min(stamp - previous.stamp, MAX_GAP_MS);
+		elapsed[i] = total;
+	});
+	return stamps.map((at, i) => Math.min(now - at, total - elapsed[i]));
 }
 
 /**
  * @param {string} file
- * @param {number} beforeMs
- */
-const writtenBefore = (file, beforeMs) => {
-	const stat = fs.statSync(file, { throwIfNoEntry: false });
-	return stat !== undefined && stat.mtimeMs < beforeMs;
-};
-
-/**
- * @param {string} file
- * @param {number} beforeMs
+ * @param {number} mtimeMs
  * @param {() => number} now
  */
-function removeUntouched(file, beforeMs, now) {
+function removeUntouched(file, mtimeMs, now) {
 	withDirLock(
 		lockOf(file),
 		(held) => {
-			if (held && writtenBefore(file, beforeMs))
-				replaceCarrying(file, () => null);
+			const stat = fs.statSync(file, { throwIfNoEntry: false });
+			if (held && stat?.mtimeMs === mtimeMs) replaceCarrying(file, () => null);
 		},
 		now,
 	);

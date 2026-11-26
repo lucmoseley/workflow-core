@@ -6,7 +6,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { defineTemplate } from "./git-fixture";
 import {
 	type Audit,
@@ -1459,11 +1459,32 @@ describe("where the store lives", () => {
 	it("deletes a shard untouched for a day past the retention on the next record", () => {
 		const dir = repo();
 		run(dir, [A]);
-		const stale = (Date.now() - 9 * DAY) / 1000;
-		fs.utimesSync(shardOf(dir, A), stale, stale);
+		const touch = (file: string, days: number) => {
+			const at = (Date.now() - days * DAY) / 1000;
+			fs.utimesSync(file, at, at);
+		};
+		touch(shardOf(dir, A), 9);
+		for (let days = 8; days > 0; days--) {
+			const daily = shardOf(dir, `daily-${days}.test.ts`);
+			fs.writeFileSync(daily, "");
+			touch(daily, days);
+		}
 		run(dir, [B]);
 		expect(fs.existsSync(shardOf(dir, A))).toBe(false);
 		expect(fs.existsSync(shardOf(dir, B))).toBe(true);
+	});
+
+	it("keeps every shard when one record's clock runs a year ahead (#5787)", () => {
+		const dir = repo();
+		run(dir, [A]);
+		const real = Date.now;
+		vi.spyOn(Date, "now").mockImplementation(() => real() + 365 * DAY);
+		try {
+			run(dir, [B]);
+		} finally {
+			vi.restoreAllMocks();
+		}
+		expect(fs.existsSync(shardOf(dir, A))).toBe(true);
 	});
 
 	it("is the canonical checkout's, so a linked worktree's pass serves the main tree", () => {

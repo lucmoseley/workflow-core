@@ -142,21 +142,52 @@ describe("appending where the log cannot be written", () => {
 	});
 });
 
-describe("sweeping logs untouched past a cut-off", () => {
-	const old = (Date.now() - 10 * DAY_MS) / 1000;
-	const cutoff = () => Date.now() - 9 * DAY_MS;
-	const ageOut = (p: string) => fs.utimesSync(p, old, old);
+describe("sweeping logs untouched past the store's own retention", () => {
+	const retention = 9 * DAY_MS;
+	const touch = (p: string, days: number) => {
+		const at = (Date.now() - days * DAY_MS) / 1000;
+		fs.utimesSync(p, at, at);
+	};
+	const dailyHistory = (from: number) => {
+		for (let days = from; days >= 0; days--) {
+			const shard = path.join(dir, `daily-${days}.jsonl`);
+			fs.writeFileSync(shard, "");
+			touch(shard, days);
+		}
+	};
+	const ageOut = (p: string) => {
+		touch(p, 10);
+		dailyHistory(9);
+	};
 
-	it("deletes a log last written before it", () => {
+	it("deletes a log the store has written past for longer", () => {
 		seed(fresh);
 		ageOut(log);
-		sweepRetained(dir, cutoff());
+		sweepRetained(dir, retention);
 		expect(fs.existsSync(log)).toBe(false);
 	});
 
 	it("keeps a log written since", () => {
 		seed(fresh);
-		sweepRetained(dir, cutoff());
+		dailyHistory(9);
+		sweepRetained(dir, retention);
+		expect(fs.existsSync(log)).toBe(true);
+	});
+
+	it("keeps every log when the sweeping clock runs a year ahead", () => {
+		seed(fresh);
+		touch(log, 2);
+		dailyHistory(1);
+		sweepRetained(dir, retention, () => Date.now() + 365 * DAY_MS);
+		expect(fs.existsSync(log)).toBe(true);
+	});
+
+	it("ages the rest by one gap when a write lands a year ahead", () => {
+		seed(fresh);
+		touch(log, 2);
+		dailyHistory(1);
+		touch(path.join(dir, "daily-0.jsonl"), -365);
+		sweepRetained(dir, retention, () => Date.now() + 365 * DAY_MS);
 		expect(fs.existsSync(log)).toBe(true);
 	});
 
@@ -164,7 +195,7 @@ describe("sweeping logs untouched past a cut-off", () => {
 		seed(fresh);
 		ageOut(log);
 		holdLock();
-		sweepRetained(dir, cutoff(), racing());
+		sweepRetained(dir, retention, racing());
 		expect(fs.existsSync(log)).toBe(true);
 	});
 
@@ -172,7 +203,7 @@ describe("sweeping logs untouched past a cut-off", () => {
 		seed(fresh);
 		ageOut(log);
 		lateWriterAt("rmSync", "late");
-		sweepRetained(dir, cutoff());
+		sweepRetained(dir, retention);
 		expect(lines()).toEqual(["late"]);
 	});
 
@@ -182,8 +213,9 @@ describe("sweeping logs untouched past a cut-off", () => {
 		fs.writeFileSync(leftovers[1] as string, "");
 		const other = path.join(dir, "notes.txt");
 		fs.writeFileSync(other, "");
-		for (const p of [...leftovers, other]) ageOut(p);
-		sweepRetained(dir, cutoff());
+		for (const p of [...leftovers, other]) touch(p, 10);
+		dailyHistory(9);
+		sweepRetained(dir, retention);
 		expect(leftovers.filter((p) => fs.existsSync(p))).toEqual([]);
 		expect(fs.existsSync(other)).toBe(true);
 	});
