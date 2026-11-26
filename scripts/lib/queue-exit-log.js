@@ -48,8 +48,49 @@ function queueExitLogger({ file, kind, lane, slotFree, session, label, err }) {
 	};
 }
 
+// #5740
+/**
+ * @param {{ session?: string | null, pid: number }} w
+ */
+const waitOwner = (w) => w.session ?? `(no session, pid ${w.pid})`;
+
+/**
+ * @param {[number, number][]} iv
+ * @returns {number}
+ */
+function unionS(iv) {
+	let ms = 0;
+	let reach = Number.NEGATIVE_INFINITY;
+	for (const [a, b] of [...iv].sort((x, y) => x[0] - y[0])) {
+		ms += Math.max(0, b - Math.max(a, reach));
+		reach = Math.max(reach, b);
+	}
+	return ms / 1000;
+}
+
+/**
+ * @param {{ st: number, en: number, session?: string | null, pid: number }[]} waits
+ * @param {number} from
+ * @param {number} to
+ * @returns {number}
+ */
+function sessionWallS(waits, from, to) {
+	/** @type {Map<string, [number, number][]>} */
+	const byOwner = new Map();
+	for (const w of waits) {
+		const st = Math.max(w.st, from);
+		const en = Math.min(w.en, to);
+		if (en <= st) continue;
+		byOwner.set(waitOwner(w), [...(byOwner.get(waitOwner(w)) ?? []), [st, en]]);
+	}
+	return [...byOwner.values()].reduce((s, iv) => s + unionS(iv), 0);
+}
+
 module.exports = {
 	QUEUE_EXIT_RETAIN_MS,
+	sessionWallS,
+	unionS,
+	waitOwner,
 	queueExitLogPath,
 	queueExitLogger,
 };

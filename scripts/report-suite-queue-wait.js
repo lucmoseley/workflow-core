@@ -10,7 +10,7 @@ const { hostRoot } = require("./lib/host-root");
 const { periodicReading, buildSkipLine } = require("./lib/periodic-reading");
 const { isCoreHost } = require("./lib/plugin-state");
 const { qualifyProse } = require("./lib/qualify-citations");
-const { queueExitLogPath } = require("./lib/queue-exit-log");
+const { queueExitLogPath, sessionWallS } = require("./lib/queue-exit-log");
 const { fileOrRefresh, findTrackingIssue } = require("./lib/tracking-issue");
 const {
 	buildCommandUndeclaredLine,
@@ -64,7 +64,7 @@ const HOST_TEXT = {
 
 /**
  * @typedef {{ at: string, waitS: number, reason: string, kind: string,
- *   session: string | null, empty: boolean, skipped?: boolean,
+ *   session: string | null, pid: number, empty: boolean, skipped?: boolean,
  *   joined?: { pid: number, session: string | null } }} QueueExit
  * @typedef {{ runs: number, waits: number, waitS: number }} Tally
  */
@@ -144,6 +144,21 @@ const total = (exits, from, to, keep = () => true) =>
 		waitS: 0,
 	};
 
+/**
+ * @param {QueueExit[]} exits
+ * @param {number} from
+ * @param {number} to
+ */
+const sessionWait = (exits, from, to) =>
+	sessionWallS(
+		exits.map((e) => {
+			const en = Date.parse(e.at);
+			return { st: en - e.waitS * 1000, en, session: e.session, pid: e.pid };
+		}),
+		from,
+		to,
+	);
+
 /** @param {number} s */
 const hours = (s) => (s / 3600).toFixed(1);
 
@@ -164,6 +179,7 @@ function reading(logged, nowMs, unparsed, core) {
 	const skipped = total(logged, from, nowMs, (e) => e.skipped === true);
 	const exits = logged.filter((e) => e.skipped !== true);
 	const all = total(exits, from, nowMs);
+	const wallS = sessionWait(exits, from, nowMs);
 	const none = total([], from, nowMs);
 	const row = (/** @type {string} */ label, /** @type {Tally} */ t) =>
 		`| ${label} | ${t.runs} | ${hours(t.waitS)} |`;
@@ -172,9 +188,15 @@ function reading(logged, nowMs, unparsed, core) {
 	const series = [];
 	for (let i = SERIES_DAYS - 1; i >= 0; i--) {
 		const day = today - i * DAY_MS;
-		const t = total(exits, day, Math.min(day + DAY_MS, nowMs));
+		const to = Math.min(day + DAY_MS, nowMs);
+		const t = total(exits, day, to);
 		const date = new Date(day).toISOString().slice(0, 10);
-		series.push(row(i ? date : `${date} (to now)`, t));
+		series.push(
+			row(i ? date : `${date} (to now)`, {
+				...t,
+				waitS: sessionWait(exits, day, to),
+			}),
+		);
 	}
 
 	const byKind = tally(exits, from, nowMs, (e) => e.kind);
@@ -188,7 +210,7 @@ function reading(logged, nowMs, unparsed, core) {
 	const joined = total(exits, from, nowMs, (e) => e.joined !== undefined);
 
 	const body = [
-		`**${hours(all.waitS)} h** of suite queue wait in the 24 h to ${minute(nowMs)}, over ${all.runs} queued run(s). The limit is ${LIMIT_H} h, fixed in hours: it changes only by ${host.ruling} (#1157 Q5, Q6).`,
+		`**${hours(wallS)} h** of suite queue wait in the 24 h to ${minute(nowMs)}, over ${all.runs} queued run(s): each launching session's wall-clock wait, its overlapping waits counted once, summed across sessions. Summed per run, the wait is ${hours(all.waitS)} h. The limit is ${LIMIT_H} h, fixed in hours: it changes only by ${host.ruling} (#1157 Q5, Q6).`,
 		"",
 		`${joined.waits} more wait(s) joined a queued same-key \`tsc\` run rather than queue their own, ${hours(joined.waitS)} h of that wait (#5639).`,
 		"",
@@ -197,7 +219,7 @@ function reading(logged, nowMs, unparsed, core) {
 			? ["", `${unparsed} log line(s) would not parse and are not counted.`]
 			: []),
 		"",
-		"Each run's wait is counted only where it falls inside the window or day.",
+		"Each run's wait is counted only where it falls inside the window or day. A wait with no launching session counts on its own. The kind and session tables below sum per run: they say where the wait went, not how much session time it cost (#5740).",
 		"",
 		...(core
 			? [
@@ -207,7 +229,7 @@ function reading(logged, nowMs, unparsed, core) {
 			: []),
 		`## Daily wait, last ${SERIES_DAYS} days (UTC)`,
 		"",
-		"| Day | Runs | Wait (h) |",
+		"| Day | Runs | Session wall-clock wait (h) |",
 		"| --- | --- | --- |",
 		...series,
 		"",
@@ -238,7 +260,7 @@ function reading(logged, nowMs, unparsed, core) {
 		"",
 		...host.questions,
 	].join("\n");
-	return { waitS: all.waitS, body: host.finish(body) };
+	return { waitS: wallS, body: host.finish(body) };
 }
 
 /**
@@ -251,7 +273,7 @@ function reading(logged, nowMs, unparsed, core) {
 function readAndFile(logFile, nowMs, dryRun, core) {
 	const { exits, unparsed } = readExits(logFile);
 	const { waitS, body } = reading(exits, nowMs, unparsed, core);
-	const figure = `${hours(waitS)} h of queue wait in the last 24 h, against the ${LIMIT_H} h limit`;
+	const figure = `${hours(waitS)} h of session wall-clock queue wait in the last 24 h, against the ${LIMIT_H} h limit`;
 	if (dryRun) return `${body}\n\nDry run: ${figure}; nothing filed.`;
 	if (waitS < LIMIT_H * 3600) return `${figure}; nothing filed.`;
 	const latest = findTrackingIssue({ title: TITLE }, "all");
