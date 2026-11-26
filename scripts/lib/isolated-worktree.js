@@ -37,6 +37,26 @@ function readLinkedPaths(dir) {
 }
 
 /**
+ * @param {string} dir
+ * @returns {string[]}
+ */
+function linkedIgnorePatterns(dir) {
+	return readLinkedPaths(dir)
+		.map((artefact) => path.join(dir, artefact))
+		.filter((link) =>
+			orFallback(() => fs.lstatSync(link).isSymbolicLink(), false),
+		)
+		.map(
+			(link) =>
+				`/${path
+					.relative(dir, link)
+					.split(path.sep)
+					.join("/")
+					.replace(/[\\*?[\]{}()!+@]/g, "\\$&")}`,
+		);
+}
+
+/**
  * @typedef {{ mkdirSync: typeof import("node:fs").mkdirSync,
  *   symlinkSync: typeof import("node:fs").symlinkSync,
  *   readdirSync: typeof import("node:fs").readdirSync,
@@ -353,6 +373,7 @@ if (require.main === module) {
 module.exports = {
 	createIsolated,
 	linkArtefacts,
+	linkedIgnorePatterns,
 	removeIsolated,
 	runInTree,
 	sweepIsolated,
