@@ -546,8 +546,9 @@ describe("measure-outcome-review.js", () => {
 		const sha = fixedFinding(f);
 		const other = f.commit("Another change", FIXED + 1);
 		afterFix(f, 5, 0);
-		f.issues[1] = {
-			...f.issues[1],
+		const finding = f.issues.findIndex((i) => i.number === 1);
+		f.issues[finding] = {
+			...f.issues[finding],
 			labels: ["bug"],
 			comments: [`**Caused by:** ${sha}`],
 			createdAt: d(FIXED + 2),

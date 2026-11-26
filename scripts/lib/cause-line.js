@@ -1,8 +1,10 @@
+const { escapeRe } = require("./regex-group");
+
 const CAUSED_BY = "**Caused by:**";
 
 const HEX = "[0-9a-f]{7,40}";
 const SHA = new RegExp(`^${HEX}$`);
-const LINE = /^\s*(?:[-*]\s+)?\*\*Caused by:\*\*(.*)$/;
+const LINE = new RegExp(`^\\s*(?:[-*]\\s+)?${escapeRe(CAUSED_BY)}(.*)$`);
 const NEXT_SHA = new RegExp(`^\\s*\`?(${HEX})\`?(?![0-9A-Za-z])\\s*(,?)`);
 
 /**
