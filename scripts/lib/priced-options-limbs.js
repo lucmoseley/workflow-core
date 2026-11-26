@@ -4,6 +4,7 @@ const SHAPE_PREFIX = ".priced-options-nagged-";
 const NEEDS_INPUT_ROUND_PREFIX = ".needs-input-round-nagged-";
 const FOUNDER_ACT_PREFIX = ".founder-act-nagged-";
 const ACTOR_ONLY_PREFIX = ".actor-only-nagged-";
+const RECURRENCE_PREFIX = ".recurrence-nagged-";
 
 const COMPLETED_WHILE_WAITING_PREFIX = ".completed-while-waiting-nagged-";
 const NEEDS_INPUT_UNDERCUT_PREFIX = ".needs-input-undercut-nagged-";
@@ -60,6 +61,12 @@ const LIMBS = [
 		cap: CAP,
 		name: "research-ladder",
 	},
+	{
+		prefix: RECURRENCE_PREFIX,
+		tier: "outside-ceiling",
+		cap: CAP,
+		name: "recurring-hand-over",
+	},
 ];
 
 /**
@@ -109,6 +116,7 @@ module.exports = {
 	NEEDS_INPUT_ROUND_PREFIX,
 	FOUNDER_ACT_PREFIX,
 	ACTOR_ONLY_PREFIX,
+	RECURRENCE_PREFIX,
 	COMPLETED_WHILE_WAITING_PREFIX,
 	NEEDS_INPUT_UNDERCUT_PREFIX,
 	NEEDS_INPUT_MISPLACED_PREFIX,

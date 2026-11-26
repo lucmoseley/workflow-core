@@ -1162,8 +1162,13 @@ Relation: all three are mutually exclusive — one of them ships this week.
 	});
 
 	it("does not read a relation line from the next question's block", () => {
-		const text = `${noRelation}\n\n❓ **Q2** - **Owner**: who?\n\n(A) Me\nConfidence: ${priced(LIKELY_TOP)}. I have the context.\n\n(B) You\nConfidence: 25% (15% - 35%). You have the access.\n\nRelation: (A) and (B) conflict on who holds the token.\nBlocked: only you hold the deploy token.\n\n➡️ (A).`;
-		const reason = run(transcriptWith(text))?.reason ?? "";
+		const text = `${noRelation}\n\n❓ **Q2** - **Owner**: who?\n\n(A) Me\nConfidence: ${priced(LIKELY_TOP)}. I have the context.\n\n(B) You\nConfidence: 25% (15% - 35%). You have the access.\n\nRelation: (A) and (B) conflict on who holds the token.\nBlocked: only you hold the deploy token.\nRecurrence: none — searched closed issues for the deploy token.\n\n➡️ (A).`;
+		const search = buildBashCall(
+			"gh search issues --state closed 'deploy token'",
+			"t-search",
+			{ timestamp: "2026-11-26T11:00:00Z" },
+		);
+		const reason = run(transcriptWith(text, [search]))?.reason ?? "";
 		expect(reason).toContain("Q1: it states no relation");
 		expect(reason).not.toContain("Q2:");
 	});
