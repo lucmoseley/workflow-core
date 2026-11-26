@@ -10,9 +10,8 @@ const { buildRowPrompt } = require("./unclosed-launch.js");
 const {
 	BREAKER_OPEN,
 	buildLaunchRoom,
-	NO_PROGRESS_RUN,
 	PROBE_HELD,
-	REPO_PAUSED,
+	UNPROVEN_LIMIT,
 	UNPROVEN_HELD,
 } = require("./launch-room.js");
 
@@ -24,14 +23,13 @@ const BILLING_SKIP_MS = LAST_RESUME_OFFSET_MS;
 const NOTHING_LAUNCHABLE = "nothing launchable";
 const SHORTLIST_FAILED = "shortlist failed in";
 const NO_FREE_SLOT = "no free slot";
-const NO_PROGRESS_PAUSE = "no-progress";
 const NO_PLAN_ROOM = "no plan has room right now";
 const FIVE_HOUR_FULL = "the 5-hour bar is full on";
 const LIMIT_HELD_WAIT =
 	"every seat is spent; a limit-held session waits on one";
 const RESUME_DUE_WAIT = "every seat is spent; a resume is due";
 const RESUMES_TAKE_SLOTS = "resumes take every free slot";
-const UNPROVEN_CAP = `${NO_PROGRESS_RUN} launches since the last act are running`;
+const UNPROVEN_CAP = `${UNPROVEN_LIMIT} launches since the last act are running`;
 const CHECKOUTS_HELD = "every launchable checkout is held";
 const OVERFLOW_SPENT = "every plan seat is weekly-full";
 const PLAN_RESETS = "a plan resets";
@@ -105,7 +103,7 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @typedef {object} TickInput
  * @property {number} now
  * @property {"normal"|"away"} mode
- * @property {number} noProgressFrom
+ * @property {number} runFrom
  * @property {boolean} stopRequested
  * @property {Pause} [paused]
  * @property {LaunchHold} [launchHold]
@@ -119,7 +117,6 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {OverflowReading[]} [overflow]
  * @property {LaunchRecord[]} history
  * @property {Record<string, number>} lastActAt
- * @property {Record<string, Pause>} [repoPaused]
  * @property {Record<string, number>} [breakerRoom]
  * @property {import("./gate-sweep.js").Judgement[]} [judgements]
  * @property {{root: string, error: string}[]} [failedShortlists]
@@ -139,9 +136,7 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
 
 /** @typedef {{since: number}} AwaySwitch */
 
-/** @typedef {{by: string, at: number, issues?: PauseIssue[]}} Pause */
-
-/** @typedef {{root: string, number: number}} PauseIssue */
+/** @typedef {{by: string, at: number}} Pause */
 
 /** @typedef {{holder: string|null, until: number}} LaunchHold */
 
@@ -219,7 +214,7 @@ const buildIdleText = ({ reason, detail }) => `${reason}${detail}`;
 /**
  * @typedef {{stop: StopReason, detail: string}
  *   | {launches: Launch[], skipped: Skip[], idle: Idle | null,
- *   held: Skip[], resumes: HeldResume[], repoPauses?: Record<string, Pause>,
+ *   held: Skip[], resumes: HeldResume[],
  *   capHeld?: HeldResume[], planWait?: PlanWait, weighed?: true}} Decision
  */
 
@@ -228,49 +223,6 @@ const buildIdleText = ({ reason, detail }) => `${reason}${detail}`;
 /** @param {LaunchRecord} r */
 const actsRead = (r) =>
 	r.acts === undefined || r.acts === UNREAD ? null : r.acts;
-
-/** @param {LaunchRecord} r */
-const hasProgressed = (r) =>
-	Object.values(actsRead(r) ?? {}).some((n) => n > 0);
-
-/**
- * @param {Pick<TickInput, "history"|"noProgressFrom">} input
- * @param {string} root
- */
-function noProgressRun({ history, noProgressFrom }, root) {
-	const recent = history
-		.filter(
-			(r) =>
-				r.root === root &&
-				r.finishedAt !== null &&
-				r.launchedAt >= noProgressFrom &&
-				r.acts !== UNREAD &&
-				!(
-					(r.gate || (r.nothingToRepeat && r.parkStopped === undefined)) &&
-					!hasProgressed(r)
-				),
-		)
-		.sort((a, b) => Number(b.finishedAt) - Number(a.finishedAt))
-		.slice(0, NO_PROGRESS_RUN);
-	return recent.length === NO_PROGRESS_RUN && !recent.some(hasProgressed)
-		? recent
-		: null;
-}
-
-/**
- * @param {TickInput} input
- * @returns {Record<string, Pause>}
- */
-function buildNoProgressPauses(input) {
-	/** @type {Record<string, Pause>} */
-	const pauses = {};
-	for (const root of new Set(input.history.map((l) => l.root))) {
-		if (input.repoPaused?.[root]) continue;
-		const stalled = noProgressRun(input, root);
-		if (stalled) pauses[root] = buildNoProgressPause(stalled, input.now);
-	}
-	return pauses;
-}
 
 /**
  * @param {Record<string, number>} lastActAt
@@ -900,20 +852,9 @@ const buildIdleDecision = (idle, held, resumes) => ({
 	resumes,
 });
 
-/** @param {PauseIssue} issue */
-const buildPauseIssueText = ({ root, number }) =>
-	`${path.basename(root)}#${number}`;
-
 /** @param {Pause} pause */
-const buildPauseIdle = ({ by, at, issues = [] }) =>
-	buildIdle(
-		PAUSED,
-		` ${by} at ${new Date(at).toISOString()}${
-			issues.length > 0
-				? `: no act from ${issues.map(buildPauseIssueText).join(", ")}`
-				: ""
-		}`,
-	);
+const buildPauseIdle = ({ by, at }) =>
+	buildIdle(PAUSED, ` ${by} at ${new Date(at).toISOString()}`);
 
 /** @param {Pause} pause */
 const buildPauseText = (pause) => buildIdleText(buildPauseIdle(pause));
@@ -924,23 +865,6 @@ const buildPauseText = (pause) => buildIdleText(buildPauseIdle(pause));
  */
 const buildPauseLogLine = (paused, source) =>
 	`${paused ? "paused" : "resumed"} by ${source}`;
-
-/**
- * @param {LaunchRecord[]} stalled
- * @param {number} at
- * @returns {Pause}
- */
-function buildNoProgressPause(stalled, at) {
-	const refs = new Map(
-		stalled.flatMap(({ root, issues }) =>
-			issues.map((number) => {
-				const issue = { root, number };
-				return [buildPauseIssueText(issue), issue];
-			}),
-		),
-	);
-	return { by: NO_PROGRESS_PAUSE, at, issues: [...refs.values()] };
-}
 
 /**
  * @param {SeatReading[]} seats
@@ -1088,7 +1012,7 @@ function decideLaunches(
 	};
 }
 
-const CHECKOUT_SKIPS = [PROBE_HELD, REPO_PAUSED, BREAKER_OPEN, UNPROVEN_HELD];
+const CHECKOUT_SKIPS = [PROBE_HELD, BREAKER_OPEN, UNPROVEN_HELD];
 
 /** @param {Decision} decision */
 const isFrontierDependent = (decision) =>
@@ -1132,21 +1056,6 @@ function buildUnlaunchedIdle(input, skipped) {
  * @returns {Decision}
  */
 function decideUnpaused(input) {
-	const repoPauses = buildNoProgressPauses(input);
-	const decision = decideUnpausedRepos({
-		...input,
-		repoPaused: { ...input.repoPaused, ...repoPauses },
-	});
-	return Object.keys(repoPauses).length > 0
-		? { ...decision, repoPauses }
-		: decision;
-}
-
-/**
- * @param {TickInput} input
- * @returns {Decision}
- */
-function decideUnpausedRepos(input) {
 	const pick = pickSeat(input);
 	if (
 		pick.seat === null &&
@@ -1210,7 +1119,6 @@ module.exports = {
 	PROBE_HOLD_WAIT,
 	buildOverflowHoldText,
 	buildResumeWaitLine,
-	buildPauseIssueText,
 	buildPauseText,
 	buildPausedWaitText,
 	buildPlanWaitText,

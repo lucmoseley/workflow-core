@@ -866,14 +866,14 @@ async function run() {
 						readControlFile(log)?.stopRequested === true,
 				});
 				startGateSweep(sweeper);
-				const { decision, noProgressFrom, agents } = await tick({
+				const { decision, runFrom, agents } = await tick({
 					dryRun: false,
 				});
 				updater?.afterTick();
 				// #2012
 				const done =
 					"stop" in decision &&
-					!loop.isRestartedSince(readControlFile(log), noProgressFrom);
+					!loop.isRestartedSince(readControlFile(log), runFrom);
 				return { done, agents };
 			} catch (err) {
 				log(`tick failed: ${buildErrorText(err)}`);

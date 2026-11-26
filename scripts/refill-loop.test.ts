@@ -70,16 +70,16 @@ function holdPidfile(name = "refill-loop.js") {
 }
 
 describe("start", () => {
-	it("overtakes a pending stop, moving the no-progress count's start, rather than starting a second", async () => {
+	it("overtakes a pending stop, moving the run's start, rather than starting a second", async () => {
 		const pid = holdPidfile();
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
-			JSON.stringify({ noProgressFrom: 1, stopRequested: true, seats: [] }),
+			JSON.stringify({ runFrom: 1, stopRequested: true, seats: [] }),
 		);
 		const r = await runAt(AT, "start");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`refill loop running: pid ${pid}`);
-		expect(readControl().noProgressFrom).toBe(AT_MS);
+		expect(readControl().runFrom).toBe(AT_MS);
 		expect(readControl().stopRequested).toBe(false);
 		expect(fs.existsSync(path.join(dir, ".refill-loop.log"))).toBe(false);
 	});
@@ -176,7 +176,7 @@ describe("start ensures a process runs (#3868)", () => {
 		fs.writeFileSync(
 			controlFile(),
 			JSON.stringify({
-				noProgressFrom: 5,
+				runFrom: 5,
 				stopRequested: false,
 				seats: ["/seat"],
 				scope: { mode: "away", repos: [manta], goal },
@@ -251,7 +251,7 @@ describe("start ensures a process runs (#3868)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).not.toContain(Unchecked);
 		expect(readControl()).toMatchObject({
-			noProgressFrom: 5,
+			runFrom: 5,
 			paused,
 			seats: ["/seat"],
 			scope: {
@@ -344,20 +344,15 @@ describe("start ensures a process runs (#3868)", () => {
 			expect(readControl().stopRequested).toBe(true);
 		});
 
-		it("names a checkout's no-progress pause, which stays (#5275)", async () => {
-			const noProgress = {
-				by: "no-progress",
-				at: 7,
-				issues: [{ root: manta, number: 5 }],
-			};
+		it("reads a checkout pause a past release stored as no pause (#5767)", async () => {
 			holdPidfile();
-			writeStored({ repoPaused: { [manta]: noProgress } });
+			writeStored({ repoPaused: { [manta]: { by: "x", at: 7 } } });
 			const r = await start("--unless-stopped");
 			expect(r.status).toBe(0);
-			expect(r.stdout).toContain(
-				`${path.basename(manta)}: paused by no-progress`,
-			);
-			expect(readControl().repoPaused).toEqual({ [manta]: noProgress });
+			expect(r.stdout).not.toContain("paused by");
+			const json = JSON.parse((await run("status", "--json")).stdout);
+			expect(json).not.toHaveProperty("repoPaused");
+			expect(json.paused).toBeNull();
 		});
 
 		it("refuses a damaged control, leaving its bytes", async () => {
@@ -625,7 +620,7 @@ describe("stop and status", () => {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({
-				noProgressFrom: now,
+				runFrom: now,
 				stopRequested: false,
 				seats: [path.join(dir, ".claude2")],
 				scope: { mode: "normal", repos: [], goal: null },
@@ -661,7 +656,7 @@ describe("stop and status", () => {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({
-				noProgressFrom: Date.now(),
+				runFrom: Date.now(),
 				stopRequested: false,
 				seats: [path.join(dir, ".claude2")],
 				scope: { mode: "normal", repos: [], goal: null },
@@ -707,7 +702,7 @@ describe("stop and status", () => {
 			fs.writeFileSync(
 				path.join(dir, ".refill-loop-control.json"),
 				JSON.stringify({
-					noProgressFrom: now,
+					runFrom: now,
 					stopRequested: false,
 					seats: seats(),
 					scope: { mode: "normal", repos: [], goal: null },
@@ -817,7 +812,7 @@ describe("set (#3856)", () => {
 	const lockFile = () => `${controlFile()}.lock`;
 	const wakeFile = () => path.join(dir, ".refill-loop-wake");
 	const plainControl = {
-		noProgressFrom: 5,
+		runFrom: 5,
 		stopRequested: false,
 		seats: ["/seat"],
 		scope: { mode: "normal", repos: ["/repo"], goal: null },
@@ -861,34 +856,17 @@ describe("set (#3856)", () => {
 		expect(fs.existsSync(lockFile())).toBe(false);
 	});
 
-	it("resumes, dropping the pause and moving only the no-progress count's point", async () => {
+	it("resumes, dropping only the pause", async () => {
 		writeControl({ paused });
 		holdPidfile();
 		const r = await runAt(AT, "set", "--resume");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("not paused");
-		expect(r.stdout).toContain("counting:  no-progress count from ");
-		const { noProgressFrom, ...rest } = readControl();
-		const { noProgressFrom: _n, ...kept } = plainControl;
-		expect(rest).toEqual(kept);
-		expect(noProgressFrom).toBe(AT_MS);
+		expect(readControl()).toEqual(plainControl);
 		expect(r.stdout).not.toContain("refill loop started");
 		expect(fs.readFileSync(path.join(dir, ".refill-loop.pid"), "utf8")).toBe(
 			String(fakeLoop?.pid),
 		);
-	});
-
-	it("resumes every checkout's no-progress pause, moving the count's point (#5275)", async () => {
-		writeControl({
-			repoPaused: { "/h/a": { by: "no-progress", at: 7, issues: [] } },
-		});
-		holdPidfile();
-		const r = await runAt(AT, "set", "--resume");
-		expect(r.status).toBe(0);
-		const { noProgressFrom, ...rest } = readControl();
-		const { noProgressFrom: _n, ...kept } = plainControl;
-		expect(rest).toEqual(kept);
-		expect(noProgressFrom).toBe(AT_MS);
 	});
 
 	it("leaves a stop pending on a running loop standing through a resume", async () => {
@@ -915,7 +893,7 @@ describe("set (#3856)", () => {
 		const idle = await run("set", "--resume");
 		expect(idle.status).toBe(0);
 		expect(idle.stdout).toContain("unchanged: not paused");
-		expect(readControl().noProgressFrom).toBe(5);
+		expect(readControl().runFrom).toBe(5);
 	});
 
 	describe("logs who sent a pause or resume (#5126)", () => {
@@ -1208,7 +1186,7 @@ describe("set --json (#3968)", () => {
 		fs.writeFileSync(
 			controlFile(),
 			JSON.stringify({
-				noProgressFrom: 1,
+				runFrom: 1,
 				seats: [],
 				scope: { mode: "normal", repos: [core], goal: null },
 			}),
@@ -1236,7 +1214,7 @@ describe("set --json (#3968)", () => {
 		fs.writeFileSync(
 			controlFile(),
 			JSON.stringify({
-				noProgressFrom: 1,
+				runFrom: 1,
 				seats: [],
 				scope: { mode: "normal", repos: [], goal: null },
 			}),
@@ -1257,7 +1235,7 @@ describe("set --json (#3968)", () => {
 
 describe("a stop told from a crash (#3861)", () => {
 	const control = {
-		noProgressFrom: 5,
+		runFrom: 5,
 		stopRequested: false,
 		seats: [],
 		scope: { mode: "normal", repos: [] },
@@ -1276,11 +1254,15 @@ describe("a stop told from a crash (#3861)", () => {
 		json: JSON.parse((await run("status", "--json")).stdout),
 		text: (await run("status")).stdout,
 	});
-	const noProgress = { at: 9, reason: "no-progress", detail: "no act" };
+	const selfStop = {
+		at: 9,
+		reason: "control-damaged",
+		detail: "/c is damaged",
+	};
 
 	it("reads a live loop as neither, showing no stop older than its run", async () => {
 		writeControl();
-		writeState({ stopped: noProgress, heldAt: 8 });
+		writeState({ stopped: selfStop, heldAt: 8 });
 		holdPidfile();
 		const { json, text } = await status();
 		expect(json).toMatchObject({ running: true, stop: null, crashed: false });
@@ -1311,10 +1293,10 @@ describe("a stop told from a crash (#3861)", () => {
 
 	it("reads a dead loop that ended itself as stopped, with the loop's reason", async () => {
 		writeControl();
-		writeState({ stopped: noProgress, heldAt: 8 });
+		writeState({ stopped: selfStop, heldAt: 8 });
 		const { json, text } = await status();
-		expect(json).toMatchObject({ stop: noProgress, crashed: false });
-		expect(text).toContain("no-progress — no act");
+		expect(json).toMatchObject({ stop: selfStop, crashed: false });
+		expect(text).toContain("control-damaged — /c is damaged");
 		expect(text).not.toContain("died:");
 	});
 
@@ -1348,7 +1330,7 @@ describe("the ticked set and the mode (#3862)", () => {
 	const writeControl = (scope: Record<string, unknown>) =>
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
-			JSON.stringify({ noProgressFrom: 1, seats: [], scope }),
+			JSON.stringify({ runFrom: 1, seats: [], scope }),
 		);
 	const reposOf = async () => {
 		const { repos } = JSON.parse((await run("status", "--json")).stdout);
@@ -1594,7 +1576,7 @@ describe("the goal (#3864)", () => {
 	const writeControl = (scope: object) =>
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
-			JSON.stringify({ noProgressFrom: 1, seats: [], scope }),
+			JSON.stringify({ runFrom: 1, seats: [], scope }),
 		);
 	const fakeGh = () =>
 		stubGhRoutes(dir, {

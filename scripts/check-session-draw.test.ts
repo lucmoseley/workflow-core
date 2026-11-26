@@ -41,7 +41,7 @@ const served = (configs: Record<string, object>) => {
 	fs.writeFileSync(
 		path.join(dir, ".refill-loop-control.json"),
 		JSON.stringify({
-			noProgressFrom: 0,
+			runFrom: 0,
 			scope: { mode: "normal", repos: roots, goal: null },
 		}),
 	);
@@ -68,7 +68,7 @@ describe("check-session-draw.js (#5274)", () => {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({
-				noProgressFrom: 0,
+				runFrom: 0,
 				scope: { mode: "normal", repos: [], goal: null },
 			}),
 		);
