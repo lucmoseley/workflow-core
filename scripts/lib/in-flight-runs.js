@@ -102,7 +102,7 @@ function readRunRecord(file) {
  * @param {Required<Pick<InFlightOptions, "alive" | "startTime">>} probes
  * @returns {RunRecord | null}
  */
-function readLiveRecordDeletingGone(file, probes) {
+function readLiveRecordDeletingStale(file, probes) {
 	const record = readRunRecord(file);
 	if (!record) return null;
 	if (!isMarkerStale(record, probes)) return record;
@@ -135,7 +135,7 @@ function readInFlightRuns(
 	const runs = [];
 	for (const name of names) {
 		if (!name.startsWith(RUN_PREFIX)) continue;
-		const record = readLiveRecordDeletingGone(path.join(queueDir, name), {
+		const record = readLiveRecordDeletingStale(path.join(queueDir, name), {
 			alive,
 			startTime,
 		});

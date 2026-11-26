@@ -166,7 +166,7 @@ describe("isMarkerStale", () => {
 		).toBe(true);
 	});
 
-	it("is live when the pid is alive but its start time will not read", () => {
+	it("is live when the pid is alive but its start time will not read, unlike a reused one whose start no longer matches (#5742)", () => {
 		expect(
 			isMarkerStale(
 				{ pid: 11, start: 500 },

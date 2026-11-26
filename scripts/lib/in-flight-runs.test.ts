@@ -130,7 +130,7 @@ describe("the session's in-flight test runs, read from the launcher's run record
 		expect(fs.readdirSync(dir)).toEqual([]);
 	});
 
-	it("keeps and counts a live run's record whose start time will not read", () => {
+	it("keeps and counts a live run's record whose start time will not read, unlike a reused pid's (#5742)", () => {
 		const dir = queueDir();
 		join(dir, process.pid);
 		expect(
@@ -161,7 +161,7 @@ describe("the session's in-flight test runs, read from the launcher's run record
 		expect(read(dir)).toEqual([]);
 	});
 
-	it("counts nothing for a stale record whose pid was reused", () => {
+	it("counts nothing for a stale record whose pid was reused, and deletes it", () => {
 		const dir = queueDir();
 		join(dir, process.pid);
 		expect(
@@ -171,6 +171,7 @@ describe("the session's in-flight test runs, read from the launcher's run record
 				startTime: () => 1,
 			}),
 		).toEqual([]);
+		expect(fs.readdirSync(dir)).toEqual([]);
 	});
 
 	it("reads no runs from a queue directory never made", () => {
