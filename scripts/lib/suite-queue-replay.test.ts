@@ -537,6 +537,35 @@ describe("a wait that joined a queued same-key `tsc` run (#5639)", () => {
 	});
 });
 
+describe("the alarm's figure, each launching session's wall-clock wait (#5740)", () => {
+	const cfg = {
+		waiters: [
+			...[1, 2, 3].map((pid) => ({ from: 0, to: 11, session: "s1", pid })),
+			...[7, 8].map((pid) => ({ from: 0, to: 11, session: null, pid })),
+			{ from: -5, to: 5, session: "s2", pid: 9 },
+		],
+	};
+
+	it("counts one session's overlapping waits once, and each no-session wait by its pid", () => {
+		const r = replayOf(cfg);
+		expect(r.waitS).toBe(60 * 60);
+		expect(r.sessionWallS).toBe(38 * 60);
+		expect(r.sessions.reduce((s, x) => s + x.union, 0)).toBe(r.sessionWallS);
+		expect(r.sessions.map((s) => s.session).sort()).toEqual([
+			"(no session, pid 7)",
+			"(no session, pid 8)",
+			"s1",
+			"s2",
+		]);
+	});
+
+	it("names both figures in the summary", () => {
+		expect(render(replayOf(cfg), window())).toContain(
+			"1.00 h inside the window summed per wait; 0.63 h as each launching session's wall-clock wait, its overlapping waits counted once, the figure the queue-wait alarm compares to its limit (#5740).",
+		);
+	});
+});
+
 describe("the windows limb, the Windows-memory hold (#4782, #4850)", () => {
 	const replayAt = (at: string, mb: number, pagesIn?: number) => {
 		const Shift = Date.parse(at) - T0;

@@ -63,6 +63,7 @@ interface Exit {
 	reason?: string;
 	kind?: string;
 	session?: string | null;
+	pid?: number;
 	empty?: boolean;
 	skipped?: boolean;
 	joined?: { pid: number; session: string | null };
@@ -184,12 +185,16 @@ const dryRun = () => {
 describe("the window", () => {
 	it("counts only the part of a wait inside it", () => {
 		log({ at: NOW, waitS: 2 * 3600 });
-		expect(dryRun()).toContain("Dry run: 2.0 h of queue wait in the last 24 h");
+		expect(dryRun()).toContain(
+			"Dry run: 2.0 h of session wall-clock queue wait in the last 24 h",
+		);
 	});
 
 	it("counts a wait that began before the 24 h only from the window's start", () => {
 		log({ at: NOW - 23 * HOUR, waitS: 3 * 3600 });
-		expect(dryRun()).toContain("Dry run: 1.0 h of queue wait in the last 24 h");
+		expect(dryRun()).toContain(
+			"Dry run: 1.0 h of session wall-clock queue wait in the last 24 h",
+		);
 	});
 
 	it("splits a wait across the two days it spans, counting the run on each", () => {
@@ -218,12 +223,14 @@ describe("a wait that joined a queued same-key `tsc` run (#5639)", () => {
 	it("counts in the wait hours but not the queued runs, on a line of its own", () => {
 		const out = dryRun();
 		expect(out).toMatch(
-			/\*\*0\.8 h\*\* of suite queue wait .* over 1 queued run\(s\)\./,
+			/\*\*0\.8 h\*\* of suite queue wait .* over 1 queued run\(s\):/,
 		);
 		expect(out).toContain(
 			"1 more wait(s) joined a queued same-key `tsc` run rather than queue their own, 0.3 h of that wait (#5639).",
 		);
-		expect(out).toContain("Dry run: 0.8 h of queue wait in the last 24 h");
+		expect(out).toContain(
+			"Dry run: 0.8 h of session wall-clock queue wait in the last 24 h",
+		);
 	});
 
 	it("counts as no run in the daily, kind and session Runs columns", () => {
@@ -231,6 +238,72 @@ describe("a wait that joined a queued same-key `tsc` run (#5639)", () => {
 		expect(out).toContain("| `tsc` | 1 | 0.8 |");
 		expect(out).toContain("| `b` | 0 | 0.3 |");
 		expect(out).toMatch(/\| \d{4}-\d{2}-\d{2} \(to now\) \| 1 \| 0\.8 \|/);
+	});
+});
+
+describe("each launching session's wall-clock wait (#5740)", () => {
+	const elevenMin = (e: Partial<Exit> = {}) => ({
+		at: NOW - HOUR,
+		waitS: 660,
+		...e,
+	});
+
+	it("counts one session's three runs waiting the same 11 min once", () => {
+		log(elevenMin({ pid: 1 }), elevenMin({ pid: 2 }), elevenMin({ pid: 3 }));
+		const out = dryRun();
+		expect(out).toMatch(
+			/\*\*0\.2 h\*\* of suite queue wait .* over 3 queued run\(s\): each launching session's wall-clock wait, its overlapping waits counted once, summed across sessions\. Summed per run, the wait is 0\.6 h\./,
+		);
+		expect(out).toContain("Dry run: 0.2 h of session wall-clock queue wait");
+		expect(out).toContain("| `s-1` | 3 | 0.6 |");
+	});
+
+	it("counts two sessions each waiting the same 11 min twice", () => {
+		log(elevenMin({ session: "a" }), elevenMin({ session: "b", pid: 2 }));
+		expect(dryRun()).toContain("Dry run: 0.4 h of session wall-clock");
+	});
+
+	it("counts runs with no session each on its own, by pid", () => {
+		log(
+			elevenMin({ session: null, pid: 1 }),
+			elevenMin({ session: null, pid: 2 }),
+		);
+		expect(dryRun()).toContain("Dry run: 0.4 h of session wall-clock");
+	});
+
+	it("counts one session's overlapping waits only inside the window", () => {
+		log({ at: NOW - 23 * HOUR, waitS: 3 * 3600 }, {
+			at: NOW - 22.5 * HOUR,
+			waitS: 3 * 3600,
+			pid: 2,
+		} as Exit);
+		expect(dryRun()).toContain("Dry run: 1.5 h of session wall-clock");
+	});
+
+	it("counts commit-gate waits in the figure", () => {
+		log({ at: NOW - HOUR, waitS: 2 * 3600, kind: "gate" });
+		const out = dryRun();
+		expect(out).toContain("Dry run: 2.0 h of session wall-clock");
+		expect(out).toContain("| `gate` | 1 | 2.0 |");
+	});
+
+	it("gives the daily series as the session wall-clock figure", () => {
+		log(elevenMin({ pid: 1 }), elevenMin({ pid: 2 }), elevenMin({ pid: 3 }));
+		const out = dryRun();
+		expect(out).toContain("| Day | Runs | Session wall-clock wait (h) |");
+		expect(out).toMatch(/\| \d{4}-\d{2}-\d{2} \(to now\) \| 3 \| 0\.2 \|/);
+	});
+
+	it("files on the session figure, not the summed one", () => {
+		log({ at: NOW - HOUR, waitS: 1.5 * 3600 }, {
+			at: NOW - HOUR,
+			waitS: 1.5 * 3600,
+			pid: 2,
+		} as Exit);
+		const gh = stubGh();
+		const r = run(gh);
+		expect(r.stdout).toContain("1.5 h of session wall-clock queue wait");
+		expect(gh.creates()).toEqual([]);
 	});
 });
 
@@ -331,7 +404,7 @@ describe("filing (#1157 Q8)", () => {
 		const gh = stubGh({ open: [{ number: 5, title: TITLE }] });
 		const r = run(gh);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("1.9 h of queue wait");
+		expect(r.stdout).toContain("1.9 h of session wall-clock queue wait");
 		expect(gh.calls()).toBe("");
 	});
 
@@ -473,7 +546,7 @@ describe("fails open, recorded", () => {
 		const gh = stubGh();
 		const r = run(gh);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("0.0 h of queue wait");
+		expect(r.stdout).toContain("0.0 h of session wall-clock queue wait");
 		expect(readErrorLog()).toBe("");
 	});
 });

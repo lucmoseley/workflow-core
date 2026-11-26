@@ -101,7 +101,7 @@ it("counts a joined `tsc` wait as a wait, out of the fifo, reported apart (#5639
 	const r = run("--since", SINCE, "--until", UNTIL);
 	expect(r.status).toBe(0);
 	expect(r.stdout).toContain(
-		"2 queued waits (2 exits less 0 skipped), 0.25 h inside the window.",
+		"2 queued waits (2 exits less 0 skipped), 0.25 h inside the window summed per wait; 0.25 h as each launching session's wall-clock wait,",
 	);
 	expect(r.stdout).toContain(
 		"1 of the waits joined a queued same-key `tsc` run rather than queue their own, 0.08 h;",
