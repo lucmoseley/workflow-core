@@ -220,7 +220,7 @@ const buildIdleText = ({ reason, detail }) => `${reason}${detail}`;
  * @typedef {{stop: StopReason, detail: string}
  *   | {launches: Launch[], skipped: Skip[], idle: Idle | null,
  *   held: Skip[], resumes: HeldResume[], repoPauses?: Record<string, Pause>,
- *   capHeld?: HeldResume[], planWait?: PlanWait}} Decision
+ *   capHeld?: HeldResume[], planWait?: PlanWait, weighed?: true}} Decision
  */
 
 /** @typedef {{resets: number|null}} PlanWait */
@@ -1077,16 +1077,22 @@ function decideLaunches(
 		Math.min(launchPick.fits, launchSlots),
 		room,
 	);
-	if (out.launches.length > 0) return { ...out, idle: null, held, resumes };
+	if (out.launches.length > 0)
+		return { ...out, idle: null, held, resumes, weighed: true };
 	return {
 		...out,
 		idle: buildUnlaunchedIdle(input, out.skipped),
 		held,
 		resumes,
+		weighed: true,
 	};
 }
 
 const CHECKOUT_SKIPS = [PROBE_HELD, REPO_PAUSED, BREAKER_OPEN, UNPROVEN_HELD];
+
+/** @param {Decision} decision */
+const isFrontierDependent = (decision) =>
+	!("stop" in decision) && decision.weighed === true;
 
 /**
  * @param {TickInput} input
@@ -1234,6 +1240,7 @@ module.exports = {
 	buildSkipReason,
 	CLASH_PREFIX,
 	decideTick,
+	isFrontierDependent,
 	isClashSkip,
 	fitsLaunch,
 	hasRoom,
