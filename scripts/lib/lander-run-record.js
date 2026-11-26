@@ -43,6 +43,10 @@ function recordRun(root, run) {
 /** @param {number} samples */
 const localSeconds = (samples) => (samples * TREE_PEAK_SAMPLE_MS) / 1000;
 
+/** @param {Record<string, unknown>} r */
+const isJudgedWholeRun = (r) =>
+	r.kind === "whole" && (r.verdict === "green" || r.verdict === "red");
+
 /**
  * @param {string} root
  * @returns {{tester: TesterKind, suiteSeconds: number}[]}
@@ -51,10 +55,7 @@ function readWholeRuns(root) {
 	/** @type {Record<string, unknown>[]} */
 	const rows = readJsonl(runRecordFile(root))?.rows ?? [];
 	return rows
-		.filter(
-			(r) =>
-				r.kind === "whole" && (r.verdict === "green" || r.verdict === "red"),
-		)
+		.filter(isJudgedWholeRun)
 		.map((r) => ({
 			tester: /** @type {TesterKind} */ (
 				r.tester === "actions" ? "actions" : "local"
@@ -71,7 +72,7 @@ function readWholeRuns(root) {
  * @param {string} root
  * @returns {{peakMb: number} | {why: string}}
  */
-function measuredWholePeak(root) {
+function readWholePeak(root) {
 	const file = runRecordFile(root);
 	const read = readText(file);
 	if (read.state === "unreadable")
@@ -81,9 +82,8 @@ function measuredWholePeak(root) {
 	const peaks = rows
 		.filter(
 			(r) =>
-				r.kind === "whole" &&
-				r.tester === "local" &&
-				(r.verdict === "green" || r.verdict === "red") &&
+				isJudgedWholeRun(r) &&
+				r.tester !== "actions" &&
 				typeof r.peakMb === "number" &&
 				r.peakMb > 0,
 		)
@@ -98,8 +98,8 @@ function measuredWholePeak(root) {
 
 module.exports = {
 	RUN_RECORD_RETAIN_MS,
-	measuredWholePeak,
 	localSeconds,
+	readWholePeak,
 	readWholeRuns,
 	recordRun,
 };

@@ -747,7 +747,7 @@ describe("a whole run's charge from the repo's run record (#5705)", () => {
 		}
 	};
 
-	it("charges the highest of the last 20 measured local whole runs, skipping Actions, named, unjudged and unmeasured ones", async () => {
+	it("charges the highest of the last 20 measured local whole runs, a line without a tester among them, skipping Actions, named, unjudged and unmeasured ones", async () => {
 		writeLedger([
 			...Array.from({ length: 5 }, () => run(5000)),
 			...Array.from({ length: 19 }, (_, i) => run(400 + i)),
@@ -755,7 +755,7 @@ describe("a whole run's charge from the repo's run record (#5705)", () => {
 			run(8000, { kind: "named" }),
 			run(7000, { verdict: "unknown" }),
 			run(0),
-			run(650, { verdict: "red" }),
+			run(650, { verdict: "red", tester: undefined }),
 		]);
 		const { charged, said } = await chargedOnce();
 		expect(charged).toEqual([650]);
