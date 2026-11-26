@@ -58,12 +58,10 @@ const { pathToFileURL } = require("node:url");
 		fs.writeFileSync(path.join(process.env.STUB_REPO, ${JSON.stringify(MONEY)}), fs.readFileSync(mid));
 		fs.rmSync(mid);
 	}
-	// "reads" names a gitignored path a host test reads. Stryker 10.1.1 tests in
-	// its own sandbox, which links only node_modules (sandbox.js:74), unless
-	// inPlace runs it where it stands.
-	const reads = path.join(dir, "reads");
-	const read = fs.existsSync(reads) && path.join(process.cwd(), fs.readFileSync(reads, "utf8"));
-	if (read && !(config.inPlace === true && fs.existsSync(read)) || fs.existsSync(path.join(dir, "red"))) {
+	const hostReadMarker = path.join(dir, "reads");
+	const hostRead = fs.existsSync(hostReadMarker) && path.join(process.cwd(), fs.readFileSync(hostReadMarker, "utf8"));
+	const hostReadMissing = hostRead !== false && !(config.inPlace === true && fs.existsSync(hostRead));
+	if (hostReadMissing || fs.existsSync(path.join(dir, "red"))) {
 		console.log("ERROR Stryker There were failed tests in the initial test run.");
 		process.exit(1);
 	}

@@ -395,6 +395,15 @@ describe("mutation-hold-gate.js — what the run is given", () => {
 		expect(readRuns()[0].config).toMatchObject({ inPlace: true });
 	});
 
+	it("refuses a red initial run where a test reads a path the worktree does not link (#5768)", () => {
+		fs.writeFileSync(path.join(stubDir, "reads"), ".cache/fixtures/rates.json");
+		changeLine2();
+		report([]);
+		const r = commit([MONEY]);
+		expectHeld(r);
+		expect(r.stderr).toContain("initial test run is RED");
+	});
+
 	it("reads no host config the commit's tree lacks", () => {
 		write("stryker.config.json", JSON.stringify({ coverageAnalysis: "off" }));
 		changeLine2();
