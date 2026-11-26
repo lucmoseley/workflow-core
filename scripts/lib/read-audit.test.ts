@@ -16,6 +16,7 @@ const require = createRequire(import.meta.url);
 const { install, readAudits, remove } = require("./read-audit.js");
 const { awaitCopied, findStrace } = require("./read-audit-trace.js");
 const { buildVerdictOf } = require("./read-audit-provenance.js");
+const { buildGitEventsReader } = require("./read-audit-git-events.js");
 const { listingId } = require("./listing-id.js");
 const { lookup, record } = require("./pass-store.js");
 const { EDGES_FILE } = require("./test-pass-marker.js");
@@ -2121,6 +2122,31 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 		});
 		fs.appendFileSync(path.join(dir, "100.100.jsonl"), '{"k":"probe","p":');
 		expect(readAudits(dir, root).get("a.test.ts").doubt).toMatch(/faulted/);
+	});
+
+	it("doubts a file whose log holds a record zeroed by a crash, as it does a torn one (#5775)", () => {
+		const root = checkout();
+		const dir = logs({
+			"100.100.jsonl": [self(100), { k: "claim", file: "a.test.ts" }],
+		});
+		fs.appendFileSync(
+			path.join(dir, "100.100.jsonl"),
+			`\0\0\0${JSON.stringify({ k: "probe", p: "x" })}\n`,
+		);
+		expect(readAudits(dir, root).get("a.test.ts").doubt).toMatch(/faulted/);
+	});
+
+	it("doubts a git call whose event log holds a record zeroed by a crash (#5775)", () => {
+		const dir = logs({});
+		fs.writeFileSync(
+			path.join(dir, "100.100.1.git-events"),
+			`\0\0\0${JSON.stringify({ event: "exit" })}\n`,
+		);
+		expect(
+			buildGitEventsReader(dir)("100.100.1.git-events", "git status"),
+		).toBe(
+			"a git call (git status) left a log holding a record zeroed by a crash",
+		);
 	});
 });
 

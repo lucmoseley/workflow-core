@@ -116,7 +116,7 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
  *   memTotalMb: number, loadCeiling: number | null, capFrom?: number }} Window
  */
 
-/** @typedef {{ absent: string[], unparsed: number }} Unread */
+/** @typedef {{ absent: string[], unparsed: number, zeroed: number }} Unread */
 
 /**
  * @param {string} file
@@ -131,6 +131,7 @@ function readRows(file, unread, pre) {
 		return [];
 	}
 	unread.unparsed += read.bad.length;
+	unread.zeroed += read.zeroed.length;
 	return read.rows;
 }
 
@@ -152,7 +153,7 @@ function readLogs({ markers, memwatch, minuteLog, since, until }) {
 		return lo <= at && at <= hi;
 	};
 	/** @type {Unread} */
-	const unread = { absent: [], unparsed: 0 };
+	const unread = { absent: [], unparsed: 0, zeroed: 0 };
 	const exits = readRows(
 		path.join(markers, ".suite-queue-exits.jsonl"),
 		unread,
@@ -1256,6 +1257,11 @@ function render(r, w) {
 		...(r.unread.unparsed > 0
 			? [
 					`- ${r.unread.unparsed} log line(s) would not parse and are not counted.`,
+				]
+			: []),
+		...(r.unread.zeroed > 0
+			? [
+					`- ${r.unread.zeroed} log record(s) zeroed by a crash are not counted.`,
 				]
 			: []),
 		`- Each run is charged its workers, not its memory; MemTotal is taken as ${w.memTotalMb} MB.`,

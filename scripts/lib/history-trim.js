@@ -39,7 +39,11 @@ function readRoot(seatDir) {
 		return { dir, state: "unreadable", oldestMs: null, lineCount: null };
 	}
 	if (!read) return { dir, state: "absent", oldestMs: null, lineCount: null };
-	const lineCount = read.rows.length + read.bad.length;
+	const lineCount = new Set([
+		...read.entries.map((e) => e.line),
+		...read.bad,
+		...read.zeroed,
+	]).size;
 	let oldestMs = null;
 	for (const row of read.rows) {
 		const t = row.timestamp;
@@ -76,7 +80,8 @@ function readBaseline(watchFile = WATCH_FILE()) {
 	}
 	if (!read) return null;
 	const newest = read.entries.at(-1);
-	if ((read.bad.at(-1) ?? 0) > (newest?.line ?? 0)) return;
+	const lastLost = Math.max(read.bad.at(-1) ?? 0, read.zeroed.at(-1) ?? 0);
+	if (lastLost > (newest?.line ?? 0)) return;
 	if (!newest) return null;
 	const last = newest.row;
 	/** @type {Record<string, RootReading>} */

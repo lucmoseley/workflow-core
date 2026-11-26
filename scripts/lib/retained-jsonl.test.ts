@@ -105,6 +105,17 @@ describe("appending to a log holding a line that will not parse", () => {
 		expect(lines()).toEqual(["new"]);
 	});
 
+	it("empties a log holding a record zeroed by a crash first where asked (#5775)", () => {
+		fs.writeFileSync(
+			log,
+			`${JSON.stringify(fresh)}\n\0\0\0${JSON.stringify(fresh)}\n`,
+		);
+		appendRetained(log, { n: "new", at: ago(0) }, RETAIN, {
+			dropOnBadLine: true,
+		});
+		expect(lines()).toEqual(["new"]);
+	});
+
 	it("keeps a line appended outside the lock while the log is emptied", () => {
 		fs.writeFileSync(log, `{"n":\n`);
 		lateWriterAt("rmSync", "late");

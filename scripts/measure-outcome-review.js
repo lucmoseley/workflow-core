@@ -1305,6 +1305,8 @@ function readRows(root, rel, failures) {
 	}
 	for (const b of log?.bad ?? [])
 		failures.push(`${rel} line ${b} does not parse`);
+	for (const z of log?.zeroed ?? [])
+		failures.push(`${rel} line ${z} holds a record zeroed by a crash`);
 	return log?.rows ?? [];
 }
 

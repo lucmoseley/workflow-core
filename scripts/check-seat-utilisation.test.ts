@@ -742,6 +742,18 @@ describe("gate 2 — the trial reader (mantahostels#2849)", () => {
 			expect(r.stdout).toMatch(/COVERAGE — 2 reading\(s\)/);
 		});
 
+		it("names the history records a crash zeroed as a coverage gap (#5775)", () => {
+			history([
+				row("2026-08-02T00:00:00Z", 40, 50),
+				row("2026-08-09T00:00:00Z", 90, 20),
+			]);
+			fs.appendFileSync(path.join(home, "gate2.jsonl"), "\0\0\0\0\n");
+			const r = run(closed());
+			expect(r.stdout).toMatch(
+				/1 history record\(s\) zeroed by a crash are lost — a coverage gap/,
+			);
+		});
+
 		it("reports a fire the live session start missed, off the series", () => {
 			history([row("2026-08-02T00:00:00Z", 100, 100)]);
 			const r = run(closed());

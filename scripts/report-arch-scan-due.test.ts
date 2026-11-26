@@ -619,6 +619,20 @@ describe("refusals", () => {
 			"BROKEN: docs/data/arch-scan-runs.jsonl:2 is not a JSON object",
 		);
 	});
+
+	it("is BROKEN on a run log line a crash zeroed, naming its file and line, rather than reading the run before it as the newest (#5775)", () => {
+		const r = repo();
+		fs.mkdirSync(path.join(r.root, "docs", "data"), { recursive: true });
+		fs.writeFileSync(
+			path.join(r.root, "docs", "data", "arch-scan-runs.jsonl"),
+			'{"at":"2026-01-01T00:00:00Z"}\n\0\0\0{"at":"2026-01-02T00:00:00Z"}\n',
+		);
+		const { code, stderr } = run(r, ["--dry-run"]);
+		expect(code).toBe(2);
+		expect(stderr).toContain(
+			"BROKEN: docs/data/arch-scan-runs.jsonl:2 holds a record zeroed by a crash",
+		);
+	});
 });
 
 describe("the daily filing run", () => {

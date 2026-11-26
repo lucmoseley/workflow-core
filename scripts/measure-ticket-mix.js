@@ -227,7 +227,10 @@ function readRuns(file, weekStart) {
 	if (log === null)
 		throw new ReadFailure(`the run record ${file} will not read: absent`);
 	const where = (/** @type {number} */ n) => `the run record ${file} line ${n}`;
-	const bad = log.bad.map((n) => `${where(n)} will not parse`);
+	const bad = [
+		...log.bad.map((n) => `${where(n)} will not parse`),
+		...log.zeroed.map((n) => `${where(n)} holds a record zeroed by a crash`),
+	];
 	/** @type {RunPoint[]} */
 	const prior = [];
 	let stepRuns = 0;

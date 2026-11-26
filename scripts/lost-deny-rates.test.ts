@@ -718,6 +718,19 @@ describe("the text report", () => {
 			text(ROOT, ["garbage", "{nope", "]", callRecord("git status")]),
 		).toContain("3 malformed line(s) skipped");
 	});
+
+	it("names a nonzero count of records zeroed by a crash apart from malformed lines (#5775)", () => {
+		const records = [
+			`\0\0\0${JSON.stringify(callRecord("git status"))}`,
+			callRecord("git status"),
+		];
+		const out = text(ROOT, records);
+		expect(out).toContain(
+			"1 record(s) zeroed by a crash within otherwise-readable transcripts",
+		);
+		expect(out).not.toContain("malformed line");
+		expect(report(records).corpus.zeroed).toBe(1);
+	});
 });
 
 describe("the staleness check against lib/guard-deny-rates.js", () => {

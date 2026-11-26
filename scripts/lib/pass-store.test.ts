@@ -1396,6 +1396,23 @@ describe("a store it cannot trust runs every file", () => {
 		expect(found.notice).toMatch(/would not parse names scripts\/a\.test\.ts/);
 	});
 
+	it("runs the file a record zeroed by a crash names, with a notice, and caches the rest (#5775)", () => {
+		const dir = repo();
+		run(dir, [A, B]);
+		const [row] = fs.readFileSync(shardOf(dir, A), "utf8").split("\n");
+		fs.appendFileSync(shardOf(dir, A), `\0\0\0${row}\n`);
+		const found = lookup([A, B], {
+			root: dir,
+			storeRoot: dir,
+			values: VALUES,
+			rowless: false,
+		});
+		expect(found.run).toEqual([A]);
+		expect(found.notice).toMatch(
+			/a record zeroed by a crash names scripts\/a\.test\.ts/,
+		);
+	});
+
 	it.each([
 		["missing", {}],
 		["empty", { inputs: {} }],

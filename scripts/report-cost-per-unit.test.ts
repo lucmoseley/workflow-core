@@ -271,6 +271,19 @@ describe("the series file", () => {
 		expect(r.out).toContain("(3 row(s))");
 	});
 
+	it("names a record a crash zeroed apart from an unparseable line (#5775)", () => {
+		const r = run([], {
+			series: [
+				buildLogLine("2026-08-28", 1587),
+				`\0\0\0${buildLogLine("2026-09-04", 2554)}`,
+			],
+		});
+		expect(r.out).toContain(
+			`1 record(s) in ${SERIES_LABEL} zeroed by a crash, lost, at line(s) 2.`,
+		);
+		expect(r.out).not.toContain("unparseable");
+	});
+
 	it("appends rather than rewriting, so an existing row and even a broken line survive verbatim", () => {
 		const r = appended({ series: ["{ not json", ...seeded] });
 		expect(r.after?.startsWith(r.before ?? "")).toBe(true);

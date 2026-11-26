@@ -23,7 +23,7 @@ const corpora = [
 	["MARGINAL arm-only  ", marginalPath],
 ];
 for (const [name, f] of corpora) {
-	const { rows, unparsed } = parseRows(fs.readFileSync(f, "utf8"));
+	const { rows, unparsed, zeroed } = parseRows(fs.readFileSync(f, "utf8"));
 	const withClaimable = rows.filter((r) => quotedTokens(r.c).some(claimable));
 	const readOnly = withClaimable.filter((r) => !writesSomething(r.c));
 	writeFd(
@@ -31,6 +31,7 @@ for (const [name, f] of corpora) {
 		`${name} ${JSON.stringify({
 			firings: rows.length,
 			unparsedLines: unparsed,
+			zeroedRecords: zeroed,
 			withClaimableCandidate: withClaimable.length,
 			scratchOnly: rows.length - withClaimable.length,
 			readOnlyOfClaimable: readOnly.length,

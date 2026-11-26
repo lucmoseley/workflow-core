@@ -1120,6 +1120,21 @@ describe("measure-outcome-review.js", () => {
 		);
 	});
 
+	it("names a run record a crash zeroed, and exits 1 (#5775)", () => {
+		const f = scratch();
+		f.commit("Initial", 1);
+		f.runLine({});
+		fs.appendFileSync(
+			path.join(f.root, "docs", "data", "retro-runs.jsonl"),
+			`\0\0\0${JSON.stringify({ mode: "weekly", date: "2026-06-08" })}\n`,
+		);
+		const { status, out } = f.run();
+		expect(status).toBe(1);
+		expect(out.failures.join("\n")).toMatch(
+			/docs\/data\/retro-runs\.jsonl line 2 holds a record zeroed by a crash/,
+		);
+	});
+
 	it("names a failed issue read, gives no verdict on it, and exits 1", () => {
 		const f = scratch();
 		baselineOfOne(f);

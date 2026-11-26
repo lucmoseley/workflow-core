@@ -409,6 +409,16 @@ describe("the body carries #1157 Q7's breakdown", () => {
 		expect(body()).toContain("2 log line(s) would not parse");
 	});
 
+	it("says how many records a crash zeroed, apart from the lines that would not parse (#5775)", () => {
+		fs.appendFileSync(
+			exitLog,
+			`\0\0\0${JSON.stringify(exit({ at: NOW - HOUR, waitS: 60 }))}\n`,
+		);
+		const out = dryRun();
+		expect(out).toContain("1 log record(s) zeroed by a crash are not counted.");
+		expect(out).toContain("2 log line(s) would not parse");
+	});
+
 	it("names the map's deferred fog as candidate questions", () => {
 		expect(body()).toContain("suite growth budget");
 		expect(body()).toContain("Hub fan-out");
