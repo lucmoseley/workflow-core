@@ -83,6 +83,7 @@ describe("appending to a log due a prune", () => {
 	});
 
 	const yearAhead = () => Date.now() + 365 * DAY_MS;
+	const ahead = () => ({ n: "ahead", at: new Date(yearAhead()).toISOString() });
 	it("keeps the log's lines when the writer's clock is a year ahead (#5785)", () => {
 		seed(...daily(RETAIN_DAYS + 1));
 		appendRetained(log, { n: "new", at: ago(0) }, RETAIN, { now: yearAhead });
@@ -98,20 +99,13 @@ describe("appending to a log due a prune", () => {
 
 	it("still prunes on the true clock after a line a stepped clock dated a year ahead (#5785)", () => {
 		const [first, ...rest] = daily(RETAIN_DAYS + 2);
-		seed(
-			first,
-			{ n: "ahead", at: new Date(yearAhead()).toISOString() },
-			...rest,
-		);
+		seed(first, ahead(), ...rest);
 		appendRetained(log, { n: "new", at: ago(0) }, RETAIN);
 		expect(lines()).toEqual(["ahead", ...kept(RETAIN_DAYS), "new"]);
 	});
 
-	it("still prunes when that line a year ahead is the log's first (#5789)", () => {
-		seed(
-			{ n: "ahead", at: new Date(yearAhead()).toISOString() },
-			...daily(RETAIN_DAYS + 2),
-		);
+	it("still prunes when the log's first line is dated a year ahead by a stepped clock (#5785, #5789)", () => {
+		seed(ahead(), ...daily(RETAIN_DAYS + 2));
 		appendRetained(log, { n: "new", at: ago(0) }, RETAIN);
 		expect(lines()).toEqual(["ahead", ...kept(RETAIN_DAYS), "new"]);
 	});
