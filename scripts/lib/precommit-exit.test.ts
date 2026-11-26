@@ -40,7 +40,7 @@ describe("parseBreaches", () => {
 				"node scripts/check-a.js || exit 10; fi",
 				"gitleaks protect --staged || exit 1",
 				'node -e "process.exit(1)" || exit 1',
-				'sh -c "$_declared_command" || exit 1',
+				'sh -c "$staged_cmd" || exit 1',
 			),
 		).toEqual([]);
 	});
@@ -247,7 +247,7 @@ describe("parseBreaches", () => {
 			"a binary",
 			`"\${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1`,
 		],
-		["a declared command", 'sh -c "$_declared_command" || exit 1'],
+		["a declared command", 'sh -c "$staged_cmd" || exit 1'],
 		["inline node", "node -e 'process.exit(0)' || exit 1"],
 	])("passes %s, an outside command", (_, line) => {
 		expect(lines(`${line}\n`)).toEqual([]);

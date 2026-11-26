@@ -13,6 +13,7 @@ None.
 | `scripts/**/test_*.py`, `scripts/**/*_test.py`, `scripts/conftest.py`, `scripts/pytest_pass_plugin.py` | test: pytest's cases and the support files only pytest loads (#1262) |
 | `scripts/**/*.py`, shebang or not | program, the `scripts/lib/` modules included (#1262) |
 | `.claude/skills/*/types/*.d.ts` | hook module: a mod's `$.state` contract, typing the state its hooks module keeps (#3267) |
+| `.agents/skills/**` | none: vendored from `skills-lock.json`'s upstream; `.agents/vendored-skill-edits.json` records local edits to its Markdown alone, and its one script is a template copied before it runs (#1828) |
 
 ## Primitives
 

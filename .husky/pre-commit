@@ -40,21 +40,21 @@ if [ "$wfc_gates" = merge ]; then
   exit 0
 fi
 
-if ! lander_batch && declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command check_staged; then
+if ! lander_batch && { staged_cmd="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command check_staged)" || skip_undeclared; }; then
   blank=$(printf '\t\n_')
   blank=${blank%_}
-  case "$_declared_command" in
+  case "$staged_cmd" in
     'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js'*) ;;
     *)
-      case " $_declared_command " in
+      case " $staged_cmd " in
         *npm* | *yarn* | *bun* | *npx* | *biome* | *parallel* | *[\\\'\"$\`\{*?\[]* | \
           *["$blank"\ /\;\&\|\(]sh["$blank"\ \;\&\|\)\<\>]* | *["$blank"\ /\;\&\|\(]?sh["$blank"\ \;\&\|\)\<\>]* | *["$blank"\ /\;\&\|\(]?ash["$blank"\ \;\&\|\)\<\>]*)
-          node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/infer-commands.js check-staged "$_declared_command" || exit "$?"
+          node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/infer-commands.js check-staged "$staged_cmd" || exit "$?"
           ;;
       esac
       ;;
   esac
-  sh -c "$_declared_command" || exit 1
+  sh -c "$staged_cmd" || exit 1
 fi
 
 hook_bound "${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1
@@ -104,8 +104,7 @@ if armed '^(docs/doc-map\.md|docs/doc-map-superseded\.json)$'; then
 fi
 
 if ! lander_batch && armed '\.(js|ts|tsx|mts)$|^tsconfig\.json$'; then
-  if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command typecheck; then
-    tc_cmd="$_declared_command"
+  if tc_cmd="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command typecheck)" || skip_undeclared; then
     tc_status=0
     tsc_out="$(WFC_TSC_NO_WAIT=1 sh -c "$tc_cmd" 2>&1)" || tc_status=$?
     if [ "$tc_status" -eq 75 ]; then
@@ -123,7 +122,7 @@ fi
 if ! lander_batch && armed '^(app|lib)/.*\.(ts|tsx)$|^scripts/.*\.(js|mjs|cjs|ts)$'; then
   eslint_paths="$(armed_live)"
   if [ -n "$eslint_paths" ] &&
-    declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command lint; then
+    { node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command lint >/dev/null || skip_undeclared; }; then
     if ! command -v eslint >/dev/null 2>&1; then
       echo "SKIP: commands.lint is declared, but eslint is not on PATH" >&2
     else
@@ -222,8 +221,7 @@ fi
 
 : end of the gates commit-paths runs before its suite
 
-if ! lander_batch && ! lander_tested && declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-gate.js commit; then
-  tg_cmd="$_declared_command"
+if ! lander_batch && ! lander_tested && { tg_cmd="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-gate.js commit)" || skip_undeclared; }; then
   if ! tg_why="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/commit-key.js stand-down test "$tg_stamp" 2>&1)"; then
     tg_rc=0
     node "${WFC_PLUGIN_ROOT:-.}"/scripts/in-flight-runs.js commit "$tg_cmd" || tg_rc=$?
