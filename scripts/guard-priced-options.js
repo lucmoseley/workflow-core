@@ -68,6 +68,7 @@ const {
 	NEEDS_INPUT_ROUND_PREFIX,
 	FOUNDER_ACT_PREFIX,
 	ACTOR_ONLY_PREFIX,
+	RECURRENCE_PREFIX,
 	COMPLETED_WHILE_WAITING_PREFIX,
 	NEEDS_INPUT_UNDERCUT_PREFIX,
 	NEEDS_INPUT_MISPLACED_PREFIX,
@@ -613,16 +614,21 @@ function buildFounderLead() {
 }
 
 /**
- * @param {string} message
- * @param {{ruleShown?: boolean}} [opts]
- * @returns {string}
+ * @typedef {{ letter: string, head: string }} Lead
+ * @typedef {{ block: import("./lib/round-marker").QuestionBlock,
+ *   theirs: Lead, ours: Lead, founderLetters: Set<string>,
+ *   blocked: boolean }} YouOrMeRound
  */
-function actorOnlyRound(message, { ruleShown = false } = {}) {
-	/** @type {string[]} */
-	const flagged = [];
+
+/**
+ * @param {string} message
+ * @returns {YouOrMeRound[]}
+ */
+function youOrMeRounds(message) {
+	/** @type {YouOrMeRound[]} */
+	const rounds = [];
 	const founder = buildFounderLead();
 	for (const block of splitQuestions(message)) {
-		if (block.lines.some((l) => BLOCKED_LINE.test(l))) continue;
 		if (COMBINABLE.test(parseRelationLine(block.lines))) continue;
 		const leads = optionSpans(block.lines).map((option) => ({
 			letter: option.letter,
@@ -632,12 +638,76 @@ function actorOnlyRound(message, { ruleShown = false } = {}) {
 				.replace(/\u2019/g, "'"),
 		}));
 		if (leads.length < 2) continue;
-		const theirs = leads.find((o) => founder.test(o.head));
+		const founderLed = leads.filter((o) => founder.test(o.head));
+		const theirs = founderLed[0];
 		const ours = leads.find(
 			(o) => AGENT_LEAD.test(o.head) && !AGENT_ABANDONS.test(o.head),
 		);
 		if (!theirs || !ours) continue;
-		const quote = (/** @type {{letter: string, head: string}} */ o) =>
+		rounds.push({
+			block,
+			theirs,
+			ours,
+			founderLetters: new Set(founderLed.map((o) => o.letter)),
+			blocked: block.lines.some((l) => BLOCKED_LINE.test(l)),
+		});
+	}
+	return rounds;
+}
+
+/**
+ * @param {string | undefined} transcript
+ * @returns {() => boolean | null}
+ */
+function searchedClosedIssues(transcript) {
+	return () => {
+		if (!transcript) return null;
+		try {
+			const calls = require("./lib/tool-calls-since").toolCallsSince(
+				transcript,
+				0,
+			);
+			if (calls === null) return null;
+			const { isRulingsCommand } = require("./lib/research-ladder");
+			const corpus = corpusTrackers();
+			return calls.some(
+				(c) =>
+					c.name === "Bash" &&
+					typeof c.input.command === "string" &&
+					isRulingsCommand(c.input.command, corpus),
+			);
+		} catch (e) {
+			failOpenLogger("guard-priced-options recurrence")?.(
+				`transcript unreadable: ${e} — Recurrence: taken on its word`,
+			);
+			return null;
+		}
+	};
+}
+
+/**
+ * @param {YouOrMeRound[]} rounds
+ * @param {string | undefined} transcript
+ * @returns {string}
+ */
+function recurrenceRound(rounds, transcript) {
+	return require("./lib/handover-recurrence").recurrenceRefusal(
+		rounds.filter((r) => r.blocked),
+		searchedClosedIssues(transcript),
+	);
+}
+
+/**
+ * @param {YouOrMeRound[]} rounds
+ * @param {{ruleShown?: boolean}} [opts]
+ * @returns {string}
+ */
+function actorOnlyRound(rounds, { ruleShown = false } = {}) {
+	/** @type {string[]} */
+	const flagged = [];
+	for (const { block, theirs, ours, blocked } of rounds) {
+		if (blocked) continue;
+		const quote = (/** @type {Lead} */ o) =>
 			`(${o.letter}) “${o.head.replace(/\s+/g, " ").slice(0, 60)}”`;
 		flagged.push(`Q${block.number}: ${quote(theirs)} against ${quote(ours)}`);
 	}
@@ -1268,10 +1338,12 @@ function reviewParts(message, evidence = {}, status = jobStatus(message)) {
 		for (const { prefix, reason } of evidence.verdicts ?? [])
 			push(prefix, reason);
 		push(FOUNDER_ACT_PREFIX, founderAct);
+		const youOrMe = youOrMeRounds(message);
 		push(
 			ACTOR_ONLY_PREFIX,
-			actorOnlyRound(message, { ruleShown: Boolean(founderAct) }),
+			actorOnlyRound(youOrMe, { ruleShown: Boolean(founderAct) }),
 		);
+		push(RECURRENCE_PREFIX, recurrenceRound(youOrMe, evidence.transcript));
 	} else push(FOUNDER_ACT_PREFIX, founderAct);
 
 	if (status) {
@@ -1306,6 +1378,7 @@ const PIECE_OF = {
 	[NEEDS_INPUT_ROUND_PREFIX]: "round",
 	[FOUNDER_ACT_PREFIX]: "round",
 	[ACTOR_ONLY_PREFIX]: "round",
+	[RECURRENCE_PREFIX]: "round",
 	[MISSING_NEEDS_INPUT_PREFIX]: "status",
 	[EMPTY_MARKER_PREFIX]: "status",
 	[COMPLETED_WHILE_WAITING_PREFIX]: "status",

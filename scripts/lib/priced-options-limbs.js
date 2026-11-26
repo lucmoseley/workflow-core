@@ -4,6 +4,7 @@ const SHAPE_PREFIX = ".priced-options-nagged-";
 const NEEDS_INPUT_ROUND_PREFIX = ".needs-input-round-nagged-";
 const FOUNDER_ACT_PREFIX = ".founder-act-nagged-";
 const ACTOR_ONLY_PREFIX = ".actor-only-nagged-";
+const RECURRENCE_PREFIX = ".recurrence-nagged-";
 
 const COMPLETED_WHILE_WAITING_PREFIX = ".completed-while-waiting-nagged-";
 const NEEDS_INPUT_UNDERCUT_PREFIX = ".needs-input-undercut-nagged-";
@@ -32,6 +33,7 @@ const LIMBS = [
 	{ prefix: NEEDS_INPUT_ROUND_PREFIX, tier: "shape", cap: CAP },
 	{ prefix: FOUNDER_ACT_PREFIX, tier: "shape", cap: CAP },
 	{ prefix: ACTOR_ONLY_PREFIX, tier: "shape", cap: CAP },
+	{ prefix: RECURRENCE_PREFIX, tier: "shape", cap: CAP },
 	{ prefix: COMPLETED_WHILE_WAITING_PREFIX, tier: "filing", cap: CAP },
 	{ prefix: NEEDS_INPUT_UNDERCUT_PREFIX, tier: "filing", cap: CAP },
 	{ prefix: NEEDS_INPUT_MISPLACED_PREFIX, tier: "filing", cap: CAP },
@@ -109,6 +111,7 @@ module.exports = {
 	NEEDS_INPUT_ROUND_PREFIX,
 	FOUNDER_ACT_PREFIX,
 	ACTOR_ONLY_PREFIX,
+	RECURRENCE_PREFIX,
 	COMPLETED_WHILE_WAITING_PREFIX,
 	NEEDS_INPUT_UNDERCUT_PREFIX,
 	NEEDS_INPUT_MISPLACED_PREFIX,

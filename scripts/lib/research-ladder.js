@@ -298,6 +298,7 @@ const buildLadderLine = (number, missing) =>
 
 module.exports = {
 	RUNGS,
+	isRulingsCommand,
 	rungCounts,
 	missingRungs,
 	buildLadderLine,
