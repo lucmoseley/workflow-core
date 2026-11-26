@@ -324,7 +324,7 @@ describe("boot-resume after a restart (#3878)", () => {
 		fs.writeFileSync(
 			loopControlFile(),
 			JSON.stringify({
-				noProgressFrom: countFrom,
+				runFrom: countFrom,
 				stopRequested: false,
 				seats: [seat],
 				scope: { mode: "normal", repos: [repo], goal: null },
@@ -348,11 +348,11 @@ describe("boot-resume after a restart (#3878)", () => {
 		expect((await command("boot-resume")).status).toBe(0);
 		await untilLoopEnded();
 		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-		expect(
-			JSON.parse(fs.readFileSync(loopControlFile(), "utf8")).noProgressFrom,
-		).toBe(countFrom);
+		expect(JSON.parse(fs.readFileSync(loopControlFile(), "utf8")).runFrom).toBe(
+			countFrom,
+		);
 		expect(readLog()).toContain(
-			`boot resume: resumed the loop counting from ${new Date(countFrom).toISOString()}, pid `,
+			`boot resume: resumed the loop started at ${new Date(countFrom).toISOString()}, pid `,
 		);
 	});
 

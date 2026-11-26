@@ -3,15 +3,28 @@ const { caught } = require("./caught.js");
 const { readTail } = require("./file-read.js");
 
 /**
- * @typedef {{ rows: Record<string, unknown>[], entries: { row: Record<string, unknown>, line: number }[], bad: number[], torn: boolean }} Jsonl
+ * @typedef {{ rows: Record<string, unknown>[], entries: { row: Record<string, unknown>, line: number }[], bad: number[], zeroed: number[], torn: boolean }} Jsonl
  * @typedef {(line: string) => boolean} Keep
  */
+
+const ZERO_RUN = /^\0+/;
+
+/** @param {string} line */
+const stripZeroRun = (line) => line.replace(ZERO_RUN, "");
 
 /**
  * @param {string} line
  * @returns {Record<string, unknown> | null | undefined}
  */
 function parseJsonlRow(line) {
+	return parseRow(stripZeroRun(line));
+}
+
+/**
+ * @param {string} line
+ * @returns {Record<string, unknown> | null | undefined}
+ */
+function parseRow(line) {
 	if (!line.trim()) return null;
 	let row;
 	try {
@@ -36,12 +49,16 @@ function parseJsonl(text, keep) {
 	const entries = [];
 	/** @type {number[]} */
 	const bad = [];
+	/** @type {number[]} */
+	const zeroed = [];
 	let torn = false;
 	const lines = text.split("\n");
 	const unterminated = lines.length - 1;
-	for (const [i, line] of lines.entries()) {
+	for (const [i, raw] of lines.entries()) {
+		const line = stripZeroRun(raw);
+		if (line !== raw) zeroed.push(i + 1);
 		if (keep && !keep(line)) continue;
-		const row = parseJsonlRow(line);
+		const row = parseRow(line);
 		if (row === null) continue;
 		if (row) {
 			rows.push(row);
@@ -51,7 +68,7 @@ function parseJsonl(text, keep) {
 		bad.push(i + 1);
 		if (i === unterminated && !isJson(line)) torn = true;
 	}
-	return { rows, entries, bad, torn };
+	return { rows, entries, bad, zeroed, torn };
 }
 
 /** @param {string} line */

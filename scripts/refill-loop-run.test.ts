@@ -442,7 +442,7 @@ process.exitCode = ${status};\n`,
 		fs.writeFileSync(
 			at(".refill-loop-control.json"),
 			JSON.stringify({
-				noProgressFrom: now,
+				runFrom: now,
 				stopRequested: false,
 				seats: [seat, at("behind")],
 				scope: { mode: "normal", repos: [repo], goal: null },
@@ -706,7 +706,7 @@ describe("the loop's goal across ticks (#3864)", () => {
 		fs.writeFileSync(
 			at(".refill-loop-control.json"),
 			JSON.stringify({
-				noProgressFrom: Date.now(),
+				runFrom: Date.now(),
 				stopRequested: false,
 				seats: [seat],
 				scope,
@@ -1175,7 +1175,7 @@ const writeStored = (extra: object = {}) =>
 	fs.writeFileSync(
 		loopControlFile(),
 		JSON.stringify({
-			noProgressFrom: 5,
+			runFrom: 5,
 			stopRequested: false,
 			seats: [seat],
 			scope: storedScope(),
@@ -1189,7 +1189,7 @@ describe("`set --resume` with no process (#3861)", () => {
 		fs.writeFileSync(
 			at(".refill-loop-state.json"),
 			JSON.stringify({
-				stopped: { at: 6, reason: "no-progress", detail: "three launches" },
+				stopped: { at: 6, reason: "control-damaged", detail: "/c is damaged" },
 			}),
 		);
 		const before = Date.now();
@@ -1202,7 +1202,7 @@ describe("`set --resume` with no process (#3861)", () => {
 		const after = JSON.parse(fs.readFileSync(loopControlFile(), "utf8"));
 		expect(after.scope).toMatchObject(storedScope());
 		expect(after.paused).toBeUndefined();
-		expect(after.noProgressFrom).toBeGreaterThanOrEqual(before);
+		expect(after.runFrom).toBeGreaterThanOrEqual(before);
 	});
 
 	it("refuses a damaged control, starting nothing", async () => {
@@ -1256,7 +1256,7 @@ describe("`start` with no process (#3868)", () => {
 		const after = readStored();
 		expect(after.scope).toMatchObject(before.scope);
 		expect(after.paused).toEqual(paused);
-		expect(after.noProgressFrom).toBe(5);
+		expect(after.runFrom).toBe(5);
 		expect(after.seats).toEqual([seat]);
 	});
 });
@@ -1511,77 +1511,5 @@ describe("a control change on the real tick, under a held lock (#4846, #4188)", 
 		} finally {
 			holder.kill();
 		}
-	});
-});
-
-describe("the loop's own waits on the real tick (#3859)", () => {
-	const control = () =>
-		JSON.parse(fs.readFileSync(at(".refill-loop-control.json"), "utf8"));
-	const state = () => {
-		const file = at(".refill-loop-state.json");
-		return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
-	};
-	const seedStalled = () => {
-		const now = Date.now();
-		fs.writeFileSync(
-			at(".refill-loop-state.json"),
-			JSON.stringify({
-				launches: [7, 8, 9].map((n) => ({
-					root: repo,
-					issues: [n],
-					prompt: `/implement ${n}`,
-					seat,
-					jobId: `j${n}`,
-					launchedAt: now,
-					finishedAt: now + n,
-					acts: {},
-				})),
-			}),
-		);
-	};
-	const wake = () => fs.writeFileSync(at(".refill-loop-wake"), "");
-	const statusJson = () =>
-		JSON.parse(
-			keptSpawn("concurrent").spawnSync(
-				process.execPath,
-				[path.join(scripts, "refill-loop.js"), "status", "--json"],
-				{ cwd: dir, env: loopEnv({}), encoding: "utf8" },
-			).stdout,
-		);
-
-	it("pauses the stalled checkout on no progress, stays up launching nothing there, and launches only after `set --resume`", async () => {
-		seedStalled();
-		const running = runAsProcess(1);
-		await polled(
-			() =>
-				control().repoPaused?.[repo] !== undefined && state().lastTick != null,
-			"no tick wrote the no-progress pause",
-		);
-		expect(control().repoPaused[repo]).toMatchObject({
-			by: "no-progress",
-			issues: [7, 8, 9].reverse().map((number) => ({ root: repo, number })),
-		});
-		const pausedAt = control().repoPaused[repo].at;
-
-		const lastTickAt = state().lastTick.at;
-		wake();
-		await polled(
-			() => state().lastTick.at > lastTickAt,
-			"no tick ran after the pause",
-		);
-		expect(state().stopped ?? null).toBeNull();
-		expect(fs.existsSync(at("dispatches"))).toBe(false);
-		expect(control().repoPaused[repo].at).toBe(pausedAt);
-		expect(statusJson().repoPaused[repo].by).toBe("no-progress");
-
-		const resumed = keptSpawn("concurrent").spawnSync(
-			process.execPath,
-			[path.join(scripts, "refill-loop.js"), "set", "--resume"],
-			{ cwd: dir, env: loopEnv({}), encoding: "utf8" },
-		);
-		expect(resumed.status).toBe(0);
-		const r = await settled(running, "run after a resume");
-		expect(r.status).toBe(0);
-		expect(readLines(at("dispatches")).join("\n")).toContain("/implement 5");
 	});
 });

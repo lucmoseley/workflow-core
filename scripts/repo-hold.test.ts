@@ -365,7 +365,7 @@ describe("repo-hold.js (#3857)", () => {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({
-				noProgressFrom: Date.now(),
+				runFrom: Date.now(),
 				stopRequested: false,
 				seats: [],
 				scope: { mode: "normal", repos: [checkout] },

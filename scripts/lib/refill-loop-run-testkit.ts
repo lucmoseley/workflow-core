@@ -149,7 +149,7 @@ export function refillSandbox() {
 		fs.writeFileSync(
 			at(".refill-loop-control.json"),
 			JSON.stringify({
-				noProgressFrom: Date.now(),
+				runFrom: Date.now(),
 				stopRequested: false,
 				seats: [seat],
 				scope: { mode: "normal", repos: [repo], goal: null },

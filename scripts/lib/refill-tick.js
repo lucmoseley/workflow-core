@@ -95,7 +95,6 @@ const {
 	readControlChecked,
 	withControlLock,
 	writeControlFile,
-	writeRepoPauses,
 } = require("./refill-files.js");
 const { readJson, writeJson } = require("./refill-json.js");
 const { actOnOutside } = require("./refill-outside.js");
@@ -121,7 +120,6 @@ const {
 	withTickStores,
 } = require("./repo-holds.js");
 const { tendHoldNotices } = require("./repo-hold-notices.js");
-const { buildPauseFiler, tendPauseNotices } = require("./pause-notices.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { localDate } = require("./local-date.js");
 const { pidLock } = require("./pid-lock.js");
@@ -846,8 +844,6 @@ const productionIo = {
 	readSwapHold,
 	sendHoldNotices: (roots, { agents, isPaused }, now) =>
 		tendHoldNotices(roots, { agents, isPaused }, now, log),
-	sendPauseNotices: (repoPaused, now) =>
-		tendPauseNotices(repoPaused, now, log, buildPauseFiler(REVIEW_ROOT)),
 	readProgress,
 	readLoopLastActAt,
 	readThroughput: (launches, served, now) =>
@@ -879,8 +875,6 @@ const productionIo = {
 	readFrontier: refillFrontier,
 	readParkMarkers,
 	launchBatch: launchOrResume,
-	writePauses: (pauses, noProgressFrom) =>
-		writeRepoPauses(pauses, noProgressFrom, log),
 	runReview,
 	updateState: (transition) => updateState(transition, log),
 	readOmittedDirs,

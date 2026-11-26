@@ -258,7 +258,7 @@ function parseStore(file) {
 	const markers = /** @type {Marker[]} */ (
 		read.rows.filter((entry) => typeof entry.sha === "string")
 	);
-	const bad = read.bad.length;
+	const bad = read.bad.length + read.zeroed.length;
 	return {
 		markers,
 		malformed: read.rows.length - markers.length + bad,

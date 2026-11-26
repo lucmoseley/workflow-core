@@ -103,7 +103,6 @@ const QUERY =
  * @property {import("./refill-state.js").Hold[]} held
  * @property {import("./refill-decide.js").TickHold[]} repoHolds
  * @property {string|null} loopWait
- * @property {Record<string, import("./refill-decide.js").Pause>} repoPaused
  * @property {string[]} holdsUnreadRoots
  */
 
@@ -116,26 +115,12 @@ const buildLiveLoopWait = (paused, lastIdle) =>
 	paused ? buildPausedWaitText(paused) : buildLoopWait(lastIdle ?? null);
 
 /**
- * @param {string[]} served
- * @param {LoopReading} loop
- * @returns {string|null}
- */
-function buildTrackerWait(served, loop) {
-	const [first] = served;
-	if (first === undefined) return null;
-	const pause = loop.repoPaused[first];
-	return pause && served.every((r) => loop.repoPaused[r])
-		? buildPausedWaitText(pause)
-		: loop.loopWait;
-}
-
-/**
- * @param {{noProgressFrom: number}|null} control
+ * @param {{runFrom: number}|null} control
  * @param {{from: number}|null|undefined} launchCount
  * @returns {number|null}
  */
 const stoppedRunOf = (control, launchCount) =>
-	control?.noProgressFrom ?? launchCount?.from ?? null;
+	control?.runFrom ?? launchCount?.from ?? null;
 
 /**
  * @param {TrackerRead} t
@@ -221,7 +206,7 @@ function buildReadings({ rootsOf, trackers, loop, now }) {
 				holdsUnread:
 					served.length > 0 &&
 					served.every((r) => loop.holdsUnreadRoots.includes(r)),
-				loopWait: buildTrackerWait(served, loop),
+				loopWait: served.length > 0 ? loop.loopWait : null,
 				issues,
 				error,
 			};

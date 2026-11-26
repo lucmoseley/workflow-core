@@ -341,15 +341,6 @@ const buildLaunchBatches = (decision, waiting) =>
 
 /**
  * @param {import("./refill-decide.js").Decision} decision
- * @param {{writePauses: (pauses: Record<string, import("./refill-decide.js").Pause>) => void}} io
- */
-function writeDecidedPause(decision, io) {
-	if (!("stop" in decision) && decision.repoPauses)
-		io.writePauses(decision.repoPauses);
-}
-
-/**
- * @param {import("./refill-decide.js").Decision} decision
  * @param {number} at
  * @param {string} summary
  */
@@ -374,7 +365,6 @@ const buildLastTick = (decision, at, summary) => ({
  * @param {{readControl: () => ControlRead,
  *   launchBatch: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
  *   resumeHeld: ResumeHeld,
- *   writePauses: (pauses: Record<string, import("./refill-decide.js").Pause>) => void,
  *   runReview: (lastRunOn: string|null, now: number) => string|null,
  *   updateState: (transition: import("./refill-state.js").Transition) =>
  *     LoopState,
@@ -412,10 +402,9 @@ function settleTick(
 							inFlight: {
 								launching,
 								launchCount: {
-									from: input.noProgressFrom,
+									from: input.runFrom,
 									count:
-										launchesSince(state, input.noProgressFrom) +
-										launchedSoFar.length,
+										launchesSince(state, input.runFrom) + launchedSoFar.length,
 								},
 							},
 						}
@@ -446,7 +435,6 @@ function settleTick(
 	});
 	for (const line of buildCapHeldLines(decision)) io.log(line);
 	io.log(summary);
-	writeDecidedPause(decision, io);
 	const overflowStart = recordOverflowStart(
 		input,
 		[...afterResumes, ...outcome.launched],
@@ -467,10 +455,8 @@ function settleTick(
 								...clashHoldsOf(decision.skipped, state.held, input.now),
 							],
 				launchCount: {
-					from: input.noProgressFrom,
-					count:
-						launchesSince(state, input.noProgressFrom) +
-						outcome.launched.length,
+					from: input.runFrom,
+					count: launchesSince(state, input.runFrom) + outcome.launched.length,
 				},
 				handedOff: nextHandedOff(state, away, judged, input.now),
 				overflowStart: overflowStart ?? state.overflowStart,

@@ -148,36 +148,6 @@ describe("at session start (--notify)", () => {
 		expect(r.stdout).not.toContain("REFILL-LOOP-STOPPED");
 	});
 
-	describe("a checkout's no-progress pause (#3859, #5275)", () => {
-		const issues = [{ root: "/h/workflow-core", number: 9 }];
-		const writePause = (fields: object) =>
-			fs.writeFileSync(
-				path.join(dir, ".refill-loop-control.json"),
-				JSON.stringify({
-					noProgressFrom: STOP_AT - 60_000,
-					stopRequested: false,
-					seats: [],
-					scope: { mode: "normal", repos: [] },
-					...fields,
-				}),
-			);
-
-		it("names it once, with its checkout, issues and the resume", () => {
-			writePause({
-				repoPaused: {
-					"/h/workflow-core": { by: "no-progress", at: STOP_AT, issues },
-				},
-			});
-			const first = run(["--notify"]);
-			expect(first.status).toBe(0);
-			expect(first.stdout).toContain("REFILL-LOOP-PAUSED");
-			expect(first.stdout).toContain("refill loop's workflow-core is");
-			expect(first.stdout).toContain("workflow-core#9");
-			expect(first.stdout).toContain("set --resume");
-			expect(run(["--notify"]).stdout).not.toContain("REFILL-LOOP-PAUSED");
-		});
-	});
-
 	it("names a damaged-control stop with its time and detail", () => {
 		writeState("control-damaged");
 		const r = run(["--notify"]);
@@ -263,7 +233,7 @@ describe("at session start (--notify)", () => {
 		writeState("control-damaged");
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
-			JSON.stringify({ noProgressFrom: STOP_AT + 60_000, stopRequested: true }),
+			JSON.stringify({ runFrom: STOP_AT + 60_000, stopRequested: true }),
 		);
 		expect(run(["--notify"]).stdout).toContain("nothing new launches");
 	});
@@ -429,7 +399,7 @@ describe("at session start (--notify)", () => {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({
-				noProgressFrom: STOP_AT + 60_000,
+				runFrom: STOP_AT + 60_000,
 				stopRequested: false,
 			}),
 		);
@@ -438,10 +408,10 @@ describe("at session start (--notify)", () => {
 });
 
 describe("the restart it names", () => {
-	function writeControl(scope: object, noProgressFrom = STOP_AT - 60_000) {
+	function writeControl(scope: object, runFrom = STOP_AT - 60_000) {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
-			JSON.stringify({ noProgressFrom, stopRequested: false, scope }),
+			JSON.stringify({ runFrom, stopRequested: false, scope }),
 		);
 	}
 
