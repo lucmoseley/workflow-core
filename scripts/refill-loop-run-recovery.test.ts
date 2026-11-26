@@ -266,7 +266,6 @@ process.exit(${handOffExit});\n`,
 				"admission.js",
 				`const fs = require("node:fs");
 fs.appendFileSync(${JSON.stringify(at("ticks"))}, "tick\\n");
-fs.appendFileSync(${JSON.stringify(at("admission-args"))}, process.argv.slice(2).join(" ") + "\\n");
 const reads = fs.readFileSync(${JSON.stringify(at("ticks"))}, "utf8").split("\\n").length - 1;
 process.stdout.write(JSON.stringify({ ...${JSON.stringify(ADMISSION_VERDICT)}, slots: reads === 1 ? 2 : 0 }));\n`,
 			);
@@ -279,7 +278,6 @@ process.stdout.write(JSON.stringify({ ...${JSON.stringify(ADMISSION_VERDICT)}, s
 					stepResume: expect.objectContaining({ cause: "swapHeld", tries: 0 }),
 				}),
 			]);
-			expect(readLines(at("admission-args"))[1]).toMatch(/--launch/);
 			expect(r.stdout).toMatch(
 				/not resuming job7 .*for a later tick: admission's re-read/,
 			);

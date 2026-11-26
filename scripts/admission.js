@@ -4,7 +4,6 @@ const { writeFd } = require("./lib/write-fd.js");
 const { scriptPath } = require("./lib/script-path.js");
 const {
 	machineAdmission,
-	LAUNCH_SPARES,
 	readCpuSlots,
 	buildSessionCeilingText,
 	buildSessionDrawLine,
@@ -22,7 +21,7 @@ const { readAllowance } = require("./lib/allowance");
 const { overloadReading, buildOverloadText } = require("./lib/cpu-sample");
 const { parseOrExit } = require("./lib/cli-args");
 
-const USAGE = `Usage: node ${scriptPath("admission.js")} [--json] [--launch] [--skip-allowance]
+const USAGE = `Usage: node ${scriptPath("admission.js")} [--json] [--skip-allowance]
        node ${scriptPath("admission.js")} --load-only`;
 
 // guess: 100%, the 90/99 thresholds sizing the set cap alone, #371
@@ -82,23 +81,18 @@ function main() {
 		usage: USAGE,
 		flags: {
 			"--json": "boolean",
-			"--launch": "boolean",
 			"--skip-allowance": "boolean",
 			"--load-only": "boolean",
 		},
 	});
 	if (flags["--load-only"]) return cpuLimbOnly();
 	const json = flags["--json"] === true;
-	const spares = flags["--launch"] ? LAUNCH_SPARES : 0;
 	const listed = admissionSessionIds();
-	const { overhead, host, live, load, cpu, verdict, memory } = machineAdmission(
-		{
-			listed,
-			reclaimable: reclaimableMb(),
-			pendingSpares: spares,
-			reserves: readReserves(),
-		},
-	);
+	const { host, live, load, cpu, verdict, memory } = machineAdmission({
+		listed,
+		reclaimable: reclaimableMb(),
+		reserves: readReserves(),
+	});
 	const memoryText = `\n\n${buildMemoryBreakdownLines(memory).join("\n")}`;
 
 	const allowance = flags["--skip-allowance"]
@@ -119,8 +113,6 @@ function main() {
 		verdict,
 		host,
 		live,
-		overhead,
-		spares,
 		allowance,
 	});
 	writeFd(
@@ -190,28 +182,16 @@ function writeRefusal({ verdict, load, cpu, memoryText, hungJobs }) {
 }
 
 /**
- * @param {{verdict: Extract<Admission["verdict"], {ok: true}>, host: Admission["host"], live: Admission["live"], overhead: Admission["overhead"], spares: number, allowance: AllowanceRead}} a
+ * @param {{verdict: Extract<Admission["verdict"], {ok: true}>, host: Admission["host"], live: Admission["live"], allowance: AllowanceRead}} a
  * @returns {string[]}
  */
-function buildReportLines({
-	verdict,
-	host,
-	live,
-	overhead,
-	spares,
-	allowance,
-}) {
+function buildReportLines({ verdict, host, live, allowance }) {
 	const windowsLine = buildWindowsLine(verdict);
 	return [
 		`available memory   ${verdict.availableMb} MB`,
 		`live sessions      ${verdict.sessions} alongside this one`,
 		`session draw       ${buildSessionDrawLine(host)}`,
 		`live draw          ${buildLiveDrawLine(live)}`,
-		...(overhead.ok && overhead.pendingMb
-			? [
-					`pending spares     ${overhead.pendingMb} MB reserved for the ${spares} spare(s) this launch will warm, at ${overhead.perPairMb} MB a pair, and as much again for each slot past the first (#2511)`,
-				]
-			: []),
 		`reclaimable        ${verdict.reclaimedMb} MB about to be reaped`,
 		...(windowsLine ? [`windows memory     ${windowsLine}`] : []),
 		`slots              ${verdict.slots} — ${verdict.admit ? "ADMIT" : "HOLD"}: ${verdict.reason}`,

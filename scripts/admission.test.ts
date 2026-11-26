@@ -1664,17 +1664,6 @@ describe("admissionFrom's own fallback and wording", () => {
 		expect(held.reason).toMatch(/3-session CPU ceiling \(#2141\)/);
 	});
 
-	it("names the pending pairs past the first slot, and none without a launch price", () => {
-		const a = admissionFrom(roomy, one, { host, launchMb: 250 });
-		expect(a.freeSlots).toBe(3);
-		expect(a.reason).toMatch(
-			/^3 free slots on the live sessions' draw at p95 and 2 more spare pair\(s\) at 250 MB/,
-		);
-		expect(admissionFrom(roomy, one, { host }).reason).not.toMatch(
-			/spare pair/,
-		);
-	});
-
 	it("names a single free slot in the singular", () => {
 		const a = admissionFrom(tight, three, { host });
 		expect(a.freeSlots).toBe(1);
@@ -1965,7 +1954,7 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 		expect(admission.drawNeedMb).toBe(629);
 	});
 
-	it("reserves one idle spare pair and the pair a launch warms, shrinking the free slots, and says so", () => {
+	it("reserves one idle spare pair, shrinking the free slots, and says so", () => {
 		const bare = machine({ mb: 4000, sessions: [SELF, "a"] });
 		const { admission } = machine({
 			mb: 4000,
@@ -1973,10 +1962,10 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 			psLines: [idleSpare],
 			cwds: idleAt("111"),
 		});
-		expect(admission.reservedMb).toBe(1180);
+		expect(admission.reservedMb).toBe(590);
 		expect(admission.reservedError).toBeNull();
 		expect(admission.freeSlots).toBeLessThan(Number(bare.admission.freeSlots));
-		expect(admission.reason).toMatch(/reserving 1180 MB for the spare pool/);
+		expect(admission.reason).toMatch(/reserving 590 MB for the spare pool/);
 	});
 
 	it("reserves no claimed spare, a live session's own, falling back to the measured pair", () => {
@@ -1985,7 +1974,7 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 			sessions: [SELF, "other@111"],
 			psLines: [idleSpare],
 		});
-		expect(admission.reservedMb).toBe(2 * PAIR);
+		expect(admission.reservedMb).toBe(PAIR);
 	});
 
 	it("names the reservation in the always-admit-one reason too", () => {
@@ -1995,9 +1984,9 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 			psLines: [idleSpare],
 			cwds: idleAt("111"),
 		});
-		expect(admission.freeSlots).toBe(1);
+		expect(admission.admit).toBe(true);
 		expect(admission.reason).toMatch(
-			/no session is running, so one is admitted whatever the headroom after reserving 1180 MB for the spare pool/,
+			/no session is running, so one is admitted whatever the headroom after reserving 590 MB for the spare pool/,
 		);
 	});
 
@@ -2237,7 +2226,7 @@ describe("text output stays a handful of figures", () => {
 	});
 });
 
-describe("the pending-spare reserve (mantahostels#2588)", () => {
+describe("the spare pool's one pair (#5704)", () => {
 	const twoIdlePairs = {
 		psLines: [
 			"111 700000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
@@ -2249,14 +2238,9 @@ describe("the pending-spare reserve (mantahostels#2588)", () => {
 		cwds: idleAt("111", "113"),
 	};
 
-	it("reserves nothing extra without the flag", () => {
+	it("reserves one idle pair's price", () => {
 		const { json } = run({ mb: 8000, ...twoIdlePairs });
 		expect(json.reservedMb).toBe(390);
-	});
-
-	it("adds one pair's own price for --launch", () => {
-		const { json } = run({ mb: 8000, ...twoIdlePairs, args: ["--launch"] });
-		expect(json.reservedMb).toBe(390 + 390);
 	});
 
 	it("falls back to the measured 106 MB where no idle pair is resident", () => {
@@ -2264,38 +2248,21 @@ describe("the pending-spare reserve (mantahostels#2588)", () => {
 			mb: 8000,
 			psLines: ["999 100000 claude daemon run"],
 			pss: { "999": 51_200 },
-			args: ["--launch"],
 		});
-		expect(json.reservedMb).toBe(PAIR + PAIR);
+		expect(json.reservedMb).toBe(PAIR);
 	});
 
-	it("costs a slot, which is the whole point", () => {
-		const grown = {
-			mb: 3300 + 390 + HELD,
-			sessions: [SELF, GROWN],
-			...twoIdlePairs,
-			pss: { ...twoIdlePairs.pss, ...GROWN_PSS },
-		};
-		const without = run(grown);
-		const launching = run({ ...grown, args: ["--launch"] });
-		expect(without.json.slots).toBe(4);
-		expect(launching.json.slots).toBe(2);
-	});
-
-	it("charges each slot past the first its own pending pair (#2511)", () => {
+	it("charges the claimed pair once, inside each launch's draw, however many slots it counts", () => {
 		const { json } = run({
 			mb: 3300 + 390 + HELD,
 			sessions: [SELF, GROWN],
 			...twoIdlePairs,
 			pss: { ...twoIdlePairs.pss, ...GROWN_PSS },
-			args: ["--launch"],
 		});
-		expect(json.budgetMb).toBe(2910);
-		expect(json.nextNeedMb).toBe(2418 + 2 * 390);
-		expect(json.slots).toBe(2);
-		expect(json.reason).toMatch(
-			/the live sessions' draw and 2 more, with 1 more spare pair\(s\) at 390 MB, need 2120 MB/,
-		);
+		expect(json.reservedMb).toBe(390);
+		expect(json.budgetMb).toBe(3300);
+		expect(json.slots).toBe(4);
+		expect(json.reason).not.toMatch(/spare pair/);
 	});
 });
 
@@ -2502,7 +2469,7 @@ describe("the memory breakdown (#589)", () => {
 	it("prints the slot arithmetic from free memory to the slot count", () => {
 		const r = runScenario(scenarios.admit);
 		expect(r.stdout).toMatch(
-			/ {2}slot arithmetic {2}6000 free − 506 pool − 794 floor − 300 margin \+ 420 reclaim = 4820 MB; the live sessions' draw needs 441 MB of it, and with 5 more, with 4 more spare pair\(s\) at 253 MB, 4930 MB, so 4 slot\(s\)\n/,
+			/ {2}slot arithmetic {2}6000 free − 253 pool − 794 floor − 300 margin \+ 420 reclaim = 5073 MB; the live sessions' draw needs 441 MB of it, and with 7 more 5243 MB, so 6 slot\(s\)\n/,
 		);
 	});
 
@@ -2541,7 +2508,7 @@ describe("the memory breakdown (#589)", () => {
 			...scenarios.admit,
 			meminfo: scenarios.admit.meminfo.replace(
 				/MemAvailable: +\d+/,
-				"MemAvailable:     409600",
+				"MemAvailable:     204800",
 			),
 		};
 		const reaped = [{ pss: 3000 }];
@@ -2549,12 +2516,12 @@ describe("the memory breakdown (#589)", () => {
 		const out = JSON.parse(r.stdout);
 		expect(out.memory.slots).toMatchObject({
 			budgetMb: out.budgetMb,
-			byMemory: 1,
+			byMemory: 2,
 			slots: out.slots,
 		});
 		const text = runScenario({ ...s, reaped }).stdout;
 		expect(text).toMatch(
-			/[=] 1906 MB; .*, so 1 slot\(s\), the pool reserve exceeding free memory so the rest counting from 0\n/,
+			/[=] 1906 MB; .*, so 2 slot\(s\), the pool reserve exceeding free memory so the rest counting from 0\n/,
 		);
 	});
 

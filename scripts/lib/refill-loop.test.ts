@@ -1603,14 +1603,10 @@ describe("the free-slot count (#2500)", () => {
 			"utf8",
 		);
 		const reread = sh.match(
-			/admissionArgs = this\.forceMemory\s*\?\s*\["--load-only"\]\s*:\s*\[\s*"([^"]+)"/,
+			/else if \(this\.force \|\| this\.overflow\)\s*admissionArgs = \["--skip-allowance"\];/,
 		);
 		expect(reread).not.toBeNull();
-		expect(FREE_SLOT_ARGS).toEqual([
-			"--json",
-			String(reread?.[1]),
-			"--skip-allowance",
-		]);
+		expect(FREE_SLOT_ARGS).toEqual(["--json", "--skip-allowance"]);
 	});
 });
 
