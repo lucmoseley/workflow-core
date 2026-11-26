@@ -214,6 +214,7 @@ export function fileIssueKit() {
 			judge: (body) => readGateWrite(body, { route: "file-issue" }),
 			readBody: (file) =>
 				file === "-" ? stdin : fs.readFileSync(file, "utf8"),
+			resolveCommit: () => null,
 			now: () => NOW,
 			...ports,
 		});
