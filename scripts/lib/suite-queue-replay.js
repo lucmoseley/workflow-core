@@ -27,7 +27,7 @@ const { chargeMb } = require("./launch-charge");
 const { partKindOf } = require("./part-suite-peak.js");
 const { TSC_MAX, isCutTscRunner } = require("./tsc-slot");
 const { GATE_RUN_LOG } = require("./gate-seat.js");
-const { sessionWallS, unionS, waitOwner } = require("./queue-exit-log.js");
+const { unionS, waitOwner } = require("./queue-exit-log.js");
 const {
 	isWindowsFresh,
 	windowsReadingOf,
@@ -1044,6 +1044,7 @@ function replay(logs, w) {
 			waitS: all.reduce((s, e) => s + clip(e.st, e.en, from, to), 0),
 		};
 	});
+	const sessions = sessionSums(all, w, acc.limbSession);
 	const matchable = waiters.filter(isMatchable);
 	const counts = waiters.flatMap((e) =>
 		e.passed === undefined ? [] : [e.passed],
@@ -1056,7 +1057,6 @@ function replay(logs, w) {
 		skipped: touching.length - all.length,
 		queued: all.length,
 		waitS: all.reduce((s, e) => s + inWindow(e), 0),
-		sessionWallS: sessionWallS(all, w.since, w.until),
 		joined: {
 			waits: joined.length,
 			waitS: joined.reduce((s, e) => s + inWindow(e), 0),
@@ -1077,7 +1077,8 @@ function replay(logs, w) {
 		landerSlot: acc.landerSlot,
 		holder: acc.holder,
 		holderSession: acc.holderSession,
-		sessions: sessionSums(all, w, acc.limbSession),
+		sessions,
+		sessionWallS: sessions.reduce((s, x) => s + x.union, 0),
 		peak: peakOf(all, w),
 		gaps: waiters
 			.filter((e) => e.run)

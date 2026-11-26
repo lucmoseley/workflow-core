@@ -272,11 +272,14 @@ describe("each launching session's wall-clock wait (#5740)", () => {
 	});
 
 	it("counts one session's overlapping waits only inside the window", () => {
-		log({ at: NOW - 23 * HOUR, waitS: 3 * 3600 }, {
-			at: NOW - 22.5 * HOUR,
-			waitS: 3 * 3600,
-			pid: 2,
-		} as Exit);
+		log(
+			{ at: NOW - 23 * HOUR, waitS: 3 * 3600 },
+			{
+				at: NOW - 22.5 * HOUR,
+				waitS: 3 * 3600,
+				pid: 2,
+			},
+		);
 		expect(dryRun()).toContain("Dry run: 1.5 h of session wall-clock");
 	});
 
@@ -294,16 +297,38 @@ describe("each launching session's wall-clock wait (#5740)", () => {
 		expect(out).toMatch(/\| \d{4}-\d{2}-\d{2} \(to now\) \| 3 \| 0\.2 \|/);
 	});
 
+	it("counts a joined wait inside its own session's union", () => {
+		log(elevenMin({ kind: "tsc", pid: 1 }), {
+			...elevenMin({ kind: "tsc", pid: 2 }),
+			joined: { pid: 9, session: "other" },
+		});
+		expect(dryRun()).toContain("Dry run: 0.2 h of session wall-clock");
+	});
+
 	it("files on the session figure, not the summed one", () => {
-		log({ at: NOW - HOUR, waitS: 1.5 * 3600 }, {
-			at: NOW - HOUR,
-			waitS: 1.5 * 3600,
-			pid: 2,
-		} as Exit);
+		log(
+			{ at: NOW - HOUR, waitS: 1.5 * 3600 },
+			{
+				at: NOW - HOUR,
+				waitS: 1.5 * 3600,
+				pid: 2,
+			},
+		);
 		const gh = stubGh();
 		const r = run(gh);
 		expect(r.stdout).toContain("1.5 h of session wall-clock queue wait");
 		expect(gh.creates()).toEqual([]);
+	});
+
+	it("files where two sessions' waits reach 2 h between them", () => {
+		log(
+			{ at: NOW - HOUR, waitS: 1.5 * 3600, session: "a" },
+			{ at: NOW - HOUR, waitS: 1.5 * 3600, session: "b", pid: 2 },
+		);
+		const gh = stubGh();
+		const r = run(gh);
+		expect(r.stdout).toContain("3.0 h of session wall-clock queue wait");
+		expect(gh.creates()).toHaveLength(1);
 	});
 });
 

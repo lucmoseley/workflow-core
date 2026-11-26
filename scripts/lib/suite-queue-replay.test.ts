@@ -550,7 +550,6 @@ describe("the alarm's figure, each launching session's wall-clock wait (#5740)",
 		const r = replayOf(cfg);
 		expect(r.waitS).toBe(60 * 60);
 		expect(r.sessionWallS).toBe(38 * 60);
-		expect(r.sessions.reduce((s, x) => s + x.union, 0)).toBe(r.sessionWallS);
 		expect(r.sessions.map((s) => s.session).sort()).toEqual([
 			"(no session, pid 7)",
 			"(no session, pid 8)",
