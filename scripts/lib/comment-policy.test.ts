@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { depsPattern, judgeSource, langOf } from "./comment-policy.js";
+import { GATES } from "./precommit-gates.js";
 import { qualifyCitations } from "./qualify-citations.js";
 
 type Lang = "js" | "py" | "sh";
@@ -463,6 +464,35 @@ describe("the refused shapes", () => {
 				"js",
 			),
 		).toEqual(["COMMENT@1"]);
+	});
+
+	it("prints each refusal with a line its gate row attributes it by (#5495)", () => {
+		const row = GATES.find((g) => g.id === "comment-policy");
+		const refusals = (row && "refusals" in row ? row.refusals : []).map((l) =>
+			typeof l === "string" ? l : l.text,
+		);
+		const out = judge(
+			[
+				"// a stray remark",
+				"const a = 1;",
+				"// biome-ignore lint/suspicious/noX: ok",
+				"const b = 1;",
+				"// @ts-expect-error -- a fake",
+				"const c = 1;",
+				"// Stryker disable next-line EqualityOperator",
+				"const d = a <= b;",
+				"// ADR-0999",
+				"const e = 1;",
+				"",
+			].join("\n"),
+			"js",
+		);
+		expect(out).toHaveLength(5);
+		for (const b of out)
+			expect(
+				refusals.some((l) => b.why.includes(l)),
+				b.why,
+			).toBe(true);
 	});
 
 	it("refuses an ADR pointer that resolves to no file", () => {
