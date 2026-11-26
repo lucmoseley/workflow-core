@@ -890,7 +890,7 @@ const productionIo = {
 		if (!appendTick(record))
 			log(`concurrency record: not written to ${concurrencyFiles().record}`);
 	},
-	appendBreakerEvents: (events) => appendBreakerEvents(events, log),
+	appendBreakerEvents: (events) => appendBreakerEvents(events, { log }),
 };
 
 /** @param {{dryRun: boolean}} opts */
