@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
+const { isSafeId } = require("./safe-id.js");
 
 /**
  * @typedef {{hook_event_name?: string, last_assistant_message?: unknown, stop_hook_active?: unknown}} HookPayload
@@ -19,8 +20,6 @@ function recordsDir(root) {
 	return path.join(markersDir(root), DIR_NAME);
 }
 
-const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
-
 const NO_SESSION = "unknown-session";
 
 // guess, lucmoseley/mantahostels#1274
@@ -31,7 +30,7 @@ const CAP_BYTES = 32_768;
  * @returns {string}
  */
 function safeId(sessionId) {
-	return sessionId && SAFE_ID.test(sessionId) ? sessionId : NO_SESSION;
+	return isSafeId(sessionId) ? sessionId : NO_SESSION;
 }
 
 const VERDICT_OUTCOMES = ["message", "no-finding", "inventory-stand-down"];

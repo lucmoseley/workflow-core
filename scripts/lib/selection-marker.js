@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const { MARKERS_REL } = require("./marker-root.js");
+const { isSafeId } = require("./safe-id.js");
 const path = require("node:path");
 const idSeam = require("./session-id");
 const { ignoreFailure } = require("./caught.js");
@@ -13,15 +14,13 @@ const MARKER_SUBDIR = path.join(
 // guess: a week outlives any session still dispatching, lucmoseley/mantahostels#422
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
-
 /**
  * @param {string} root
  * @param {string|null|undefined} sessionId
  * @returns {string|null}
  */
 function markerPath(root, sessionId) {
-	if (!sessionId || !SAFE_ID.test(sessionId)) return null;
+	if (!isSafeId(sessionId)) return null;
 	return path.join(root, MARKER_SUBDIR, `${sessionId}.json`);
 }
 

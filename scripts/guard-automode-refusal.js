@@ -5,6 +5,7 @@ const { describeCall, reportOnce } = require("./lib/report-once");
 const { readRuleParagraph } = require("./lib/rule-text");
 const sessionTranscript = require("./lib/session-transcript");
 const stopGuard = require("./lib/stop-guard");
+const { isSafeId } = require("./lib/safe-id");
 const { isSubagentPayload } = require("./lib/subagent-payload");
 const { isSubagentTranscript, mainChainRecords } = require("./lib/transcript");
 
@@ -20,8 +21,6 @@ const DENIAL =
 const PARAGRAPH_HEAD = "AN AUTO-MODE REFUSAL";
 
 const SEEN_PREFIX = ".automode-refusal-seen-";
-
-const SAFE_AGENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
 /**
  * @param {unknown} content
@@ -112,7 +111,7 @@ function whoseTurn(payload, sid) {
 		return { file, tier, budgetKey: sid };
 	}
 	const agent = payload.agent_id;
-	if (typeof agent !== "string" || !SAFE_AGENT_ID.test(agent)) return null;
+	if (!isSafeId(agent)) return null;
 	const own = payload.agent_transcript_path;
 	return {
 		file: typeof own === "string" && own !== "" ? own : null,
