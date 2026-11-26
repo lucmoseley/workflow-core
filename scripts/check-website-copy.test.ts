@@ -1,6 +1,5 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,27 +7,20 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { gitIn, writeIn } from "./lib/tree-write-testkit";
 
 const SCRIPT = path.resolve(__dirname, "check-website-copy.js");
 
 let repo: string;
 
-const gitIn =
-	(at: string) =>
-	(...args: string[]) =>
-		execFileSync("git", args, { cwd: at, encoding: "utf8" });
-const git = (...args: string[]) => gitIn(repo)(...args);
+const git = (...args: string[]) => gitIn(repo, ...args);
 
-const writeIn = (at: string, file: string, body: string) => {
-	fs.mkdirSync(path.join(at, path.dirname(file)), { recursive: true });
-	fs.writeFileSync(path.join(at, file), body);
-};
 const write = (file: string, body: string) => writeIn(repo, file, body);
 
 const commitIn = (at: string, file: string, body: string) => {
 	writeIn(at, file, body);
-	gitIn(at)("add", file);
-	gitIn(at)("commit", "-qm", "x");
+	gitIn(at, "add", file);
+	gitIn(at, "commit", "-qm", "x");
 };
 const commit = (file: string, body: string) => commitIn(repo, file, body);
 

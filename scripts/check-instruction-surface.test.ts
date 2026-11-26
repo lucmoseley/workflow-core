@@ -1,6 +1,5 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,15 +15,12 @@ import {
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
+import { gitIn, writeIn } from "./lib/tree-write-testkit";
 
 const SCRIPT = path.resolve(__dirname, "check-instruction-surface.js");
 
 let dir: string;
 
-const writeIn = (at: string, p: string, body: string) => {
-	fs.mkdirSync(path.join(at, path.dirname(p)), { recursive: true });
-	fs.writeFileSync(path.join(at, p), body);
-};
 const write = (p: string, body: string) => writeIn(dir, p, body);
 
 const settings = (byEvent: Record<string, number>) => {
@@ -1341,14 +1337,10 @@ describe("re-baselining", () => {
 });
 
 describe("reading git rather than the working tree", () => {
-	const gitIn =
-		(at: string) =>
-		(...args: string[]) =>
-			execFileSync("git", args, { cwd: at, encoding: "utf8" });
-	const git = (...args: string[]) => gitIn(dir)(...args);
+	const git = (...args: string[]) => gitIn(dir, ...args);
 
 	const committedTree = defineTemplate((at) => {
-		const gitAt = gitIn(at);
+		const gitAt = (...args: string[]) => gitIn(at, ...args);
 		buildTreeIn(at);
 		identityRepoTemplate(at);
 		gitAt("add", "-A");

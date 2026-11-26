@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import { coreFile } from "./lib/core-path-testkit";
 import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
+import { gitIn, writeIn } from "./lib/tree-write-testkit";
 
 const SCRIPT = path.resolve(__dirname, "generate-test-read-edges.js");
 const OUT = ["docs", "test-read-edges.json"].join("/");
@@ -17,15 +18,7 @@ const DOC2 = ["docs", "other.md"].join("/");
 
 let dir: string;
 
-const writeIn = (root: string, file: string, body: string) => {
-	fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true });
-	fs.writeFileSync(path.join(root, file), body);
-};
-
 const write = (file: string, body: string) => writeIn(dir, file, body);
-
-const gitIn = (root: string, ...args: string[]) =>
-	execFileSync("git", args, { cwd: root, encoding: "utf8" });
 
 const git = (...args: string[]) => gitIn(dir, ...args);
 

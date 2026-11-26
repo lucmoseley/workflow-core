@@ -7,16 +7,13 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
+import { writeIn } from "./lib/tree-write-testkit";
 
 const SCRIPT = path.resolve(__dirname, "check-adopter-boundary.js");
 const PAGE = path.resolve(__dirname, "..", "docs", "adopter-boundary.md");
 
 let root: string;
 
-const writeIn = (at: string, rel: string, body: string) => {
-	fs.mkdirSync(path.dirname(path.join(at, rel)), { recursive: true });
-	fs.writeFileSync(path.join(at, rel), body);
-};
 const write = (rel: string, body: string) => writeIn(root, rel, body);
 
 const trackIn = (at: string, ...rels: string[]) => {

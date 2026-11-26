@@ -1,6 +1,5 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,18 +7,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { callCost } from "./lib/call-cost-harness.js";
 import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
+import { gitIn, writeIn } from "./lib/tree-write-testkit";
 
 const SCRIPT = path.join(__dirname, "generate-test-read-edges.js");
 const DOC = ["docs", "thing.md"].join("/");
 const PATCH = ["docs", "fix.patch"].join("/");
-
-const writeIn = (root: string, file: string, body: string) => {
-	fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true });
-	fs.writeFileSync(path.join(root, file), body);
-};
-
-const gitIn = (root: string, ...args: string[]) =>
-	execFileSync("git", args, { cwd: root, encoding: "utf8" });
 
 const staged = defineTemplate((root) => {
 	gitIn(root, "init", "-q");
