@@ -9,7 +9,7 @@ const {
 	decideTick,
 	pickMoveSeat,
 	readParkers,
-	readsFrontier,
+	isFrontierDependent,
 } = require("./refill-decide.js");
 
 const buildIdle = (reason: string, detail = "") => ({ reason, detail });
@@ -2304,7 +2304,7 @@ describe("readParkers (#3773)", () => {
 
 describe("a held checkout's gate judgement beside another's frontier (#5766)", () => {
 	const judgements = [{ root: "dv", number: 532, prompt: "/triage 532" }];
-	const Act = NOW - HOUR;
+	const lastAct = NOW - HOUR;
 	const holdsOf = {
 		paused: {
 			repoPaused: { dv: { by: "no-progress", at: NOW - HOUR, issues: [] } },
@@ -2316,10 +2316,10 @@ describe("a held checkout's gate judgement beside another's frontier (#5766)", (
 				root: "dv",
 				issues: [90 + i],
 				jobId: `j${i}`,
-				launchedAt: Act + 1 + i,
+				launchedAt: lastAct + 1 + i,
 				finishedAt: null,
 			})),
-			lastActAt: { dv: Act, wfc: NOW },
+			lastActAt: { dv: lastAct, wfc: NOW },
 		},
 	};
 
@@ -2328,7 +2328,7 @@ describe("a held checkout's gate judgement beside another's frontier (#5766)", (
 		(_, held) => {
 			const first = tick({ ...held, frontier: [], judgements, freeSlots: 5 });
 			expect(first.launches).toEqual([]);
-			expect(readsFrontier(first)).toBe(true);
+			expect(isFrontierDependent(first)).toBe(true);
 			const d = tick({
 				...held,
 				frontier: [row("wfc", 1)],
@@ -2339,17 +2339,14 @@ describe("a held checkout's gate judgement beside another's frontier (#5766)", (
 		},
 	);
 
-	it("reads none past an idle no candidate weighs in", () => {
-		for (const d of [
-			tick({ frontier: [], judgements, freeSlots: 0 }),
-			tick({ frontier: [], judgements, stopRequested: true }),
-			tick({
-				frontier: [],
-				judgements,
-				paused: { by: "founder", at: NOW, issues: [] },
-			}),
-			tick({ frontier: [], judgements, seats: [seat("~/.claude3", 100, 20)] }),
-		])
-			expect(readsFrontier(d)).toBe(false);
+	it.each([
+		["no free slot", { freeSlots: 0 }],
+		["a stop", { stopRequested: true }],
+		["a founder pause", { paused: { by: "founder", at: NOW, issues: [] } }],
+		["no seat with room", { seats: [seat("~/.claude3", 100, 20)] }],
+	])("reads no frontier past %s, which no candidate weighs in", (_, over) => {
+		expect(
+			isFrontierDependent(tick({ frontier: [], judgements, ...over })),
+		).toBe(false);
 	});
 });

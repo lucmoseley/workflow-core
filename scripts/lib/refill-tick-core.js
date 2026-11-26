@@ -18,10 +18,10 @@ const {
 const {
 	actsRead,
 	decideTick,
+	isFrontierDependent,
 	isLaunchBarred,
 	liveLaunchHold,
 	readParkers,
-	readsFrontier,
 	UNREAD,
 } = require("./refill-decide.js");
 const { buildLaunchRoom } = require("./launch-room.js");
@@ -576,7 +576,7 @@ function settleRoom(
  */
 async function decide(io, input, scope) {
 	const first = decideTick(input);
-	if (!readsFrontier(first)) return { decision: first, read: null };
+	if (!isFrontierDependent(first)) return { decision: first, read: null };
 	const served = io.servedRoots(scope);
 	for (const d of served.dropped) io.log(`not served: ${d.root} (${d.why})`);
 	const readStart = io.now();

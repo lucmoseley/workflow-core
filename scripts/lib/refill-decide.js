@@ -220,7 +220,7 @@ const buildIdleText = ({ reason, detail }) => `${reason}${detail}`;
  * @typedef {{stop: StopReason, detail: string}
  *   | {launches: Launch[], skipped: Skip[], idle: Idle | null,
  *   held: Skip[], resumes: HeldResume[], repoPauses?: Record<string, Pause>,
- *   capHeld?: HeldResume[], planWait?: PlanWait}} Decision
+ *   capHeld?: HeldResume[], planWait?: PlanWait, weighed?: true}} Decision
  */
 
 /** @typedef {{resets: number|null}} PlanWait */
@@ -1083,23 +1083,16 @@ function decideLaunches(
 		idle: buildUnlaunchedIdle(input, out.skipped),
 		held,
 		resumes,
+		weighed: true,
 	};
 }
 
 const CHECKOUT_SKIPS = [PROBE_HELD, REPO_PAUSED, BREAKER_OPEN, UNPROVEN_HELD];
 
-const UNLAUNCHED_IDLES = [
-	SHORTLIST_FAILED,
-	NOTHING_LAUNCHABLE,
-	PROBE_HOLD_WAIT,
-	UNPROVEN_CAP,
-	CHECKOUTS_HELD,
-];
-
 /** @param {Decision} decision */
-const readsFrontier = (decision) =>
+const isFrontierDependent = (decision) =>
 	!("stop" in decision) &&
-	(decision.idle === null || UNLAUNCHED_IDLES.includes(decision.idle.reason));
+	(decision.idle === null || decision.weighed === true);
 
 /**
  * @param {TickInput} input
@@ -1247,7 +1240,7 @@ module.exports = {
 	buildSkipReason,
 	CLASH_PREFIX,
 	decideTick,
-	readsFrontier,
+	isFrontierDependent,
 	isClashSkip,
 	fitsLaunch,
 	hasRoom,
