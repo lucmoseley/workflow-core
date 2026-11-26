@@ -1,6 +1,5 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,6 +10,7 @@ import {
 	mkScratchDir,
 } from "./lib/git-fixture";
 import { buildReleaseMessage } from "./lib/release-tags.js";
+import { gitTrimmedIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "release-contains.js");
@@ -18,20 +18,23 @@ const SCRIPT = path.resolve(__dirname, "release-contains.js");
 let dir: string;
 let repo: string;
 
-const gitIn = (cwd: string, ...args: string[]) =>
-	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-const git = (...args: string[]) => gitIn(repo, ...args);
+const git = (...args: string[]) => gitTrimmedIn(repo, ...args);
 
 const commitIn = (cwd: string, name: string) => {
 	fs.writeFileSync(path.join(cwd, name), name);
-	gitIn(cwd, "add", name);
-	gitIn(cwd, "commit", "-qm", name);
-	return gitIn(cwd, "rev-parse", "HEAD");
+	gitTrimmedIn(cwd, "add", name);
+	gitTrimmedIn(cwd, "commit", "-qm", name);
+	return gitTrimmedIn(cwd, "rev-parse", "HEAD");
 };
 
 const cutIn = (cwd: string, tag: string, message: string) => {
-	const tree = gitIn(cwd, "write-tree");
-	gitIn(cwd, "tag", tag, gitIn(cwd, "commit-tree", tree, "-m", message));
+	const tree = gitTrimmedIn(cwd, "write-tree");
+	gitTrimmedIn(
+		cwd,
+		"tag",
+		tag,
+		gitTrimmedIn(cwd, "commit-tree", tree, "-m", message),
+	);
 };
 const cut = (tag: string, message: string) => cutIn(repo, tag, message);
 
@@ -39,7 +42,7 @@ const released = defineTemplate((root) => {
 	const at = path.join(root, "repo");
 	fs.mkdirSync(at);
 	identityRepoTemplate(at);
-	gitIn(at, "config", "core.hooksPath", path.join(root, "no-hooks"));
+	gitTrimmedIn(at, "config", "core.hooksPath", path.join(root, "no-hooks"));
 
 	cutIn(at, "v0.9.0", "Release demo v0.9.0");
 	const a = commitIn(at, "a");
@@ -161,7 +164,7 @@ describe("release-contains", () => {
 		it("fetches a pinned tag this clone lacks from its origin before judging", () => {
 			const origin = path.join(dir, "origin");
 			fs.mkdirSync(origin);
-			gitIn(origin, "init", "-q", "--bare");
+			gitTrimmedIn(origin, "init", "-q", "--bare");
 			git("remote", "add", "origin", origin);
 			git("push", "-q", "origin", "HEAD:refs/heads/main", "v1.1.0");
 			git("tag", "-d", "v1.1.0");

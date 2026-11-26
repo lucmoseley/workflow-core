@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -21,13 +21,9 @@ import {
 	runNodeGuard,
 	spawnGuard,
 } from "./lib/pretool-guard-testkit";
+import { gitIn } from "./lib/repo-tree-testkit";
 import { readRuleText } from "./lib/rule-text";
 import { CONTRACT } from "./lib/workflow-core-config.js";
-
-const gitIn =
-	(cwd: string) =>
-	(...args: string[]) =>
-		execFileSync("git", args, { cwd, encoding: "utf8" });
 
 const HOOKS = "self-plugin/hooks/hooks.json" as const;
 const LINES = readHookLines(HOOKS, "scripts/guard-dispatch.js");
@@ -49,10 +45,10 @@ beforeEach(() => {
 
 const emptyRepo = defineTemplate(emptyRepoTemplate);
 const mainRepo = defineTemplate((root) => {
-	gitIn(root)("init", "-q", "-b", "main", ".");
+	gitIn(root, "init", "-q", "-b", "main", ".");
 });
 const trunkRepo = defineTemplate((root) => {
-	const git = gitIn(root);
+	const git = (...args: string[]) => gitIn(root, ...args);
 	git("init", "-q", "-b", "trunk", ".");
 	git(
 		"-c",
@@ -67,7 +63,7 @@ const trunkRepo = defineTemplate((root) => {
 	);
 });
 const citedRepo = defineTemplate((root) => {
-	const git = gitIn(root);
+	const git = (...args: string[]) => gitIn(root, ...args);
 	git("init", "-q", ".");
 	git("config", "user.email", "t@t");
 	git("config", "user.name", "t");
@@ -393,7 +389,7 @@ describe("the real adapters, crossed once", () => {
 					content: `// ${cite(900)}\n// ${cite(2015)}\n`,
 				},
 			},
-			{ WFC_CITATION_BASELINE: gitIn(repo)("rev-parse", "HEAD").trim() },
+			{ WFC_CITATION_BASELINE: gitIn(repo, "rev-parse", "HEAD").trim() },
 			{ project: link },
 		);
 		expect(out.additionalContext).toBe(
@@ -741,7 +737,7 @@ describe("the Agent dispatch cores through the hook line (#2791)", () => {
 describe("the dot-read and wide-read cores through the hook line (#2791)", () => {
 	it("leads a recursive grep at the payload's cwd with git's own expansion of the root, the heavy-tree rule beside it", () => {
 		repoAtDir(emptyRepo);
-		const git = gitIn(dir);
+		const git = (...args: string[]) => gitIn(dir, ...args);
 		fs.mkdirSync(path.join(dir, "app"));
 		fs.writeFileSync(path.join(dir, "app", "a.ts"), "x\n");
 		fs.writeFileSync(path.join(dir, ".gitignore"), "scripts\nconfig/\n");
@@ -758,7 +754,7 @@ describe("the dot-read and wide-read cores through the hook line (#2791)", () =>
 
 	it("names the prompt only where the payload's permission_mode can show one (#1731)", () => {
 		repoAtDir(emptyRepo);
-		const git = gitIn(dir);
+		const git = (...args: string[]) => gitIn(dir, ...args);
 		fs.writeFileSync(path.join(dir, "a.ts"), "x\n");
 		git("add", "a.ts");
 		const rg = (mode?: string) =>

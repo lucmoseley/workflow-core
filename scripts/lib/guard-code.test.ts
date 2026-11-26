@@ -7,6 +7,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineTemplate } from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
+import { gitTrimmedIn } from "./repo-tree-testkit";
 
 const CODE_LIB = path.resolve(__dirname, "guard-code.js");
 const { CORE_FAULT_TEXT } = require("./core-fault.js") as {
@@ -26,13 +27,8 @@ let dir: string;
 let repo: string;
 let codeDir: string;
 
-const gitIn =
-	(cwd: string) =>
-	(...args: string[]) =>
-		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-
 function land(entry: string): string {
-	const git = gitIn(repo);
+	const git = (...args: string[]) => gitTrimmedIn(repo, ...args);
 	fs.writeFileSync(path.join(repo, "scripts/guard-dispatch.js"), entry);
 	git("add", "-A");
 	git("commit", "--quiet", "-m", "guard entry");
@@ -57,7 +53,7 @@ const originAndClone = defineTemplate((root) => {
 	const clone = path.join(root, "repo");
 	execFileSync("git", ["init", "--quiet", "--bare", "-b", "main", origin]);
 	execFileSync("git", ["clone", "--quiet", origin, clone]);
-	const git = gitIn(clone);
+	const git = (...args: string[]) => gitTrimmedIn(clone, ...args);
 	git("config", "user.email", "t@example.com");
 	git("config", "user.name", "t");
 	fs.mkdirSync(path.join(clone, "scripts"), { recursive: true });
@@ -158,8 +154,8 @@ describe("adoption", () => {
 		expect(fs.existsSync(path.join(codeDir, first))).toBe(false);
 		expect(inode(fourth)).toBe(spareInode);
 		const tree = path.join(codeDir, fourth);
-		expect(gitIn(tree)("rev-parse", "HEAD")).toBe(fourth);
-		expect(gitIn(tree)("status", "--porcelain", "--ignored")).toBe("");
+		expect(gitTrimmedIn(tree, "rev-parse", "HEAD")).toBe(fourth);
+		expect(gitTrimmedIn(tree, "status", "--porcelain", "--ignored")).toBe("");
 		expect(
 			fs.readFileSync(path.join(tree, "scripts/guard-dispatch.js"), "utf8"),
 		).toBe(`${OK}// four\n`);
@@ -173,14 +169,17 @@ describe("adoption", () => {
 		adopt();
 		const third = land(`${OK}// three\n`);
 		adopt();
-		const gitDir = gitIn(path.join(codeDir, first))(
+		const gitDir = gitTrimmedIn(
+			path.join(codeDir, first),
 			"rev-parse",
 			"--absolute-git-dir",
 		);
 		fs.writeFileSync(path.join(gitDir, "index.lock"), "");
 		const fourth = land(`${OK}// four\n`);
 		expect(adopt()).toEqual({ kind: "adopted", sha: fourth });
-		expect(gitIn(path.join(codeDir, fourth))("rev-parse", "HEAD")).toBe(fourth);
+		expect(gitTrimmedIn(path.join(codeDir, fourth), "rev-parse", "HEAD")).toBe(
+			fourth,
+		);
 		expect(fs.readdirSync(codeDir).sort()).toEqual(
 			[second, third, fourth].sort(),
 		);

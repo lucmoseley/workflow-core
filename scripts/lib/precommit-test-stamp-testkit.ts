@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,6 +16,7 @@ import {
 	HOOK,
 	ROOT,
 } from "./precommit-gate-testkit";
+import { gitIn } from "./repo-tree-testkit";
 import { copyRequireClosure, launchedScripts } from "./require-closure-testkit";
 import { runInProcess } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
@@ -30,11 +31,6 @@ function readGatesEnd(): string {
 }
 
 export const GATES_END = readGatesEnd();
-
-const gitIn =
-	(root: string) =>
-	(...args: string[]) =>
-		execFileSync("git", args, { cwd: root });
 
 const STUB_GATE = `staged="$(git diff --cached --name-only | paste -sd, -)"
 lock=0; [ -f .git/index.lock ] && lock=1
@@ -117,7 +113,7 @@ export const PUSH = JSON.stringify({
 const DEFAULT_CONFIG = JSON.stringify({ commands: { test: "sh stub.sh" } });
 
 const buildRepo = (born: boolean) => (root: string) => {
-	const git = gitIn(root);
+	const git = (...args: string[]) => gitIn(root, ...args);
 	git("init", "-q", ".");
 	git("config", "user.email", "t@t");
 	git("config", "user.name", "t");
@@ -161,7 +157,7 @@ export function fixture({
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "precommit-test-stamp-"));
 	temps.push(root);
 	template.instantiate(root, born ? "born" : "unborn");
-	const git = gitIn(root);
+	const git = (...args: string[]) => gitIn(root, ...args);
 	let coreDir: string | null = null;
 	if (adopter) {
 		coreDir = fs.mkdtempSync(path.join(os.tmpdir(), "test-stamp-core-"));

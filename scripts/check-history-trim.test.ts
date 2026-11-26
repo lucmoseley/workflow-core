@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate } from "./lib/git-fixture";
+import { gitIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { seatDirs, seatEnv } from "./lib/seat-testkit";
 
@@ -385,8 +386,6 @@ describe("end to end", () => {
 		repoAndTreeTemplate.instantiate(home);
 		const repo = path.join(home, "repo");
 		const tree = path.join(home, "tree");
-		const gitIn = (dir: string, ...args: string[]) =>
-			execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
 		const git = (...args: string[]) => gitIn(repo, ...args);
 		history(".claude", [NOW - 5 * HOUR]);
 		const env: Record<string, string | undefined> = {
