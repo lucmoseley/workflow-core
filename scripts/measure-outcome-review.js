@@ -705,6 +705,16 @@ function latestFix(repos, ref) {
 }
 
 /**
+ * @param {Finding[]} findings
+ * @param {Map<string, Repo>} repos
+ * @returns {number | null}
+ */
+function earliestFix(findings, repos) {
+	const ats = findings.flatMap((f) => latestFix(repos, f)?.fix.at ?? []);
+	return ats.length > 0 ? Math.min(...ats) : null;
+}
+
+/**
  * @param {Finding} f
  * @param {string[]} failures
  * @returns {{state?: string, createdAt?: string} | string}
@@ -1207,12 +1217,12 @@ function buildText(r) {
 
 /**
  * @param {string} tracker
- * @param {number} nowMs
  * @param {string[]} failures
  */
-function readTracker(tracker, nowMs, failures) {
+const issueLister =
+	(tracker, failures) =>
 	/** @param {string} what @param {string[]} args */
-	const list = (what, args) =>
+	(what, args) =>
 		readOrWhy(
 			`${tracker}: ${what} unread`,
 			() =>
@@ -1221,15 +1231,33 @@ function readTracker(tracker, nowMs, failures) {
 				),
 			failures,
 		);
+
+// measured 9 s to 40 s for all 588 bug issues once comments are read, #5782
+/**
+ * @param {string} tracker
+ * @param {number} fixMs
+ * @param {string[]} failures
+ */
+const readBugs = (tracker, fixMs, failures) =>
+	issueLister(tracker, failures)("bug issues", [
+		"--state",
+		"all",
+		"--label",
+		"bug",
+		"--search",
+		`created:>=${day(fixMs)}`,
+		"--json",
+		"number,title,body,createdAt,labels,comments",
+	]);
+
+/**
+ * @param {string} tracker
+ * @param {number} nowMs
+ * @param {string[]} failures
+ */
+function readTracker(tracker, nowMs, failures) {
+	const list = issueLister(tracker, failures);
 	return {
-		bugs: list("bug issues", [
-			"--state",
-			"all",
-			"--label",
-			"bug",
-			"--json",
-			"number,title,body,createdAt,labels,comments",
-		]),
 		closed: list("closed issues", [
 			"--state",
 			"closed",
@@ -1466,10 +1494,17 @@ function review({ root, seats, nowMs, tracker }) {
 		return { repo, ...issueLists };
 	});
 	const repos = reads.map((r) => r.repo);
+	const byTracker = new Map(repos.map((p) => [p.tracker, p]));
+	const fixFrom = earliestFix(open, byTracker);
 	const outcomes = readOutcomes(open, {
 		issues,
-		repos: new Map(repos.map((p) => [p.tracker, p])),
-		bugs: new Map(reads.map((t) => [t.repo.tracker, t.bugs])),
+		repos: byTracker,
+		bugs: new Map(
+			repos.map((p) => [
+				p.tracker,
+				fixFrom === null ? [] : readBugs(p.tracker, fixFrom, failures),
+			]),
+		),
 		nowMs,
 		failures,
 		extended,
