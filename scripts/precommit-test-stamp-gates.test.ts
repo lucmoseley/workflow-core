@@ -149,7 +149,7 @@ it("ends the live hook's early gates on one line directly above its test gate, b
 	])
 		expect(above).toContain(gate);
 	expect(below.find((l) => !/^\s*(#|$)/.test(l))).toBe(
-		"if ! lander_batch && ! lander_tested && declared_cmd node scripts/lib/test-gate.js commit; then",
+		'if ! lander_batch && ! lander_tested && { tg_cmd="$(node scripts/lib/test-gate.js commit)" || skip_undeclared; }; then',
 	);
 	const runners = new Set(
 		below.join("\n").match(/\b(?:node|bash|sh) scripts\/\S+/g) ?? [],
@@ -166,7 +166,7 @@ it("ends the live hook's early gates on one line directly above its test gate, b
 	expect(above).not.toContain("wfc-precommit-stamp");
 	expect(
 		cut(
-			`if ! lander_batch && ! lander_tested && declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`,
+			`if ! lander_batch && ! lander_tested && { tg_cmd="$(${coreCall("node", "scripts/lib/test-gate.js")} commit)" || skip_undeclared; }`,
 			"fi",
 		).replaceAll(CORE_ROOT, ""),
 	).not.toMatch(/\$\{?_*[A-Z]/);

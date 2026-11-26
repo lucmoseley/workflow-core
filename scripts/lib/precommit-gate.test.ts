@@ -488,14 +488,12 @@ with_lines "$list" sh -c 'printf "[%s]" "$@"' argv0 first`,
 	});
 });
 
-describe("declared_cmd (#1504)", () => {
+describe("skip_undeclared (#1504)", () => {
 	const reader = (code: number) =>
-		`declared_cmd sh -c 'echo "touch RAN"; [ ${code} -ne 1 ] || echo "SKIP: undeclared" >&2; exit ${code}'`;
+		`{ cmd="$(sh -c 'echo "touch RAN"; [ ${code} -ne 1 ] || echo "SKIP: undeclared" >&2; exit ${code}')" || skip_undeclared; }`;
 
 	it("runs the printed command on the reader's 0", () => {
-		const { code, output } = run(
-			`if ${reader(0)}; then echo "RUN[$_declared_command]"; fi`,
-		);
+		const { code, output } = run(`if ${reader(0)}; then echo "RUN[$cmd]"; fi`);
 		expect(code).toBe(0);
 		expect(output).toContain("RUN[touch RAN]");
 	});
@@ -532,7 +530,7 @@ describe("the library and the hook", () => {
 		const source = hook.indexOf(`. ${CORE_ROOT}scripts/lib/precommit-gate.sh`);
 
 		expect(source).toBeGreaterThan(-1);
-		expect(source).toBeLessThan(hook.indexOf("if declared_cmd "));
+		expect(source).toBeLessThan(hook.indexOf("|| skip_undeclared"));
 		expect(source).toBeLessThan(hook.indexOf("if armed "));
 	});
 });

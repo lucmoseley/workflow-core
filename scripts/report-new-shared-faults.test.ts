@@ -4,8 +4,13 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { coreFile } from "./lib/core-path-testkit";
+import {
+	defineTemplate,
+	identityRepoTemplate,
+	mkScratchDir,
+} from "./lib/git-fixture";
 import {
 	hookEnv,
 	linkedCommit,
@@ -19,7 +24,7 @@ import {
 	STEPS,
 	stubProgram,
 } from "./lib/post-commit-testkit";
-import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
+import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { commitOverSequencer } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 import {
@@ -32,6 +37,24 @@ import { runInProcess } from "./lib/run-in-process";
 import { NOTICES } from "./lib/shared-fault-notices";
 
 const temps = registerTempCleanup();
+
+interface Repo {
+	root: string;
+	git: (...args: string[]) => Buffer;
+}
+
+const identityRepo = defineTemplate(identityRepoTemplate);
+
+let repo: Repo;
+
+function copyIdentityRepoBeforeEach() {
+	beforeEach(() => {
+		const root = mkScratchDir("report-new-shared-faults-");
+		temps.push(root);
+		identityRepo.instantiate(root);
+		repo = { root, git: (...args) => execFileSync("git", args, { cwd: root }) };
+	});
+}
 
 const REPO_ROOT = path.join(__dirname, "..");
 
@@ -86,11 +109,7 @@ const fail = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-function commitEnvelope(
-	repo: ReturnType<typeof newRepo>,
-	envelope: unknown,
-	message: string,
-): string {
+function commitEnvelope(envelope: unknown, message: string): string {
 	fs.writeFileSync(
 		path.join(repo.root, "envelope.json"),
 		JSON.stringify(envelope),
@@ -101,11 +120,11 @@ function commitEnvelope(
 }
 
 describe("report-new-shared-faults", () => {
+	copyIdentityRepoBeforeEach();
+
 	it("reports a fault the commit added and not one it inherited", () => {
-		const repo = newRepo("report-new-shared-faults-added-", temps);
-		commitEnvelope(repo, { findings: [fail()] }, "base");
+		commitEnvelope({ findings: [fail()] }, "base");
 		const child = commitEnvelope(
-			repo,
 			{ findings: [fail(), fail({ file: "y.txt", rule: 'rule id "y"' })] },
 			"adds y",
 		);
@@ -124,8 +143,7 @@ describe("report-new-shared-faults", () => {
 	});
 
 	it("stays silent on a fault the commit only inherited", () => {
-		const repo = newRepo("report-new-shared-faults-inherited-", temps);
-		commitEnvelope(repo, { findings: [fail()] }, "base");
+		commitEnvelope({ findings: [fail()] }, "base");
 		fs.writeFileSync(path.join(repo.root, "unrelated.txt"), "x");
 		repo.git("add", "-A");
 		repo.git("commit", "-q", "-m", "unrelated change");
@@ -143,9 +161,7 @@ describe("report-new-shared-faults", () => {
 	});
 
 	it("reports the one it added, not the one it repaired", () => {
-		const repo = newRepo("report-new-shared-faults-mixed-", temps);
 		commitEnvelope(
-			repo,
 			{
 				findings: [
 					fail({ file: "a.txt", rule: 'rule id "a"' }),
@@ -155,7 +171,6 @@ describe("report-new-shared-faults", () => {
 			"base",
 		);
 		const child = commitEnvelope(
-			repo,
 			{
 				findings: [
 					fail({ file: "b.txt", rule: 'rule id "b"' }),
@@ -179,9 +194,8 @@ describe("report-new-shared-faults", () => {
 	});
 
 	it("names what could not be read where the checker throws", () => {
-		const repo = newRepo("report-new-shared-faults-throws-", temps);
-		commitEnvelope(repo, { findings: [] }, "base");
-		const child = commitEnvelope(repo, { findings: [fail()] }, "adds a fault");
+		commitEnvelope({ findings: [] }, "base");
+		const child = commitEnvelope({ findings: [fail()] }, "adds a fault");
 
 		const broken = writeBrokenChecker("throw");
 		const { code, out, err } = run(child, {
@@ -195,9 +209,8 @@ describe("report-new-shared-faults", () => {
 	});
 
 	it("names what could not be read where the checker emits invalid JSON", () => {
-		const repo = newRepo("report-new-shared-faults-garbage-", temps);
-		commitEnvelope(repo, { findings: [] }, "base");
-		const child = commitEnvelope(repo, { findings: [fail()] }, "adds a fault");
+		commitEnvelope({ findings: [] }, "base");
+		const child = commitEnvelope({ findings: [fail()] }, "adds a fault");
 
 		const broken = writeBrokenChecker("garbage");
 		const { code, out, err } = run(child, {
@@ -211,10 +224,8 @@ describe("report-new-shared-faults", () => {
 	});
 
 	it("runs each checker on the parent as the baseline side and on the commit as the index side (#4297)", () => {
-		const repo = newRepo("report-new-shared-faults-side-", temps);
-		commitEnvelope(repo, { findings: [] }, "base");
+		commitEnvelope({ findings: [] }, "base");
 		const child = commitEnvelope(
-			repo,
 			{ findings: [], side: "commit" },
 			"marks the commit's tree",
 		);
@@ -251,9 +262,8 @@ process.stdout.write('{"findings":[]}');
 	});
 
 	it("exits 2 naming the failure, never 1, where the checkers' runs as a whole cannot be read", () => {
-		const repo = newRepo("report-new-shared-faults-runs-", temps);
-		commitEnvelope(repo, { findings: [] }, "base");
-		const child = commitEnvelope(repo, { findings: [fail()] }, "adds x");
+		commitEnvelope({ findings: [] }, "base");
+		const child = commitEnvelope({ findings: [fail()] }, "adds x");
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "report-big-checker-"));
 		temps.push(dir);
 		const checker = path.join(dir, "checker.js");
@@ -277,12 +287,7 @@ process.stdout.write('{"findings":[]}');
 	});
 
 	it("reports a root commit as having nothing to compare, never every fault as new", () => {
-		const repo = newRepo("report-new-shared-faults-root-", temps);
-		const root = commitEnvelope(
-			repo,
-			{ findings: [fail()] },
-			"the only commit",
-		);
+		const root = commitEnvelope({ findings: [fail()] }, "the only commit");
 
 		const broken = writeBrokenChecker("throw");
 		const { code, out, err } = run(root, {
@@ -297,8 +302,7 @@ process.stdout.write('{"findings":[]}');
 	});
 
 	it("compares a merge commit against its first parent only, and says so", () => {
-		const repo = newRepo("report-new-shared-faults-merge-", temps);
-		commitEnvelope(repo, { findings: [] }, "base");
+		commitEnvelope({ findings: [] }, "base");
 		const defaultBranch = repo
 			.git("rev-parse", "--abbrev-ref", "HEAD")
 			.toString()
@@ -306,7 +310,6 @@ process.stdout.write('{"findings":[]}');
 
 		repo.git("checkout", "-q", "-b", "topic");
 		commitEnvelope(
-			repo,
 			{ findings: [fail({ file: "topic.txt", rule: 'rule id "topic"' })] },
 			"topic adds a fault",
 		);
@@ -337,9 +340,8 @@ process.stdout.write('{"findings":[]}');
 	});
 
 	it("refuses (code 2) over reporting faults where one profile's checker is unreadable, even when another profile found a real fault", () => {
-		const repo = newRepo("report-new-shared-faults-priority-", temps);
-		commitEnvelope(repo, { findings: [] }, "base");
-		const child = commitEnvelope(repo, { findings: [fail()] }, "adds a fault");
+		commitEnvelope({ findings: [] }, "base");
+		const child = commitEnvelope({ findings: [fail()] }, "adds a fault");
 
 		const stub = writeStubChecker();
 		const broken = writeBrokenChecker("throw");
@@ -384,7 +386,6 @@ process.stdout.write('{"findings":[]}');
 	])(
 		"judges a restored vendor/loop.sh by the commit's .gitattributes ($attrs, under a hook's index: $hook) through the real comment gate (#5650)",
 		({ attrs, reported, hook }) => {
-			const repo = newRepo("report-new-shared-faults-vendored-", temps);
 			fs.writeFileSync(path.join(repo.root, ".gitattributes"), attrs);
 			repo.git("add", "-A");
 			repo.git("commit", "-q", "--allow-empty", "-m", "base");
@@ -433,19 +434,19 @@ process.stdout.write('{"findings":[]}');
 });
 
 describe("the notice the session reads", () => {
-	function repoWithOneAddedFault(prefix: string) {
-		const repo = newRepo(prefix, temps);
-		commitEnvelope(repo, { findings: [] }, "base");
+	copyIdentityRepoBeforeEach();
+
+	function commitOneAddedFault() {
+		commitEnvelope({ findings: [] }, "base");
 		const child = commitEnvelope(
-			repo,
 			{ findings: [fail({ file: "CLAUDE.md", rule: 'rule id "x"' })] },
 			"adds one fault",
 		);
-		return { repo, child };
+		return child;
 	}
 
 	it("names the sha, the checker, the fault and what the red costs, and says it never blocks", () => {
-		const { repo, child } = repoWithOneAddedFault("report-notice-shape-");
+		const child = commitOneAddedFault();
 
 		const { code, out } = run(child, {
 			checkers: { "guard-registry": writeStubChecker() },
@@ -466,8 +467,7 @@ describe("the notice the session reads", () => {
 	});
 
 	it("writes no framing at all on a clean commit", () => {
-		const repo = newRepo("report-notice-clean-", temps);
-		commitEnvelope(repo, { findings: [] }, "base");
+		commitEnvelope({ findings: [] }, "base");
 		fs.writeFileSync(path.join(repo.root, "unrelated.txt"), "x");
 		repo.git("add", "-A");
 		repo.git("commit", "-q", "-m", "clean");
@@ -484,8 +484,7 @@ describe("the notice the session reads", () => {
 	});
 
 	it("degrades to the one merge line, unframed, on a merge that added nothing", () => {
-		const repo = newRepo("report-notice-clean-merge-", temps);
-		commitEnvelope(repo, { findings: [] }, "base");
+		commitEnvelope({ findings: [] }, "base");
 		const defaultBranch = repo
 			.git("rev-parse", "--abbrev-ref", "HEAD")
 			.toString()
@@ -518,7 +517,7 @@ describe("the notice the session reads", () => {
 		const { PROFILES } = require("./lib/fault-profiles.js") as {
 			PROFILES: Record<string, unknown>;
 		};
-		const { repo, child } = repoWithOneAddedFault("report-notice-route-");
+		const child = commitOneAddedFault();
 		const stub = writeStubChecker();
 		const { out } = run(child, {
 			checkers: Object.fromEntries(
@@ -544,7 +543,6 @@ describe("the notice the session reads", () => {
 	});
 
 	it("reads every checker in its real table as a profile the diff knows", () => {
-		const repo = newRepo("report-notice-real-table-", temps);
 		fs.writeFileSync(path.join(repo.root, "a.txt"), "a");
 		repo.git("add", "-A");
 		repo.git("commit", "-q", "-m", "base");
@@ -613,12 +611,12 @@ describe("lib/shared-fault-notices.js's NOTICES", () => {
 });
 
 describe(".husky/post-commit's fault-notice step", () => {
-	function hookRepo(prefix: string) {
-		const repo = newRepo(prefix, temps);
+	copyIdentityRepoBeforeEach();
+
+	function commitOne() {
 		fs.writeFileSync(path.join(repo.root, "a.txt"), "a");
 		repo.git("add", "-A");
 		repo.git("commit", "-q", "-m", "one");
-		return repo;
 	}
 
 	const Notice: Result = { exit: 1, stdout: "a fault notice\n", stderr: "" };
@@ -648,7 +646,7 @@ describe(".husky/post-commit's fault-notice step", () => {
 	});
 
 	it("prints what the program printed on stdout, run on this commit", () => {
-		const repo = hookRepo("post-commit-prints-");
+		commitOne();
 
 		const r = runStep(repo.root, Notice);
 
@@ -659,7 +657,7 @@ describe(".husky/post-commit's fault-notice step", () => {
 	});
 
 	it("says nothing where the program printed nothing", () => {
-		const repo = hookRepo("post-commit-silent-");
+		commitOne();
 
 		expect(
 			runStep(repo.root, { exit: 0, stdout: "", stderr: "" }),
@@ -667,7 +665,7 @@ describe(".husky/post-commit's fault-notice step", () => {
 	});
 
 	it("swallows a program that crashed rather than reported — no stack trace after a landed commit", () => {
-		const repo = hookRepo("post-commit-crash-");
+		commitOne();
 
 		const r = runStep(repo.root, {
 			exit: 1,
@@ -681,7 +679,7 @@ describe(".husky/post-commit's fault-notice step", () => {
 	});
 
 	it("names a program that throws in one line, never its stack, and the steps after it still run", async () => {
-		const repo = hookRepo("post-commit-throw-");
+		commitOne();
 		const quiet = quietPrograms();
 		stubProgram("report-new-shared-faults.js", () => {
 			throw new Error("reporter exploded");
@@ -697,7 +695,7 @@ describe(".husky/post-commit's fault-notice step", () => {
 	});
 
 	it("prints the program's stderr on its exit 2, the could-not-answer code (lucmoseley/mantahostels#1750)", () => {
-		const repo = hookRepo("post-commit-unanswerable-");
+		commitOne();
 
 		const r = runStep(repo.root, {
 			exit: 2,
@@ -709,7 +707,7 @@ describe(".husky/post-commit's fault-notice step", () => {
 	});
 
 	it("hands the program none of the git redirects, the relative GIT_INDEX_FILE git exports into every hook among them", () => {
-		const repo = hookRepo("post-commit-env-");
+		commitOne();
 
 		const { program } = runStep(repo.root, Notice, {
 			GIT_DIR: ".git",
@@ -724,7 +722,7 @@ describe(".husky/post-commit's fault-notice step", () => {
 	it.each(REPLAY_SENTINELS)(
 		"stays quiet while %s is in the git dir, rather than attributing a replayed range one commit at a time",
 		async (sentinel, kind) => {
-			const repo = hookRepo(`post-commit-replay-${sentinel}-`);
+			commitOne();
 			plantSentinel(repo.root, sentinel, kind);
 
 			expect((await runRegistry(repo.root)).stdout).not.toContain(
@@ -737,7 +735,7 @@ describe(".husky/post-commit's fault-notice step", () => {
 		["stays quiet mid revert sequence", true, false],
 		["prints over a leftover sequencer (#3298)", false, true],
 	])("%s", async (_name, live, prints) => {
-		const repo = hookRepo("post-commit-sequencer-");
+		commitOne();
 		commitOverSequencer(repo.root, live);
 
 		const r = await runRegistry(repo.root);
@@ -746,13 +744,13 @@ describe(".husky/post-commit's fault-notice step", () => {
 	});
 
 	it("prints where no replay is in progress", async () => {
-		const repo = hookRepo("post-commit-no-replay-");
+		commitOne();
 
 		expect((await runRegistry(repo.root)).stdout).toContain("a fault notice\n");
 	});
 
 	it("reads a linked worktree's commit from a clean environment, never the hook's index", () => {
-		const repo = hookRepo("post-commit-linked-");
+		commitOne();
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "post-commit-linked-"));
 		temps.push(dir);
 		const { wt, env, redirects } = linkedCommit(repo.root, dir);

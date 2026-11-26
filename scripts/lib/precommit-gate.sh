@@ -82,13 +82,12 @@ WL_EOF
   "$@"
 }
 
-declared_cmd() {
-  dc_status=0
-  _declared_command="$("$@")" || dc_status=$?
-  if [ "$dc_status" -ge 2 ]; then
+skip_undeclared() {
+  su_status=$?
+  if [ "$su_status" -ge 2 ]; then
     exit 1
   fi
-  return "$dc_status"
+  return "$su_status"
 }
 
 GATE_TMPDIRS=""

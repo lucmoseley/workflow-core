@@ -49,7 +49,7 @@ const PRECOMMIT = [
 	STUB_GATE,
 	GATES_END,
 	cut(
-		`if ! lander_batch && ! lander_tested && declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`,
+		`if ! lander_batch && ! lander_tested && { tg_cmd="$(${coreCall("node", "scripts/lib/test-gate.js")} commit)" || skip_undeclared; }`,
 		"fi",
 	),
 	cut("pc_stamp_dir=", "fi"),
