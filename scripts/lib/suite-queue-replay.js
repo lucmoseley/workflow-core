@@ -27,6 +27,7 @@ const { chargeMb } = require("./launch-charge");
 const { partKindOf } = require("./part-suite-peak.js");
 const { TSC_MAX, isCutTscRunner } = require("./tsc-slot");
 const { GATE_RUN_LOG } = require("./gate-seat.js");
+const { unionS, waitOwner } = require("./queue-exit-log.js");
 const {
 	isWindowsFresh,
 	windowsReadingOf,
@@ -679,7 +680,7 @@ function tallyTick(tick, w, acc) {
 		if (isBoundHold(e, first, tick, w)) acc.boundCostS += TICK_S;
 		tallyRungHeld(e, tick, w, acc.rungHeldPastS);
 		add(acc.limbClass, `${first} / ${e.cls}`, TICK_S);
-		addNested(acc.limbSession, e.session ?? "(no session)", first);
+		addNested(acc.limbSession, waitOwner(e), first);
 		addNested(acc.limbEra, tick.era, first);
 		if (first === "count") shareSlot(tick.whole, acc.holder, acc.holderSession);
 	}
@@ -923,7 +924,7 @@ function sessionSums(waiters, w, limbSession) {
 	for (const e of waiters) {
 		const span = spanIn(e, w);
 		if (!span) continue;
-		const s = e.session ?? "(no session)";
+		const s = waitOwner(e);
 		const got = spans.get(s) ?? { iv: [], joined: 0, joinedS: 0 };
 		got.iv.push(span);
 		if (e.joined) {
@@ -939,23 +940,12 @@ function sessionSums(waiters, w, limbSession) {
 			session,
 			waits: iv.length,
 			sum,
-			union: unionOf(iv),
+			union: unionS(iv),
 			joined,
 			joinedS,
 			limbs,
 		};
 	});
-}
-
-/** @param {[number, number][]} iv */
-function unionOf(iv) {
-	let union = 0;
-	let reach = Number.NEGATIVE_INFINITY;
-	for (const [a, b] of [...iv].sort((x, y) => x[0] - y[0])) {
-		union += Math.max(0, b - Math.max(a, reach)) / 1000;
-		reach = Math.max(reach, b);
-	}
-	return union;
 }
 
 /**
@@ -1054,6 +1044,7 @@ function replay(logs, w) {
 			waitS: all.reduce((s, e) => s + clip(e.st, e.en, from, to), 0),
 		};
 	});
+	const sessions = sessionSums(all, w, acc.limbSession);
 	const matchable = waiters.filter(isMatchable);
 	const counts = waiters.flatMap((e) =>
 		e.passed === undefined ? [] : [e.passed],
@@ -1086,7 +1077,8 @@ function replay(logs, w) {
 		landerSlot: acc.landerSlot,
 		holder: acc.holder,
 		holderSession: acc.holderSession,
-		sessions: sessionSums(all, w, acc.limbSession),
+		sessions,
+		sessionWallS: sessions.reduce((s, x) => s + x.union, 0),
 		peak: peakOf(all, w),
 		gaps: waiters
 			.filter((e) => e.run)
@@ -1162,7 +1154,7 @@ function render(r, w) {
 	const lines = [
 		`# Suite queue wait replay, ${new Date(w.since).toISOString()} to ${new Date(w.until).toISOString()}`,
 		"",
-		`${r.queued} queued waits (${r.exits} exits less ${r.skipped} skipped), ${hours(r.waitS)} h inside the window. ${r.matched} of ${r.matchable} opened or timed-out suite waits matched to their run. At most ${r.peak.n} waited at once, at ${new Date(r.peak.at).toISOString()}. ${r.joined.waits} of the waits joined a queued same-key \`tsc\` run rather than queue their own, ${hours(r.joined.waitS)} h; no limb, run count or match counts them (#5639).`,
+		`${r.queued} queued waits (${r.exits} exits less ${r.skipped} skipped), ${hours(r.waitS)} h inside the window summed per wait; ${hours(r.sessionWallS)} h as each launching session's wall-clock wait, its overlapping waits counted once, the figure the queue-wait alarm compares to its limit (#5740). ${r.matched} of ${r.matchable} opened or timed-out suite waits matched to their run. At most ${r.peak.n} waited at once, at ${new Date(r.peak.at).toISOString()}. ${r.joined.waits} of the waits joined a queued same-key \`tsc\` run rather than queue their own, ${hours(r.joined.waitS)} h; no limb, run count or match counts them (#5639).`,
 		"",
 		"## Limb",
 		"",
