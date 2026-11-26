@@ -48,7 +48,6 @@ function queueExitLogger({ file, kind, lane, slotFree, session, label, err }) {
 	};
 }
 
-// #5740
 /**
  * @param {{ session?: string | null, pid: number }} w
  */
