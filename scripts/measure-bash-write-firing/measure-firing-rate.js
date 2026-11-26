@@ -2,7 +2,7 @@
 const fs = require("node:fs");
 const { writeFd } = require("../lib/write-fd.js");
 const readline = require("node:readline");
-const { parseJsonlRow } = require("../lib/jsonl.js");
+const { isZeroed, parseJsonlRow } = require("../lib/jsonl.js");
 
 /** @param {string} p */
 const TIER1 = (p) =>
@@ -101,6 +101,7 @@ if (!corpusPath || !firesPath) {
 const bySession = new Map();
 let total = 0;
 let unparsed = 0;
+let zeroed = 0;
 /** @type {{ s: string; c: string; cands: string[] }[]} */
 const samples = [];
 
@@ -109,6 +110,7 @@ const rl = readline.createInterface({
 	crlfDelay: Number.POSITIVE_INFINITY,
 });
 rl.on("line", (line) => {
+	if (isZeroed(line)) zeroed++;
 	const r = parseJsonlRow(line);
 	if (r === null) return;
 	if (r === undefined || typeof r.s !== "string" || typeof r.c !== "string") {
@@ -152,6 +154,7 @@ rl.on("close", () => {
 			{
 				commands: total,
 				unparsedLines: unparsed,
+				zeroedRecords: zeroed,
 				sessions: sess.length,
 				newArmFirings: nf,
 				oldRouteFirings: of_,

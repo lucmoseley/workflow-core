@@ -84,7 +84,7 @@ describe("mainChainRecords", () => {
 	});
 
 	it("counts a skipped malformed line on a passed-in stats object — mantahostels#3307", () => {
-		const stats = { skipped: 0 };
+		const stats = { skipped: 0, zeroed: 0 };
 		const records = [
 			...mainChainRecords(
 				`garbage\n${turn(10_000)}\nmore garbage`,
@@ -94,6 +94,20 @@ describe("mainChainRecords", () => {
 		];
 		expect(records).toHaveLength(1);
 		expect(stats.skipped).toBe(2);
+	});
+
+	it("counts a record zeroed by a crash apart from a skipped line, yielding the record after the zeros (#5775)", () => {
+		const stats = { skipped: 0, zeroed: 0 };
+		const records = [
+			...mainChainRecords(
+				`${turn(10_000)}\n\0\0\0${turn(10_000)}\n\0\0\0\0`,
+				"main",
+				stats,
+			),
+		];
+		expect(records).toHaveLength(2);
+		expect(stats.skipped).toBe(0);
+		expect(stats.zeroed).toBe(2);
 	});
 
 	it("never touches stats where a caller omits it — opt-in, not required", () => {

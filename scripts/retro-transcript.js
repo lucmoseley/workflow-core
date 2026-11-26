@@ -17,7 +17,7 @@ const {
 	subagentDirOf,
 } = require("./lib/transcript");
 const { caught, orFallback } = require("./lib/caught.js");
-const { parseJsonlRow } = require("./lib/jsonl.js");
+const { isZeroed, parseJsonlRow } = require("./lib/jsonl.js");
 const { execGit } = require("./lib/git.js");
 const { relativeUnder } = require("./lib/is-under.js");
 
@@ -431,27 +431,28 @@ function outputPath(root, log, requested) {
 /**
  * @param {string} file
  * @param {"main" | "subagent"} tier
- * @param {() => void} onUnparseable
+ * @param {(lost: "unparseable" | "zeroed") => void} onLost
  * @returns {Generator<{ n: number, record: TranscriptRecord | null }>}
  */
-function* records(file, tier, onUnparseable) {
+function* records(file, tier, onLost) {
 	for (const { n, line } of readLines(file))
-		yield { n, record: parseLine(line, tier, onUnparseable) };
+		yield { n, record: parseLine(line, tier, onLost) };
 }
 
 /**
  * @param {string} line
  * @param {"main" | "subagent"} tier
- * @param {() => void} onUnparseable
+ * @param {(lost: "unparseable" | "zeroed") => void} onLost
  * @returns {TranscriptRecord | null}
  */
-function parseLine(line, tier, onUnparseable) {
+function parseLine(line, tier, onLost) {
+	if (isZeroed(line)) onLost("zeroed");
 	const record = /** @type {TranscriptRecord | null | undefined} */ (
 		parseJsonlRow(line)
 	);
 	if (record === null) return null;
 	if (record === undefined) {
-		onUnparseable();
+		onLost("unparseable");
 		return null;
 	}
 	if (tier === "main" && record.isSidechain) return null;
@@ -519,14 +520,17 @@ function main() {
 	let fd = -1;
 	let written = 0;
 	let skipped = 0;
+	let zeroed = 0;
 	/** @param {string} text */
 	const emit = (text) => {
 		fs.writeSync(fd, `${mask(text)}\n`);
 		written++;
 	};
 
-	const unparseable = () => {
-		skipped++;
+	/** @param {"unparseable" | "zeroed"} lost */
+	const onLost = (lost) => {
+		if (lost === "zeroed") zeroed++;
+		else skipped++;
 	};
 
 	/**
@@ -540,7 +544,7 @@ function main() {
 		const indent = "  ".repeat(depth);
 		const where = tag ? `[${tag}] ` : "";
 		let last = 0;
-		for (const { n, record } of records(file, tier, unparseable)) {
+		for (const { n, record } of records(file, tier, onLost)) {
 			last = n;
 			if (!record) continue;
 			const { items, toolIds } = reduce(record, tier);
@@ -604,7 +608,7 @@ function main() {
 	}
 	writeFd(
 		1,
-		`${target.out}\n${written} lines${skipped ? `, ${skipped} unparseable log lines skipped` : ""}${masked ? `, ${masked} token-shaped substrings masked` : ""}\n`,
+		`${target.out}\n${written} lines${skipped ? `, ${skipped} unparseable log lines skipped` : ""}${zeroed ? `, ${zeroed} log records zeroed by a crash` : ""}${masked ? `, ${masked} token-shaped substrings masked` : ""}\n`,
 	);
 }
 

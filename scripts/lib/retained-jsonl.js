@@ -30,9 +30,10 @@ function appendRetained(
 			lockOf(file),
 			(held) => {
 				if (held && dropOnBadLine)
-					replaceCarrying(file, (text) =>
-						parseJsonl(text).bad.length > 0 ? null : undefined,
-					);
+					replaceCarrying(file, (text) => {
+						const { bad, zeroed } = parseJsonl(text);
+						return bad.length + zeroed.length > 0 ? null : undefined;
+					});
 				fs.appendFileSync(file, `${JSON.stringify(entry)}\n`);
 				landed = true;
 				if (held) prune(file, retainMs, now());

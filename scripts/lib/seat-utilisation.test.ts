@@ -355,6 +355,19 @@ describe("trialReview — the fortnight read back off the daily series", () => {
 		expect(trialReview(rows, DECL).droppedLines).toBe(3);
 	});
 
+	it("reports readHistory()'s zeroed-record count under zeroedRecords, apart from droppedLines (#5775)", () => {
+		const rows = Object.assign(
+			[
+				row("2026-09-11T00:00:00Z", 40, 50),
+				row("2026-09-20T00:00:00Z", 90, 20),
+			],
+			{ dropped: 0, zeroed: 2 },
+		);
+		const r = trialReview(rows, DECL);
+		expect(r.zeroedRecords).toBe(2);
+		expect(r.droppedLines).toBe(0);
+	});
+
 	it("reads droppedLines as 0 off a plain array with no rider", () => {
 		expect(
 			trialReview(
@@ -388,6 +401,22 @@ describe("readHistory — counting what it drops", () => {
 		const rows = readHistory(file);
 		expect(rows).toHaveLength(2);
 		expect(rows.dropped).toBe(1);
+	});
+
+	it("counts a record zeroed by a crash apart from a dropped line, keeping the row after the zeros (#5775)", () => {
+		const file = path.join(dir, "history.jsonl");
+		fs.writeFileSync(
+			file,
+			[
+				'{"at":"2026-09-11T00:00:00Z","seats":[]}',
+				'\0\0\0{"at":"2026-09-12T00:00:00Z","seats":[]}',
+				"\0\0\0\0",
+			].join("\n"),
+		);
+		const rows = readHistory(file);
+		expect(rows).toHaveLength(2);
+		expect(rows.dropped).toBe(0);
+		expect(rows.zeroed).toBe(2);
 	});
 
 	it("counts a well-formed JSON line missing `at` as dropped too", () => {

@@ -268,6 +268,21 @@ describe("records it must not choke on", () => {
 		expect(finding?.message).toMatch(/would not parse/);
 	});
 
+	it("keeps reading past a record zeroed by a crash, and says it found one apart from a torn line (#5775)", () => {
+		spread(GUARD, 60, crumb());
+		fs.appendFileSync(
+			path.join(crumbs, `.hook-ran-${GUARD}-session-s-0`),
+			`\0\0\0${JSON.stringify(crumb())}\n`,
+		);
+		const { findings } = run(["--json"]).env;
+		const finding = findings.find((f) => f.tag === "ZEROED");
+		expect(finding?.severity).toBe("WARN");
+		expect(finding?.message).toMatch(
+			/1 breadcrumb record\(s\) zeroed by a crash/,
+		);
+		expect(findings.find((f) => f.tag === "TORN")).toBeUndefined();
+	});
+
 	it("treats an undateable line as history, never as evidence about now", () => {
 		spread(GUARD, 60, crumb());
 		spread(

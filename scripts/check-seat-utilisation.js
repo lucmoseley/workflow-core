@@ -206,6 +206,10 @@ function buildTrialEndedNotice(r, d) {
 		? `  ${r.droppedLines} history line(s) inside the window would not parse and were\n` +
 			"  dropped — a run of these is itself a coverage gap, on top of the count above.\n"
 		: "";
+	const zeroed = r.zeroedRecords
+		? `  ${r.zeroedRecords} history record(s) zeroed by a crash are lost — a coverage gap\n` +
+			"  on top of the count above.\n"
+		: "";
 	return (
 		`${head}` +
 		`  Window: ${buildWindowLine(d)}.\n` +
@@ -214,6 +218,7 @@ function buildTrialEndedNotice(r, d) {
 		"  stopping is itself what this gate measures (mantahostels#2848), but an unmeasured stretch\n" +
 		"  is a reason to distrust a pass.\n" +
 		`${dropped}` +
+		`${zeroed}` +
 		`${annotations}` +
 		"  The ordinary ceiling trigger was SUPPRESSED for the window above and is\n" +
 		"  running again now. This notice repeats at every session start until the\n" +

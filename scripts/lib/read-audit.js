@@ -182,8 +182,8 @@ function readOwners(dir) {
 		if (standing) at(String(standing[1])).standing = parseStanding(text());
 		const log = /^(\d+)\.(\d+)\.jsonl$/.exec(name);
 		if (!log) continue;
-		const { rows, bad } = parseJsonl(text());
-		if (bad.length > 0) rows.push({ k: "fault" });
+		const { rows, bad, zeroed } = parseJsonl(text());
+		if (bad.length + zeroed.length > 0) rows.push({ k: "fault" });
 		at(String(log[1])).logs.set(Number(log[2]), /** @type {Entry[]} */ (rows));
 	}
 	return owners;

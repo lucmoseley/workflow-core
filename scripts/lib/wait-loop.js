@@ -4,7 +4,9 @@ const { endRun } = require("./trim-run.js");
 
 const SP = " \\t\\n\\v\\f\\r";
 
-const SEP = `(^|['";&|(!{${SP}])`;
+const OPENER = `;&|(!{${SP}`;
+
+const SEP = `(^|['"${OPENER}])`;
 
 const END = `[;&|)}'"${SP}]`;
 
@@ -46,6 +48,8 @@ const LOAD_RE = new RegExp(
 );
 const LEAVE_RE = new RegExp(`${SEP}(break|exit)(${END}|$)`, "g");
 const STATEMENT_END_RE = /;|\n|(?<![&<>])&(?![&>])/;
+const GROUP_CLOSER_RE = /[;&\n][ \t]*$/;
+const GROUP_OPENER_RE = new RegExp(`[${OPENER}]`);
 const IF_RE = new RegExp(`${SEP}(if|elif)[${SP}]`, "g");
 const THEN_RE = new RegExp(`${SEP}then${END}`);
 const FI_RE = new RegExp(`${SEP}fi(${END}|$)`);
@@ -501,6 +505,30 @@ function ifConditionAt(text, at) {
 	return from.slice(0, then.index);
 }
 
+/**
+ * #5778
+ * @param {string} text
+ * @param {number} at
+ */
+function groupLeadsAt(text, at) {
+	const heads = [];
+	let depth = 0;
+	for (let i = at - 1; i >= 0; i--) {
+		const c = text.charAt(i);
+		if (c === "}" && GROUP_CLOSER_RE.test(text.slice(0, i))) depth++;
+		else if (
+			c === "{" &&
+			BLANK_RE.test(text.charAt(i + 1)) &&
+			GROUP_OPENER_RE.test(text.charAt(i - 1) || " ")
+		) {
+			if (depth === 0)
+				heads.push(text.slice(0, i).split(STATEMENT_END_RE).pop() ?? "");
+			else depth--;
+		}
+	}
+	return heads.join(" ");
+}
+
 /** @param {string} text */
 function refs(text) {
 	const names = [...text.matchAll(PARAM_RE)].map((m) =>
@@ -545,7 +573,7 @@ function bodyGates(doBody) {
 	const vars = loadVars(doBody);
 	for (const leave of doBody.matchAll(LEAVE_RE)) {
 		const at = leave.index + (leave[1] ?? "").length;
-		const test = `${statementAt(doBody, at)} ${ifConditionAt(doBody, at)}`;
+		const test = `${statementAt(doBody, at)} ${ifConditionAt(doBody, at)} ${groupLeadsAt(doBody, at)}`;
 		if (LOAD_RE.test(test) || refs(test).some((name) => vars.has(name)))
 			return true;
 	}

@@ -97,18 +97,18 @@ function appendRun(
 
 /**
  * @param {string} root
- * @returns {{runs: Run[], malformed: number}}
+ * @returns {{runs: Run[], malformed: number, zeroed: number}}
  */
 function readRuns(root) {
 	const read = orFallback(() => readJsonl(logPath(root)), null);
-	if (!read) return { runs: [], malformed: 0 };
+	if (!read) return { runs: [], malformed: 0, zeroed: 0 };
 	const runs = /** @type {Run[]} */ (
 		read.rows.filter(
 			(rec) => isCount(rec.frontier) && isCount(rec.warm) && isCount(rec.cold),
 		)
 	);
 	const malformed = read.rows.length - runs.length + read.bad.length;
-	return { runs, malformed };
+	return { runs, malformed, zeroed: read.zeroed.length };
 }
 
 /**
