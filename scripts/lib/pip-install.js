@@ -5,6 +5,7 @@ const {
 	UNREACHABLE,
 	ageOf,
 	downloadsOf,
+	idleOf,
 	jsonOf,
 	legitimacy,
 	registryTexts,
@@ -381,10 +382,11 @@ function ageVerdict(name, ctx) {
 	const body = jsonOf(got.body);
 	if (body === null || typeof body !== "object" || !("releases" in body))
 		return UNREACHABLE;
-	const first = firstUpload(body.releases);
-	if (first === undefined) return UNREACHABLE;
-	if (first === null) return { kind: "missing", n: "" };
-	return ageOf(first, ctx);
+	const span = uploadSpan(body.releases);
+	if (span === undefined) return UNREACHABLE;
+	if (span === null) return { kind: "missing", n: "" };
+	const age = ageOf(span.first, ctx);
+	return age.kind === "ok" ? idleOf(span.last, ctx) : age;
 }
 
 /**
@@ -395,9 +397,9 @@ const isDate = (t) => typeof t === "string" && !Number.isNaN(Date.parse(t));
 
 /**
  * @param {unknown} releases
- * @returns {string | null | undefined}
+ * @returns {{ first: string, last: string } | null | undefined}
  */
-function firstUpload(releases) {
+function uploadSpan(releases) {
 	if (releases === null || typeof releases !== "object") return;
 	const lists = Object.values(releases);
 	if (!lists.every(Array.isArray)) return;
@@ -405,11 +407,9 @@ function firstUpload(releases) {
 	const times = lists.flat().map((file) => file?.upload_time_iso_8601);
 	const dated = times.filter(isDate);
 	if (dated.length < times.length) return;
-	return dated.reduce(
-		(/** @type {string | null} */ first, t) =>
-			first === null || Date.parse(t) < Date.parse(first) ? t : first,
-		null,
-	);
+	const [first, ...rest] = dated.sort((a, b) => Date.parse(a) - Date.parse(b));
+	if (first === undefined) return null;
+	return { first, last: rest.at(-1) ?? first };
 }
 
 /**

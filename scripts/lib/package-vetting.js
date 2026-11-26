@@ -4,6 +4,9 @@ const { ruleOrFallback } = require("./guard-verdict.js");
 const MIN_AGE_DAYS = 180;
 const MIN_DOWNLOADS = 1000;
 
+// measured: refuses 1% of PyPI's top 300 and 9% of ranks 301-15,000, #5760
+const MAX_IDLE_DAYS = 1825;
+
 // guess, lucmoseley/mantahostels#1803
 const BUDGET_S = 30;
 
@@ -14,7 +17,7 @@ const BUDGET_S = 30;
  * @property {() => number} startedAt
  * @property {boolean} allowNewPackage
  * @typedef {import("./guard-verdict.js").RulePorts & VettingPorts} VettingContext
- * @typedef {"missing" | "young" | "thin" | "budget" | "unreachable"} Refusal
+ * @typedef {"missing" | "young" | "stale" | "thin" | "budget" | "unreachable"} Refusal
  * @typedef {{ kind: "ok" } | { kind: Refusal, n: string }} RegistryVerdict
  */
 
@@ -39,16 +42,37 @@ function jsonOf(text) {
 }
 
 /**
+ * @param {unknown} when
+ * @param {VettingContext} ctx
+ * @returns {number | null}
+ */
+function daysSince(when, ctx) {
+	if (typeof when !== "string" || !when) return null;
+	const epochMs = Date.parse(when);
+	if (Number.isNaN(epochMs)) return null;
+	return Math.trunc((seconds(ctx.now()) - seconds(epochMs)) / 86_400);
+}
+
+/**
  * @param {unknown} created
  * @param {VettingContext} ctx
  * @returns {RegistryVerdict}
  */
 function ageOf(created, ctx) {
-	if (typeof created !== "string" || !created) return UNREACHABLE;
-	const epochMs = Date.parse(created);
-	if (Number.isNaN(epochMs)) return UNREACHABLE;
-	const days = Math.trunc((seconds(ctx.now()) - seconds(epochMs)) / 86_400);
+	const days = daysSince(created, ctx);
+	if (days === null) return UNREACHABLE;
 	return days < MIN_AGE_DAYS ? { kind: "young", n: String(days) } : OK;
+}
+
+/**
+ * @param {unknown} latest
+ * @param {VettingContext} ctx
+ * @returns {RegistryVerdict}
+ */
+function idleOf(latest, ctx) {
+	const days = daysSince(latest, ctx);
+	if (days === null) return UNREACHABLE;
+	return days > MAX_IDLE_DAYS ? { kind: "stale", n: String(days) } : OK;
 }
 
 /**
@@ -92,6 +116,14 @@ ${vettedRule(ctx)}`,
 			`\`${name}\` was first published ${days} days ago, under this guard's ${MIN_AGE_DAYS}-day floor: @CMD@
 
 A squat registered against a hallucinated name is days old. A genuinely new package that this project needs is a founder decision, not a session's.
+
+${vettedRule(ctx)}
+
+${escapeNote(ctx)}`,
+		stale: (name, days, ctx) =>
+			`\`${name}\` last had a file published ${days} days ago, past this guard's ${MAX_IDLE_DAYS}-day floor: @CMD@
+
+A package with no release in that long is abandoned or superseded, and no fix will reach it. One that is finished rather than dead is a founder decision, not a session's.
 
 ${vettedRule(ctx)}
 
@@ -163,6 +195,7 @@ module.exports = {
 	UNREACHABLE,
 	ageOf,
 	downloadsOf,
+	idleOf,
 	jsonOf,
 	legitimacy,
 	registryTexts,
