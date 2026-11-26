@@ -134,14 +134,17 @@ describe("the ledger beside the marker stores (#2824)", () => {
 		const root = sandbox();
 		const ago = (days: number) => new Date(NOW - days * DAY_MS).toISOString();
 		fs.mkdirSync(path.dirname(ledgerOf(root)), { recursive: true });
+		const daily = Array.from({ length: 32 }, (_, i) => 32 - i);
 		fs.writeFileSync(
 			ledgerOf(root),
-			[32, 29]
+			daily
 				.map((d) => `${JSON.stringify({ at: ago(d), sha: SHA })}\n`)
 				.join(""),
 		);
 		record(marker({ at: ago(0) }), { root });
-		expect(read(root).map((l) => l.at)).toEqual([ago(29), ago(0)]);
+		expect(read(root).map((l) => l.at)).toEqual(
+			[...daily.filter((d) => d <= 30), 0].map(ago),
+		);
 	});
 });
 
