@@ -256,6 +256,7 @@ function answerLinks(argv, nodeOf) {
 		}
 		repository["i" + n] = shaped(issue, {
 			state: (held.state ?? "open").toUpperCase(),
+			body: held.body ?? "",
 			blockedBy: conn("blockedBy", held.blockedBy ?? [], (r) => shaped(blocker, {
 				number: r.number,
 				state: r.state.toUpperCase(),

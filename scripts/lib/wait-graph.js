@@ -1,8 +1,9 @@
 const { readLinksMany } = require("./link-batch.js");
 const { refKey, refLabel } = require("./issue-ref.js");
+const { gateRefsOf } = require("./issue-gate.js");
 
 /** @typedef {{repo: string, number: number}} Ref */
-/** @typedef {"child" | "blocker"} Kind */
+/** @typedef {"child" | "blocker" | "gate"} Kind */
 /** @typedef {{from: Ref, to: Ref, kind: Kind}} Link */
 /**
  * @typedef {{ok: true, state: "open"|"closed"|null, edges: {to: Ref, kind: Kind}[]}
@@ -29,6 +30,23 @@ const openEdges = (rows, kind, self) =>
 		.map((r) => ({ to: { repo: r.repo ?? self, number: r.number }, kind }));
 
 /**
+ * @param {Ref} item
+ * @param {import("./link-batch").LinksRead & {ok: true}} read
+ * @returns {{to: Ref, kind: Kind}[]}
+ */
+function edgesOf(item, read) {
+	if (read.state === "closed") return [];
+	const own = refKey({ repo: read.self, number: item.number });
+	return [
+		...openEdges(read.links.blockedBy ?? [], "blocker", read.self),
+		...openEdges(read.links.subIssues ?? [], "child", read.self),
+		...gateRefsOf(read.body, read.self)
+			.filter((to) => refKey(to) !== own)
+			.map((to) => ({ to, kind: /** @type {Kind} */ ("gate") })),
+	];
+}
+
+/**
  * @param {string} repo
  * @param {Ref[]} refs
  * @returns {Promise<[string, NodeRead][]>}
@@ -40,14 +58,7 @@ async function readRepoNodes(repo, refs) {
 	return reads.map(({ item, read }) => [
 		refKey(item),
 		read.ok
-			? {
-					ok: true,
-					state: read.state,
-					edges: [
-						...openEdges(read.links.blockedBy ?? [], "blocker", read.self),
-						...openEdges(read.links.subIssues ?? [], "child", read.self),
-					],
-				}
+			? { ok: true, state: read.state, edges: edgesOf(item, read) }
 			: read,
 	]);
 }
@@ -72,7 +83,8 @@ async function readNodes(refs) {
 
 /**
  * @typedef {{refs: Map<string, Ref>, edges: Map<string, {to: Ref, kind: Kind}[]>,
- *   states: Map<string, NodeRead & {ok: true}>, unread: Unread[]}} Graph
+ *   states: Map<string, NodeRead & {ok: true}>, unread: Unread[],
+ *   reachedByLink: Set<string>, gateMisses: Unread[]}} Graph
  */
 
 /** @returns {Graph} */
@@ -81,7 +93,46 @@ const buildEmptyGraph = () => ({
 	edges: new Map(),
 	states: new Map(),
 	unread: [],
+	reachedByLink: new Set(),
+	gateMisses: [],
 });
+
+const NOT_AN_ISSUE = /\(HTTP 404\)|Could not resolve to an Issue/;
+
+/** @param {Graph} g @returns {Unread[]} */
+const settledUnread = (g) => [
+	...g.unread,
+	...g.gateMisses.filter((m) => g.reachedByLink.has(refKey(m.ref))),
+];
+
+/**
+ * @param {Graph} g
+ * @param {Ref} ref
+ * @param {NodeRead} r
+ * @returns {{to: Ref, kind: Kind}[]}
+ */
+function recordRead(g, ref, r) {
+	const k = refKey(ref);
+	if (!r.ok) {
+		const miss = { ref, error: r.error, reason: r.reason };
+		// #5698
+		if (r.reason === "broken" && NOT_AN_ISSUE.test(r.error))
+			g.gateMisses.push(miss);
+		else g.unread.push(miss);
+		return [];
+	}
+	if (r.state === null)
+		g.gateMisses.push({
+			ref,
+			error: "GitHub answered no issue, so its Gated on line went unread",
+			reason: "broken",
+		});
+	g.states.set(k, r);
+	g.edges.set(k, r.edges);
+	for (const e of r.edges)
+		if (e.kind !== "gate") g.reachedByLink.add(refKey(e.to));
+	return r.edges;
+}
 
 /**
  * @param {Graph} g
@@ -93,20 +144,11 @@ async function readLevel(g, frontier, seen) {
 	const reads = await readNodes(frontier);
 	/** @type {Map<string, Ref>} */
 	const next = new Map();
-	for (const ref of frontier) {
-		const k = refKey(ref);
-		const r = must(reads.get(k));
-		if (!r.ok) {
-			g.unread.push({ ref, error: r.error, reason: r.reason });
-			continue;
-		}
-		g.states.set(k, r);
-		g.edges.set(k, r.edges);
-		for (const e of r.edges) {
+	for (const ref of frontier)
+		for (const e of recordRead(g, ref, must(reads.get(refKey(ref))))) {
 			const ek = refKey(e.to);
 			if (!seen(ek) && !next.has(ek)) next.set(ek, e.to);
 		}
-	}
 	return [...next.values()];
 }
 
@@ -121,6 +163,7 @@ async function pathTo(from, to) {
 	/** @type {Map<string, {from: Ref, kind: Kind}>} */
 	const via = new Map();
 	g.refs.set(refKey(from), from);
+	g.reachedByLink.add(refKey(from));
 	let frontier = [from];
 	while (frontier.length > 0 && !via.has(target)) {
 		await readLevel(g, frontier, (k) => g.refs.has(k));
@@ -129,7 +172,7 @@ async function pathTo(from, to) {
 	}
 	return {
 		path: via.has(target) ? traceBack(g, via, from, target) : null,
-		unread: g.unread,
+		unread: settledUnread(g),
 	};
 }
 
@@ -322,6 +365,7 @@ async function loops(seeds, { home }) {
 		const k = refKey(s);
 		if (g.refs.has(k)) continue;
 		g.refs.set(k, s);
+		g.reachedByLink.add(k);
 		frontier.push(s);
 	}
 	while (frontier.length > 0) {
@@ -333,7 +377,7 @@ async function loops(seeds, { home }) {
 	for (const [k, es] of g.edges)
 		next.set(
 			k,
-			es.map((e) => refKey(e.to)),
+			es.map((e) => refKey(e.to)).filter((to) => g.edges.has(to)),
 		);
 	const order = byRef(home);
 	const cycles = components([...g.refs.keys()], next)
@@ -342,13 +386,18 @@ async function loops(seeds, { home }) {
 			return { members, path: examplePath(members.map(refKey), g) };
 		})
 		.sort((a, b) => order(must(a.members[0]), must(b.members[0])));
-	return { cycles, nodes: g.refs.size, unread: g.unread };
+	return { cycles, nodes: g.refs.size, unread: settledUnread(g) };
 }
+
+/** @type {Record<Kind, string>} */
+const VERB = {
+	child: "waits on child",
+	blocker: "is blocked by",
+	gate: "is gated on",
+};
 
 /** @param {Link} l @param {string|null} home */
 const linkText = (l, home) =>
-	l.kind === "child"
-		? `${refLabel(l.from, home)} waits on child ${refLabel(l.to, home)}`
-		: `${refLabel(l.from, home)} is blocked by ${refLabel(l.to, home)}`;
+	`${refLabel(l.from, home)} ${VERB[l.kind]} ${refLabel(l.to, home)}`;
 
 module.exports = { pathTo, loops, linkText };

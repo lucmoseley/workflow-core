@@ -13,9 +13,11 @@ const {
 	overrideFingerprint,
 	overrideReviewOf,
 	overrideReviewedLine,
+	gateRefsOf,
 } = require("./lib/issue-gate");
 const { readBasisFaults, unreadNote } = require("./lib/basis-cited-read");
-const { parseRepoOfUrl } = require("./lib/issue-ref");
+const { isInOtherRepo, parseRepoOfUrl, refLabel } = require("./lib/issue-ref");
+const { readShipped } = require("./lib/shipped-tickets");
 const {
 	isHeldWithoutReads,
 	readIssueStrict,
@@ -406,6 +408,27 @@ function checkGates(iss, raise, faults) {
 }
 
 /**
+ * @param {any} iss
+ * @param {Raise} raise
+ * @param {ReturnType<typeof readShipped>} shipped
+ */
+function checkShippedGate(iss, raise, shipped) {
+	if (!shipped || "unread" in shipped || !shipped.cited.has(iss.number)) return;
+	const own = parseRepoOfUrl(iss.repository_url);
+	const adopter = gateRefsOf(iss.body, own).filter((r) =>
+		isInOtherRepo(r, own),
+	);
+	if (adopter.length === 0) return;
+	const named = adopter.map((r) => refLabel(r, own)).join(", ");
+	raise(
+		"WARN",
+		"SHIPPED-GATED",
+		`its build shipped in ${shipped.tag}, yet it is gated on ${named} — a shipped ticket held open to watch an adopter consume it, which can close a loop no link shows`,
+		`close it, and leave the proof to ${named}, the adopter ticket that consumes the build`,
+	);
+}
+
+/**
  * @param {{body?: string|null}} iss
  * @param {Raise} raise
  */
@@ -516,7 +539,8 @@ function checkSpeccedBrief(iss, own, specs, raise) {
  * @param {any} iss
  * @param {string[]} own
  * @param {ChildCounts & {gateFaults: Map<number,
- *   import("./lib/issue-gate").BasisFault[]>}} counts
+ *   import("./lib/issue-gate").BasisFault[]>,
+ *   shipped: ReturnType<typeof readShipped>}} counts
  * @param {Raise} raise
  */
 function checkTakesFaults(iss, own, counts, raise) {
@@ -525,6 +549,7 @@ function checkTakesFaults(iss, own, counts, raise) {
 	checkContradictions(own, counts.openSteps.get(iss.number) || 0, raise);
 	checkHumanBody(iss, own, raise);
 	checkGates(iss, raise, counts.gateFaults.get(iss.number) ?? []);
+	checkShippedGate(iss, raise, counts.shipped);
 	checkJudgeOverride(iss, raise);
 	checkHumanIdle(iss, own, raise);
 	checkAgentStep(iss, own, raise);
@@ -697,7 +722,12 @@ const SPEC = {
 		const counts = {
 			...countOpenChildren(issues),
 			gateFaults: readGateCitations(issues, ctx),
+			shipped: readShipped(worktreeRoot()),
 		};
+		if (counts.shipped && "unread" in counts.shipped)
+			ctx.say(
+				`Unread: the newest release's commits (${counts.shipped.unread}), so SHIPPED-GATED is unjudged.\n`,
+			);
 
 		/** @type {Unlabelled[]} */
 		const unlabelled = [];

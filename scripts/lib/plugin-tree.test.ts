@@ -394,6 +394,7 @@ describe("the core-only class (#440)", () => {
 		"scripts/report-release-due.js -> scripts/lib/release-tags.js",
 		"scripts/report-release-due.js -> scripts/release-plugin.js",
 		"scripts/lib/release-due.js -> scripts/lib/release-tags.js",
+		"scripts/lib/shipped-tickets.js -> scripts/lib/release-tags.js",
 		"docs/agents/adopter-upgrade.md -> scripts/release-contains.js",
 		"scripts/lib/gate-check.js -> scripts/release-contains.js",
 		"scripts/check-code-standards.js -> scripts/lib/plugin-tree.js",
@@ -425,6 +426,25 @@ describe("the core-only class (#440)", () => {
 		);
 		expect(run.stderr).toContain("SKIP: not workflow-core itself");
 		expect(run.status).toBe(0);
+	});
+
+	it("loads the shipped shipped-tickets.js, reading no release in an adopter (#5758)", () => {
+		const out = path.join(tmp, "out");
+		buildTree(CORE, out);
+		const adopter = path.join(tmp, "adopter");
+		fs.mkdirSync(path.join(adopter, ".git"), { recursive: true });
+		const run = spawnSync(
+			process.execPath,
+			[
+				"-e",
+				"process.stdout.write(JSON.stringify(require(process.argv[1]).readShipped(process.argv[2])))",
+				path.join(out, "scripts", "lib", "shipped-tickets.js"),
+				adopter,
+			],
+			{ encoding: "utf8" },
+		);
+		expect(run.stderr).toBe("");
+		expect(run.stdout).toBe("null");
 	});
 
 	it("finds a left-behind script wired into a shipped hook, skill or doc", () => {
