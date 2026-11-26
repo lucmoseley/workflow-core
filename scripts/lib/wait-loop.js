@@ -35,6 +35,7 @@ const WORD_RE = new RegExp(`^([^${SP};&|)'"]+)[${SP}]*`);
 const DURATION_RE = /^([0-9]*)(\.([0-9]*))?([smhd]?)$/;
 
 const QUOTE_RE = /^([^'"]*)(['"])/;
+const DQUOTED_RE = /^((?:[^"\\]|\\[\s\S])*)"/;
 const C_FLAG = "-[A-Za-z]*c";
 const SHELL_C_RE = new RegExp(`(^|[${SP}])${C_FLAG}[${SP}]+$`);
 const SCRIPT_RE = new RegExp(
@@ -235,54 +236,55 @@ function closeQuote(q, text) {
 		return text.includes("'")
 			? { span: before(text, "'"), rest: after(text, "'") }
 			: null;
-	const end = dquoteEnd(text, 0);
+	const nested = closerEnd(text, 0, '"');
+	const end = nested < 0 ? (DQUOTED_RE.exec(text)?.[1]?.length ?? -1) : nested;
 	return end < 0
 		? null
 		: { span: text.slice(0, end), rest: text.slice(end + 1) };
 }
 
 /** @param {string} text @param {number} from */
-function dquoteEnd(text, from) {
+const tickEnd = (text, from) => closerEnd(text, from, "`");
+
+/** @param {string} text @param {number} from */
+const parenEnd = (text, from) => closerEnd(text, from, ")");
+
+/**
+ * @param {string} text
+ * @param {number} from
+ * @param {...string} closers
+ */
+function closerEnd(text, from, ...closers) {
+	const open = [...closers];
 	for (let i = from; i < text.length; i++) {
-		const c = text[i];
-		if (c === '"') return i;
+		const c = text[i] ?? "";
+		const top = open.at(-1);
 		if (c === "\\") i++;
-		else if (c === "`") i = tickEnd(text, i + 1);
-		else if (c === "$" && text[i + 1] === "(") i = parenEnd(text, i + 2);
+		else if (c === top) {
+			open.pop();
+			if (open.length === 0) return i;
+		} else i = opened(text, i, top, open);
 		if (i < 0) return -1;
 	}
 	return -1;
 }
 
-/** @param {string} text @param {number} from */
-function tickEnd(text, from) {
-	for (let i = from; i < text.length; i++) {
-		if (text[i] === "`") return i;
-		if (text[i] === "\\") i++;
+/**
+ * @param {string} text
+ * @param {number} i
+ * @param {string | undefined} top
+ * @param {string[]} open
+ */
+function opened(text, i, top, open) {
+	const c = text[i] ?? "";
+	if (top === "`") return i;
+	if (c === "`" || (top === ")" && c === '"')) open.push(c);
+	else if (top === ")" && c === "(") open.push(")");
+	else if (top === ")" && c === "'") return text.indexOf("'", i + 1);
+	else if (c === "$" && text[i + 1] === "(") {
+		open.push(")");
+		return i + 1;
 	}
-	return -1;
-}
-
-/** @param {string} text @param {number} from */
-function parenEnd(text, from) {
-	let depth = 1;
-	for (let i = from; i < text.length; i++) {
-		const c = text[i];
-		if (c === "(") depth++;
-		else if (c === ")" && --depth === 0) return i;
-		else i = skipped(text, i);
-		if (i < 0) return -1;
-	}
-	return -1;
-}
-
-/** @param {string} text @param {number} i */
-function skipped(text, i) {
-	const c = text[i];
-	if (c === "\\") return i + 1;
-	if (c === "'") return text.indexOf("'", i + 1);
-	if (c === '"') return dquoteEnd(text, i + 1);
-	if (c === "`") return tickEnd(text, i + 1);
 	return i;
 }
 

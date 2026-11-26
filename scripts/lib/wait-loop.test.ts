@@ -163,6 +163,10 @@ describe("what it stays out of the way of", () => {
 			"gh issue comment 5 --body-file - <<'EOF'\nwhile true; do sleep 5; done\nEOF",
 			"loop text inside a heredoc body (#1731)",
 		],
+		[
+			'echo "$(grep -c "while true" /tmp/f)"; sleep 1',
+			"loop text quoted inside a quoted $(…) (#5779)",
+		],
 	])("%s — %s", (command) => {
 		expect(run(command)).toEqual({
 			warning: null,
@@ -186,6 +190,10 @@ describe("a wait over 15 minutes is refused", () => {
 		["npm run build && sleep 2h", "after other work"],
 		['nohup bash -c "sleep 9984" &', "inside a `-c` script"],
 		["bash <<'EOF'\nsleep 2h\nEOF", "inside a heredoc fed to a shell"],
+		[
+			`x="$(echo hi # it's\n)"; sleep 1000`,
+			"after a $(…) whose comment holds a lone quote (#5779)",
+		],
 		[
 			"timeout 3600 bash -c 'until grep -q x /tmp/f; do sleep 5; done'",
 			"an uncounted loop under a long timeout",
@@ -433,6 +441,10 @@ describe("a wait loop gated on machine load is refused (#5325)", () => {
 		[
 			'until [ "`cut -d" " -f1 /proc/loadavg | cut -d. -f1`" -lt 6 ]; do sleep 20; done',
 			"nested quotes inside a backtick substitution",
+		],
+		[
+			`x="$(echo hi # it's\n)"; until [ "$(cut -d. -f1 /proc/loadavg)" -lt 4 ]; do sleep 20; done`,
+			"a lone quote in a comment inside an earlier $(…), which the nested scan cannot close",
 		],
 		[
 			"while :; do l=$(cut -d. -f1 /proc/loadavg); if [ $l -lt 6 ]; then echo go; break; fi; sleep 15; done",
