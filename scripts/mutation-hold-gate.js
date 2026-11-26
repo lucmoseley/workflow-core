@@ -648,14 +648,14 @@ function buildWrapperConfig(strykerConfig, controlled) {
 			: `import { loadStrykerConfig } from ${JSON.stringify(pathToFileURL(STRYKER_COMMENTS).href)};
 const base = await loadStrykerConfig(${JSON.stringify(strykerConfig)});`;
 	return `${base}
-import isolated from ${JSON.stringify(pathToFileURL(path.join(__dirname, "lib", "isolated-worktree.js")).href)};
+import isolated from ${JSON.stringify(pathToFileURL(require.resolve("./lib/isolated-worktree.js")).href)};
 export default {
   disableTypeChecks: ${JSON.stringify(DISABLE_TYPE_CHECKS)},
   ...base,
   vitest: { pool: ${JSON.stringify(POOL)}, ...base.vitest },
   ignorePatterns: [
     ...(base.ignorePatterns ?? []),
-    ...isolated.readLinkedPaths(process.cwd()).map((p) => \`/\${p}\`),
+    ...isolated.linkedIgnorePatterns(process.cwd()),
   ],
   ...${JSON.stringify(controlled, null, 2)}
 };

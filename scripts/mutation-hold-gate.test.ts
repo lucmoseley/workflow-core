@@ -352,11 +352,12 @@ describe("mutation-hold-gate.js — what the run is given", () => {
 
 	it("ignores every path the worktree links, after the host's own patterns, as Stryker copies a linked directory as a file (#5721)", () => {
 		fs.mkdirSync(path.join(repo, ".cache", "shared"), { recursive: true });
+		fs.mkdirSync(path.join(repo, ".cache", "run[1]"), { recursive: true });
 		write(
 			CONFIG,
 			JSON.stringify({
 				...JSON.parse(fs.readFileSync(path.join(repo, CONFIG), "utf8")),
-				worktreeLinks: [".cache/shared"],
+				worktreeLinks: ["./.cache/shared", ".cache/run[1]", "app"],
 			}),
 		);
 		write(
@@ -372,6 +373,7 @@ describe("mutation-hold-gate.js — what the run is given", () => {
 			"dist",
 			"/node_modules",
 			"/.cache/shared",
+			"/.cache/run\\[1\\]",
 		]);
 	});
 
