@@ -232,6 +232,17 @@
 				]
 			}
 		],
+		"SubagentStop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-automode-refusal.js || true",
+						"timeout": 15
+					}
+				]
+			}
+		],
 		"PreCompact": [
 			{
 				"hooks": [
