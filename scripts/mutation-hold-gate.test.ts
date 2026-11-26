@@ -350,6 +350,31 @@ describe("mutation-hold-gate.js — what the run is given", () => {
 		});
 	});
 
+	it("ignores every path the worktree links, after the host's own patterns, as Stryker copies a linked directory as a file (#5721)", () => {
+		fs.mkdirSync(path.join(repo, ".cache", "shared"), { recursive: true });
+		write(
+			CONFIG,
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(path.join(repo, CONFIG), "utf8")),
+				worktreeLinks: [".cache/shared"],
+			}),
+		);
+		write(
+			"stryker.config.json",
+			JSON.stringify({ testRunner: "vitest", ignorePatterns: ["dist"] }),
+		);
+		landHostConfig();
+		changeLine2();
+		report([]);
+		expect(commit([MONEY]).status).toBe(0);
+		const [run] = readRuns();
+		expect(run.config.ignorePatterns).toEqual([
+			"dist",
+			"/node_modules",
+			"/.cache/shared",
+		]);
+	});
+
 	it("reads no host config the commit's tree lacks", () => {
 		write("stryker.config.json", JSON.stringify({ coverageAnalysis: "off" }));
 		changeLine2();

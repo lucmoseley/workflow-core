@@ -353,6 +353,7 @@ if (require.main === module) {
 module.exports = {
 	createIsolated,
 	linkArtefacts,
+	readLinkedPaths,
 	removeIsolated,
 	runInTree,
 	sweepIsolated,
