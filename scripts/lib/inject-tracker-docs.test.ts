@@ -41,7 +41,11 @@ const NOW = 1_800_000_000;
 const { port: log, read: readLog } = logPort();
 
 // #448
-const BASE_ENV = { CLAUDE_PROJECT_DIR: ROOT };
+const BASE_ENV = {
+	CLAUDE_PROJECT_DIR: ROOT,
+	// #5771
+	WFC_RULES_DIR: path.join(ROOT, "docs", "agents", "rules"),
+};
 const readRuleText = (id: string): string =>
 	readRuleTextAt(id, undefined, BASE_ENV);
 
@@ -586,15 +590,21 @@ describe("the rules that were already here", () => {
 		);
 	});
 
+	it("tells a whole-spec review to fix a corner or tidying finding even where the spec only exposed it (#5771)", () => {
+		expect(inject("/triage 849")).toContain(
+			"On any pass, `exposed, not caused` tickets only a live fault: a corner or tidying finding is FIXED here",
+		);
+	});
+
 	it("tells a fix ticket's own /code-review that only a live fault goes under the spec (#3811)", () => {
 		const fragment = fs.readFileSync(
 			path.join(ROOT, "docs/agents/rules/review-finding-destination.txt"),
 			"utf8",
 		);
 		expect(fragment).toContain(
-			"A whole-spec review's fix ticket files under the spec only a live fault",
+			"its fix ticket files under the spec only a live fault",
 		);
-		expect(fragment).toContain("the rest go standalone, citing the spec");
+		expect(fragment).toContain("the rest standalone, citing it");
 		expect(inject("/code-review")).toContain(fragment.trim());
 	});
 
@@ -603,7 +613,10 @@ describe("the rules that were already here", () => {
 		expect(ctx).toContain(
 			"FIX FIRST any finding in code the reviewed work wrote",
 		);
-		expect(ctx).toContain("ticket those and what the change only exposed");
+		expect(ctx).toContain(
+			"and its defect at each site of the pattern it moved",
+		);
+		expect(ctx).toContain("ticket those and what else it only exposed");
 		expect(ctx).toContain(
 			"A no-behaviour fix gets a Standards-only re-review over its diff",
 		);
