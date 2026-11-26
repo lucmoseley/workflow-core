@@ -77,9 +77,8 @@ describe("a round with a founder-led and an agent-led option", () => {
 		"**Blocked:** a login only you can do.",
 		"**Blocked**: a click on a page I cannot reach.",
 	])("passes with a non-empty Blocked: line: %s", (line) => {
-		expect(stop(round("I merge it.", "You merge it.", { extra: line }))).toBe(
-			"",
-		);
+		const extra = `${line}\nRecurrence: none — searched closed issues for merges.`;
+		expect(stop(round("I merge it.", "You merge it.", { extra }))).toBe("");
 	});
 
 	it.each(["Blocked:", "**Blocked:**"])(

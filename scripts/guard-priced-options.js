@@ -68,6 +68,7 @@ const {
 	NEEDS_INPUT_ROUND_PREFIX,
 	FOUNDER_ACT_PREFIX,
 	ACTOR_ONLY_PREFIX,
+	RECURRENCE_PREFIX,
 	COMPLETED_WHILE_WAITING_PREFIX,
 	NEEDS_INPUT_UNDERCUT_PREFIX,
 	NEEDS_INPUT_MISPLACED_PREFIX,
@@ -651,6 +652,103 @@ function actorOnlyRound(message, { ruleShown = false } = {}) {
 		"line the founder hand-over in this block states." +
 		(ruleShown ? "" : `\n\n${readHandoverRule()}`) +
 		"\n\nRE-SEND ONLY THE CORRECTED QUESTION, not the whole round."
+	);
+}
+
+/**
+ * @param {string | undefined} transcript
+ * @returns {() => boolean | null}
+ */
+function searchedClosedIssues(transcript) {
+	/** @type {boolean | null | undefined} */
+	let found;
+	const read = () => {
+		if (!transcript) return null;
+		try {
+			const calls = require("./lib/tool-calls-since").toolCallsSince(
+				transcript,
+				0,
+			);
+			if (calls === null) return null;
+			const { isRulingsCommand } = require("./lib/research-ladder");
+			const corpus = corpusTrackers();
+			return calls.some(
+				(c) =>
+					c.name === "Bash" &&
+					typeof c.input.command === "string" &&
+					isRulingsCommand(c.input.command, corpus),
+			);
+		} catch (e) {
+			failOpenLogger("guard-priced-options recurrence")?.(
+				`transcript unreadable: ${e} — Recurrence: taken on its word`,
+			);
+			return null;
+		}
+	};
+	return () => {
+		if (found === undefined) found = read();
+		return found;
+	};
+}
+
+/**
+ * @param {string} message
+ * @returns {Map<number, string>}
+ */
+function recommendedByIndex(message) {
+	const groups = optionGroups(message);
+	const picked = pickedLetters(parseRecommendationLines(message), groups);
+	/** @type {Map<number, string>} */
+	const out = new Map();
+	groups.forEach((group, i) => {
+		const letters = picked.get(i)?.letters;
+		const pool = group
+			.filter(isPriced)
+			.filter((o) => !letters || letters.has(o.letter));
+		const [first, ...rest] = pool;
+		if (!first) return;
+		const top = rest.reduce(
+			(a, b) => (b.confidence > a.confidence ? b : a),
+			first,
+		);
+		out.set(i, top.letter);
+	});
+	return out;
+}
+
+/** @returns {string} */
+function readRecurrenceRule() {
+	return require("./lib/rule-text").readRuleTextOr(
+		"recurring-handover",
+		"Search the closed issues for the same act before handing it over; " +
+			"where it was handed over before, recommend the durable fix, and " +
+			"give the round a `Recurrence:` line",
+		"guard-priced-options recurrence",
+	);
+}
+
+/**
+ * @param {string} message
+ * @param {string | undefined} transcript
+ * @returns {string}
+ */
+function recurrenceRound(message, transcript) {
+	const recommended = recommendedByIndex(message);
+	const rounds = splitQuestions(message).flatMap((block, i) =>
+		block.lines.some((l) => BLOCKED_LINE.test(l))
+			? [
+					{
+						number: block.number,
+						lines: block.lines,
+						recommended: recommended.get(i) ?? null,
+					},
+				]
+			: [],
+	);
+	return require("./lib/handover-recurrence").recurrenceRefusal(
+		rounds,
+		searchedClosedIssues(transcript),
+		readRecurrenceRule,
 	);
 }
 
@@ -1272,6 +1370,7 @@ function reviewParts(message, evidence = {}, status = jobStatus(message)) {
 			ACTOR_ONLY_PREFIX,
 			actorOnlyRound(message, { ruleShown: Boolean(founderAct) }),
 		);
+		push(RECURRENCE_PREFIX, recurrenceRound(message, evidence.transcript));
 	} else push(FOUNDER_ACT_PREFIX, founderAct);
 
 	if (status) {
@@ -1306,6 +1405,7 @@ const PIECE_OF = {
 	[NEEDS_INPUT_ROUND_PREFIX]: "round",
 	[FOUNDER_ACT_PREFIX]: "round",
 	[ACTOR_ONLY_PREFIX]: "round",
+	[RECURRENCE_PREFIX]: "round",
 	[MISSING_NEEDS_INPUT_PREFIX]: "status",
 	[EMPTY_MARKER_PREFIX]: "status",
 	[COMPLETED_WHILE_WAITING_PREFIX]: "status",
