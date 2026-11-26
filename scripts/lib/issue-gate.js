@@ -4,6 +4,7 @@ const { docPath } = require("./script-path");
 const { witaDay } = require("./wita");
 const { caught } = require("./caught.js");
 const { parseWindow } = require("./gate-window.js");
+const { REF_FORMS, refKey, scanIssueRefs } = require("./issue-ref.js");
 
 const AT_LINE_HEAD = "^[ \\t]{0,3}";
 
@@ -106,6 +107,7 @@ function liveMatches(re, body) {
 }
 
 const ABANDON_SEG = /[—–-][ \t]*abandon if:[ \t]*/gi;
+const SEGMENT_HEAD = /[—–-][ \t]*(?:abandon if|check):/i;
 const CHECK_SEG = /[—–-][ \t]*check:[ \t]*/gi;
 
 /**
@@ -149,6 +151,31 @@ function gateOnOf(body) {
 	const command = c ? head.slice(c.index + c[0].length).trim() || null : null;
 
 	return { condition, command, abandonIf };
+}
+
+/**
+ * @template {string|null} S
+ * @param {string} body
+ * @param {S} self
+ * @returns {{repo: string|S, number: number}[]}
+ */
+function gateRefsOf(body, self) {
+	const gate = gateOnOf(body);
+	if (!gate) return [];
+	const owner = self?.split("/")[0] ?? null;
+	/** @type {Map<string, {repo: string|S, number: number}>} */
+	const out = new Map();
+	const condition = gate.malformed
+		? (gate.raw.split(SEGMENT_HEAD)[0] ?? "")
+		: gate.condition;
+	for (const r of scanIssueRefs(condition, REF_FORMS.citation)) {
+		const repo =
+			r.name === null
+				? self
+				: [r.owner ?? owner, r.name].filter(Boolean).join("/");
+		out.set(refKey({ repo, number: r.number }), { repo, number: r.number });
+	}
+	return [...out.values()];
 }
 
 const BASIS_RE = new RegExp(
@@ -1129,6 +1156,7 @@ function secondMapVerdict(labels, readMaps) {
 module.exports = {
 	gateOf,
 	gateOnOf,
+	gateRefsOf,
 	gateLinesOf,
 	resolveGate,
 	isGateHolding,

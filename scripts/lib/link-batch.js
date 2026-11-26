@@ -23,7 +23,7 @@ const LABELS = 100;
  *   url: string, body: string, labels: string[]}} LinkRow
  */
 /**
- * @typedef {{ok: true, self: string, state: "open"|"closed"|null,
+ * @typedef {{ok: true, self: string, state: "open"|"closed"|null, body: string,
  *   links: Partial<Record<Connection, LinkRow[]>>}
  *   | {ok: false, error: string, reason: "unreachable"|"broken"}} LinksRead
  */
@@ -43,7 +43,7 @@ const buildQuery = (numbers) =>
 	numbers
 		.map(
 			(n) =>
-				`i${n}: issue(number: ${n}) { state blockedBy(first: ${BLOCKERS}) { totalCount nodes { number state title url body repository { nameWithOwner } labels(first: ${LABELS}) { nodes { name } } } } subIssues(first: ${CHILDREN}) { totalCount nodes { number state repository { nameWithOwner } } } }`,
+				`i${n}: issue(number: ${n}) { state body blockedBy(first: ${BLOCKERS}) { totalCount nodes { number state title url body repository { nameWithOwner } labels(first: ${LABELS}) { nodes { name } } } } subIssues(first: ${CHILDREN}) { totalCount nodes { number state repository { nameWithOwner } } } }`,
 		)
 		.join(" ") +
 	" } }";
@@ -183,7 +183,7 @@ async function completeRead(repo, { item, alias, self }, { want, strict }) {
 	const state = alias?.state
 		? /** @type {"open"|"closed"} */ (String(alias.state).toLowerCase())
 		: null;
-	return { ok: true, self, state, links };
+	return { ok: true, self, state, body: alias?.body ?? "", links };
 }
 
 /**

@@ -28,7 +28,10 @@ interface Row {
 }
 
 interface Gh {
-	graph?: Record<string, { blockedBy?: Row[]; subIssues?: Row[] }>;
+	graph?: Record<
+		string,
+		{ body?: string; blockedBy?: Row[]; subIssues?: Row[] }
+	>;
 	graphFails?: boolean;
 	listed?: { number: number; repo: string }[];
 	postFails?: boolean;
@@ -133,6 +136,32 @@ describe("link-blocker.js", () => {
 		expect(r.stderr).toContain(
 			"docs/agents/issue-tracker.md §Placing a new issue",
 		);
+	});
+
+	it("refuses #5683's loop, closed by a Gated on line rather than a link", async () => {
+		const r = await run(["m/t#3905", "o/r#5683"], {
+			graph: {
+				"o/r#5683": {
+					body: "**Gated on:** m/t#3905 closes — abandon if: the adopter drops the module",
+				},
+			},
+		});
+		expect(r.status).toBe(3);
+		expect(readPosts()).toEqual([]);
+		expect(r.stderr).toContain("m/t#3905 is blocked by #5683   (the new link)");
+		expect(r.stderr).toContain("#5683 is gated on m/t#3905");
+	});
+
+	it("links where the gate line sits in a fence, which gates nothing", async () => {
+		const r = await run(["m/t#3905", "o/r#5683"], {
+			graph: {
+				"o/r#5683": {
+					body: "```\n**Gated on:** m/t#3905 closes — abandon if: never\n```",
+				},
+			},
+			listed: [{ number: 5683, repo: "o/r" }],
+		});
+		expect(r.status, r.stderr).toBe(0);
 	});
 
 	it("names the session's own issue as #n and the other repo's as owner/name#n", async () => {
