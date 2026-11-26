@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readStopGuardReason } from "./lib/stop-guard-testkit";
 import {
 	buildBashCall,
+	failOpenLog,
 	researchCalls,
 	transcriptRecords,
 	writeTranscript,
@@ -28,33 +29,39 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const stop = (message: string, transcript?: string) =>
+const unread = () => path.join(dir, "absent.jsonl");
+
+const stop = (message: string, transcript = unread()) =>
 	readStopGuardReason(GUARD, { dir, sid, message, job: false, transcript });
 
 const BLOCKED = "Blocked: the classifier refused `wrangler deploy`.";
+const DURABLE =
+	"You grant `Bash(npm run worker:*)` once; I script the deploy behind it.";
+const MANUAL = "You run the deploy by hand.";
 
 const round = ({
 	recurrence = "",
-	pick = "(A)",
+	pick = "➡ (A).",
 	blocked = BLOCKED,
-	a = "I wrap the deploy in `npm run worker:deploy` and you grant it once.",
-	b = "You run the deploy by hand.",
+	a = DURABLE,
+	b = MANUAL,
 	figures = [80, 20],
 } = {}) =>
 	"❓ **Q1** — Who deploys the Worker?\n\nRelation: rivals\n\n" +
-	`(A) ${a}\nConfidence: ${figures[0]}% (70% - 90%). It removes the hand-over.\n\n` +
-	`(B) ${b}\nConfidence: ${figures[1]}% (10% - 30%). It is quicker today.\n\n` +
+	`(A) ${a}\nConfidence: ${figures[0]}% (${figures[0] - 10}% - ${figures[0] + 10}%). It removes the hand-over.\n\n` +
+	`(B) ${b}\nConfidence: ${figures[1]}% (${figures[1] - 10}% - ${figures[1] + 10}%). It is quicker today.\n\n` +
 	[blocked, recurrence].filter(Boolean).join("\n") +
-	(pick ? `\n\n➡ ${pick}.` : "");
+	(pick ? `\n\n${pick}` : "");
 
 const REFUSED = "has not settled whether the same act was handed to him before";
+const MATCH = "Recurrence: #258, #272 — (B) repeats it";
 
-describe('a "you or me?" round with a Blocked: line', () => {
-	it("is refused with no Recurrence: line, naming the line it wants", () => {
+describe("a round carrying a Blocked: line", () => {
+	it("is refused with no Recurrence: line, printing the rule", () => {
 		const reason = stop(round());
 		expect(reason).toContain(REFUSED);
 		expect(reason).toContain("Q1: it carries no `Recurrence:` line.");
-		expect(reason).toContain("`Recurrence: none — <the search you ran>`");
+		expect(reason).toContain("A RECURRING HAND-OVER IS FIXED, NOT REPEATED");
 	});
 
 	it.each([
@@ -71,49 +78,66 @@ describe('a "you or me?" round with a Blocked: line', () => {
 	});
 
 	it.each([
-		["#258, #272 — each ended on a deploy", "#258, #272"],
-		["acme/fitness#272 — a deploy", "acme/fitness#272"],
-	])(
-		"names a match (%s) and recommends the agent-led durable fix: passes",
-		(found) => {
-			expect(stop(round({ recurrence: `Recurrence: ${found}` }))).toBe("");
-		},
-	);
+		["#258, #272 — (B) repeats it", "#258, #272"],
+		["acme/fitness#272 — (B) repeats it", "acme/fitness#272"],
+		["health-and-fitness#272 — (B) repeats it", "health-and-fitness#272"],
+		["#272's deploy — (B) repeats it", "#272"],
+	])("passes where it names %s and recommends the durable fix", (found) => {
+		expect(stop(round({ recurrence: `Recurrence: ${found}` }))).toBe("");
+	});
 
-	it("names a match and recommends the founder doing it by hand again: refused", () => {
+	it("is refused where it names an earlier issue but no repeating option", () => {
+		expect(
+			stop(round({ recurrence: "Recurrence: #272 — a deploy" })),
+		).toContain(
+			"names an earlier occurrence (#272) but not the option that repeats the hand-over",
+		);
+	});
+
+	it("is refused where it recommends the option it names as repeating the hand-over", () => {
 		const reason = stop(
-			round({
-				recurrence: "Recurrence: #258, #272 — each ended on a deploy",
-				pick: "(B)",
-				figures: [25, 75],
-			}),
+			round({ recurrence: MATCH, pick: "➡ (B).", figures: [25, 75] }),
 		);
-		expect(reason).toContain(REFUSED);
 		expect(reason).toContain(
-			"names an earlier occurrence (#258, #272), yet it recommends (B)",
+			"names an earlier occurrence (#258, #272), yet it recommends (B), the option that repeats the hand-over",
 		);
-		expect(reason).toContain("never the recommended one");
+	});
+
+	it("reads a prose recommendation naming both options as the higher-priced one", () => {
+		expect(
+			stop(round({ recurrence: MATCH, pick: "I recommend (A) over (B)." })),
+		).toBe("");
 	});
 
 	it("with no recommendation line, reads the highest-priced option as recommended", () => {
-		const recurrence = "Recurrence: #272 — a deploy";
-		expect(stop(round({ recurrence, pick: "", figures: [25, 75] }))).toContain(
-			"yet it recommends (B)",
-		);
-		expect(stop(round({ recurrence, pick: "" }))).toBe("");
+		expect(
+			stop(round({ recurrence: MATCH, pick: "", figures: [25, 75] })),
+		).toContain("yet it recommends (B)");
+		expect(stop(round({ recurrence: MATCH, pick: "" }))).toBe("");
+	});
+
+	it.each([
+		["an agent-led manual route", DURABLE, "I hand you the commands to paste."],
+		["founder-led options only", DURABLE, MANUAL],
+	])("checks %s too", (_case, a, b) => {
+		expect(
+			stop(
+				round({ recurrence: MATCH, a, b, pick: "➡ (B).", figures: [25, 75] }),
+			),
+		).toContain("yet it recommends (B)");
 	});
 });
 
-describe("a round the limb leaves alone", () => {
-	it("one with no Blocked: line, which the actor-only limb owns", () => {
-		const reason = stop(round({ blocked: "" }));
+describe("a round with no Blocked: line", () => {
+	it("is left to the actor-only limb, which refuses it", () => {
+		const reason = stop(round({ blocked: "", a: "I script the deploy." }));
 		expect(reason).toContain("asks the founder who performs an act");
 		expect(reason).not.toContain(REFUSED);
 	});
 
-	it("one that is not a you-or-me round", () => {
+	it("passes when it is not a you-or-me round", () => {
 		expect(
-			stop(round({ a: "Deploy now.", b: "Deploy after the migration." })),
+			stop(round({ blocked: "", a: "Deploy now.", b: "Deploy later." })),
 		).toBe("");
 	});
 });
@@ -155,5 +179,21 @@ describe("the closed-issue search it stands on", () => {
 				transcriptWith("gh search issues --state open deploy"),
 			),
 		).toContain("stands on no search of closed issues");
+	});
+
+	it("takes the line on its word where the transcript cannot be read, and logs it", () => {
+		const config = path.join(dir, "config");
+		const unreadable = path.join(dir, "a-directory.jsonl");
+		fs.mkdirSync(unreadable);
+		expect(stop(round({ recurrence }), unreadable)).toBe("");
+		expect(failOpenLog(config)).toContain("Recurrence: taken on its word");
+	});
+});
+
+describe("its budget", () => {
+	it("stops at its own cap of 3", () => {
+		const bad = round();
+		for (let i = 0; i < 3; i++) expect(stop(bad)).toContain(REFUSED);
+		expect(stop(bad)).toBe("");
 	});
 });

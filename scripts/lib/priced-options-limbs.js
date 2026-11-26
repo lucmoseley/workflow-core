@@ -33,7 +33,6 @@ const LIMBS = [
 	{ prefix: NEEDS_INPUT_ROUND_PREFIX, tier: "shape", cap: CAP },
 	{ prefix: FOUNDER_ACT_PREFIX, tier: "shape", cap: CAP },
 	{ prefix: ACTOR_ONLY_PREFIX, tier: "shape", cap: CAP },
-	{ prefix: RECURRENCE_PREFIX, tier: "shape", cap: CAP },
 	{ prefix: COMPLETED_WHILE_WAITING_PREFIX, tier: "filing", cap: CAP },
 	{ prefix: NEEDS_INPUT_UNDERCUT_PREFIX, tier: "filing", cap: CAP },
 	{ prefix: NEEDS_INPUT_MISPLACED_PREFIX, tier: "filing", cap: CAP },
@@ -61,6 +60,12 @@ const LIMBS = [
 		tier: "outside-ceiling",
 		cap: CAP,
 		name: "research-ladder",
+	},
+	{
+		prefix: RECURRENCE_PREFIX,
+		tier: "outside-ceiling",
+		cap: CAP,
+		name: "recurring-hand-over",
 	},
 ];
 

@@ -614,21 +614,16 @@ function buildFounderLead() {
 }
 
 /**
- * @typedef {{ letter: string, head: string }} Lead
- * @typedef {{ block: import("./lib/round-marker").QuestionBlock,
- *   theirs: Lead, ours: Lead, founderLetters: Set<string>,
- *   blocked: boolean }} YouOrMeRound
- */
-
-/**
  * @param {string} message
- * @returns {YouOrMeRound[]}
+ * @param {{ruleShown?: boolean}} [opts]
+ * @returns {string}
  */
-function youOrMeRounds(message) {
-	/** @type {YouOrMeRound[]} */
-	const rounds = [];
+function actorOnlyRound(message, { ruleShown = false } = {}) {
+	/** @type {string[]} */
+	const flagged = [];
 	const founder = buildFounderLead();
 	for (const block of splitQuestions(message)) {
+		if (block.lines.some((l) => BLOCKED_LINE.test(l))) continue;
 		if (COMBINABLE.test(parseRelationLine(block.lines))) continue;
 		const leads = optionSpans(block.lines).map((option) => ({
 			letter: option.letter,
@@ -638,21 +633,26 @@ function youOrMeRounds(message) {
 				.replace(/\u2019/g, "'"),
 		}));
 		if (leads.length < 2) continue;
-		const founderLed = leads.filter((o) => founder.test(o.head));
-		const theirs = founderLed[0];
+		const theirs = leads.find((o) => founder.test(o.head));
 		const ours = leads.find(
 			(o) => AGENT_LEAD.test(o.head) && !AGENT_ABANDONS.test(o.head),
 		);
 		if (!theirs || !ours) continue;
-		rounds.push({
-			block,
-			theirs,
-			ours,
-			founderLetters: new Set(founderLed.map((o) => o.letter)),
-			blocked: block.lines.some((l) => BLOCKED_LINE.test(l)),
-		});
+		const quote = (/** @type {{letter: string, head: string}} */ o) =>
+			`(${o.letter}) “${o.head.replace(/\s+/g, " ").slice(0, 60)}”`;
+		flagged.push(`Q${block.number}: ${quote(theirs)} against ${quote(ours)}`);
 	}
-	return rounds;
+	if (flagged.length === 0) return "";
+	return (
+		"This turn asks the founder who performs an act — one option has him do " +
+		"it, another has you do it — and says nothing about what stops you:\n\n" +
+		flagged.join("\n") +
+		"\n\nWhere nothing stops you, do not ask: act, then report what you " +
+		"did. Where something does, keep the question and add the `Blocked:` " +
+		"line the founder hand-over in this block states." +
+		(ruleShown ? "" : `\n\n${readHandoverRule()}`) +
+		"\n\nRE-SEND ONLY THE CORRECTED QUESTION, not the whole round."
+	);
 }
 
 /**
@@ -660,7 +660,9 @@ function youOrMeRounds(message) {
  * @returns {() => boolean | null}
  */
 function searchedClosedIssues(transcript) {
-	return () => {
+	/** @type {boolean | null | undefined} */
+	let found;
+	const read = () => {
 		if (!transcript) return null;
 		try {
 			const calls = require("./lib/tool-calls-since").toolCallsSince(
@@ -683,44 +685,70 @@ function searchedClosedIssues(transcript) {
 			return null;
 		}
 	};
+	return () => {
+		if (found === undefined) found = read();
+		return found;
+	};
 }
 
 /**
- * @param {YouOrMeRound[]} rounds
- * @param {string | undefined} transcript
- * @returns {string}
+ * @param {string} message
+ * @returns {Map<number, string>}
  */
-function recurrenceRound(rounds, transcript) {
-	return require("./lib/handover-recurrence").recurrenceRefusal(
-		rounds.filter((r) => r.blocked),
-		searchedClosedIssues(transcript),
+function recommendedByIndex(message) {
+	const groups = optionGroups(message);
+	const picked = pickedLetters(parseRecommendationLines(message), groups);
+	/** @type {Map<number, string>} */
+	const out = new Map();
+	groups.forEach((group, i) => {
+		const letters = picked.get(i)?.letters;
+		const pool = group
+			.filter(isPriced)
+			.filter((o) => !letters || letters.has(o.letter));
+		const [first, ...rest] = pool;
+		if (!first) return;
+		const top = rest.reduce(
+			(a, b) => (b.confidence > a.confidence ? b : a),
+			first,
+		);
+		out.set(i, top.letter);
+	});
+	return out;
+}
+
+/** @returns {string} */
+function readRecurrenceRule() {
+	return require("./lib/rule-text").readRuleTextOr(
+		"recurring-handover",
+		"Search the closed issues for the same act before handing it over; " +
+			"where it was handed over before, recommend the durable fix, and " +
+			"give the round a `Recurrence:` line",
+		"guard-priced-options recurrence",
 	);
 }
 
 /**
- * @param {YouOrMeRound[]} rounds
- * @param {{ruleShown?: boolean}} [opts]
+ * @param {string} message
+ * @param {string | undefined} transcript
  * @returns {string}
  */
-function actorOnlyRound(rounds, { ruleShown = false } = {}) {
-	/** @type {string[]} */
-	const flagged = [];
-	for (const { block, theirs, ours, blocked } of rounds) {
-		if (blocked) continue;
-		const quote = (/** @type {Lead} */ o) =>
-			`(${o.letter}) “${o.head.replace(/\s+/g, " ").slice(0, 60)}”`;
-		flagged.push(`Q${block.number}: ${quote(theirs)} against ${quote(ours)}`);
-	}
-	if (flagged.length === 0) return "";
-	return (
-		"This turn asks the founder who performs an act — one option has him do " +
-		"it, another has you do it — and says nothing about what stops you:\n\n" +
-		flagged.join("\n") +
-		"\n\nWhere nothing stops you, do not ask: act, then report what you " +
-		"did. Where something does, keep the question and add the `Blocked:` " +
-		"line the founder hand-over in this block states." +
-		(ruleShown ? "" : `\n\n${readHandoverRule()}`) +
-		"\n\nRE-SEND ONLY THE CORRECTED QUESTION, not the whole round."
+function recurrenceRound(message, transcript) {
+	const recommended = recommendedByIndex(message);
+	const rounds = splitQuestions(message).flatMap((block, i) =>
+		block.lines.some((l) => BLOCKED_LINE.test(l))
+			? [
+					{
+						number: block.number,
+						lines: block.lines,
+						recommended: recommended.get(i) ?? null,
+					},
+				]
+			: [],
+	);
+	return require("./lib/handover-recurrence").recurrenceRefusal(
+		rounds,
+		searchedClosedIssues(transcript),
+		readRecurrenceRule,
 	);
 }
 
@@ -1338,12 +1366,11 @@ function reviewParts(message, evidence = {}, status = jobStatus(message)) {
 		for (const { prefix, reason } of evidence.verdicts ?? [])
 			push(prefix, reason);
 		push(FOUNDER_ACT_PREFIX, founderAct);
-		const youOrMe = youOrMeRounds(message);
 		push(
 			ACTOR_ONLY_PREFIX,
-			actorOnlyRound(youOrMe, { ruleShown: Boolean(founderAct) }),
+			actorOnlyRound(message, { ruleShown: Boolean(founderAct) }),
 		);
-		push(RECURRENCE_PREFIX, recurrenceRound(youOrMe, evidence.transcript));
+		push(RECURRENCE_PREFIX, recurrenceRound(message, evidence.transcript));
 	} else push(FOUNDER_ACT_PREFIX, founderAct);
 
 	if (status) {
