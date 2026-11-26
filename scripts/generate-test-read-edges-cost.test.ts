@@ -48,7 +48,7 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 describe("generate-test-read-edges.js --check's per-call cost (#5746)", () => {
-	it("costs a fresh staged manifest these modules and starts, two tests' shared patch fetched once", () => {
+	it("costs a fresh staged manifest these modules and starts, two tests' shared patch fetched once (#5745)", () => {
 		const r = callCost(SCRIPT, ["--check"], { cwd: dir });
 		// #1497
 		expect(r.modules).toEqual([
@@ -97,7 +97,6 @@ describe("generate-test-read-edges.js --check's per-call cost (#5746)", () => {
 			"lib/workflow-core-config.js",
 			"lib/write-fd.js",
 		]);
-		// #5745
 		expect(r.children).toEqual([
 			"git ls-files",
 			"git diff",
