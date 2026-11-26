@@ -52,7 +52,6 @@ const CASES: {
 		pkg: "toml",
 		reg: {
 			...PASSING,
-			created: "2013-02-24T22:07:02.172879Z",
 			latest: "2020-11-01T01:40:22.204866Z",
 		},
 		ports: ["pypi"],

@@ -403,8 +403,10 @@ ${ESCAPE}`,
 	});
 
 	it("dates idleness by the latest upload across every release", () => {
+		const body = JSON.parse(pypiBody(daysAgo(4000), daysAgo(3000)));
+		body.releases["0.0.1"] = [{ upload_time_iso_8601: daysAgo(1) }];
 		expect(
-			allows(install, { created: daysAgo(4000), latest: daysAgo(1) }),
+			allows(install, { pypiOut: { code: 200, body: JSON.stringify(body) } }),
 		).toBe(true);
 	});
 

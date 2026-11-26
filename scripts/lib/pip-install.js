@@ -360,7 +360,7 @@ const opensHeader = (text, m, brackets) => {
  * @returns {RegistryVerdict}
  */
 function registryVerdict(name, ctx) {
-	const age = ageVerdict(name, ctx);
+	const age = uploadsVerdict(name, ctx);
 	return age.kind === "ok" ? downloadsVerdict(name, ctx) : age;
 }
 
@@ -369,7 +369,7 @@ function registryVerdict(name, ctx) {
  * @param {PipInstallContext} ctx
  * @returns {RegistryVerdict}
  */
-function ageVerdict(name, ctx) {
+function uploadsVerdict(name, ctx) {
 	const got = ctx.pypi(name);
 	if ("missing" in got) {
 		ctx.log(
@@ -386,7 +386,7 @@ function ageVerdict(name, ctx) {
 	if (span === undefined) return UNREACHABLE;
 	if (span === null) return { kind: "missing", n: "" };
 	const age = ageOf(span.first, ctx);
-	return age.kind === "ok" ? idleOf(span.last, ctx) : age;
+	return age.kind === "ok" ? idleOf(span.latest, ctx) : age;
 }
 
 /**
@@ -397,7 +397,7 @@ const isDate = (t) => typeof t === "string" && !Number.isNaN(Date.parse(t));
 
 /**
  * @param {unknown} releases
- * @returns {{ first: string, last: string } | null | undefined}
+ * @returns {{ first: string, latest: string } | null | undefined}
  */
 function uploadSpan(releases) {
 	if (releases === null || typeof releases !== "object") return;
@@ -409,7 +409,7 @@ function uploadSpan(releases) {
 	if (dated.length < times.length) return;
 	const [first, ...rest] = dated.sort((a, b) => Date.parse(a) - Date.parse(b));
 	if (first === undefined) return null;
-	return { first, last: rest.at(-1) ?? first };
+	return { first, latest: rest.at(-1) ?? first };
 }
 
 /**
