@@ -64,6 +64,7 @@ interface Over {
 	listed?: string[] | null;
 	allow?: boolean;
 	now?: () => number;
+	tick?: () => void;
 }
 
 function harness(reg: Partial<PyPI> = {}, over: Over = {}) {
@@ -86,14 +87,17 @@ function harness(reg: Partial<PyPI> = {}, over: Over = {}) {
 			}),
 		pypi: (name: string): Get => {
 			calls.push(`pypi ${name}`);
+			over.tick?.();
 			return pypiAnswer(full);
 		},
 		status: (name: string): Get => {
 			calls.push(`status ${name}`);
+			over.tick?.();
 			return statusAnswer(full);
 		},
 		stats: (name: string): Get => {
 			calls.push(`stats ${name}`);
+			over.tick?.();
 			return statsAnswer(full);
 		},
 		now: over.now ?? (() => NOW),
@@ -434,6 +438,14 @@ ${ESCAPE}`,
 	it("passes an active status, or none at all", () => {
 		expect(allows(install, { status: "active" })).toBe(true);
 		expect(allows(install, { status: undefined })).toBe(true);
+		expect(
+			allows(install, {
+				statusOut: {
+					code: 200,
+					body: JSON.stringify({ "project-status": {} }),
+				},
+			}),
+		).toBe(true);
 	});
 
 	it("asks no downloads of a package with an inactive status", () => {
@@ -465,8 +477,8 @@ ${ESCAPE}`,
 		["the simple API not finding it", { code: 404, body: "" }],
 		["the simple API's JSON not JSON", { code: 200, body: "<html>" }],
 		[
-			"a project-status with no status",
-			{ code: 200, body: JSON.stringify({ "project-status": {} }) },
+			"a project-status not an object",
+			{ code: 200, body: JSON.stringify({ "project-status": "archived" }) },
 		],
 		[
 			"a status PEP 792 does not name",
@@ -591,16 +603,31 @@ ${ESCAPE}`,
 		);
 	});
 
-	it("refuses a package the budget ran out before", () => {
+	const clock = (stepMs: number) => {
 		let t = NOW;
-		const now = () => {
-			const at = t;
-			t += 16_000;
-			return at;
+		return {
+			now: () => t,
+			tick: () => {
+				t += stepMs;
+			},
 		};
-		expect(denial(`pip install ${BIN} aaa bbb`, {}, { now })).toMatch(
+	};
+
+	it("refuses a package the budget ran out before", () => {
+		expect(denial(`pip install ${BIN} aaa bbb`, {}, clock(9000))).toMatch(
 			/^This guard ran out of its own time budget before it could check `bbb`/,
 		);
+	});
+
+	it("stops a package's checks where the budget runs out between them", () => {
+		const command = `pip install ${BIN} aaa`;
+		expect(denial(command, {}, clock(16_000))).toMatch(
+			/^This guard ran out of its own time budget before it could check `aaa`/,
+		);
+		expect(callsOf(command, {}, clock(16_000))).toEqual([
+			"pypi aaa",
+			"status aaa",
+		]);
 	});
 
 	it("judges each command of a compound one", () => {

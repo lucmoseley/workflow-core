@@ -25,6 +25,8 @@ const BUDGET_S = 30;
 const UNREACHABLE = { kind: "unreachable", n: "" };
 /** @type {RegistryVerdict} */
 const OK = { kind: "ok" };
+/** @type {RegistryVerdict} */
+const BUDGET = { kind: "budget", n: "" };
 
 /** @param {number} ms */
 const seconds = (ms) => Math.floor(ms / 1000);
@@ -182,24 +184,23 @@ ${escapeNote(ctx)}`;
 /**
  * @param {string[]} fresh
  * @param {VettingContext} ctx
- * @param {(name: string) => RegistryVerdict} verdictOf
+ * @param {(name: string, spent: () => boolean) => RegistryVerdict} verdictOf
  * @param {ReturnType<typeof registryTexts>} texts
  * @returns {string | null}
  */
 function legitimacy(fresh, ctx, verdictOf, texts) {
 	const deadline = seconds(ctx.startedAt()) + BUDGET_S;
+	const spent = () => seconds(ctx.now()) >= deadline;
 	for (const name of fresh) {
-		/** @type {RegistryVerdict} */
-		const v =
-			seconds(ctx.now()) >= deadline
-				? { kind: "budget", n: "" }
-				: verdictOf(name);
+		const v = spent() ? BUDGET : verdictOf(name, spent);
 		if (v.kind !== "ok") return texts[v.kind](name, v.n, ctx);
 	}
 	return null;
 }
 
 module.exports = {
+	BUDGET,
+	OK,
 	UNREACHABLE,
 	ageOf,
 	downloadsOf,

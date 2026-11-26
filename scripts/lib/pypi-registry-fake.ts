@@ -14,7 +14,7 @@ export interface PyPI {
 	downloads: number | "404" | "FAIL" | "MISSING";
 	status?: string;
 	pypiOut?: Http;
-	statusOut?: Http | { missing: true };
+	statusOut?: Get;
 	statsFirstCode?: number;
 }
 

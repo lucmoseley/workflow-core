@@ -2,6 +2,8 @@ const path = require("node:path");
 const { spliceCmd } = require("./guard-verdict.js");
 const { requiredGroup } = require("./regex-group.js");
 const {
+	BUDGET,
+	OK,
 	UNREACHABLE,
 	ageOf,
 	downloadsOf,
@@ -358,14 +360,15 @@ const opensHeader = (text, m, brackets) => {
 /**
  * @param {string} name
  * @param {PipInstallContext} ctx
+ * @param {() => boolean} spent
  * @returns {RegistryVerdict}
  */
-function registryVerdict(name, ctx) {
+function registryVerdict(name, ctx, spent) {
 	for (const check of [uploadsVerdict, statusVerdict, downloadsVerdict]) {
-		const v = check(name, ctx);
+		const v = spent() ? BUDGET : check(name, ctx);
 		if (v.kind !== "ok") return v;
 	}
-	return { kind: "ok" };
+	return OK;
 }
 
 const INACTIVE = new Set(["archived", "deprecated", "quarantined"]);
@@ -386,13 +389,11 @@ function statusVerdict(name, ctx) {
 	if (got.code !== 200) return UNREACHABLE;
 	const body = jsonOf(got.body);
 	if (body === null || typeof body !== "object") return UNREACHABLE;
-	if (!("project-status" in body)) return { kind: "ok" };
+	if (!("project-status" in body)) return OK;
 	const marker = body["project-status"];
-	const status =
-		marker !== null && typeof marker === "object" && "status" in marker
-			? marker.status
-			: undefined;
-	if (status === "active") return { kind: "ok" };
+	if (marker === null || typeof marker !== "object") return UNREACHABLE;
+	if (!("status" in marker) || marker.status === "active") return OK;
+	const { status } = marker;
 	return typeof status === "string" && INACTIVE.has(status)
 		? { kind: "inactive", n: status }
 		: UNREACHABLE;
@@ -932,7 +933,7 @@ function judge(install, segment, declared, ctx) {
 	const failed = legitimacy(
 		fresh,
 		ctx,
-		(name) => registryVerdict(name, ctx),
+		(name, spent) => registryVerdict(name, ctx, spent),
 		PYPI_TEXTS,
 	);
 	return failed === null ? null : refuse(failed, segment);

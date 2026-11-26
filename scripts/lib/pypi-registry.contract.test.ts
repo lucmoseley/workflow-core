@@ -131,7 +131,7 @@ function shapeOf(answer: Get): unknown {
 	}
 	if ("meta" in b) {
 		const marker = b["project-status"] as Record<string, unknown> | undefined;
-		return { code: answer.code, status: marker?.status ?? "absent" };
+		return { code: answer.code, status: typeof marker?.status };
 	}
 	if ("data" in b)
 		return {
