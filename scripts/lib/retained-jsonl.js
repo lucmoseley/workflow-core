@@ -6,6 +6,8 @@ const { withDirLock } = require("./dir-lock.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+// guess, #5785
+const MAX_GAP_MS = DAY_MS;
 
 /** @param {string} file */
 const lockOf = (file) => `${file}.lock`;
@@ -53,16 +55,37 @@ function prune(file, retainMs, now) {
 	ignoreFailure(() =>
 		replaceCarrying(file, (text) => {
 			const { rows } = parseJsonl(text);
-			const ageOf = (/** @type {Record<string, unknown>} */ row) =>
-				now - Date.parse(String(row.at));
-			const [oldest] = rows;
-			if (oldest === undefined || !(ageOf(oldest) > retainMs + DAY_MS)) return;
+			const ages = timelineAges(rows, now);
+			if (!((ages[0] ?? 0) > retainMs + DAY_MS)) return;
 			return rows
-				.filter((row) => ageOf(row) <= retainMs)
+				.filter((_, i) => (ages[i] ?? 0) <= retainMs)
 				.map((row) => `${JSON.stringify(row)}\n`)
 				.join("");
 		}),
 	);
+}
+
+/**
+ * @param {Record<string, unknown>[]} rows
+ * @param {number} now
+ * @returns {number[]}
+ */
+function timelineAges(rows, now) {
+	const at = rows.map((row) => Date.parse(String(row.at)));
+	/** @type {number[]} */
+	const position = [];
+	let t = 0;
+	let latest = Number.NEGATIVE_INFINITY;
+	for (const a of at) {
+		if (a > latest) {
+			if (latest > Number.NEGATIVE_INFINITY)
+				t += Math.min(a - latest, MAX_GAP_MS);
+			latest = a;
+		}
+		position.push(t);
+	}
+	const end = t + Math.min(Math.max(now - latest, 0), MAX_GAP_MS);
+	return at.map((a, i) => Math.min(now - a, end - (position[i] ?? end)));
 }
 
 /**

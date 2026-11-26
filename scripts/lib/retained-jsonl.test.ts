@@ -56,43 +56,67 @@ function lateWriterAt(step: "renameSync" | "rmSync", n: string) {
 	});
 }
 
-const stale = { n: "stale", at: ago(RETAIN + 2 * DAY_MS) };
 const fresh = { n: "fresh", at: ago(DAY_MS) };
 const seed = (...rows: object[]) =>
 	fs.writeFileSync(log, rows.map((r) => `${JSON.stringify(r)}\n`).join(""));
+const daily = (days: number, endingDaysAgo = 0) =>
+	Array.from({ length: days }, (_, i) => ({
+		n: `day${days - i}`,
+		at: ago((endingDaysAgo + days - i - 0.5) * DAY_MS),
+	}));
+const kept = (days: number) => daily(days).map((r) => r.n);
 
 describe("appending to a log due a prune", () => {
 	it("prunes the lines past retention once the oldest is a day past it", () => {
-		seed(stale, fresh);
+		seed(...daily(9));
 		expect(appendRetained(log, { n: "new", at: ago(0) }, RETAIN)).toBe(true);
-		expect(lines()).toEqual(["fresh", "new"]);
+		expect(lines()).toEqual([...kept(7), "new"]);
 		expect(fs.existsSync(`${log}.lock`)).toBe(false);
 	});
 
+	const yearAhead = () => Date.now() + 365 * DAY_MS;
+	it.each([
+		["a line dated by that clock", () => new Date(yearAhead()).toISOString()],
+		["a line dated by the true clock", () => ago(0)],
+	])(
+		"keeps the log's lines when the writer's clock is a year ahead, appending %s (#5785)",
+		(_, at) => {
+			seed(...daily(7));
+			appendRetained(log, { n: "new", at: at() }, RETAIN, { now: yearAhead });
+			expect(lines()).toEqual([...kept(7), "new"]);
+		},
+	);
+
+	it("counts a quiet spell in the log as one day of its age", () => {
+		seed(...daily(7, 30));
+		appendRetained(log, { n: "new", at: ago(0) }, RETAIN);
+		expect(lines()).toEqual([...kept(7), "new"]);
+	});
+
 	it("still lands its line but prunes nothing while a neighbour holds the log", () => {
-		seed(stale, fresh);
+		seed(...daily(9));
 		holdLock();
 		expect(
 			appendRetained(log, { n: "new", at: ago(0) }, RETAIN, { now: racing() }),
 		).toBe(true);
-		expect(lines()).toEqual(["stale", "fresh", "new"]);
+		expect(lines()).toEqual([...kept(9), "new"]);
 		expect(fs.existsSync(`${log}.lock`)).toBe(true);
 	});
 
 	it("keeps a line appended outside the lock while the prune rewrites", () => {
-		seed(stale, fresh);
+		seed(...daily(9));
 		lateWriterAt("renameSync", "late");
 		appendRetained(log, { n: "new", at: ago(0) }, RETAIN);
-		expect(lines()).toEqual(["fresh", "new", "late"]);
+		expect(lines()).toEqual([...kept(7), "new", "late"]);
 	});
 
 	it("takes over a crashed holder's lock and prunes", () => {
-		seed(stale);
+		seed(...daily(9));
 		holdLock();
 		const t = (Date.now() - 60_000) / 1000;
 		fs.utimesSync(`${log}.lock`, t, t);
 		appendRetained(log, { n: "new", at: ago(0) }, RETAIN);
-		expect(lines()).toEqual(["new"]);
+		expect(lines()).toEqual([...kept(7), "new"]);
 	});
 });
 
