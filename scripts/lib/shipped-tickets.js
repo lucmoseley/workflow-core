@@ -3,7 +3,7 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { execGit } = require("./git.js");
 const { REF_FORMS, scanIssueRefs } = require("./issue-ref.js");
-const { buildReleaseLagPort, readLatestTag } = require("./release-tags.js");
+const { isCoreHost } = require("./plugin-state.js");
 
 const TRAILING_CITE = /\(([^()]*)\)[ \t]*$/;
 
@@ -18,7 +18,8 @@ const citedBy = (subject) =>
  * @returns {null | {tag: string, cited: Set<number>} | {unread: string}}
  */
 function readShipped(root) {
-	if (!fs.existsSync(path.join(root, ".git"))) return null;
+	if (!fs.existsSync(path.join(root, ".git")) || !isCoreHost(root)) return null;
+	const { buildReleaseLagPort, readLatestTag } = require("./release-tags.js");
 	try {
 		const tag = readLatestTag(root);
 		if (!tag) return null;

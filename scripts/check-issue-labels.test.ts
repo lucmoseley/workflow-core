@@ -1890,8 +1890,16 @@ const gitIn = (cwd: string, args: string[]) =>
 		},
 	}).trim();
 
-const releaseBuilt = (rendered: (source: string) => string) =>
+const releaseBuilt = (
+	rendered: (source: string) => string,
+	plugin = "workflow-core",
+) =>
 	defineTemplate((root) => {
+		fs.mkdirSync(path.join(root, ".claude-plugin"));
+		fs.writeFileSync(
+			path.join(root, ".claude-plugin", "plugin.json"),
+			JSON.stringify({ name: plugin }),
+		);
 		gitIn(root, ["init", "-q", "-b", "main"]);
 		gitIn(root, [
 			"commit",
@@ -1909,6 +1917,10 @@ const released = releaseBuilt(
 	(source) => `Release workflow-core v1.0.0, rendered from ${source}`,
 );
 const unrendered = releaseBuilt(() => "Release workflow-core v1.0.0");
+const adopterReleased = releaseBuilt(
+	(source) => `Release v1.0.0, rendered from ${source}`,
+	"adopter",
+);
 
 describe("a shipped ticket gated on an adopter's issue (#5698)", () => {
 	const gated = (ref: string) =>
@@ -1940,6 +1952,13 @@ describe("a shipped ticket gated on an adopter's issue (#5698)", () => {
 		expect(await shippedGated({ number, body: gated(ref) })).not.toContain(
 			"SHIPPED-GATED",
 		);
+	});
+
+	it("stays silent in an adopter, whose tags cut no workflow-core release", async () => {
+		adopterReleased.instantiate(dir);
+		const out = await shippedGated({ number: 5683, body: gated("m/t#3905") });
+		expect(out).not.toContain("SHIPPED-GATED");
+		expect(out).not.toContain("Unread: the newest release");
 	});
 
 	it("stays silent where the directory is no clone", async () => {

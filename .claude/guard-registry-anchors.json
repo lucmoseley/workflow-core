@@ -19,7 +19,7 @@
 	"scripts/check-idle-efforts.js": "9f143949443b3421",
 	"scripts/check-interop-latency.js": "d4d82399fccb2436",
 	"scripts/check-issue-cycles.js": "7f39b237c4ad76ee",
-	"scripts/check-issue-labels.js": "e13eefe7f2169edd",
+	"scripts/check-issue-labels.js": "63588f5afc237f94",
 	"scripts/check-jev-flags.js": "1a10a308725d4430",
 	"scripts/check-kernel-stall.js": "ce5802e176e10719",
 	"scripts/check-lockfile-sync.js": "61b179b9d580debf",
