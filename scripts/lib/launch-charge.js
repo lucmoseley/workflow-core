@@ -40,7 +40,7 @@ const NAMED_MEASURED_FILES = 6;
  */
 
 /** @param {readonly string[]} files */
-const chargesWhole = (files) =>
+const isWholeLanderRun = (files) =>
 	files.length === 0 || files.length > NAMED_MEASURED_FILES;
 
 /**
@@ -70,10 +70,10 @@ function chargeMb(launch) {
 				TSC_PEAK_MB
 			);
 		case "lander":
-			return chargesWhole(launch.files)
+			return isWholeLanderRun(launch.files)
 				? (launch.wholeMb ?? LANDER_CHARGE_MB.whole)
 				: LANDER_CHARGE_MB.named;
 	}
 }
 
-module.exports = { chargeMb, chargesWhole };
+module.exports = { chargeMb, isWholeLanderRun };

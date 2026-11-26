@@ -24,7 +24,7 @@ const {
 } = require("./suite-output.js");
 const {
 	chargeMb: launchChargeMb,
-	chargesWhole,
+	isWholeLanderRun,
 } = require("./launch-charge.js");
 const { readLiveCharged } = require("./suite-queue.js");
 const { LANDER_ROLE, suiteSlot } = require("./suite-slot.js");
@@ -501,7 +501,8 @@ function watchMemoryShut(admit) {
  * @returns {number}
  */
 function landerChargeMb(root, files) {
-	if (!chargesWhole(files)) return launchChargeMb({ kind: "lander", files });
+	if (!isWholeLanderRun(files))
+		return launchChargeMb({ kind: "lander", files });
 	const whole = launchChargeMb({ kind: "lander", files: [] });
 	const measured = readWholePeak(root);
 	if ("peakMb" in measured)
