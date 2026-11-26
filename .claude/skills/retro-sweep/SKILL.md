@@ -227,7 +227,9 @@ not take stays `waiting`. The close's `**Bound:**` line names each repo in
 
    The body names the finding, the fix sha, the signature, the observed and
    expected counts over the window and sessions, and the guardrail readings
-   (reverts, follow-on tickets). Write its number into that outcome's
+   (reverts, follow-on tickets: `bug` tickets carrying a `**Caused by:**`
+   line that names the fix, `docs/agents/issue-tracker.md` §Naming the commit
+   that caused a bug). Write its number into that outcome's
    `unwindIssue`. **An adjust** — the fault is real and the fix was wrong — is
    an unwind plus a new finding filed as in §6, with its own signature and
    prediction. `.unwinds.carried` goes to `outcomeStep.backlog` unfiled.
