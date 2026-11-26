@@ -933,6 +933,14 @@ exit 1
 	});
 });
 
+const STATUS_AT: Record<string, (status: object) => unknown> = {
+	issue: (status) => ({ status }),
+	issuesPage: (status) => [[{ status }]],
+	blockedByPage: (status) => [[{ status }]],
+	parentPage: (status) => [{ status }],
+	subIssuesPage: (status) => [[{ status }]],
+};
+
 describe("offline: the recorded shapes", () => {
 	it("builds from the fixture each live case holds", () => {
 		for (const fixture of [
@@ -984,12 +992,18 @@ describe("offline: the recorded shapes", () => {
 		).toEqual([
 			[{ number: 1, parent_issue_url: null, pull_request: { url: "x" } }],
 		]);
-		const status = { id: 2, name: "Backlog", category: "backlog" };
-		expect(asRecorded("issue", { status })).toBe(JSON.stringify({ status }));
 		expect(asRecorded("repo", { open_issues_count: 3 })).toBe(
 			'{"open_issues_count":3}',
 		);
 	});
+
+	it.for(Object.entries(STATUS_AT))(
+		"passes %s's status in gh's shape",
+		([kind, at]) => {
+			const value = at({ id: 2, name: "Backlog", category: "backlog" });
+			expect(asRecorded(kind, value)).toBe(JSON.stringify(value));
+		},
+	);
 
 	it.for([
 		{
@@ -1022,16 +1036,10 @@ describe("offline: the recorded shapes", () => {
 			value: { topics: ["x"] },
 			error: /repo\.topics holds elements gh's recorded answer lacks/,
 		},
-		...Object.entries({
-			issue: { status: { id: "2" } },
-			issuesPage: [[{ status: { id: "2" } }]],
-			blockedByPage: [[{ status: { id: "2" } }]],
-			parentPage: [{ status: { id: "2" } }],
-			subIssuesPage: [[{ status: { id: "2" } }]],
-		}).map(([kind, value]) => ({
+		...Object.entries(STATUS_AT).map(([kind, at]) => ({
 			kind,
 			what: `${kind}'s status of the wrong shape`,
-			value,
+			value: at({ id: "2" }),
 			error: new RegExp(
 				`^${kind}: ${kind}(\\[\\])*\\.status\\.id is string where gh sends number$`,
 			),
