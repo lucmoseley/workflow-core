@@ -95,6 +95,7 @@ interface Envelope {
 	refused?: number;
 	logged?: number;
 	torn?: number;
+	zeroed?: number;
 }
 
 function json(...args: string[]): Envelope {
@@ -279,6 +280,18 @@ describe("check-jev-flags", () => {
 
 		expect(envelope.flagged).toBe(2);
 		expect(envelope.torn).toBe(1);
+	});
+
+	it("counts a record zeroed by a crash apart from a torn line (#5775)", () => {
+		writeLog([
+			flag("2026-09-19T10:00:00.000Z"),
+			`\0\0\0${JSON.stringify({ at: "2026-09-19T10:01:00.000Z", outcome: "skipped-marker" })}`,
+		]);
+
+		const envelope = json();
+
+		expect(envelope.zeroed).toBe(1);
+		expect(envelope.torn).toBe(0);
 	});
 
 	it("passes over a flag carrying no readable timestamp", () => {

@@ -29,6 +29,9 @@ function newestWeekly(read) {
 	const [bad] = read.bad;
 	if (bad !== undefined)
 		throw new Error(`${RUN_RECORD}:${bad} is not a JSON object`);
+	const [zeroed] = read.zeroed;
+	if (zeroed !== undefined)
+		throw new Error(`${RUN_RECORD}:${zeroed} holds a record zeroed by a crash`);
 	/** @type {string | null} */
 	let newest = null;
 	for (const { row, line } of read.entries) {

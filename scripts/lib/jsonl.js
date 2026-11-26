@@ -12,6 +12,9 @@ const ZERO_RUN = /^\0+/;
 /** @param {string} line */
 const stripZeroRun = (line) => line.replace(ZERO_RUN, "");
 
+/** @param {string} line */
+const isZeroed = (line) => ZERO_RUN.test(line);
+
 /**
  * @param {string} line
  * @returns {Record<string, unknown> | null | undefined}
@@ -55,8 +58,8 @@ function parseJsonl(text, keep) {
 	const lines = text.split("\n");
 	const unterminated = lines.length - 1;
 	for (const [i, raw] of lines.entries()) {
+		if (isZeroed(raw)) zeroed.push(i + 1);
 		const line = stripZeroRun(raw);
-		if (line !== raw) zeroed.push(i + 1);
 		if (keep && !keep(line)) continue;
 		const row = parseRow(line);
 		if (row === null) continue;
@@ -136,4 +139,10 @@ function readLastJsonlRow(file, match = () => true) {
 	}
 }
 
-module.exports = { parseJsonl, parseJsonlRow, readJsonl, readLastJsonlRow };
+module.exports = {
+	isZeroed,
+	parseJsonl,
+	parseJsonlRow,
+	readJsonl,
+	readLastJsonlRow,
+};

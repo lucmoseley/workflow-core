@@ -220,6 +220,20 @@ describe("the weekly retro trigger", () => {
 		expect(ghCalls(fx)).toBe("");
 	});
 
+	it("exits non-zero, filing nothing, on a record line a crash zeroed, naming its file and line (#5775)", () => {
+		const fx = fixture({
+			retro: { weeklyCount: 3 },
+			record: `${line("weekly", "2026-10-14")}\n\0\0\0${line("weekly", "2026-10-21")}\n`,
+		});
+
+		const { code, output } = run(fx);
+		expect(code).toBe(2);
+		expect(output).toContain(
+			"retro-runs.jsonl:2 holds a record zeroed by a crash",
+		);
+		expect(ghCalls(fx)).toBe("");
+	});
+
 	it("exits 2 when gh refuses the create, naming the way out", () => {
 		const fx = fixture({ retro: { weeklyCount: 3 }, ghRefuses: true });
 

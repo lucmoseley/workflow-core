@@ -47,20 +47,21 @@ function listRecordNames(dir) {
 
 /**
  * @param {string} raw
- * @returns {{crumbs: Crumb[], torn: number}}
+ * @returns {{crumbs: Crumb[], torn: number, zeroed: number}}
  */
 function parseCrumbLines(raw) {
 	const read = parseJsonl(raw);
 	return {
 		crumbs: /** @type {Crumb[]} */ (read.rows),
 		torn: read.bad.length,
+		zeroed: read.zeroed.length,
 	};
 }
 
 /**
  * @param {string} root
  * @returns {{lines: Crumb[], files: number, unreadable: string[], torn: number,
- *   vanished: number}}
+ *   zeroed: number, vanished: number}}
  */
 function readBreadcrumbs(root) {
 	/** @type {Crumb[]} */
@@ -68,6 +69,7 @@ function readBreadcrumbs(root) {
 	/** @type {string[]} */
 	const unreadable = [];
 	let torn = 0;
+	let zeroed = 0;
 	let vanished = 0;
 	// lucmoseley/mantahostels#3382
 	try {
@@ -92,8 +94,9 @@ function readBreadcrumbs(root) {
 		const parsed = parseCrumbLines(raw);
 		for (const crumb of parsed.crumbs) lines.push(crumb);
 		torn += parsed.torn;
+		zeroed += parsed.zeroed;
 	}
-	return { lines, files, unreadable, torn, vanished };
+	return { lines, files, unreadable, torn, zeroed, vanished };
 }
 
 /**
@@ -192,6 +195,13 @@ function breadcrumbReadFindings(read) {
 			tag: "TORN",
 			message: `${read.torn} breadcrumb line(s) would not parse, so the rates below are measured over fewer records than were written — a writer died mid-append, or is doing so repeatedly`,
 			data: { count: read.torn },
+		});
+	if (read.zeroed)
+		pending.push({
+			severity: "warn",
+			tag: "ZEROED",
+			message: `${read.zeroed} breadcrumb record(s) zeroed by a crash, so the rates below are measured over fewer records than were written`,
+			data: { count: read.zeroed },
 		});
 	for (const name of read.unreadable)
 		pending.push({

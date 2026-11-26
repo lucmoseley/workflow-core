@@ -7,7 +7,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const load = createRequire(__filename);
-const { parseJsonlRow, parseJsonl, readJsonl, readLastJsonlRow } =
+const { isZeroed, parseJsonlRow, parseJsonl, readJsonl, readLastJsonlRow } =
 	load("./jsonl.js");
 
 let dir: string;
@@ -182,6 +182,16 @@ describe("parseJsonlRow", () => {
 		expect(parseJsonlRow("null")).toBeUndefined();
 		expect(parseJsonlRow('\0\0{"a":1}')).toEqual({ a: 1 });
 		expect(parseJsonlRow("\0\0")).toBeNull();
+	});
+});
+
+describe("isZeroed", () => {
+	it("is true for a line that begins with zero bytes, false for any other (#5775)", () => {
+		expect(isZeroed('\0\0\0{"a":1}')).toBe(true);
+		expect(isZeroed("\0\0")).toBe(true);
+		expect(isZeroed('{"a":1}')).toBe(false);
+		expect(isZeroed('{"a":"\0"}')).toBe(false);
+		expect(isZeroed("")).toBe(false);
 	});
 });
 

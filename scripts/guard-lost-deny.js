@@ -38,7 +38,7 @@ const SEEN_PREFIX = ".lost-deny-seen-";
  * @param {string} text
  * @param {"main" | "subagent"} tier
  * @param {PriceOf} priceOf
- * @param {{skipped: number}} [stats]
+ * @param {{skipped: number, zeroed: number}} [stats]
  * @returns {Loss[]}
  */
 function lossesIn(text, tier, priceOf, stats) {
@@ -111,7 +111,7 @@ function priceIn(dirs, calls, root) {
 /**
  * @param {string} text
  * @param {"main" | "subagent"} tier
- * @param {{skipped: number}} [stats]
+ * @param {{skipped: number, zeroed: number}} [stats]
  * @returns {Map<string, {name: string, input: unknown}>}
  */
 function toolCallsIn(text, tier, stats) {
@@ -158,10 +158,15 @@ function describeLost(lost) {
  * @param {Loss[]} fresh
  * @param {Map<string, {name: string, input: unknown}>} calls
  * @param {string} transcript
- * @param {number} [skipped]
+ * @param {{skipped: number, zeroed: number}} [lost]
  * @returns {string}
  */
-function reportFor(fresh, calls, transcript, skipped = 0) {
+function reportFor(
+	fresh,
+	calls,
+	transcript,
+	{ skipped, zeroed } = { skipped: 0, zeroed: 0 },
+) {
 	/** @type {Map<string, Loss[]>} */
 	const byCall = new Map();
 	for (const loss of fresh) {
@@ -212,6 +217,11 @@ function reportFor(fresh, calls, transcript, skipped = 0) {
 					`${skipped} line(s) of the transcript would not parse and were skipped, so a loss recorded on one is missing from this list — and a later Stop will not recover it.`,
 				]
 			: []),
+		...(zeroed
+			? [
+					`${zeroed} record(s) of the transcript were zeroed by a crash, so a loss recorded on one is missing from this list — and a later Stop will not recover it.`,
+				]
+			: []),
 		denyRates.PROVENANCE,
 	].join("\n");
 }
@@ -237,7 +247,7 @@ function review({ sessionId: sid, payload, root, note }) {
 	}
 
 	const tier = isSubagentTranscript(file) ? "subagent" : "main";
-	const stats = { skipped: 0 };
+	const stats = { skipped: 0, zeroed: 0 };
 	let losses;
 	let calls;
 	try {
@@ -271,7 +281,7 @@ function review({ sessionId: sid, payload, root, note }) {
 			hookBlock.blockStop({
 				prefix: ".lost-deny-nagged-",
 				sessionId: sid,
-				reason: reportFor(fresh, calls, file, stats.skipped),
+				reason: reportFor(fresh, calls, file, stats),
 			}),
 	});
 }
@@ -353,11 +363,16 @@ function replay(argv) {
 	const root = hookBlock.repoRoot();
 	const dirs = guardDirs(coreRoot(), root);
 	const tier = isSubagentTranscript(file) ? "subagent" : "main";
-	const stats = { skipped: 0 };
+	const stats = { skipped: 0, zeroed: 0 };
 	const partial = () =>
-		stats.skipped
-			? ` (${stats.skipped} line(s) of it would not parse and were skipped, so the call may be there and unreadable.)`
-			: "";
+		[
+			stats.skipped
+				? ` (${stats.skipped} line(s) of it would not parse and were skipped, so the call may be there and unreadable.)`
+				: "",
+			stats.zeroed
+				? ` (${stats.zeroed} record(s) of it were zeroed by a crash, so the call may have been one of them.)`
+				: "",
+		].join("");
 	const calls = toolCallsIn(text, tier, stats);
 	const call = calls.get(toolUseID);
 	if (!call) {
@@ -367,6 +382,7 @@ function replay(argv) {
 		return 2;
 	}
 	stats.skipped = 0;
+	stats.zeroed = 0;
 	const guards = [
 		...new Set(
 			lossesIn(text, tier, priceIn(dirs, calls, root), stats)

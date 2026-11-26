@@ -124,7 +124,7 @@ describe("appending a run", () => {
 
 describe("reading the log back", () => {
 	it("is empty, not an error, before any run has been recorded", () => {
-		expect(readRuns(root)).toEqual({ runs: [], malformed: 0 });
+		expect(readRuns(root)).toEqual({ runs: [], malformed: 0, zeroed: 0 });
 	});
 
 	it("skips a malformed line and counts it, keeping the runs either side", () => {
@@ -136,13 +136,23 @@ describe("reading the log back", () => {
 		expect(malformed).toBe(1);
 	});
 
+	it("counts a record zeroed by a crash apart from a malformed line, keeping the run after the zeros (#5775)", () => {
+		run(1, 1, { cold: 1 });
+		const [line] = fs.readFileSync(logPath(root), "utf8").split("\n");
+		fs.appendFileSync(logPath(root), `\0\0\0${line}\n`);
+		const { runs, malformed, zeroed } = readRuns(root);
+		expect(runs).toHaveLength(2);
+		expect(malformed).toBe(0);
+		expect(zeroed).toBe(1);
+	});
+
 	it("treats a line missing its counts as malformed rather than counting it as zero", () => {
 		fs.mkdirSync(path.dirname(logPath(root)), { recursive: true });
 		fs.writeFileSync(
 			logPath(root),
 			`${JSON.stringify({ at: "2026-08-19T00:00:00.000Z", warm: 1 })}\n`,
 		);
-		expect(readRuns(root)).toEqual({ runs: [], malformed: 1 });
+		expect(readRuns(root)).toEqual({ runs: [], malformed: 1, zeroed: 0 });
 	});
 });
 

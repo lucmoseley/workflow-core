@@ -236,7 +236,7 @@ function hookTool(a, event) {
 
 /** @typedef {{window: {since: string | null, until: string | null}, event?: string, classify?: Map<string, Map<string, boolean>> | null, union?: boolean}} ScanOptions */
 
-/** @typedef {{lost: Map<string, number>, denyCalls: Map<string, Set<string>>, anyCalls: Map<string, Set<string>>, population: Map<string, number>, lostCalls: Set<string>, failures: Map<string, number>, union: Map<string, UnionEntry>, undated: number, unresolved: number, first: string | null, last: string | null, skipped: number}} ScanAcc */
+/** @typedef {{lost: Map<string, number>, denyCalls: Map<string, Set<string>>, anyCalls: Map<string, Set<string>>, population: Map<string, number>, lostCalls: Set<string>, failures: Map<string, number>, union: Map<string, UnionEntry>, undated: number, unresolved: number, first: string | null, last: string | null, skipped: number, zeroed: number}} ScanAcc */
 
 /**
  * @param {string} text
@@ -248,7 +248,7 @@ function scanTranscript(text, acc, options) {
 	const event = options.event ?? DENY_EVENT;
 	const classify = options.classify ?? null;
 	const union = options.union ?? false;
-	const stats = { skipped: 0 };
+	const stats = { skipped: 0, zeroed: 0 };
 	const records = [...mainChainRecords(text, tier, stats)];
 	const calls = new Map(
 		records.flatMap(toolCalls).flatMap((c) => (c.id ? [[c.id, c]] : [])),
@@ -274,6 +274,7 @@ function scanTranscript(text, acc, options) {
 		countPopulation(record, acc, { triggers, union });
 	}
 	acc.skipped += stats.skipped;
+	acc.zeroed += stats.zeroed;
 	for (const loss of dispatched) creditCores(acc, triggers, calls, loss);
 }
 
@@ -472,6 +473,7 @@ function freshAcc() {
 		first: null,
 		last: null,
 		skipped: 0,
+		zeroed: 0,
 	};
 }
 
@@ -738,7 +740,7 @@ function num(n, dp) {
  * @param {{dirs: string[], event: string, files: number, scanned: number, unreadable: string[],
  *   window: {since: string|null, until: string|null}, undated: number,
  *   first: string|null, last: string|null, lostCalls: number, unresolved: number,
- *   unpinned: string[], skipped: number, scope: string, guards: number}} corpus
+ *   unpinned: string[], skipped: number, zeroed: number, scope: string, guards: number}} corpus
  * @returns {string}
  */
 function render(data, corpus) {
@@ -754,6 +756,10 @@ function render(data, corpus) {
 	if (corpus.skipped)
 		lines.push(
 			`        ${corpus.skipped} malformed line(s) skipped within otherwise-readable transcripts (mantahostels#3307)`,
+		);
+	if (corpus.zeroed)
+		lines.push(
+			`        ${corpus.zeroed} record(s) zeroed by a crash within otherwise-readable transcripts`,
 		);
 	if (corpus.window.since || corpus.window.until)
 		lines.push(
@@ -988,6 +994,7 @@ function main(argv) {
 		unresolved: acc.unresolved,
 		unpinned: unpinned(triggers),
 		skipped: acc.skipped,
+		zeroed: acc.zeroed,
 		scope,
 		guards: triggers.size,
 	};

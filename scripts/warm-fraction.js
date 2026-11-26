@@ -31,7 +31,7 @@ const span = (ms) => {
 		: `${(h / 24).toFixed(1)} days`;
 };
 
-const { runs, malformed } = log.readRuns(REPO_ROOT);
+const { runs, malformed, zeroed } = log.readRuns(REPO_ROOT);
 const s = log.summarise(runs);
 const { distinct, usable } = log.partition(runs);
 const kept = new Set(distinct);
@@ -56,6 +56,7 @@ if (asJson) {
 				logPath: log.LOG_SUBPATH,
 				minRuns: log.MIN_RUNS,
 				malformedLines: malformed,
+				zeroedRecords: zeroed,
 				summary: s,
 				claim: CLAIM,
 				verdict,
@@ -165,6 +166,7 @@ if (s.runsKeptOnPuts)
 			"  matched a parallel session's run, which keeps `pooled` UP (mantahostels#680).\n",
 	);
 if (malformed) writeFd(1, `  ${malformed} unreadable line(s) skipped.\n`);
+if (zeroed) writeFd(1, `  ${zeroed} record(s) zeroed by a crash, lost.\n`);
 
 writeFd(
 	1,

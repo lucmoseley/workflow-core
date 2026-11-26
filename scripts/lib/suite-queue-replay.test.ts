@@ -105,7 +105,7 @@ function replayOf({
 			runs: runs.map(run),
 			mem: new Map(mem),
 			windows: new Map(),
-			unread: { absent: [], unparsed: 0 },
+			unread: { absent: [], unparsed: 0, zeroed: 0 },
 		},
 		{
 			...window(until, eras),
@@ -600,7 +600,7 @@ describe("the windows limb, the Windows-memory hold (#4782, #4850)", () => {
 						},
 					]),
 				),
-				unread: { absent: [], unparsed: 0 },
+				unread: { absent: [], unparsed: 0, zeroed: 0 },
 			},
 			{ ...w, since: later(w.since), until: later(w.until) },
 		);
@@ -669,7 +669,7 @@ describe("the peer-climb limb, a younger waiter yielding to a climb-held one (#4
 						{ state: "fresh" as const, mb: win(m), ageS: 0 },
 					]),
 				),
-				unread: { absent: [], unparsed: 0 },
+				unread: { absent: [], unparsed: 0, zeroed: 0 },
 			},
 			{ ...w, since: shift(w.since), until: shift(w.until) },
 		);
@@ -744,7 +744,7 @@ describe("the rung clamped to MemTotal less earlyoom's line (#5310)", () => {
 					]),
 				),
 				windows: new Map(),
-				unread: { absent: [], unparsed: 0 },
+				unread: { absent: [], unparsed: 0, zeroed: 0 },
 			},
 			{ ...window(), since: later(T0), until: later(T0 + 60 * MIN) },
 		);
@@ -789,7 +789,7 @@ describe("the pass past a head the memory rung holds at rest (#4783)", () => {
 					]),
 				),
 				windows: new Map(),
-				unread: { absent: [], unparsed: 0 },
+				unread: { absent: [], unparsed: 0, zeroed: 0 },
 			},
 			{ ...window(), since: later(T0), until: later(T0 + 60 * MIN) },
 		);
@@ -844,7 +844,7 @@ describe("the named lane and a touched waiter's first claim (#5367)", () => {
 				runs: [],
 				mem: new Map(),
 				windows: new Map(),
-				unread: { absent: [], unparsed: 0 },
+				unread: { absent: [], unparsed: 0, zeroed: 0 },
 			},
 			{ ...window(), since: later(T0), until: later(T0 + 60 * MIN) },
 		);
@@ -915,7 +915,7 @@ describe("a part waiter the gate charged its own peak (#5366)", () => {
 					]),
 				),
 				windows: new Map(),
-				unread: { absent: [], unparsed: 0 },
+				unread: { absent: [], unparsed: 0, zeroed: 0 },
 			},
 			{ ...window(), since: later(T0), until: later(T0 + 60 * MIN) },
 		);
@@ -1014,6 +1014,29 @@ describe("reading the logs", () => {
 		expect(out).toContain("lander's own queue wait is not in the exits log");
 		expect(out).toContain("1 log line(s) would not parse");
 		expect(out).toMatch(/Not found, so read as empty: .*absent\.log/);
+	});
+
+	it("counts a record zeroed by a crash apart from a line that will not parse, and says so (#5775)", () => {
+		jsonl(".suite-queue-exits.jsonl", [
+			exit({ from: 0, to: 10, slotFree: false, kind: "bare" }, 1),
+		]);
+		fs.appendFileSync(
+			path.join(dir, ".suite-queue-exits.jsonl"),
+			`\n\0\0\0${JSON.stringify(exit({ from: 20, to: 30, slotFree: false, kind: "bare" }, 2))}\n`,
+		);
+		const logs = readLogs({
+			markers: dir,
+			memwatch: [],
+			minuteLog: path.join(dir, "memwatch-minute.jsonl"),
+			since: T0,
+			until: T0 + 60 * MIN,
+		});
+		expect(logs.unread.zeroed).toBe(1);
+		expect(logs.unread.unparsed).toBe(0);
+		const out = render(replay(logs, window()), window());
+		expect(out).toContain(
+			"- 1 log record(s) zeroed by a crash are not counted.",
+		);
 	});
 
 	it("counts a 7.0 native `tsc` off memwatch's cut rows once, a 5.x runner once, a waiter never (#5217)", () => {

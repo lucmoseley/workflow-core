@@ -217,6 +217,10 @@ runCheck({
 			(n, read) => n + (read?.bad.length ?? 0),
 			0,
 		);
+		const zeroed = [rotated, live].reduce(
+			(n, read) => n + (read?.zeroed.length ?? 0),
+			0,
+		);
 
 		const { verdicts, standing } = readStanding(root, all);
 
@@ -228,7 +232,7 @@ runCheck({
 			else if (!standing) ctx.say(UNREADABLE);
 			return {
 				okLine: `no unreported Jev advisory flag in ${all.length} logged turn(s).`,
-				data: { logged: all.length, torn, standing },
+				data: { logged: all.length, torn, zeroed, standing },
 			};
 		}
 
@@ -270,6 +274,7 @@ runCheck({
 				...counts,
 				logged: all.length,
 				torn,
+				zeroed,
 				since,
 				newest,
 				standing,

@@ -767,7 +767,7 @@ function lookup(files, { root, storeRoot, ...seams }) {
  * @returns {{cached: Cached[], notice: string|null}}
  */
 function readCached(candidates, { root, storeRoot, ...seams }) {
-	const { byFile, unparsed } = readEntries(storeRoot, candidates);
+	const { byFile, unparsed, zeroed } = readEntries(storeRoot, candidates);
 	const wanted = new Set([...byFile.values()].flat().flatMap(entryReads));
 	let now;
 	let reads;
@@ -783,7 +783,7 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 	const values = todayValues(seams);
 	const tree = buildWorkingAt(root);
 	const cached = candidates.flatMap((file) => {
-		if (unparsed.has(file)) return [];
+		if (unparsed.has(file) || zeroed.has(file)) return [];
 		const held = findDeciding(byFile.get(file) ?? [], now, (row, run) =>
 			isRowHolding(row, run, {
 				file,
@@ -795,9 +795,17 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 		);
 		return held?.row.outcome === "pass" ? [cachedFrom(file, held)] : [];
 	});
+	const faults = [
+		...(unparsed.size > 0
+			? [`a line that would not parse names ${[...unparsed].join(", ")}`]
+			: []),
+		...(zeroed.size > 0
+			? [`a record zeroed by a crash names ${[...zeroed].join(", ")}`]
+			: []),
+	];
 	const notice =
-		unparsed.size > 0
-			? `pass store: a line that would not parse names ${[...unparsed].join(", ")}, which run (#4790).`
+		faults.length > 0
+			? `pass store: ${faults.join("; ")}, which run (#4790).`
 			: null;
 	return { cached, notice };
 }
@@ -805,13 +813,15 @@ function readCached(candidates, { root, storeRoot, ...seams }) {
 /**
  * @param {string} storeRoot
  * @param {string[]} candidates
- * @returns {{byFile: Map<string, Entry[]>, unparsed: Set<string>}}
+ * @returns {{byFile: Map<string, Entry[]>, unparsed: Set<string>, zeroed: Set<string>}}
  */
 function readEntries(storeRoot, candidates) {
 	/** @type {Record<string, unknown>[]} */
 	const runs = [];
 	/** @type {Set<string>} */
 	const unparsed = new Set();
+	/** @type {Set<string>} */
+	const zeroed = new Set();
 	for (const file of candidates) {
 		let read;
 		try {
@@ -823,6 +833,7 @@ function readEntries(storeRoot, candidates) {
 			);
 		}
 		if (read && read.bad.length > 0) unparsed.add(file);
+		if (read && read.zeroed.length > 0) zeroed.add(file);
 		const since = Date.now() - ARCHIVE_MS;
 		runs.push(
 			...(read?.rows ?? [])
@@ -830,7 +841,7 @@ function readEntries(storeRoot, candidates) {
 				.map((r) => asReadableRun(r, file)),
 		);
 	}
-	return { byFile: groupByFile(runs), unparsed };
+	return { byFile: groupByFile(runs), unparsed, zeroed };
 }
 
 /**
@@ -1122,8 +1133,10 @@ function heldAtSha(files, { storeRoot, sha, before, git, values }) {
 	const held = new Map();
 	if (!storeRoot || files.length === 0) return held;
 	try {
-		const { byFile, unparsed } = readEntries(storeRoot, files);
-		for (const file of files.filter((f) => !unparsed.has(f))) {
+		const { byFile, unparsed, zeroed } = readEntries(storeRoot, files);
+		for (const file of files.filter(
+			(f) => !unparsed.has(f) && !zeroed.has(f),
+		)) {
 			const hit = heldRow(file, byFile.get(file) ?? [], {
 				sha,
 				before,

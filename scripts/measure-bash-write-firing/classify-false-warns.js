@@ -9,7 +9,9 @@ if (!firesPath || !samplePath) {
 	process.exit(2);
 }
 
-const { rows, unparsed } = parseRows(fs.readFileSync(firesPath, "utf8"));
+const { rows, unparsed, zeroed } = parseRows(
+	fs.readFileSync(firesPath, "utf8"),
+);
 const readOnly = rows.filter((r) => !writesSomething(r.c));
 writeFd(
 	1,
@@ -17,6 +19,7 @@ writeFd(
 		{
 			firings: rows.length,
 			unparsedLines: unparsed,
+			zeroedRecords: zeroed,
 			writesSomething: rows.length - readOnly.length,
 			readOnly: readOnly.length,
 			falseWarnRate: +(readOnly.length / Math.max(1, rows.length)).toFixed(3),

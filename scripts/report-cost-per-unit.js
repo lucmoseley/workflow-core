@@ -117,10 +117,10 @@ function reading(now) {
 
 /** @typedef {{ taken: string, from: string, to: string, total: number, notPlanned: number, children: number, counted: number, bill: number, seats: number, costPerUnit: number | null, truncated: string[] }} Row */
 
-/** @returns {{ rows: Row[], bad: number[] }} */
+/** @returns {{ rows: Row[], bad: number[], zeroed: number[] }} */
 function readSeries() {
 	const read = readJsonl(SERIES);
-	if (!read) return { rows: [], bad: [] };
+	if (!read) return { rows: [], bad: [], zeroed: [] };
 	/** @type {Row[]} */
 	const rows = [];
 	const bad = [...read.bad];
@@ -128,7 +128,7 @@ function readSeries() {
 		if (ISO_DATE.test(String(row.taken))) rows.push(/** @type {Row} */ (row));
 		else bad.push(line);
 	}
-	return { rows, bad: bad.sort((x, y) => x - y) };
+	return { rows, bad: bad.sort((x, y) => x - y), zeroed: read.zeroed };
 }
 
 /**
@@ -190,6 +190,23 @@ function takenOf(line) {
 	return typeof taken === "string" ? taken : null;
 }
 
+/**
+ * @param {number[]} bad
+ * @param {number[]} zeroed
+ */
+function warnLost(bad, zeroed) {
+	if (bad.length > 0)
+		writeFd(
+			1,
+			`⚠ ${bad.length} unparseable line(s) in ${SERIES_LABEL}, skipped: ${bad.join(", ")}. Repair them by hand.\n`,
+		);
+	if (zeroed.length > 0)
+		writeFd(
+			1,
+			`⚠ ${zeroed.length} record(s) in ${SERIES_LABEL} zeroed by a crash, lost, at line(s) ${zeroed.join(", ")}.\n`,
+		);
+}
+
 /** @param {number} n */
 const commas = (n) => n.toLocaleString("en-GB");
 
@@ -215,12 +232,8 @@ function main(argv) {
 		writeFd(2, `COST_TODAY is not an ISO date: ${today}\n`);
 		return 2;
 	}
-	const { rows, bad } = readSeries();
-	if (bad.length > 0)
-		writeFd(
-			1,
-			`⚠ ${bad.length} unparseable line(s) in ${SERIES_LABEL}, skipped: ${bad.join(", ")}. Repair them by hand.\n`,
-		);
+	const { rows, bad, zeroed } = readSeries();
+	warnLost(bad, zeroed);
 
 	const last = lastTaken(rows);
 	if (last && last > today)

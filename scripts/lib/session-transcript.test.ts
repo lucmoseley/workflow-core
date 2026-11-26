@@ -38,7 +38,7 @@ describe("read", () => {
 
 		expect(text.length).toBeLessThan(fs.statSync(file).size);
 		expect(() => JSON.parse(text.split("\n")[0])).not.toThrow();
-		const stats = { skipped: 0 };
+		const stats = { skipped: 0, zeroed: 0 };
 		expect([...mainChainRecords(text, "main")].length).toBeGreaterThan(0);
 		mainChainRecords(text, "main", stats).next();
 		expect(stats.skipped).toBe(0);
