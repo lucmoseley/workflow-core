@@ -76,14 +76,20 @@ describe("appending to a log due a prune", () => {
 		expect(fs.existsSync(`${log}.lock`)).toBe(false);
 	});
 
+	it("prunes on the oldest dated line when the first line is undated (#5790)", () => {
+		seed({ n: "undated" }, ...daily(RETAIN_DAYS + 2));
+		appendRetained(log, { n: "new", at: ago(0) }, RETAIN);
+		expect(lines()).toEqual([...kept(RETAIN_DAYS), "new"]);
+	});
+
 	const yearAhead = () => Date.now() + 365 * DAY_MS;
-	it("keeps the log's lines when the writer's clock is a year ahead, where a true-clock log a day past retention still prunes (#5785)", () => {
+	it("keeps the log's lines when the writer's clock is a year ahead (#5785)", () => {
 		seed(...daily(RETAIN_DAYS + 1));
 		appendRetained(log, { n: "new", at: ago(0) }, RETAIN, { now: yearAhead });
 		expect(lines()).toEqual([...kept(RETAIN_DAYS + 1), "new"]);
 	});
 
-	it("keeps the log's lines when that clock also dates the new line, where a true-clock log a day past retention still prunes (#5785)", () => {
+	it("keeps the log's lines when that clock also dates the new line (#5785)", () => {
 		seed(...daily(RETAIN_DAYS));
 		const at = new Date(yearAhead()).toISOString();
 		appendRetained(log, { n: "new", at }, RETAIN, { now: yearAhead });

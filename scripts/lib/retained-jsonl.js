@@ -8,6 +8,8 @@ const { writeFileAtomic } = require("./atomic-write.js");
 const DAY_MS = 24 * 60 * 60 * 1000;
 // guess, #5785
 const MAX_GAP_MS = DAY_MS;
+// guess, #5790
+const PRUNE_GRACE_MS = DAY_MS;
 
 /** @param {string} file */
 const lockOf = (file) => `${file}.lock`;
@@ -54,18 +56,18 @@ function appendRetained(
 function prune(file, retainMs, now) {
 	ignoreFailure(() =>
 		replaceCarrying(file, (text) => {
-			const dated = parseJsonl(text).rows.map((row) => ({
+			const stamped = parseJsonl(text).rows.map((row) => ({
 				row,
 				at: Date.parse(String(row.at)),
 			}));
-			const ageOf = timeline(
-				dated.map(({ at }) => at).filter((at) => !Number.isNaN(at)),
-				now,
-			);
-			const [oldest] = dated;
-			if (oldest === undefined || !(ageOf(oldest.at) > retainMs + DAY_MS))
+			const stamps = stamped
+				.map(({ at }) => at)
+				.filter((at) => !Number.isNaN(at));
+			const ageOf = timeline(stamps, now);
+			const [oldest] = stamps;
+			if (oldest === undefined || !(ageOf(oldest) > retainMs + PRUNE_GRACE_MS))
 				return;
-			return dated
+			return stamped
 				.filter(({ at }) => ageOf(at) <= retainMs)
 				.map(({ row }) => `${JSON.stringify(row)}\n`)
 				.join("");

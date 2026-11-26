@@ -21,6 +21,8 @@ const tmp = () => {
 	return d;
 };
 const DAY_MS = 24 * 60 * 60 * 1000;
+const dailyAges = (days: number) =>
+	Array.from({ length: days }, (_, i) => (days - i) * DAY_MS);
 const read = (file: string) =>
 	fs
 		.readFileSync(file, "utf8")
@@ -51,7 +53,7 @@ describe("queueExitLogger's store (#1215)", () => {
 
 	it("keeps 30 days, over the 14-day series #1157 files, once the oldest is a day past it", () => {
 		const file = path.join(tmp(), "log.jsonl");
-		const daily = Array.from({ length: 29 }, (_, i) => (29 - i) * DAY_MS);
+		const daily = dailyAges(29);
 		const ages = [
 			32 * DAY_MS,
 			31 * DAY_MS,
@@ -76,7 +78,7 @@ describe("queueExitLogger's store (#1215)", () => {
 	it("leaves the file alone until the oldest line is a day past retention", () => {
 		const afterLogging = (...oldest: number[]) => {
 			const file = path.join(tmp(), "log.jsonl");
-			const daily = Array.from({ length: 30 }, (_, i) => (30 - i) * DAY_MS);
+			const daily = dailyAges(30);
 			const rows = [...oldest, ...daily].map((ago) =>
 				JSON.stringify({ at: at(ago) }),
 			);
