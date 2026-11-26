@@ -8,6 +8,7 @@ const HOOK_EVENTS = /** @type {const} */ ([
 	...AFTER_EVENTS,
 	"UserPromptSubmit",
 	"Stop",
+	"SubagentStop",
 	"SessionStart",
 	"PreCompact",
 	"SessionEnd",

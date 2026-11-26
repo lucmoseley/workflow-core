@@ -29,7 +29,7 @@ beforeEach(() => {
 	ghLog = path.join(dir, "gh-calls");
 	fs.writeFileSync(
 		path.join(dir, ".refill-loop-control.json"),
-		JSON.stringify({ noProgressFrom: Date.now(), stopRequested: false, seats }),
+		JSON.stringify({ runFrom: Date.now(), stopRequested: false, seats }),
 	);
 	fs.writeFileSync(path.join(dir, "meminfo"), "MemAvailable: 20000000 kB\n");
 	fs.writeFileSync(

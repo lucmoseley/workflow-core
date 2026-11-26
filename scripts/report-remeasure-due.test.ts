@@ -10,6 +10,7 @@ import { type GhStubServer, serveGhStub, stubGhScript } from "./lib/gh-stub";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
+import { gitTrimmedIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "report-remeasure-due.js");
@@ -224,9 +225,6 @@ const checkoutTemplate = defineTemplate((root) => {
 	addNewOrigin(dir);
 	pushToOrigin(dir);
 });
-
-const gitIn = (cwd: string, ...a: string[]) =>
-	execFileSync("git", a, { cwd, encoding: "utf8" }).trim();
 
 function addNewOrigin(code: string) {
 	const origin = `${code}-origin.git`;
@@ -819,7 +817,7 @@ describe("the re-measure trigger", () => {
 			{ file: "e.txt" },
 		]) as [string, string, string, string, string];
 		const code = path.join(fx.root, "manta");
-		gitIn(
+		gitTrimmedIn(
 			code,
 			"push",
 			"-qf",
@@ -827,7 +825,7 @@ describe("the re-measure trigger", () => {
 			"origin",
 			`${onMain}:refs/heads/main`,
 		);
-		gitIn(
+		gitTrimmedIn(
 			code,
 			"push",
 			"-q",
@@ -876,7 +874,7 @@ describe("the re-measure trigger", () => {
 			{ file: "b.txt" },
 		]) as [string, string];
 		const code = path.join(fx.root, "manta");
-		gitIn(
+		gitTrimmedIn(
 			code,
 			"push",
 			"-qf",
@@ -884,7 +882,7 @@ describe("the re-measure trigger", () => {
 			"origin",
 			`${onMain}:refs/heads/main`,
 		);
-		gitIn(
+		gitTrimmedIn(
 			code,
 			"push",
 			"-q",
@@ -1017,12 +1015,12 @@ describe("the re-measure trigger", () => {
 		]);
 		const code = path.join(fx.root, "manta");
 		const wt = path.join(fx.root, "wt");
-		gitIn(code, "worktree", "add", "-q", "-b", "landing", wt);
+		gitTrimmedIn(code, "worktree", "add", "-q", "-b", "landing", wt);
 		fs.writeFileSync(path.join(wt, "lib", "secret.js"), "from a worktree\n");
-		gitIn(wt, "commit", "-qam", "from a worktree");
-		const landed = gitIn(wt, "rev-parse", "HEAD");
-		gitIn(code, "merge", "-q", "--ff-only", "landing");
-		gitIn(code, "push", "-q", "--no-verify", "origin", "HEAD:main");
+		gitTrimmedIn(wt, "commit", "-qam", "from a worktree");
+		const landed = gitTrimmedIn(wt, "rev-parse", "HEAD");
+		gitTrimmedIn(code, "merge", "-q", "--ff-only", "landing");
+		gitTrimmedIn(code, "push", "-q", "--no-verify", "origin", "HEAD:main");
 		const r = run(fx);
 		expect(r).toEqual({
 			code: 0,
@@ -1037,21 +1035,21 @@ describe("the re-measure trigger", () => {
 		const code = path.join(fx.root, "manta");
 		const elsewhere = path.join(fx.root, "elsewhere");
 		execFileSync("git", ["clone", "-q", `${code}-origin.git`, elsewhere]);
-		gitIn(elsewhere, "config", "user.email", "t@t");
-		gitIn(elsewhere, "config", "user.name", "t");
-		gitIn(elsewhere, "config", "core.hooksPath", "/dev/null");
+		gitTrimmedIn(elsewhere, "config", "user.email", "t@t");
+		gitTrimmedIn(elsewhere, "config", "user.name", "t");
+		gitTrimmedIn(elsewhere, "config", "core.hooksPath", "/dev/null");
 		const config = path.join(elsewhere, ".claude", "workflow-core.json");
 		const declared = JSON.parse(fs.readFileSync(config, "utf8"));
 		declared.sensitivePaths[0].globs = ["lib/secret.js", "lib/token.js"];
 		fs.writeFileSync(config, JSON.stringify(declared));
 		fs.writeFileSync(path.join(elsewhere, "lib", "token.js"), "landed\n");
-		gitIn(elsewhere, "add", "-A");
-		gitIn(elsewhere, "commit", "-qm", "landed by the lander");
-		const landed = gitIn(elsewhere, "rev-parse", "HEAD");
-		gitIn(elsewhere, "push", "-q", "origin", "HEAD:main");
+		gitTrimmedIn(elsewhere, "add", "-A");
+		gitTrimmedIn(elsewhere, "commit", "-qm", "landed by the lander");
+		const landed = gitTrimmedIn(elsewhere, "rev-parse", "HEAD");
+		gitTrimmedIn(elsewhere, "push", "-q", "origin", "HEAD:main");
 		fs.writeFileSync(path.join(code, "lib", "secret.js"), "unpushed\n");
-		gitIn(code, "commit", "-qam", "unpushed, off main");
-		const unpushed = gitIn(code, "rev-parse", "HEAD");
+		gitTrimmedIn(code, "commit", "-qam", "unpushed, off main");
+		const unpushed = gitTrimmedIn(code, "rev-parse", "HEAD");
 		const r = run(fx);
 		expect(r).toEqual({
 			code: 0,
@@ -1232,7 +1230,7 @@ describe("the re-measure trigger", () => {
 			config,
 			fs.readFileSync(config, "utf8").replace('"o/manta"', `"${OWN}"`),
 		);
-		gitIn(code, "remote", "set-url", "origin", `${fx.root}/gone.git`);
+		gitTrimmedIn(code, "remote", "set-url", "origin", `${fx.root}/gone.git`);
 		const r = run(fx);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toMatch(/^UNREAD: o\/wfc: /);
@@ -1336,7 +1334,7 @@ exec ${execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
 			body: buildFiledBody(3),
 		});
 		trailerCheckout(fx, [{ file: "lib/secret.js" }]);
-		gitIn(
+		gitTrimmedIn(
 			path.join(fx.root, "manta"),
 			"remote",
 			"set-url",
@@ -1484,7 +1482,7 @@ exec ${execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
 		});
 		const [cited = ""] = trailerCheckout(fx, [{ file: "lib/secret.js" }]);
 		fx.setHits({ "o/fleet": [buildEscapeTicket(cited)] });
-		gitIn(
+		gitTrimmedIn(
 			path.join(fx.root, "manta"),
 			"config",
 			"core.repositoryformatversion",
@@ -1524,9 +1522,9 @@ exec ${execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
 		const config = path.join(code, ".claude", "workflow-core.json");
 		const good = fs.readFileSync(config, "utf8");
 		fs.writeFileSync(config, "{ not json");
-		gitIn(code, "add", "-A");
-		gitIn(code, "commit", "-qm", "break the config");
-		gitIn(code, "push", "-q", "--no-verify", "origin", "HEAD:main");
+		gitTrimmedIn(code, "add", "-A");
+		gitTrimmedIn(code, "commit", "-qm", "break the config");
+		gitTrimmedIn(code, "push", "-q", "--no-verify", "origin", "HEAD:main");
 		fs.writeFileSync(config, good);
 		const r = run(fx);
 		expect(r.code).toBe(0);

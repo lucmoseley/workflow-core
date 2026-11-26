@@ -8,8 +8,6 @@ const {
 	buildOverflowStartLines,
 	buildStartLabel,
 } = require("./lib/overflow-notice.js");
-const path = require("node:path");
-const { buildPauseText } = require("./lib/refill-decide.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
@@ -30,33 +28,6 @@ function readSeen(file) {
 const CHECKER = "refill-loop-stop";
 
 const STATUS = `node ${scriptPath("refill-loop.js")} status`;
-
-/**
- * @param {import("./lib/check").Ctx} ctx
- * @param {import("./lib/refill-loop.js").Control|null} control
- * @param {number} seen
- * @returns {number|null}
- */
-function reportNoProgressPause(ctx, control, seen) {
-	/** @type {number|null} */
-	let latest = null;
-	for (const [root, paused] of Object.entries(control?.repoPaused ?? {})) {
-		if (paused.at <= seen) continue;
-		const repo = path.basename(root);
-		const text = buildPauseText(paused);
-		ctx.warn("REFILL-LOOP-PAUSED", `the refill loop's ${repo} is ${text}`, {
-			root,
-			...paused,
-		});
-		ctx.sayNotice(
-			`REFILL-LOOP-PAUSED — the refill loop's ${repo} is ${text}. It launches nothing there and stays paused; look at those issues, then resume it.\n` +
-				`  node ${scriptPath("refill-loop.js")} set --resume\n` +
-				`  Its status: ${STATUS}\n`,
-		);
-		latest = Math.max(latest ?? 0, paused.at);
-	}
-	return latest;
-}
 
 /**
  * @param {import("./lib/check").Ctx} ctx
@@ -149,7 +120,6 @@ runCheck({
 			);
 		}
 		if (running) reportRestartWait(ctx, restartWaitOf(state, clockNow()));
-		const pauseAt = reportNoProgressPause(ctx, control, seen);
 		const overflowAt = reportOverflowStart(
 			ctx,
 			overflowStart,
@@ -158,8 +128,7 @@ runCheck({
 		return {
 			afterReport() {
 				if (!ctx.notify) return;
-				const named = Math.max(fresh ? stopped.at : 0, pauseAt ?? 0);
-				if (named > 0) fs.writeFileSync(files.stopSeen, `${named}\n`);
+				if (fresh) fs.writeFileSync(files.stopSeen, `${stopped.at}\n`);
 				if (overflowAt !== null)
 					fs.writeFileSync(files.overflowSeen, `${overflowAt}\n`);
 			},

@@ -87,7 +87,6 @@ function readLoop(reportDamaged) {
 			held: [],
 			repoHolds: [],
 			loopWait: null,
-			repoPaused: {},
 			holdsUnreadRoots: [],
 		};
 	}
@@ -107,7 +106,6 @@ function readLoop(reportDamaged) {
 		held: [...state.held, ...loop.limitHoldsOf(state.launches)],
 		repoHolds,
 		loopWait: buildLiveLoopWait(control?.paused, state.lastTick?.idle),
-		repoPaused: control?.repoPaused ?? {},
 		holdsUnreadRoots: unread.map(({ root }) => root),
 	};
 }

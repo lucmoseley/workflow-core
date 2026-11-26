@@ -368,7 +368,7 @@ describe("buildIdleLines", () => {
 				decideTick({
 					now: NOW,
 					mode: "normal",
-					noProgressFrom: NOW,
+					runFrom: NOW,
 					stopRequested: false,
 					frontier: [],
 					retroBundles: [],
@@ -601,7 +601,6 @@ describe("buildReadings", () => {
 				held: [],
 				repoHolds: [],
 				loopWait: null,
-				repoPaused: {},
 				holdsUnreadRoots: [],
 				...loop,
 			},
@@ -756,20 +755,6 @@ describe("buildReadings", () => {
 				error: "HTTP 502",
 			},
 		]);
-	});
-
-	it("hands a tracker its checkouts' no-progress pause where every one it is served from is paused (#5275)", () => {
-		const pause = { by: "no-progress", at: NOW, issues: [] };
-		const waitOf = (repoPaused: Record<string, unknown>) =>
-			read([{ repo: REPO }], {
-				served: ["/r/core", "/r/core2"],
-				loopWait: "the loop's own",
-				repoPaused,
-			}).trackers[0].loopWait;
-		expect(waitOf({ "/r/core": pause, "/r/core2": pause })).toContain(
-			"paused by no-progress",
-		);
-		expect(waitOf({ "/r/core": pause })).toBe("the loop's own");
 	});
 
 	describe("a tracker's unread hold stores (#3918)", () => {
@@ -1206,7 +1191,7 @@ describe("buildLiveLoopWait, a live loop's reason no rank launches (#3920)", () 
 
 describe("stoppedRunOf, the run a stopped loop's finding is keyed on (#3892, #3927)", () => {
 	it("reads the control's count point over the last tick's", () => {
-		expect(stoppedRunOf({ noProgressFrom: 5 }, { from: 9 })).toBe(5);
+		expect(stoppedRunOf({ runFrom: 5 }, { from: 9 })).toBe(5);
 	});
 
 	it("reads the last tick's where the control is damaged", () => {

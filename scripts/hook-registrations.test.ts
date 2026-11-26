@@ -223,6 +223,12 @@ const REGISTRATIONS: Registration[] = [
 		covers: [],
 	},
 	{
+		event: "SubagentStop",
+		id: "scripts/guard-automode-refusal.js",
+		matcher: null,
+		covers: [],
+	},
+	{
 		event: "Stop",
 		id: "scripts/guard-unpushed-commits.js",
 		matcher: null,

@@ -349,7 +349,7 @@ const READ_KINDS = /** @type {Reads[]} */ (Object.keys(READERS));
 
 /**
  * @typedef {keyof typeof READERS} Reads
- * @typedef {{reads?: Reads, tool?: string}} ReadSpec
+ * @typedef {{reads?: Reads, tool?: string, skip?: RegExp}} ReadSpec
  */
 
 /**
@@ -387,10 +387,13 @@ function recordMatches(record, pattern, spec = {}) {
  */
 function transcriptMatches(text, pattern, tier, spec = {}) {
 	const re = stateless(pattern);
+	const skip = spec.skip && stateless(spec.skip);
 	const out = [];
 	let feedbackHit = false;
 	for (const record of mainChainRecords(text, tier)) {
-		const hit = stringsMatch(record, re, spec);
+		const hit =
+			stringsMatch(record, re, spec) &&
+			!(skip && stringsMatch(record, skip, { reads: "call" }));
 		const echo =
 			feedbackHit && record?.attachment?.type === "hook_blocking_error";
 		feedbackHit = hit && record?.type === "user" && record.isMeta === true;
