@@ -1,6 +1,5 @@
 // @vitest-environment node
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +10,7 @@ import {
 	buildBashPayload,
 	dispatchCoreOutput,
 } from "./lib/pretool-guard-testkit";
+import { gitTrimmedIn } from "./lib/repo-tree-testkit";
 import { storePath } from "./lib/test-pass-marker.js";
 
 const CORE = "guard-unasked-rerun";
@@ -22,29 +22,22 @@ let dir: string;
 let config: string;
 let project: string;
 
-const gitIn = (cwd: string, ...args: string[]) =>
-	execFileSync("git", args, {
-		cwd,
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "ignore"],
-	}).trim();
-
 const template = defineTemplate((root) => {
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-	gitIn(root, "init", "-q", "-b", "main");
-	gitIn(root, "config", "user.email", "t@example.com");
-	gitIn(root, "config", "user.name", "t");
+	gitTrimmedIn(root, "init", "-q", "-b", "main");
+	gitTrimmedIn(root, "config", "user.email", "t@example.com");
+	gitTrimmedIn(root, "config", "user.name", "t");
 	fs.writeFileSync(path.join(root, ".gitignore"), ".claude/\n");
-	gitIn(root, "add", ".gitignore");
-	gitIn(root, "commit", "-q", "-m", "ignore");
-	gitIn(root, "update-ref", "refs/remotes/origin/main", "HEAD");
+	gitTrimmedIn(root, "add", ".gitignore");
+	gitTrimmedIn(root, "commit", "-q", "-m", "ignore");
+	gitTrimmedIn(root, "update-ref", "refs/remotes/origin/main", "HEAD");
 	fs.writeFileSync(path.join(root, "a.js"), "a.js\n");
-	gitIn(root, "add", "a.js");
-	gitIn(root, "commit", "-q", "-m", "c");
+	gitTrimmedIn(root, "add", "a.js");
+	gitTrimmedIn(root, "commit", "-q", "-m", "c");
 });
 
 function attestHead() {
-	const sha = gitIn(project, "rev-parse", "HEAD");
+	const sha = gitTrimmedIn(project, "rev-parse", "HEAD");
 	const certificate = {
 		sha,
 		at: "RUN-A",
@@ -63,7 +56,7 @@ function attestHead() {
 			changed: "x",
 			admissible: true,
 		},
-		treeAtEnd: gitIn(project, "rev-parse", `${sha}^{tree}`),
+		treeAtEnd: gitTrimmedIn(project, "rev-parse", `${sha}^{tree}`),
 		closure: ["a.js"],
 		changedPaths: ["a.js"],
 	};
@@ -191,7 +184,7 @@ describe("a bare run from a session in its own worktree (#4242)", () => {
 	let worktree: string;
 	beforeEach(() => {
 		worktree = path.join(dir, "wt");
-		gitIn(project, "worktree", "add", "-q", "--detach", worktree);
+		gitTrimmedIn(project, "worktree", "add", "-q", "--detach", worktree);
 	});
 
 	it("refuses the run the main checkout's store attests at the worktree's HEAD", () => {
@@ -205,8 +198,8 @@ describe("a bare run from a session in its own worktree (#4242)", () => {
 	it("allows it once the worktree's HEAD moves past what is attested, the main checkout's HEAD still attested", () => {
 		attestHead();
 		fs.writeFileSync(path.join(worktree, "b.js"), "b.js\n");
-		gitIn(worktree, "add", "b.js");
-		gitIn(worktree, "commit", "-q", "-m", "b");
+		gitTrimmedIn(worktree, "add", "b.js");
+		gitTrimmedIn(worktree, "commit", "-q", "-m", "b");
 		expect(emission("npm run test", { cwd: worktree })).toBeNull();
 		expect(readRefusals()).toEqual([]);
 		expect(emission("npm run test")?.permissionDecision).toBe("deny");

@@ -166,7 +166,7 @@ const serveCore = () => {
 				mode: "normal",
 				repos: [path.join(home, "core")],
 			},
-			noProgressFrom: NOW,
+			runFrom: NOW,
 		}),
 	);
 	return refill;
@@ -788,7 +788,7 @@ describe("at session start (--notify, #3644)", () => {
 					path.join(refill, ".refill-loop-control.json"),
 					JSON.stringify({
 						scope: { mode: "normal", repos: [] },
-						noProgressFrom: from,
+						runFrom: from,
 					}),
 				);
 			control(NOW - DAY);

@@ -6,8 +6,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
+import { gitTrimmedIn } from "./repo-tree-testkit";
 import { storePath } from "./test-pass-marker.js";
-import { gitIn, narrowedIn } from "./unasked-rerun-fixture";
+import { narrowedIn } from "./unasked-rerun-fixture";
 
 interface Verdict {
 	deny?: string;
@@ -355,10 +356,10 @@ describe("from a session in a linked worktree, the certificates are the main che
 	let head: string;
 	freshSandbox((sb) => {
 		at = splitCheckout(path.join(sb.dir, "split"));
-		gitIn(at.main, "update-ref", "refs/remotes/origin/main", "HEAD");
+		gitTrimmedIn(at.main, "update-ref", "refs/remotes/origin/main", "HEAD");
 		fs.writeFileSync(path.join(at.worktree, "a.js"), "a.js\n");
-		gitIn(at.worktree, "add", "--", "a.js");
-		gitIn(
+		gitTrimmedIn(at.worktree, "add", "--", "a.js");
+		gitTrimmedIn(
 			at.worktree,
 			"-c",
 			"user.email=t@t",
@@ -369,7 +370,7 @@ describe("from a session in a linked worktree, the certificates are the main che
 			"-m",
 			"c",
 		);
-		head = gitIn(at.worktree, "rev-parse", "HEAD");
+		head = gitTrimmedIn(at.worktree, "rev-parse", "HEAD");
 	});
 
 	const certify = (root: string) => {

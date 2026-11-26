@@ -1,10 +1,11 @@
 // @vitest-environment node
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { bareRepoTemplate, defineTemplate } from "./lib/git-fixture";
+import { gitTrimmedIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -19,14 +20,10 @@ let old: string;
 let root: string;
 let next: string;
 
-const gitIn =
-	(cwd: string) =>
-	(...args: string[]) =>
-		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-const git = (...args: string[]) => gitIn(work)(...args);
+const git = (...args: string[]) => gitTrimmedIn(work, ...args);
 
 const writeConfig = (codeRepo: string, at = work) => {
-	const gitAt = gitIn(at);
+	const gitAt = (...args: string[]) => gitTrimmedIn(at, ...args);
 	fs.mkdirSync(path.join(at, ".claude"), { recursive: true });
 	fs.writeFileSync(
 		path.join(at, ".claude", "workflow-core.json"),
@@ -59,7 +56,8 @@ const check = (stdin: string, url = CODE_URL) =>
 const bareRepo = defineTemplate(bareRepoTemplate);
 
 const commitTreeIn = (at: string, ...args: string[]) =>
-	gitIn(at)(
+	gitTrimmedIn(
+		at,
 		"-c",
 		"user.email=t@t",
 		"-c",
@@ -71,7 +69,7 @@ const commitTreeIn = (at: string, ...args: string[]) =>
 const graftedRepo = defineTemplate((dir) => {
 	const at = path.join(dir, "work");
 	fs.mkdirSync(at);
-	const gitAt = gitIn(at);
+	const gitAt = (...args: string[]) => gitTrimmedIn(at, ...args);
 	const commitTree = (...args: string[]) => commitTreeIn(at, ...args);
 	gitAt("init", "-q", "-b", "main");
 	const seed = commitTree(

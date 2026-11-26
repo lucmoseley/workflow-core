@@ -4,7 +4,6 @@ import {
 	buildLaunchRoom,
 	buildSpentRoom,
 	PROBE_HELD,
-	REPO_PAUSED,
 	UNPROVEN_HELD,
 } from "./launch-room.js";
 
@@ -20,7 +19,6 @@ const running = (n: number): LaunchRecord =>
 		launchedAt: NOW - n,
 		finishedAt: null,
 	}) as LaunchRecord;
-const pause = { by: "no-progress", at: NOW };
 const probe = { root: ROOT, kind: "probe" as const, issue: 1, raisedAt: NOW };
 
 const roomOf = (over: Partial<RoomInput> = {}) =>
@@ -37,21 +35,13 @@ describe("buildLaunchRoom", () => {
 		expect(room.heldWhy(ROOT)).toBeNull();
 	});
 
-	it("names a probe hold over an open breaker over a pause, and leaves no room under any", () => {
-		const all = {
-			holds: [probe],
-			breakerRoom: { [ROOT]: 0 },
-			repoPaused: { [ROOT]: pause },
-		};
+	it("names a probe hold over an open breaker, and leaves no room under either", () => {
+		const all = { holds: [probe], breakerRoom: { [ROOT]: 0 } };
 		expect(roomOf(all).heldWhy(ROOT)).toBe(PROBE_HELD);
 		expect(roomOf({ holds: [probe] }).launchLeft(ROOT)).toBe(0);
 		const open = roomOf({ ...all, holds: [] });
 		expect(open.heldWhy(ROOT)).toBe(BREAKER_OPEN);
 		expect(open.launchLeft(ROOT)).toBe(0);
-		const paused = roomOf({ repoPaused: { [ROOT]: pause } });
-		expect(paused.heldWhy(ROOT)).toBe(REPO_PAUSED);
-		expect(paused.launchLeft(ROOT)).toBe(0);
-		expect(paused.resumeLeft(ROOT)).toBe(0);
 	});
 
 	it("stops nothing for a park hold", () => {

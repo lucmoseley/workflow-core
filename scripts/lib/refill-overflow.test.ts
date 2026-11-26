@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readLiveAgents } from "./headless-runs.js";
 import { headlessStore, writeHeadlessRun } from "./headless-runs-testkit";
 import { batchesOf, buildWouldRunLine, dispatchCall } from "./refill-batch.js";
-import { decideTick, FULL, pickSeat } from "./refill-decide.js";
+import { FULL, pickSeat } from "./refill-decide.js";
 import { actsOf, judgedLaunches } from "./refill-loop.js";
 import { seat } from "./refill-loop-fixture";
 
@@ -123,35 +123,5 @@ describe("a headless launch's finish (#2611)", () => {
 		const [ended, live] = judge([launch("0000000a"), launch("0000000b")]);
 		expect(ended).toMatchObject({ finishedAt: NOW, acts: { claim: 1 } });
 		expect(live).toMatchObject({ finishedAt: null });
-	});
-
-	it("counts toward the no-progress pause", () => {
-		const history = judge(
-			["0000000c", "0000000d", "0000000e"].map((id) => launch(id)),
-		);
-		expect(history.map((l) => l.acts)).toEqual([{}, {}, {}]);
-		expect(
-			decideTick({
-				now: NOW,
-				mode: "normal" as const,
-				noProgressFrom: NOW - 60 * MIN,
-				stopRequested: false,
-				frontier: [],
-				retroBundles: [],
-				running: [],
-				freeSlots: 2,
-				seats: [{ ...planSeat("a", true), fits: null }],
-				overflow: [
-					{
-						seat: "/home/u/.claude2",
-						fits: 5,
-						spentUntil: null,
-						why: null,
-					},
-				],
-				history,
-				lastActAt: {},
-			}),
-		).toHaveProperty("repoPauses");
 	});
 });

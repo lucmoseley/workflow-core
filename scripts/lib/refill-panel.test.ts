@@ -51,7 +51,6 @@ const RUNNING = {
 	stop: null,
 	crashed: false,
 	paused: null,
-	repoPaused: {},
 	lastTick: {
 		at: AT,
 		summary: "idle: nothing launchable",
@@ -90,18 +89,6 @@ const STOPPED = {
 	stop: { reason: "explicit", at: AT, detail: "stop asked" },
 };
 const CRASHED = { ...NEVER_STARTED, crashed: true };
-const issuesIn = (...roots: string[]) =>
-	roots.map((root, i) => ({ root, number: 2518 + i }));
-const STALLED = {
-	...RUNNING,
-	repoPaused: {
-		"/h/wc": {
-			by: "no-progress",
-			at: AT,
-			issues: issuesIn("/h/wc", "/h/wc", "/h/wc"),
-		},
-	},
-};
 const planWaitTick = (resets: number | null) => ({
 	at: AT,
 	summary: "idle",
@@ -506,32 +493,7 @@ describe("the panel's rows", () => {
 		]);
 	});
 
-	it("reads needs you for no progress, with its issues", () => {
-		const rows = rowsOf({ status: STALLED });
-		expect(summary(rows).slice(0, 4)).toEqual([
-			["Refill loop  [off]", "name"],
-			["", "secondary"],
-			["needs you", "needsYou"],
-			["No progress: #2518, #2519, #2520", "value"],
-		]);
-		expect(rows[0].control?.state).toBe("off");
-	});
-
-	it("qualifies no progress's issues by repo where they span repos", () => {
-		const repoPaused = {
-			"/h/wc": { by: "no-progress", at: AT, issues: issuesIn("/h/wc") },
-			"/h/manta": {
-				by: "no-progress",
-				at: AT,
-				issues: [{ root: "/h/manta", number: 2519 }],
-			},
-		};
-		expect(rowsOf({ status: { ...STALLED, repoPaused } })[3].text).toBe(
-			"No progress: wc#2518, manta#2519",
-		);
-	});
-
-	it("calls an unreadable pause neither the founder's nor no progress", () => {
+	it("calls an unreadable pause not the founder's", () => {
 		const paused = { by: "an unreadable record", at: AT };
 		const rows = rowsOf({ status: { ...RUNNING, paused } });
 		expect(summary(rows)[2]).toEqual([
@@ -540,26 +502,15 @@ describe("the panel's rows", () => {
 		]);
 	});
 
-	it.each([
-		["a founder's", PAUSED_BY_FOUNDER],
-		["a no-progress", STALLED],
-	])(
-		"reads the stop, not %s pause, once stopped from the command line",
-		(_name, pausedStatus) => {
-			const status = { ...pausedStatus, running: false, stop: STOPPED.stop };
-			expect(summary(rowsOf({ status })).slice(2, 4)).toEqual([
-				["off", "value"],
-				[
-					"Stopped from the command line at 14:05 · click to restart",
-					"secondary",
-				],
-			]);
-		},
-	);
-
-	it("keeps the issues of a no-progress pause whose process died", () => {
-		const status = { ...STALLED, running: false, crashed: true };
-		expect(rowsOf({ status })[3].text).toContain("#2518");
+	it("reads the stop, not a founder's pause, once stopped from the command line", () => {
+		const status = { ...PAUSED_BY_FOUNDER, running: false, stop: STOPPED.stop };
+		expect(summary(rowsOf({ status })).slice(2, 4)).toEqual([
+			["off", "value"],
+			[
+				"Stopped from the command line at 14:05 · click to restart",
+				"secondary",
+			],
+		]);
 	});
 
 	it("keeps the switch on through an allowance wait, naming the earliest reset", () => {
@@ -611,7 +562,6 @@ describe("the panel's rows", () => {
 			{ status: RUNNING },
 			{ status: { ...RUNNING, lastTick: null } },
 			{ status: CRASHED },
-			{ status: STALLED },
 			{ status: NEVER_STARTED },
 			{ status: PAUSED_BY_FOUNDER },
 			{ status: { ...PAUSED_BY_FOUNDER, running: false } },
@@ -1123,7 +1073,7 @@ describe("yellow", () => {
 	const framed = (status: object) => buildFrame(rowsOf({ status }), 120, 40);
 
 	it("draws only the words needs you", () => {
-		for (const status of [CRASHED, STALLED]) {
+		for (const status of [CRASHED]) {
 			const after = framed(status).split(yellow);
 			expect(after).toHaveLength(2);
 			expect(after[1].startsWith("needs you")).toBe(true);
@@ -1283,7 +1233,10 @@ describe("a click on the switch", () => {
 	it.each([
 		["crashed", CRASHED],
 		["stopped", STOPPED],
-		["paused, its process dead", { ...STALLED, running: false, crashed: true }],
+		[
+			"paused, its process dead",
+			{ ...PAUSED_BY_FOUNDER, running: false, crashed: true },
+		],
 	])("restarts a %s loop through `set --resume`", async (_name, status) => {
 		const { calls, run } = runnerOf({
 			"status --json": showing(status),
@@ -1367,7 +1320,7 @@ describe("a click on the switch", () => {
 
 	it("has no argv on any row that stops the process", async () => {
 		const asked: string[][] = [];
-		for (const status of [RUNNING, STALLED, CRASHED, STOPPED, STOPPING]) {
+		for (const status of [RUNNING, CRASHED, STOPPED, STOPPING]) {
 			const { calls, run } = runnerOf({
 				"status --json": showing(status),
 				"set --pause --json": () => ({}),

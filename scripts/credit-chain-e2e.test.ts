@@ -1,11 +1,12 @@
 // @vitest-environment node
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
 import { defineTemplate } from "./lib/git-fixture";
+import { gitIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
 const GUARD = path.resolve(__dirname, "guard-dispatch.js");
@@ -14,8 +15,6 @@ const BACKSTOP = path.resolve(__dirname, "concision-backstop.sh");
 const ME = "session-under-test";
 const OTHER = "parallel-session";
 
-const gitIn = (cwd: string, ...args: string[]) =>
-	execFileSync("git", args, { cwd, encoding: "utf8" });
 const git = (...args: string[]) => gitIn(sb.repo, ...args);
 
 const repo = defineTemplate((dir) => {
