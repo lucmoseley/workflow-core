@@ -145,7 +145,7 @@ describe("the breaker's record", () => {
 			rate: 0.1,
 			workingHours: 13,
 		};
-		appendBreakerEvents([event], () => undefined);
+		appendBreakerEvents([event], { log: () => undefined });
 		expect(tickRead(tmp).record).toEqual([event]);
 	});
 
@@ -517,8 +517,7 @@ describe("readThroughputWindow", () => {
 				ev(HI - HOUR, "reopen"),
 				ev(HI - HOUR, "open", "/srv/other"),
 			],
-			() => undefined,
-			() => HI + HOUR,
+			{ log: () => undefined, now: () => HI + HOUR },
 		);
 		const [dv] = readThroughputWindow({
 			roots: ["/srv/dv"],
