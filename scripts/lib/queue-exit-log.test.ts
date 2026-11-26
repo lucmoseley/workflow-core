@@ -74,7 +74,7 @@ describe("queueExitLogger's store (#1215)", () => {
 	});
 
 	it("leaves the file alone until the oldest line is a day past retention", () => {
-		const seed = (...oldest: number[]) => {
+		const afterLogging = (...oldest: number[]) => {
 			const file = path.join(tmp(), "log.jsonl");
 			const daily = Array.from({ length: 30 }, (_, i) => (30 - i) * DAY_MS);
 			const rows = [...oldest, ...daily].map((ago) =>
@@ -84,10 +84,10 @@ describe("queueExitLogger's store (#1215)", () => {
 			logTo(file).log("opened", 0);
 			return fs.readFileSync(file, "utf8");
 		};
-		expect(seed(31 * DAY_MS - hourMs)).toContain("\nnot json\n");
-		expect(seed(31 * DAY_MS + hourMs, 30 * DAY_MS + hourMs)).not.toContain(
-			"not json",
-		);
+		expect(afterLogging(31 * DAY_MS - hourMs)).toContain("\nnot json\n");
+		expect(
+			afterLogging(31 * DAY_MS + hourMs, 30 * DAY_MS + hourMs),
+		).not.toContain("not json");
 	});
 
 	it("says a line that did not land rather than throwing, and is silent with no log", () => {
