@@ -33,7 +33,15 @@ function readLinkedPaths(dir) {
 		() => readConfig({ root: dir, quiet: true }).worktreeLinks,
 		undefined,
 	);
-	return [...SHARED_ARTEFACTS, ...(declared ?? [])];
+	return [
+		...SHARED_ARTEFACTS,
+		...(declared ?? []).map((entry) => {
+			const normal = path.normalize(entry);
+			return normal.length > 1 && normal.endsWith(path.sep)
+				? normal.slice(0, -1)
+				: normal;
+		}),
+	];
 }
 
 /**
