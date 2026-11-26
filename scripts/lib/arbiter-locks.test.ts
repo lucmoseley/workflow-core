@@ -23,8 +23,8 @@ import {
 } from "./arbiter-testkit";
 import { cutWorktree, defineTemplate, emptyRepoTemplate } from "./git-fixture";
 import { noop } from "./noop.js";
+import { writeIn } from "./repo-tree-testkit";
 import { sleepSync } from "./sleep-sync.js";
-import { writeIn } from "./tree-write-testkit";
 
 const sb = freshSandbox();
 const sandboxRepo = defineTemplate((dir) => {
@@ -1427,7 +1427,6 @@ describe("a claim read in its holder's tree, not the reader's (#4457)", () => {
 			path.join(dir, ".git", "config"),
 			"[user]\n\temail = t@t\n\tname = t\n",
 		);
-		fs.mkdirSync(path.join(dir, "docs"));
 		writeIn(dir, rel, "as committed\n");
 		execFileSync("git", ["add", "-A"], { cwd: dir });
 		execFileSync(

@@ -6,8 +6,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { callCost } from "./lib/call-cost-harness.js";
 import { defineTemplate } from "./lib/git-fixture";
+import { gitIn, writeIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process";
-import { gitIn, writeIn } from "./lib/tree-write-testkit";
 
 const SCRIPT = path.join(__dirname, "generate-test-read-edges.js");
 const DOC = ["docs", "thing.md"].join("/");

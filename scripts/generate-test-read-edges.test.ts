@@ -7,9 +7,9 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { coreFile } from "./lib/core-path-testkit";
 import { defineTemplate } from "./lib/git-fixture";
+import { gitIn, writeIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
-import { gitIn, writeIn } from "./lib/tree-write-testkit";
 
 const SCRIPT = path.resolve(__dirname, "generate-test-read-edges.js");
 const OUT = ["docs", "test-read-edges.json"].join("/");

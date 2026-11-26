@@ -14,8 +14,8 @@ import {
 } from "vitest";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { defineTemplate, identityRepoTemplate } from "./lib/git-fixture";
+import { gitIn, writeIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process";
-import { gitIn, writeIn } from "./lib/tree-write-testkit";
 
 const SCRIPT = path.resolve(__dirname, "check-instruction-surface.js");
 

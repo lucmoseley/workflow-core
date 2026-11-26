@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate } from "./git-fixture";
-import { gitIn, writeIn } from "./tree-write-testkit";
+import { gitIn, writeIn } from "./repo-tree-testkit";
 
 const { isCarried, levelUntilCarried, readRunCode, readSupersededFiles } =
 	createRequire(__filename)("./lander-code.js");

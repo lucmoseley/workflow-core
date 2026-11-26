@@ -6,8 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate } from "./lib/git-fixture";
+import { writeIn } from "./lib/repo-tree-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
-import { writeIn } from "./lib/tree-write-testkit";
 
 const SCRIPT = path.resolve(__dirname, "check-adopter-boundary.js");
 const PAGE = path.resolve(__dirname, "..", "docs", "adopter-boundary.md");
