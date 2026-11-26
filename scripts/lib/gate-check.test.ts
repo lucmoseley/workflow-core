@@ -203,6 +203,16 @@ describe("a check reading an unfetched origin ref (#5697)", () => {
 		"git --git-dir=~/x/.git show origin/main:a",
 		"git --work-tree ~/x show origin/main:a",
 		"(cd ~/x; git log -1 origin/main)",
+		"cd -- ~/x && git show origin/main:a",
+		"if cd ~/x; then git show origin/main:a; fi",
+		"GIT_DIR=~/x/.git git show origin/main:a",
+		"git --namespace foo -C ~/x show origin/main:a",
+		"git -c k=v -C ~/x show origin/main:a",
+		"/usr/bin/git -C ~/x show origin/main:a",
+		"echo `git -C ~/x show origin/main:a`",
+		'[ "$(git -C ~/x rev-parse origin/main)" = abc ] && echo met',
+		"git -C ~/y fetch & git -C ~/x show origin/main:a",
+		"git -C ~/x log --format='%h;%s' origin/main",
 	])(
 		"refuses one reading another checkout's origin through %s (#5755)",
 		(check) => {
@@ -219,6 +229,21 @@ describe("a check reading an unfetched origin ref (#5697)", () => {
 			"git -C ~/x fetch && cd ~/x && git show origin/main:a",
 			"git --git-dir ~/x/.git fetch && git --git-dir ~/x/.git show origin/main:a",
 			`git -C ~/x fetch && ${gitDirRead}`,
+			"cd ~/x && git -C . fetch && git show origin/main:a",
+			"git -C ~/x remote update && cd ~/x/scripts && git show origin/main:a",
+			"cd ~/x && git pull -q && git show origin/main:a 2>&1",
+		])
+			expect(verdictOf("", gate(check), false).refusals).toEqual([]);
+	});
+
+	it("passes a read of the host's own origin through a cd it cannot place in another checkout (#5755)", () => {
+		for (const check of [
+			"cd scripts && git log -1 origin/main",
+			'cd "$(git rev-parse --show-toplevel)" && git show origin/main:a',
+			"(cd ~/x && make) && git merge-base --is-ancestor X origin/main && echo met",
+			"cd ~/x && ls; cd - && git show origin/main:a",
+			"git --git-dir .git show origin/main:a",
+			"git -C . show origin/main:a",
 		])
 			expect(verdictOf("", gate(check), false).refusals).toEqual([]);
 	});
