@@ -51,10 +51,11 @@ const breakerRecordPath = () => refillPath(".refill-breaker.jsonl");
 /**
  * @param {BreakerEvent[]} events
  * @param {(line: string) => void} log
+ * @param {() => number} [now]
  */
-function appendBreakerEvents(events, log) {
+function appendBreakerEvents(events, log, now = Date.now) {
 	for (const e of events)
-		if (!appendRetained(breakerRecordPath(), e, BREAKER_RETAIN_MS))
+		if (!appendRetained(breakerRecordPath(), e, BREAKER_RETAIN_MS, { now }))
 			log(`breaker record would not take ${e.event} in ${e.repo}`);
 }
 
