@@ -104,9 +104,10 @@ const USAGE = `usage: node ${scriptPath("measure-outcome-review.js")} [--now <is
  *   observed: number | null, expected: number | null,
  *   guardrails: Guardrails | null, verdict: Verdict, unwindIssue: null,
  *   late: boolean, baseline: Baseline | null, why: string}} Outcome
- * @typedef {{file: string, start: number}} Session
+ * @typedef {{file: string, start: number, tracker: string | null}} Session
+ * @typedef {{repo: string, number: number}} Ref
  * @typedef {{tracker: string, codeRepo: string, root: string,
- *   sigRows: Row[] | string}} Tracker
+ *   sigRows: Row[] | string, dirs: string[]}} Tracker
  * @typedef {Tracker & {main: string | null, commits: Commit[] | string}} Repo
  */
 
@@ -163,11 +164,14 @@ function cites(text, { repo, number: n }, tracker) {
 }
 
 // #5777
-/** @param {{repo: string, number: number}} ref */
-const namesFinding = ({ repo, number: n }) =>
-	new RegExp(
-		`${qualifiedRef(repo, n)}|${bareRef(n)}|(?:\\bgh issue [a-z-]+|\\.js)\\s+${n}(?!\\w)`,
-	);
+/** @param {Ref} ref @param {string | null} tracker */
+function buildFindingSkip({ repo, number: n }, tracker) {
+	const own =
+		repo === tracker
+			? `|${bareRef(n)}|(?:\\bgh issue [a-z-]+|\\bscripts/[\\w-]+\\.js)\\s+${n}(?!\\w)`
+			: "";
+	return new RegExp(`${qualifiedRef(repo, n)}${own}`);
+}
 
 /**
  * @param {unknown} row
@@ -288,13 +292,15 @@ function findRoots(root, seats, failures) {
 		if (held) held.push(file);
 		else byDir.set(dir, [file]);
 	}
-	const roots = [root];
+	/** @type {Map<string, string[]>} */
+	const roots = new Map([[root, []]]);
 	for (const [dir, files] of byDir) {
 		const { cwd, unread } = readDirCwd(files);
 		if (!cwd && unread.length === files.length)
 			failures.push(`project directory unreadable: ${dir} (${unread[0]})`);
 		const at = cwd ? repoRootOf(cwd) : null;
-		if (at && !roots.includes(at) && hasConfig(at)) roots.push(at);
+		if (at && (roots.has(at) || hasConfig(at)))
+			roots.set(at, [...(roots.get(at) ?? []), dir]);
 	}
 	return roots;
 }
@@ -306,7 +312,9 @@ function findRoots(root, seats, failures) {
 function readTrackers({ root, seats, failures }) {
 	/** @type {Map<string, string>} */
 	const first = new Map();
-	for (const r of findRoots(root, seats, failures)) {
+	/** @type {Map<string, string[]>} */
+	const dirsOf = new Map();
+	for (const [r, dirs] of findRoots(root, seats, failures)) {
 		let tracker;
 		try {
 			tracker = requireKey("tracker", { root: r });
@@ -315,6 +323,7 @@ function readTrackers({ root, seats, failures }) {
 			continue;
 		}
 		if (!first.has(tracker)) first.set(tracker, r);
+		dirsOf.set(tracker, [...(dirsOf.get(tracker) ?? []), ...dirs]);
 	}
 	const [head, ...rest] = first;
 	const ordered = head
@@ -327,7 +336,13 @@ function readTrackers({ root, seats, failures }) {
 			return [];
 		}
 		return [
-			{ tracker, codeRepo, root: r, sigRows: readSigLog(codeRepo, failures) },
+			{
+				tracker,
+				codeRepo,
+				root: r,
+				sigRows: readSigLog(codeRepo, failures),
+				dirs: dirsOf.get(tracker) ?? [],
+			},
 		];
 	});
 }
@@ -411,9 +426,10 @@ const unreadable = (e) => `(${caught(e).code ?? caught(e).message})`;
  * @param {string[]} seats
  * @param {number} fromMs
  * @param {{failures: string[], notes: string[]}} log
+ * @param {Map<string, string>} [trackerOfDir]
  * @returns {Session[]}
  */
-function indexSessions(seats, fromMs, { failures, notes }) {
+function indexSessions(seats, fromMs, { failures, notes }, trackerOfDir) {
 	const listing = readSeatTranscripts(seats);
 	for (const a of listing.absent) notes.push(`no seat at ${a}`);
 	for (const u of listing.unreadable)
@@ -424,7 +440,8 @@ function indexSessions(seats, fromMs, { failures, notes }) {
 		try {
 			if (fs.statSync(file).mtimeMs < fromMs) continue;
 			const start = sessionStart(file);
-			if (start !== null) out.push({ file, start });
+			const tracker = trackerOfDir?.get(path.dirname(file)) ?? null;
+			if (start !== null) out.push({ file, start, tracker });
 		} catch (e) {
 			failures.push(`transcript unreadable: ${file} ${unreadable(e)}`);
 		}
@@ -433,7 +450,7 @@ function indexSessions(seats, fromMs, { failures, notes }) {
 }
 
 /**
- * @param {Array<{sig: Signature, skip?: RegExp, sessions: Session[]}>} requests
+ * @param {Array<{sig: Signature, ref?: Ref, sessions: Session[]}>} requests
  * @param {Registry} registry
  * @param {string[]} failures
  * @returns {Array<number[] | null>}
@@ -441,9 +458,11 @@ function indexSessions(seats, fromMs, { failures, notes }) {
 function hitsFor(requests, registry, failures) {
 	/** @type {Map<string, Array<{i: number, sig: Signature, skip?: RegExp}>>} */
 	const wanted = new Map();
-	requests.forEach(({ sessions, ...r }, i) => {
-		for (const s of sessions)
-			wanted.set(s.file, [...(wanted.get(s.file) ?? []), { i, ...r }]);
+	requests.forEach(({ sig, ref, sessions }, i) => {
+		for (const s of sessions) {
+			const skip = ref && buildFindingSkip(ref, s.tracker);
+			wanted.set(s.file, [...(wanted.get(s.file) ?? []), { i, sig, skip }]);
+		}
 	});
 	/** @type {Map<string, Map<number, number>>} */
 	const got = new Map();
@@ -750,7 +769,7 @@ const baselineFrom = (/** @type {number} */ filedAt) =>
 	filedAt - (TRIGGER_DAYS + BASELINE_WEEKS * 7) * DAY_MS;
 
 /**
- * @param {Array<{sig: Signature, skip?: RegExp, filedAt: number}>} requests
+ * @param {Array<{sig: Signature, ref?: Ref, filedAt: number}>} requests
  * @param {Session[]} sessions
  * @param {Registry} registry
  * @param {string[]} failures
@@ -763,7 +782,7 @@ function countBaselines(requests, sessions, registry, failures) {
 			const end = r.filedAt - TRIGGER_DAYS * DAY_MS;
 			return {
 				sig: r.sig,
-				skip: r.skip,
+				ref: r.ref,
 				sessions: sessions.filter((s) => s.start >= start && s.start < end),
 			};
 		}),
@@ -779,23 +798,29 @@ function countBaselines(requests, sessions, registry, failures) {
 /**
  * @param {Reading[]} reading
  * @param {{seats: string[], registry: Registry, nowMs: number,
- *   extended: Set<string>, failures: string[], notes: string[]}} at
+ *   extended: Set<string>, failures: string[], notes: string[],
+ *   trackerOfDir: Map<string, string>}} at
  */
 function countReadings(
 	reading,
-	{ seats, registry, nowMs, extended, failures, notes },
+	{ seats, registry, nowMs, extended, failures, notes, trackerOfDir },
 ) {
 	const from = Math.min(
 		...reading.map((r) =>
 			r.f.baseline ? r.fix.at : baselineFrom(r.f.filedAt),
 		),
 	);
-	const sessions = indexSessions(seats, from, { failures, notes });
+	const sessions = indexSessions(
+		seats,
+		from,
+		{ failures, notes },
+		trackerOfDir,
+	);
 	const owed = reading.filter((r) => !r.f.baseline);
 	const counted = countBaselines(
 		owed.map((r) => ({
 			sig: r.f.signature,
-			skip: namesFinding(r.f),
+			ref: r.f,
 			filedAt: r.f.filedAt,
 		})),
 		sessions,
@@ -821,7 +846,7 @@ function countReadings(
 	const winHits = hitsFor(
 		reading.map((r, i) => ({
 			sig: r.f.signature,
-			skip: namesFinding(r.f),
+			ref: r.f,
 			sessions: takes[i] ?? [],
 		})),
 		registry,
@@ -884,7 +909,7 @@ function buildOutcome({ f, fix, guardrails }, { base, take, hits }, at) {
 /**
  * @param {Finding[]} findings
  * @param {Reads & {extended: Set<string>, seats: string[],
- *   registry: Registry, notes: string[]}} at
+ *   registry: Registry, notes: string[], trackerOfDir: Map<string, string>}} at
  * @returns {Outcome[]}
  */
 function readOutcomes(findings, at) {
@@ -1452,6 +1477,9 @@ function review({ root, seats, nowMs, tracker }) {
 		seats,
 		registry,
 		notes,
+		trackerOfDir: new Map(
+			trackers.flatMap((t) => t.dirs.map((dir) => [dir, t.tracker])),
+		),
 	});
 	outcomes.push(...unreadLogFindings(trackers, prior, findings));
 	const unwinds = rankUnwinds(outcomes, carriedIn, prior);

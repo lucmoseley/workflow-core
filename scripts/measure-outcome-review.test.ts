@@ -497,23 +497,35 @@ describe("measure-outcome-review.js", () => {
 				].join("\n"),
 				createdAt: d(FIXED + 3),
 			},
+			{
+				number: 11,
+				title: "The scheduled full-suite run is red on main",
+				labels: ["bug", "ci-red"],
+				body: `## The red run\n\n- **Head sha:** \`${sha}\`\n\n## Triage\n\nBisected to ${sha.slice(0, 9)}.`,
+				createdAt: d(FIXED + 4),
+			},
 		);
 		const { out } = f.run();
 		expect(outcome(out)).toMatchObject({
-			verdict: "keep",
-			guardrails: { reverts: [], followOns: [] },
+			verdict: "unwind",
+			guardrails: { reverts: [], followOns: [`${TRACKER}#11`] },
 		});
 	});
 
-	it("counts no call that names the finding's own issue, such as its close quoting the fault (#5777)", () => {
+	function callFinding() {
 		const f = scratch();
-		const callSession = (id: string, day: number, commands: string[]) => {
-			const dir = path.join(f.seats[0], "projects", "-repo");
+		const callSession = (
+			id: string,
+			day: number,
+			commands: string[],
+			{ project = "-repo", cwd = f.root } = {},
+		) => {
+			const dir = path.join(f.seats[0], "projects", project);
 			fs.mkdirSync(dir, { recursive: true });
 			const r = transcriptRecords(d(day));
 			writeTranscript(
 				path.join(dir, `${id}.jsonl`),
-				r.founder("go"),
+				JSON.stringify({ ...JSON.parse(r.founder("go")), cwd }),
 				...commands.map((c, i) => JSON.stringify(buildBashCall(c, `t${i}`))),
 				r.assistant("done"),
 			);
@@ -525,11 +537,19 @@ describe("measure-outcome-review.js", () => {
 			signature: { ...SIG, scope: "main", reads: "call", tool: "Bash" },
 		});
 		f.commit("Stop the boom (#1)", FIXED);
+		return { f, callSession };
+	}
+
+	const ClosingCall =
+		"echo BOOM; node scripts/resolve-ticket.js 1 --comment-file c.md";
+
+	it("counts no call that names the finding's own issue, such as its close quoting the fault (#5777)", () => {
+		const { f, callSession } = callFinding();
 		for (let i = 0; i < 5; i++)
 			callSession(`a${i}`, FIXED + 1 + i, [
 				"cat > c.md <<'EOF'\nStopped the BOOM (#1).\nEOF",
-				"gh issue view 1 | grep BOOM",
-				"echo BOOM; node scripts/resolve-ticket.js 1 --comment-file c.md",
+				`gh issue view 1 | grep BOOM; echo BOOM ${TRACKER}#1`,
+				ClosingCall,
 			]);
 		const { out } = f.run();
 		expect(outcome(out)).toMatchObject({
@@ -537,6 +557,19 @@ describe("measure-outcome-review.js", () => {
 			baseline: { count: 4, sessions: 4 },
 			observed: 0,
 		});
+	});
+
+	it("still counts a call naming the same number in another tracker's session (#5777)", () => {
+		const { f, callSession } = callFinding();
+		const adopter = f.adopter("m", ADOPTER_TRACKER);
+		callSession("a-other", FIXED + 1, [ClosingCall], {
+			project: "-m",
+			cwd: path.join(adopter.root, "src"),
+		});
+		for (let i = 0; i < 2; i++)
+			callSession(`a${i}`, FIXED + 2 + i, [ClosingCall]);
+		const { out } = f.run();
+		expect(outcome(out)).toMatchObject({ sessions: 3, observed: 1 });
 	});
 
 	it("grows the window until the baseline predicts 3", () => {
