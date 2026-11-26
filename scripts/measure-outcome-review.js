@@ -1501,15 +1501,16 @@ function review({ root, seats, nowMs, tracker }) {
 	const repos = reads.map((r) => r.repo);
 	const byTracker = new Map(repos.map((p) => [p.tracker, p]));
 	const fixFrom = earliestFix(open, byTracker);
+	const bugs = new Map(
+		repos.map((p) => [
+			p.tracker,
+			fixFrom === null ? [] : readBugs(p.tracker, fixFrom, failures),
+		]),
+	);
 	const outcomes = readOutcomes(open, {
 		issues,
 		repos: byTracker,
-		bugs: new Map(
-			repos.map((p) => [
-				p.tracker,
-				fixFrom === null ? [] : readBugs(p.tracker, fixFrom, failures),
-			]),
-		),
+		bugs,
 		nowMs,
 		failures,
 		extended,

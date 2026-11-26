@@ -25,6 +25,7 @@ import {
 	OVERRIDE_LINE,
 	OVERRIDE_REASON,
 } from "./lib/gate-judge-fake";
+import { committedRepoTemplate, defineTemplate } from "./lib/git-fixture";
 import { readJsonl } from "./lib/jsonl.js";
 import { TAKES_VALUES } from "./lib/takes-label";
 
@@ -266,22 +267,15 @@ describe("the similar-title list", () => {
 });
 
 describe("--caused-by against the real repo (#5781)", () => {
-	const commitIn = (repo: string) => {
-		const git = (args: string[]) =>
-			execFileSync("git", ["-C", repo, ...args], {
+	const committed = defineTemplate(committedRepoTemplate);
+	const commitIn = (repo: string) =>
+		execFileSync(
+			"git",
+			["-C", committed.instantiate(repo), "rev-parse", "HEAD"],
+			{
 				encoding: "utf8",
-				env: {
-					...process.env,
-					GIT_AUTHOR_NAME: "t",
-					GIT_AUTHOR_EMAIL: "t@t",
-					GIT_COMMITTER_NAME: "t",
-					GIT_COMMITTER_EMAIL: "t@t",
-				},
-			}).trim();
-		git(["init", "-q"]);
-		git(["commit", "-q", "--allow-empty", "-m", "Break the lander"]);
-		return git(["rev-parse", "HEAD"]);
-	};
+			},
+		).trim();
 
 	it("writes a short sha the repo knows as its full sha", () => {
 		setUp();
@@ -301,7 +295,9 @@ describe("--caused-by against the real repo (#5781)", () => {
 			cwd: sb.repo,
 		});
 		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("--caused-by 'deadbee' names no commit");
+		expect(r.stderr).toContain(
+			"--caused-by 'deadbee' names no commit in this repo: give a sha of 7 to 40 lowercase hex digits that `git rev-parse` resolves here. Nothing filed.",
+		);
 		expect(readCreates()).toEqual([]);
 	});
 });

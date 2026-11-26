@@ -774,7 +774,7 @@ describe("the filing declarations (#4796)", () => {
 		});
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain(
-			"could not check --caused-by 'deadbee' against this repo: not a git repository",
+			"could not check --caused-by 'deadbee' against this repo: not a git repository. Run it from a checkout of this repo, or file without --caused-by and write the line in a comment once git can read it. Nothing filed.",
 		);
 		expect(readCreates()).toEqual([]);
 	});

@@ -417,7 +417,7 @@ function resolveCauses(io, ports, given = []) {
 			: { ok: true, sha: null };
 		if (!read.ok)
 			return io.fail(
-				`could not check --caused-by '${sha}' against this repo: ${read.why}. Nothing filed.`,
+				`could not check --caused-by '${sha}' against this repo: ${read.why}. Run it from a checkout of this repo, or file without --caused-by and write the line in a comment once git can read it. Nothing filed.`,
 				1,
 			);
 		if (read.sha === null)

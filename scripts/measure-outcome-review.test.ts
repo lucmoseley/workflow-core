@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readText } from "./lib/file-read";
+import { SEARCH_CAP } from "./lib/gh";
 import { GH_NOT_FOUND, readGhAnswer } from "./lib/gh-fake";
 import { stubGhHandler } from "./lib/gh-stub";
 import { defineTemplate, emptyRepoTemplate } from "./lib/git-fixture";
@@ -539,13 +540,15 @@ describe("measure-outcome-review.js", () => {
 	it("counts a body cause line by a 7-hex prefix, and none naming another commit, filed before the fix or on the finding (#5781)", () => {
 		const f = scratch();
 		baselineOfOne(f);
+		f.issues.push({ number: 2, title: "older finding" });
+		f.signatureLine(2);
+		f.commit("Stop the older (#2)", FIXED - 2);
 		const sha = fixedFinding(f);
 		const other = f.commit("Another change", FIXED + 1);
 		afterFix(f, 5, 0);
-		f.issues.push({ number: 2, title: "older finding" });
-		f.signatureLine(2);
-		f.issues[0] = {
-			...f.issues[0],
+		const finding = f.issues.findIndex((i) => i.number === 1);
+		f.issues[finding] = {
+			...f.issues[finding],
 			labels: ["bug"],
 			comments: [`**Caused by:** ${sha}`],
 			createdAt: d(FIXED + 2),
@@ -586,7 +589,7 @@ describe("measure-outcome-review.js", () => {
 		baselineOfOne(f);
 		fixedFinding(f);
 		afterFix(f, 5, 0);
-		for (let n = 100; n < 1100; n++)
+		for (let n = 100; n < 100 + SEARCH_CAP; n++)
 			f.issues.push({
 				number: n,
 				title: "noise",
@@ -596,7 +599,7 @@ describe("measure-outcome-review.js", () => {
 		const { out } = f.run();
 		expect(outcome(out)).toMatchObject({
 			verdict: "waiting",
-			why: `follow-ons unread: ${TRACKER}: bug issues unread: 1000 created since ${d(FIXED)} reach search's 1000-result cap`,
+			why: `follow-ons unread: ${TRACKER}: bug issues unread: ${SEARCH_CAP} created since ${d(FIXED)} reach search's ${SEARCH_CAP}-result cap`,
 		});
 	});
 

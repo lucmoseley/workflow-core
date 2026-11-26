@@ -1,6 +1,11 @@
+const { escapeRe } = require("./regex-group");
+
 const CAUSED_BY = "**Caused by:**";
 
-const SHA = /^[0-9a-f]{7,40}$/;
+const HEX = "[0-9a-f]{7,40}";
+const SHA = new RegExp(`^${HEX}$`);
+const CAUSE_LINE = new RegExp(`^\\s*(?:[-*]\\s+)?${escapeRe(CAUSED_BY)}(.*)$`);
+const NEXT_SHA = new RegExp(`^\\s*\`?(${HEX})\`?(?![0-9A-Za-z])\\s*(,?)`);
 
 /**
  * @param {string[]} shas
@@ -13,12 +18,17 @@ const buildCauseLine = (shas) => `${CAUSED_BY} ${shas.join(", ")}`;
  * @returns {string[]}
  */
 function parseCauseShas(text) {
-	return text.split("\n").flatMap((line) => {
-		const at = line.indexOf(CAUSED_BY);
-		if (at === -1) return [];
-		return [
-			...line.slice(at + CAUSED_BY.length).matchAll(/\b[0-9a-f]{7,40}\b/g),
-		].map((m) => m[0]);
+	return text.split(/\r?\n/).flatMap((line) => {
+		/** @type {string[]} */
+		const shas = [];
+		let rest = CAUSE_LINE.exec(line)?.[1] ?? "";
+		for (;;) {
+			const [token, sha, comma] = NEXT_SHA.exec(rest) ?? [];
+			if (token === undefined || sha === undefined) return shas;
+			shas.push(sha);
+			if (!comma) return shas;
+			rest = rest.slice(token.length);
+		}
 	});
 }
 
