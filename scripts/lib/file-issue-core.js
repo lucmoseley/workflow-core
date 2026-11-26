@@ -48,7 +48,7 @@ const {
 const { SIGNATURE_LABEL } = require("./signature-label.js");
 const { hostRoot, worktreeRoot } = require("./host-root.js");
 const { docPath, scriptPath } = require("./script-path.js");
-const { buildCauseLine } = require("./cause-line.js");
+const { SHA, buildCauseLine } = require("./cause-line.js");
 
 const HUMAN_LABEL = takesLabel("human");
 
@@ -82,7 +82,7 @@ const SPEC = {
  *   {ok: string, warning?: string} | {error: string}} link
  * @property {(body: string) => {refusal: string|null, advice: string}} judge
  * @property {(file: string) => string} readBody
- * @property {(sha: string) => string | null} resolveCommit
+ * @property {(rev: string) => ReturnType<typeof import("./commit-sha.js").readCommit>} readCommit
  * @property {() => number} now
  */
 
@@ -400,7 +400,6 @@ function checkFiling(io, ports, parsed) {
 	return { opts, body, declared, causes, repo, parent, added, labels };
 }
 
-// #5781
 /**
  * @param {Streams} io
  * @param {FileIssuePorts} ports
@@ -412,15 +411,21 @@ function resolveCauses(io, ports, given = []) {
 	for (const sha of given
 		.flatMap((csv) => csv.split(","))
 		.map((t) => t.trim())) {
-		const resolved = /^[0-9a-f]{7,40}$/.test(sha)
-			? ports.resolveCommit(sha)
-			: null;
-		if (resolved === null)
+		/** @type {ReturnType<FileIssuePorts["readCommit"]>} */
+		const read = SHA.test(sha)
+			? ports.readCommit(sha)
+			: { ok: true, sha: null };
+		if (!read.ok)
+			return io.fail(
+				`could not check --caused-by '${sha}' against this repo: ${read.why}. Nothing filed.`,
+				1,
+			);
+		if (read.sha === null)
 			return io.fail(
 				`--caused-by '${sha}' names no commit in this repo: give a sha of 7 to 40 lowercase hex digits that \`git rev-parse\` resolves here. Nothing filed.`,
 				2,
 			);
-		full.push(resolved);
+		full.push(read.sha);
 	}
 	return full;
 }

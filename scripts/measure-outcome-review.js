@@ -15,6 +15,7 @@ const {
 	ghJson,
 	isNotFound,
 	retryingOnceSync,
+	SEARCH_CAP,
 } = require("./lib/gh");
 const { hostRoot } = require("./lib/host-root");
 const { configDirs } = require("./lib/arbiter-store");
@@ -41,7 +42,7 @@ const {
 const { RUN_RECORD } = require("./lib/retro-record");
 const { SIGNATURE_LABEL } = require("./lib/signature-label");
 const { canonicalJson } = require("./lib/canonical-json");
-const { causeShas } = require("./lib/cause-line");
+const { parseCauseShas } = require("./lib/cause-line");
 
 const DAY_MS = 86_400_000;
 // guess, #4796
@@ -521,7 +522,7 @@ function followOnsOf(bugs, f, fix, { tracker, nowMs }) {
 			if (!(created > fix.at && created <= nowMs)) return false;
 			if (tracker === f.repo && b.number === f.number) return false;
 			return [b.body ?? "", ...(b.comments ?? []).map((c) => c.body)].some(
-				(text) => causeShas(text).some((sha) => fix.sha.startsWith(sha)),
+				(text) => parseCauseShas(text).some((sha) => fix.sha.startsWith(sha)),
 			);
 		})
 		.map((b) => `${tracker}#${b.number}`);
@@ -1219,7 +1220,7 @@ function buildText(r) {
  * @param {string} tracker
  * @param {string[]} failures
  */
-const issueLister =
+const buildIssueLister =
 	(tracker, failures) =>
 	/** @param {string} what @param {string[]} args */
 	(what, args) =>
@@ -1232,23 +1233,27 @@ const issueLister =
 			failures,
 		);
 
-// measured 9 s to 40 s for all 588 bug issues once comments are read, #5782
 /**
  * @param {string} tracker
  * @param {number} fixMs
  * @param {string[]} failures
  */
-const readBugs = (tracker, fixMs, failures) =>
-	issueLister(tracker, failures)("bug issues", [
+function readBugs(tracker, fixMs, failures) {
+	const read = buildIssueLister(tracker, failures)("bug issues", [
 		"--state",
 		"all",
 		"--label",
 		"bug",
 		"--search",
-		`created:>=${day(fixMs)}`,
+		`created:>=${iso(fixMs).replace(/\.\d{3}Z$/, "Z")}`,
 		"--json",
 		"number,title,body,createdAt,labels,comments",
 	]);
+	if (typeof read === "string" || read.length < SEARCH_CAP) return read;
+	const why = `${tracker}: bug issues unread: ${read.length} created since ${iso(fixMs)} reach search's ${SEARCH_CAP}-result cap`;
+	failures.push(why);
+	return why;
+}
 
 /**
  * @param {string} tracker
@@ -1256,7 +1261,7 @@ const readBugs = (tracker, fixMs, failures) =>
  * @param {string[]} failures
  */
 function readTracker(tracker, nowMs, failures) {
-	const list = issueLister(tracker, failures);
+	const list = buildIssueLister(tracker, failures);
 	return {
 		closed: list("closed issues", [
 			"--state",

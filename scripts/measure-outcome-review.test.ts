@@ -243,7 +243,8 @@ if (api && api[2] === "commits") {
   out(notFound.stdout); err(notFound.stderr); exit(notFound.status);
 } else if (argv[0] === "issue" && argv[1] === "list" && argv.includes("--label")) {
   const closedOnly = flag("--state") === "closed";
-  out(JSON.stringify(inRepo.filter((i) => (i.labels ?? []).includes(flag("--label")) && (!closedOnly || i.closedAt)).map(row)));
+  const from = argv.includes("--search") ? Date.parse(flag("--search").match(/^created:>=(\\S+)$/)[1]) : -Infinity;
+  out(JSON.stringify(inRepo.filter((i) => (i.labels ?? []).includes(flag("--label")) && (!closedOnly || i.closedAt) && Date.parse(created(i)) >= from).map(row)));
 } else if (argv[0] === "issue" && argv[1] === "list" && flag("--state") === "closed") {
   out(JSON.stringify(inRepo.filter((i) => i.closedAt).map(row)));
 } else { err("unrouted: " + argv.join(" ") + "\\n"); exit(1); }
@@ -498,6 +499,13 @@ describe("measure-outcome-review.js", () => {
 				body: `Waiting on load is banned (#1, ${sha.slice(0, 9)}), so the gates must fit.`,
 				createdAt: d(FIXED + 2),
 			},
+			{
+				number: 11,
+				title: "`main` is red: failures the queue lander blames on no member",
+				labels: ["bug", "origin:ci-red"],
+				body: `## What to build\n\n- Main: \`${sha}\`\n\nFailing:\n- \`scripts/lib/pypi-registry.contract.test.ts\`\n`,
+				createdAt: d(FIXED + 2),
+			},
 			redMain(sha, 10, [
 				`## Triage\n\nNeither commit in the range (${sha.slice(0, 9)}) touches the shell-guard files.`,
 			]),
@@ -548,7 +556,7 @@ describe("measure-outcome-review.js", () => {
 				title: "lander hangs",
 				labels: ["bug"],
 				body: `**Caused by:** ${sha.slice(0, 7)}`,
-				createdAt: d(FIXED + 2),
+				createdAt: new Date(Date.parse(d(FIXED)) + 3_600_000).toISOString(),
 			},
 			{
 				number: 10,
@@ -570,6 +578,25 @@ describe("measure-outcome-review.js", () => {
 		expect(outcome(out)).toMatchObject({
 			verdict: "unwind",
 			guardrails: { reverts: [], followOns: [`${TRACKER}#9`] },
+		});
+	});
+
+	it("reads no follow-on past search's result cap, saying so (#5782)", () => {
+		const f = scratch();
+		baselineOfOne(f);
+		fixedFinding(f);
+		afterFix(f, 5, 0);
+		for (let n = 100; n < 1100; n++)
+			f.issues.push({
+				number: n,
+				title: "noise",
+				labels: ["bug"],
+				createdAt: d(FIXED + 1),
+			});
+		const { out } = f.run();
+		expect(outcome(out)).toMatchObject({
+			verdict: "waiting",
+			why: `follow-ons unread: ${TRACKER}: bug issues unread: 1000 created since ${d(FIXED)} reach search's 1000-result cap`,
 		});
 	});
 

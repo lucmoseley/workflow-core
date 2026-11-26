@@ -4,7 +4,8 @@ const { runLinkSync } = require("./link-writer.js");
 const { readGateWrite } = require("./gate-judge.js");
 const { now } = require("./check.js");
 const { readFdAll } = require("./read-fd.js");
-const { gitOrNull } = require("./git.js");
+const { gitReader } = require("./git.js");
+const { readCommit } = require("./commit-sha.js");
 
 /** @type {import("./file-issue-core.js").FileIssuePorts["link"]} */
 function link(repo, parent, child) {
@@ -24,13 +25,7 @@ const buildHostPorts = () => ({
 		file === "-"
 			? readFdAll(0).toString("utf8")
 			: fs.readFileSync(file, "utf8"),
-	resolveCommit: (sha) =>
-		gitOrNull([
-			"rev-parse",
-			"--verify",
-			"--quiet",
-			`${sha}^{commit}`,
-		])?.trim() || null,
+	readCommit: (rev) => readCommit(gitReader(), rev),
 	now,
 });
 
