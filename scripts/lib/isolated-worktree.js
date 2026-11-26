@@ -34,14 +34,17 @@ function readLinkedPaths(dir) {
 		undefined,
 	);
 	return [
-		...SHARED_ARTEFACTS,
-		...(declared ?? []).map((entry) => {
-			const normal = path.normalize(entry);
-			return normal.length > 1 && normal.endsWith(path.sep)
-				? normal.slice(0, -1)
-				: normal;
-		}),
+		...new Set([...SHARED_ARTEFACTS, ...(declared ?? []).map(normalisedLink)]),
 	];
+}
+
+/**
+ * @param {string} entry
+ * @returns {string}
+ */
+function normalisedLink(entry) {
+	const normalised = path.normalize(entry);
+	return normalised.endsWith(path.sep) ? normalised.slice(0, -1) : normalised;
 }
 
 /**
