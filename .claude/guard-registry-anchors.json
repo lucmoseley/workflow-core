@@ -67,7 +67,7 @@
 	"scripts/in-flight-runs.js": "dbee29ac2dad3dbd",
 	"scripts/inject-compaction-count.js": "4426bc98c73a714d",
 	"scripts/inject-founder-wording.js": "3eafb57ef3eef410",
-	"scripts/inject-tracker-docs.js": "3c8089b9809ab503",
+	"scripts/inject-tracker-docs.js": "515412f92458c1f6",
 	"scripts/landing-registry-gate.js": "2ad4d5a3762565eb",
 	"scripts/lib/commit-subject.js": "d2fd75034d6d0117",
 	"scripts/machine-figures.sh": "37f00dde4470ec92",

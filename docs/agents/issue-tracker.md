@@ -88,7 +88,7 @@ Fourteen days governs dated gates alone — a judgement, not a measurement. A da
 
 <!-- rule:close-outstanding-line:end -->
 
-The findings that feed that line come from `/code-review`: every finding is **fixed** (name the commit), **ticketed** (name the open issue), or **declined** (say why). **Fix first** (#4284): `docs/agents/rules/review-finding-destination.txt`, which `/code-review` is handed, says which findings are fixed in the session that found them and which are ticketed. A whole-spec review's TICKETED line names its exception — `claimed by <session name>`, `needs its own design: <reason>` or `exposed, not caused` — or the comment is refused (#4492).
+The findings that feed that line come from `/code-review`: every finding is **fixed** (name the commit), **ticketed** (name the open issue), or **declined** (say why). **Fix first** (#4284): `docs/agents/rules/review-finding-destination.txt`, which `/code-review` is handed, says which findings are fixed in the session that found them and which are ticketed. A whole-spec review's TICKETED line names its exception — `claimed by <session name>`, `needs its own design: <reason>` or, on a live fault only, `exposed, not caused` — or the comment is refused (#4492, #5771): a corner or tidying finding with no other exception is fixed or declined, never filed.
 
 **Only a live fault keeps a spec in re-review** (#3811). From a whole-spec review's second pass on, and on a fix ticket's own `/code-review` at any pass, each finding ticketed on one of those exceptions gets one class, which picks where it is filed, never whether it is fixed:
 
