@@ -36,7 +36,7 @@ const NAMED_MEASURED_FILES = 6;
  *   | { kind: "node-test" }
  *   | { kind: "next-build" }
  *   | { kind: "tsc", major?: number | null }
- *   | { kind: "lander", files: readonly string[] }} Launch
+ *   | { kind: "lander", files: readonly string[], wholeMb?: number }} Launch
  */
 
 /**
@@ -68,7 +68,7 @@ function chargeMb(launch) {
 		case "lander":
 			return launch.files.length === 0 ||
 				launch.files.length > NAMED_MEASURED_FILES
-				? LANDER_CHARGE_MB.whole
+				? (launch.wholeMb ?? LANDER_CHARGE_MB.whole)
 				: LANDER_CHARGE_MB.named;
 	}
 }

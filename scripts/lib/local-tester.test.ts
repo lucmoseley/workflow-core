@@ -17,6 +17,7 @@ import { queueSeat } from "./suite-queue.js";
 import { suiteSlot } from "./suite-slot.js";
 import { admitted } from "./suite-slot-fake";
 import { LANDER_WORKTREE } from "./worktree-dirs.js";
+import { restoreStderr, spyStderr } from "./write-fd-testkit";
 
 const BATCH0 = { kind: "batch", slot: 0 } as const;
 
@@ -712,6 +713,79 @@ it("charges a whole suite, a named-file rerun and one past six files as lander r
 		launchChargeMb({ kind: "lander", files: seven }),
 	]);
 	expect(charged[1]).toBeLessThan(Number(charged[0]));
+});
+
+describe("a whole run's charge from the repo's run record (#5705)", () => {
+	const ledger = () => path.join(markersDir(work), ".lander-runs.jsonl");
+	const run = (peakMb: number, extra: object = {}) => ({
+		kind: "whole",
+		verdict: "green",
+		tester: "local",
+		peakMb,
+		...extra,
+	});
+	const writeLedger = (rows: object[]) =>
+		fs.writeFileSync(ledger(), rows.map((r) => JSON.stringify(r)).join("\n"));
+	const chargedOnce = async (files: string[] = []) => {
+		const charged: number[] = [];
+		const stderr = spyStderr();
+		try {
+			await localTester({
+				root: work,
+				admit: async (slot) => {
+					charged.push(slot.chargeMb);
+					return admitted().admit();
+				},
+				exec: recordingExec().exec,
+			}).verdict(BATCH0, passing, files);
+			return {
+				charged,
+				said: stderr.mock.calls.map(([text]) => text).join(""),
+			};
+		} finally {
+			restoreStderr();
+		}
+	};
+
+	it("charges the highest of the last 20 measured local whole runs, skipping Actions, named, unjudged and unmeasured ones", async () => {
+		writeLedger([
+			...Array.from({ length: 5 }, () => run(5000)),
+			...Array.from({ length: 19 }, (_, i) => run(400 + i)),
+			run(9000, { tester: "actions" }),
+			run(8000, { kind: "named" }),
+			run(7000, { verdict: "unknown" }),
+			run(0),
+			run(650, { verdict: "red" }),
+		]);
+		const { charged, said } = await chargedOnce();
+		expect(charged).toEqual([650]);
+		expect(said).not.toContain("not this repo's peak");
+	});
+
+	it("charges a named run its own figure, not the record's peak", async () => {
+		writeLedger(Array.from({ length: 20 }, () => run(3500)));
+		expect((await chargedOnce(["a.check.js"])).charged).toEqual([
+			launchChargeMb({ kind: "lander", files: ["a.check.js"] }),
+		]);
+	});
+
+	it("keeps the default whole charge, and says why, under ten measured runs", async () => {
+		writeLedger(Array.from({ length: 9 }, () => run(300)));
+		const { charged, said } = await chargedOnce();
+		expect(charged).toEqual([WHOLE.chargeMb]);
+		expect(said).toContain(
+			`lander: charged ${WHOLE.chargeMb} MB, not this repo's peak: 9 measured local whole runs`,
+		);
+	});
+
+	it("keeps the default whole charge, and says why, where the record will not read", async () => {
+		fs.mkdirSync(ledger(), { recursive: true });
+		const { charged, said } = await chargedOnce();
+		expect(charged).toEqual([WHOLE.chargeMb]);
+		expect(said).toMatch(
+			/not this repo's peak: the run record .* would not read \(EISDIR/,
+		);
+	});
 });
 
 it("opens the gate's memory rung at a whole suite's and a named-file rerun's charge (#3323, #3973)", async () => {

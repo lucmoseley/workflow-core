@@ -12,6 +12,7 @@ const { appendRetained } = require("./retained-jsonl.js");
 const {
 	RUN_RECORD_RETAIN_MS,
 	localSeconds,
+	measuredWholePeak,
 	recordRun,
 } = require("./lander-run-record.js");
 const { writeFd } = require("./write-fd.js");
@@ -492,6 +493,25 @@ function watchMemoryShut(admit) {
 }
 
 /**
+ * @param {string} root
+ * @param {readonly string[]} files
+ * @returns {number}
+ */
+function landerChargeMb(root, files) {
+	const named = launchChargeMb({ kind: "lander", files });
+	const whole = launchChargeMb({ kind: "lander", files: [] });
+	if (named !== whole) return named;
+	const measured = measuredWholePeak(root);
+	if ("peakMb" in measured)
+		return launchChargeMb({ kind: "lander", files, wholeMb: measured.peakMb });
+	writeFd(
+		2,
+		`lander: charged ${whole} MB, not this repo's peak: ${measured.why}\n`,
+	);
+	return whole;
+}
+
+/**
  * @param {LocalTesterOptions} options
  * @returns {QueueTester}
  */
@@ -515,9 +535,8 @@ function localTester({
 				return { kind: "unknown", reason: groups };
 			const kind = files.length > 0 ? "named" : "whole";
 			const tally = { ran: 0, peakKb: 0, samples: 0 };
-			const watched = watchMemoryShut(() =>
-				admit({ chargeMb: launchChargeMb({ kind: "lander", files }) }),
-			);
+			const chargeMb = landerChargeMb(root, files);
+			const watched = watchMemoryShut(() => admit({ chargeMb }));
 			const verdict = await runEach(groups, checkout, {
 				admit: watched.admit,
 				treePss,

@@ -50,6 +50,16 @@ describe("lib/launch-charge.js", () => {
 			{ kind: "lander", files: named(7) },
 			1929,
 		],
+		[
+			"a lander's whole run at its repo's measured peak (#5705)",
+			{ kind: "lander", files: [], wholeMb: 650 },
+			650,
+		],
+		[
+			"a lander's named run its own figure past a measured peak (#5705)",
+			{ kind: "lander", files: named(1), wholeMb: 650 },
+			940,
+		],
 	] as const)("charges %s", (_, launch, mb) => {
 		expect(chargeMb(launch)).toBe(mb);
 	});
