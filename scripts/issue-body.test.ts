@@ -561,7 +561,10 @@ describe("the CLI", () => {
 			path.join(root, ".claude", "workflow-core.json"),
 			JSON.stringify({ tracker: "owner/theirs" }),
 		);
-		fs.writeFileSync(path.join(root, "their-file.txt"), "their reading\n");
+		fs.writeFileSync(
+			path.join(root, "their-file.txt"),
+			"unmet: their reading\n",
+		);
 		vi.stubEnv("HOME", home);
 		fs.writeFileSync(store, "## Log\n\nv0\n");
 		const line =

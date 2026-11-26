@@ -30,13 +30,33 @@ describe("a check the write adds", () => {
 		);
 	});
 
-	it("passes a check that prints a reading, whatever its exit code", () => {
-		for (const check of ["`echo on main`", "echo nothing; false"])
+	it("passes a check that prints a verdict, whatever its exit code", () => {
+		for (const check of [
+			"`echo met: on main`",
+			"echo unmet: nothing; false",
+			'`echo "7 of 8 verdicts"`',
+		])
 			expect(verdictOf("", gate(check))).toEqual({
 				refusals: [],
 				warnings: [],
 			});
 	});
+
+	it.each([
+		["`echo 7`", "`7`"],
+		["`echo round-log rows: 0`", "`round-log rows: 0`"],
+	])(
+		"refuses %s, whose reading %s carries no verdict, naming both fixes (#5756)",
+		(check, shown) => {
+			const { refusals } = verdictOf("", gate(check));
+			expect(refusals).toHaveLength(1);
+			expect(refusals[0]).toContain(
+				`prints ${shown}, which carries no verdict`,
+			);
+			expect(refusals[0]).toContain('echo "met: on main"');
+			expect(refusals[0]).toContain("of 25 rows");
+		},
+	);
 
 	it("warns a check that runs past its budget, and refuses nothing", () => {
 		const { refusals, warnings } = addedCheckVerdict("", gate("sleep 5"), {
@@ -79,7 +99,10 @@ describe("a check on another repo's issue", () => {
 			path.join(root, ".claude", "workflow-core.json"),
 			JSON.stringify({ tracker }),
 		);
-		fs.writeFileSync(path.join(root, "their-file.txt"), "their reading\n");
+		fs.writeFileSync(
+			path.join(root, "their-file.txt"),
+			"unmet: their reading\n",
+		);
 		vi.stubEnv("HOME", home);
 		return root;
 	};
@@ -110,10 +133,10 @@ describe("a check on another repo's issue", () => {
 		expect(
 			verdictOn(
 				theirs,
-				`\`echo "$WFC_REPO_ROOT" | tee ${shellQuote(printed)}\``,
+				`\`echo "unmet: $WFC_REPO_ROOT" | tee ${shellQuote(printed)}\``,
 			).refusals,
 		).toEqual([]);
-		expect(fs.readFileSync(printed, "utf8").trim()).toBe(root);
+		expect(fs.readFileSync(printed, "utf8").trim()).toBe(`unmet: ${root}`);
 	});
 
 	it("refuses, naming the missing checkout, and never runs it in this tree", () => {
