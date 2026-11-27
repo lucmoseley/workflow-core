@@ -82,7 +82,7 @@
 	"scripts/reap-orphan-hooks.js": "4195c7cea75e3fd9",
 	"scripts/reconcile-plugin.js": "20f67be572061aa9",
 	"scripts/record-acts.js": "7b21ac2a2f325b86",
-	"scripts/record-delegated-decision.js": "afc456b03f54658b",
+	"scripts/record-delegated-decision.js": "ca4b819fcb75b7b2",
 	"scripts/record-divergence.js": "a0130f66f6c35ddb",
 	"scripts/record-issue-claim.js": "d5665e5a61edf11f",
 	"scripts/refill-wake.sh": "a3deabe0979a4500",

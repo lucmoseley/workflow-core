@@ -158,18 +158,27 @@ function readDecisions(root, repo, since) {
 }
 
 /**
- * @param {string | null} after
+ * @param {import("./delegated-decision.js").Neighbour} after
  * @param {string} since
  */
 const isBefore = (after, since) =>
-	after !== null && Date.parse(after) < Date.parse(since);
+	after?.at != null && Date.parse(after.at) < Date.parse(since);
+
+/**
+ * @param {import("./delegated-decision.js").Neighbour} neighbour
+ * @param {string} edge
+ */
+const buildNeighbourText = (neighbour, edge) => {
+	if (neighbour === null) return edge;
+	return neighbour.at ?? "an undated row";
+};
 
 /** @param {import("./delegated-decision.js").ZeroedRecord[]} zeroed */
 const buildZeroedText = (zeroed) =>
 	`${zeroed.length} ledger record(s) zeroed by a crash, written ${zeroed
 		.map(
 			({ before, after }) =>
-				`between ${before ?? "the ledger's start"} and ${after ?? "its end"}`,
+				`between ${buildNeighbourText(before, "the ledger's start")} and ${buildNeighbourText(after, "its end")}`,
 		)
 		.join("; ")}`;
 
