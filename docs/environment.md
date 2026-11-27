@@ -556,6 +556,8 @@ hcsdiag kill <GUID>
 
 `hcsdiag` was not tried on 3 Nov, so its effect on a clock leap's hung shutdown is unmeasured (#4081).
 
+**A kernel dump's PFN database is scanned by `node scripts/pfn-scan.js <dump>`** (#5804): every entry's +0x28 qword, flagged where its frame is not RAM, its partition is not 0 or its high bits are rare, as #5735 traced by hand. It flags only PFN 0x953de in the 24 Nov dump. It runs `cdbARM64.exe` through PowerShell and fetches the kernel PDB from Microsoft's symbol server into `C:\diag\5743\sym\` itself. **The combining-on nights of #5743's Verifier pass** run from `bash scripts/install-combining-trial.sh`, one UAC prompt: elevated tasks "Verifier 5743 combining on", "… combining off" and "… live dump" (`page-combining.ps1`); user timers turning combining on at 23:00 on 3 nights with launches held, and at 07:00 each morning to 4 Dec taking a live kernel dump to `C:\diag\5743\dumps\`, turning combining off and posting the scan on #5743. `on-bugcheck.ps1` turns combining off on the boot after a crash dump.
+
 ---
 
 ## 9. Interop-bridge wedge

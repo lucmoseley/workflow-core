@@ -33,6 +33,7 @@ describe("Windows-side script tooling is declined (mantahostels#1131)", () => {
 		expect(readTracked("scripts/win-interop-watchdog/*")).toEqual([
 			"scripts/win-interop-watchdog/compact-disk.ps1",
 			"scripts/win-interop-watchdog/launcher.vbs",
+			"scripts/win-interop-watchdog/page-combining.ps1",
 			"scripts/win-interop-watchdog/rebuild-disk.ps1",
 			"scripts/win-interop-watchdog/task.xml.template",
 			"scripts/win-interop-watchdog/watchdog.ps1",

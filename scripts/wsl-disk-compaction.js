@@ -12,7 +12,7 @@ const { now } = require("./lib/check.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { ghJson, parseErrLine } = require("./lib/gh.js");
 const { originLabel } = require("./lib/issue-origin.js");
-const { HOLD_MAX_MINUTES } = require("./lib/launch-hold.js");
+const { setLaunchHold } = require("./lib/launch-hold.js");
 const { runCommand } = require("./lib/run-command.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
@@ -114,15 +114,6 @@ const sparsePorts = {
 	file: fileTicket,
 };
 
-/** @param {string[]} args */
-function setRefill(args) {
-	return runCommand(
-		process.execPath,
-		[path.join(__dirname, "refill-loop.js"), "set", ...args],
-		{ env: { ...process.env, CLAUDE_CODE_SESSION_ID: HOLDER } },
-	).error;
-}
-
 /** @returns {{live: number, waiting: number} | {why: string}} */
 function readLiveSessions() {
 	const listed = readAgentsForCompaction();
@@ -142,8 +133,8 @@ const runPorts = {
 	appendLine: host.appendCompactLog,
 	sparseWatch: () => runSparseWatch(sparsePorts),
 	readLiveSessions,
-	hold: () => setRefill(["--hold-launches", String(HOLD_MAX_MINUTES)]),
-	release: () => setRefill(["--release-launches"]),
+	hold: () => setLaunchHold(HOLDER, "hold"),
+	release: () => setLaunchHold(HOLDER, "release"),
 	sleep: sleepSync,
 	trim: () => runCommand(wslExe(), ["-u", "root", "fstrim", "-av"]),
 	startTask: () =>
