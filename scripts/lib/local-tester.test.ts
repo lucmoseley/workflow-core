@@ -72,15 +72,12 @@ const commit = (message: string) => {
 };
 
 const recordingExec = () => {
-	const npm: string[] = [];
-	const installs: { cwd: string; args: string[] }[] = [];
+	const installs: { bin: string; cwd: string; args: string[] }[] = [];
 	return {
-		npm,
 		installs,
 		exec: (bin: string, args: string[], cwd: string) => {
 			if (args[0] === "ci") {
-				npm.push(bin);
-				installs.push({ cwd, args });
+				installs.push({ bin, cwd, args });
 				fs.mkdirSync(path.join(cwd, "node_modules"), { recursive: true });
 				return;
 			}
@@ -310,15 +307,16 @@ it("installs once per lockfile through WFC_NPM, again only when it changes", asy
 	const sameLock = commit("same lock");
 	write("package-lock.json", '{"v":2}');
 	const changed = commit("lock v2");
-	const { npm, exec } = recordingExec();
+	const { installs, exec } = recordingExec();
+	const npm = () => installs.map((i) => i.bin);
 	const tester = localTester({ root: work, admit: admitted().admit, exec });
 
 	await tester.verdict(BATCH0, first);
-	expect(npm).toEqual([stub]);
+	expect(npm()).toEqual([stub]);
 	await tester.verdict(BATCH0, sameLock);
-	expect(npm).toEqual([stub]);
+	expect(npm()).toEqual([stub]);
 	await tester.verdict(BATCH0, changed);
-	expect(npm).toEqual([stub, stub]);
+	expect(npm()).toEqual([stub, stub]);
 });
 
 it("installs each tracked nested lockfile in its own directory, scripts off, before the test command runs (#5828)", async () => {
@@ -362,6 +360,31 @@ it("stamps each lockfile's directory apart, so only the changed one reinstalls (
 	expect([installs.length, plugin()]).toEqual([3, 2]);
 });
 
+it("gives install failed where a nested directory's install fails, and stamps one whose install made no node_modules (#5828)", async () => {
+	vi.stubEnv("WFC_NPM", path.join(tmp, "stub-npm"));
+	write("plugin/package-lock.json", '{"plugin":1}');
+	write("empty/package-lock.json", '{"empty":1}');
+	const locked = commit("nested locks");
+	const ran: string[] = [];
+	const exec = (bin: string, args: string[], cwd: string) => {
+		if (args[0] !== "ci") {
+			execFileSync(bin, args, { cwd, stdio: "ignore" });
+			return;
+		}
+		ran.push(path.basename(cwd));
+		if (path.basename(cwd) === "plugin") throw new Error("plugin ci exploded");
+	};
+	const tester = localTester({ root: work, admit: admitted().admit, exec });
+
+	expect(await tester.verdict(BATCH0, locked)).toMatchObject({
+		kind: "unknown",
+		reason: expect.stringMatching(/^install failed: .*plugin ci exploded/),
+	});
+	expect(ran).toEqual(["empty", "plugin"]);
+	await tester.verdict(BATCH0, locked);
+	expect(ran).toEqual(["empty", "plugin", "plugin"]);
+});
+
 it("installs no lockfile git does not track, such as one inside a node_modules (#5828)", async () => {
 	vi.stubEnv("WFC_NPM", path.join(tmp, "stub-npm"));
 	write("plugin/package-lock.json", '{"plugin":1}');
@@ -387,6 +410,7 @@ it("installs no lockfile git does not track, such as one inside a node_modules (
 it("beats between a group's checkout and its install, so the lander's heartbeat waits on one bounded call (#5644)", async () => {
 	vi.stubEnv("WFC_NPM", path.join(tmp, "stub-npm"));
 	write("package-lock.json", '{"v":1}');
+	write("plugin/package-lock.json", '{"plugin":1}');
 	const locked = commit("lock v1");
 	const order: string[] = [];
 	const { exec } = recordingExec();
@@ -405,6 +429,9 @@ it("beats between a group's checkout and its install, so the lander's heartbeat 
 	expect(install).toBeGreaterThan(0);
 	expect(order[install - 1]).toBe("beat");
 	expect(order.slice(0, install - 1)).toContain("git");
+	const second = order.indexOf("install", install + 1);
+	expect(second).toBeGreaterThan(install);
+	expect(order[second - 1]).toBe("beat");
 });
 
 it("runs the declared full_test over test, and the Python suite only where the config routes Python tests", async () => {

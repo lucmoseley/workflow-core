@@ -1,5 +1,5 @@
 const { execFileSync, spawn } = require("node:child_process");
-const { gitBinary, gitSpawnOptions } = require("./git.js");
+const { execGit, gitBinary, gitSpawnOptions } = require("./git.js");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -195,13 +195,13 @@ function checkOut(root, dir, sha, exec) {
  * @param {string} dir
  * @returns {string[]}
  */
-function trackedLockDirs(dir) {
-	const listed = execFileSync(
-		gitBinary(),
-		["ls-files", "-z", "--", `*${LOCKFILE}`],
-		gitSpawnOptions({ cwd: dir, timeout: CHECKOUT_TIMEOUT_MS }),
-	);
-	return String(listed)
+function readTrackedLockDirs(dir) {
+	return execGit(["ls-files", "-z", "--", `*${LOCKFILE}`], {
+		cwd: dir,
+		env: rootlessEnv(),
+		timeout: CHECKOUT_TIMEOUT_MS,
+		encoding: "utf8",
+	})
 		.split("\0")
 		.filter((f) => path.posix.basename(f) === LOCKFILE)
 		.map((f) => path.posix.dirname(f))
@@ -211,9 +211,10 @@ function trackedLockDirs(dir) {
 /**
  * @param {string} dir
  * @param {Exec} exec
+ * @param {() => void} beat
  */
-function install(dir, exec) {
-	for (const rel of trackedLockDirs(dir)) {
+function install(dir, exec, beat) {
+	for (const rel of readTrackedLockDirs(dir)) {
 		const at = path.join(dir, rel);
 		const lock = readBytes(path.join(at, LOCKFILE));
 		if (lock.state === "absent") continue;
@@ -223,9 +224,11 @@ function install(dir, exec) {
 		const stamped = readText(stamp);
 		if (stamped.state === "read" && stamped.data.trim() === hash) continue;
 		const scripts = rel === "." ? [] : ["--ignore-scripts"];
+		beat();
 		exec(npmBin(), ["ci", ...scripts, "--no-audit", "--no-fund"], at, {
 			timeout: INSTALL_TIMEOUT_MS,
 		});
+		fs.mkdirSync(path.dirname(stamp), { recursive: true });
 		fs.writeFileSync(stamp, `${hash}\n`);
 	}
 }
@@ -335,7 +338,7 @@ function checkOutAndInstall(checkout, beat) {
 	if (why !== null) return why;
 	beat();
 	try {
-		install(checkout.dir, checkout.exec);
+		install(checkout.dir, checkout.exec, beat);
 		return null;
 	} catch (err) {
 		return `install failed: ${whyFailed(err)}`;
