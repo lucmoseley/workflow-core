@@ -396,6 +396,58 @@ function pyUnits(source) {
 	}));
 }
 
+const PAGE_JS_CALLS = new Set([
+	"evaluate",
+	"evaluate_handle",
+	"evaluate_all",
+	"add_init_script",
+	"wait_for_function",
+]);
+
+/**
+ * @param {string} source
+ * @param {PyToken[]} tokens
+ * @param {number} k
+ */
+function holdsJs(source, tokens, k) {
+	const text = (/** @type {PyToken | undefined} */ t) =>
+		t ? source.slice(t.start, t.end) : "";
+	if (k >= 2 && /_JS$/.test(text(tokens[0])) && text(tokens[1]) === "=")
+		return true;
+	let j = k - 1;
+	while (j >= 0 && tokens[j]?.kind === "str") j--;
+	return text(tokens[j]) === "(" && PAGE_JS_CALLS.has(text(tokens[j - 1]));
+}
+
+/**
+ * @param {string} source
+ * @returns {Unit[]}
+ */
+function pyEmbeddedJsUnits(source) {
+	const src = blankShebang(source);
+	const starts = lineStarts(src);
+	return scanPy(src).logical.flatMap((tokens) =>
+		tokens.flatMap((t, k) => {
+			if (t.kind !== "str" || !holdsJs(src, tokens, k)) return [];
+			const raw = src.slice(t.start, t.end);
+			const open = /^[A-Za-z]*("""|'''|"|')/.exec(raw);
+			if (!open?.[1]) return [];
+			const body = raw.slice(
+				open[0].length,
+				raw.endsWith(open[1]) && raw.length >= open[0].length + open[1].length
+					? raw.length - open[1].length
+					: raw.length,
+			);
+			const shift = lineAt(starts, t.start + open[0].length) - 1;
+			return jsUnits(body).map((u) => ({
+				...u,
+				line: u.line + shift,
+				top: false,
+			}));
+		}),
+	);
+}
+
 const HEREDOC = /<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|\\?([\w.-]+))/y;
 
 /**
@@ -959,7 +1011,17 @@ function judgeUnit(unit, facts) {
  * @returns {Breach[]}
  */
 function judgeSource(source, facts) {
-	return UNITS[facts.lang](source).flatMap((u) => judgeUnit(u, facts));
+	const own = UNITS[facts.lang](source).flatMap((u) => judgeUnit(u, facts));
+	if (facts.lang !== "py") return own;
+	const asJs = {
+		...facts,
+		lang: /** @type {Lang} */ ("js"),
+		checkJs: false,
+		exports: new Set(),
+		shipped: false,
+	};
+	const held = pyEmbeddedJsUnits(source).flatMap((u) => judgeUnit(u, asJs));
+	return [...own, ...held].sort((a, b) => a.line - b.line);
 }
 
 /** @param {string[]} names */

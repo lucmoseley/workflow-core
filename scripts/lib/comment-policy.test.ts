@@ -514,6 +514,49 @@ describe("the refused shapes", () => {
 	});
 });
 
+describe("JavaScript a Python file holds in a string (#5793)", () => {
+	it("judges the comments of a string assigned to a name ending _JS", () => {
+		const src = [
+			'"""A module docstring naming no issue."""',
+			"",
+			'WATCH_JS = r"""(() => {',
+			"  // #5793",
+			"  const a = 1;",
+			"  // a stray note",
+			"  /* another stray note */",
+			"  return a;",
+			'})()"""',
+			"READ_JS = (",
+			'    r"""',
+			"// a third stray note",
+			'"""',
+			'    + "%LABEL%"',
+			")",
+			"",
+		].join("\n");
+		expect(tags(src, "py")).toEqual([
+			"COMMENT@1",
+			"COMMENT@6",
+			"COMMENT@7",
+			"COMMENT@12",
+		]);
+	});
+
+	it("judges a literal passed to a page call, and only there", () => {
+		const src = [
+			'page.evaluate("() => 1 // a stray note")',
+			"page.add_init_script(",
+			'    "window.a = 1;"',
+			'    "// another stray note"',
+			")",
+			'print("// not code a page runs")',
+			'URL = "https://example.com/a"',
+			"",
+		].join("\n");
+		expect(tags(src, "py")).toEqual(["COMMENT@1", "COMMENT@4"]);
+	});
+});
+
 describe("what is not a comment", () => {
 	it("passes tool directives that suppress nothing", () => {
 		expect(
