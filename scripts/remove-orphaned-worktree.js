@@ -21,7 +21,7 @@ const {
 	pairBlobs,
 	parseStatus,
 	presentEntries,
-	refusedMessage,
+	buildRefusedMessage,
 } = require("./lib/orphaned-worktree-refusals.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const {
@@ -68,7 +68,7 @@ function readRawStatus(target) {
  * @param {string} target
  * @param {string} spec
  */
-const resolves = (target, spec) =>
+const isResolvable = (target, spec) =>
 	Boolean(gitRead(["rev-parse", "--verify", "-q", spec], target));
 
 /**
@@ -135,18 +135,16 @@ async function readContents(target) {
 	const blobs = status ? hashFiles(target, presentEntries(status)) : [];
 	const files =
 		status && blobs ? pairBlobs(presentEntries(status), blobs) : null;
-	const refResolves = resolves(target, LANDED_REF);
 	return {
 		target,
 		ref: LANDED_REF,
-		refResolves,
-		unlandedCommits: refResolves
-			? countUnlandedCommits(target, LANDED_REF)
-			: null,
+		commits: isResolvable(target, LANDED_REF)
+			? { unlanded: countUnlandedCommits(target, LANDED_REF) }
+			: { unresolved: true },
 		status,
 		keptOnRef: status
 			? deletedPaths(status).filter((rel) =>
-					resolves(target, `${LANDED_REF}:${rel}`),
+					isResolvable(target, `${LANDED_REF}:${rel}`),
 				)
 			: [],
 		files,
@@ -166,7 +164,8 @@ async function readContents(target) {
  */
 async function readRefusals(root, target) {
 	const unregistered = judgeRegistration({
-		root: deref(root),
+		root,
+		mainRoot: deref(root),
 		target,
 		cwd: deref(process.cwd()),
 		linked: readLinkedWorktrees(root),
@@ -259,7 +258,7 @@ async function main() {
 	const refusals = await readRefusals(root, target);
 	if (refusals.length > 0)
 		io.fail(
-			refusedMessage(target, refusals, {
+			buildRefusedMessage(target, refusals, {
 				status: `git -C ${shellQuote(target)} status`,
 				land: buildWaysOut(target).land,
 			}),

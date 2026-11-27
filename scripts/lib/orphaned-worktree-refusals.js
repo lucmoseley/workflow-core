@@ -20,6 +20,7 @@ const nameSome = (paths) =>
  * @typedef {{pid: string, cwd: string}[] | {error: string}} Processes
  * @typedef {{
  *   root: string,
+ *   mainRoot: string,
  *   target: string,
  *   cwd: string,
  *   linked: string[]|null,
@@ -27,8 +28,7 @@ const nameSome = (paths) =>
  * @typedef {{
  *   target: string,
  *   ref: string,
- *   refResolves: boolean,
- *   unlandedCommits: number|null,
+ *   commits: {unresolved: true} | {unlanded: number|null},
  *   status: Status|null,
  *   keptOnRef: string[],
  *   files: File[]|null,
@@ -106,10 +106,10 @@ const judgedFiles = (files) => files.filter((f) => f.blob !== f.head);
  * @param {Registration} f
  * @returns {string|null}
  */
-function judgeRegistration({ root, target, cwd, linked }) {
+function judgeRegistration({ root, mainRoot, target, cwd, linked }) {
 	if (linked === null)
 		return `git would not list the worktrees of ${root}, so ${target} cannot be confirmed as one`;
-	if (target === root)
+	if (target === mainRoot)
 		return `${target} is the main checkout, not a linked worktree`;
 	if (!linked.includes(target))
 		return `${target} is not a registered worktree of ${root}`;
@@ -119,13 +119,13 @@ function judgeRegistration({ root, target, cwd, linked }) {
 }
 
 /** @param {Contents} f */
-function whyCommitsOff({ ref, refResolves, unlandedCommits }) {
-	if (!refResolves)
+function whyCommitsOff({ ref, commits }) {
+	if ("unresolved" in commits)
 		return `${ref} does not resolve, so whether its HEAD has landed is unknown`;
-	if (unlandedCommits === null)
+	if (commits.unlanded === null)
 		return `git would not count its commits off ${ref}`;
-	return unlandedCommits > 0
-		? `its HEAD has ${String(unlandedCommits)} commit(s) not on ${ref}`
+	return commits.unlanded > 0
+		? `its HEAD has ${String(commits.unlanded)} commit(s) not on ${ref}`
 		: null;
 }
 
@@ -209,7 +209,7 @@ function judgeContents(f) {
  * @param {string[]} refusals
  * @param {{status: string, land: string}} commands
  */
-const refusedMessage = (target, refusals, commands) =>
+const buildRefusedMessage = (target, refusals, commands) =>
 	`refused, nothing removed — ${target}:\n${refusals.map((r) => `  - ${r}`).join("\n")}\n` +
 	`Clear each, or read what it holds (${commands.status}) and land it: ${commands.land}`;
 
@@ -221,5 +221,5 @@ module.exports = {
 	pairBlobs,
 	parseStatus,
 	presentEntries,
-	refusedMessage,
+	buildRefusedMessage,
 };

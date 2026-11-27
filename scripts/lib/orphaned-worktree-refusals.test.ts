@@ -2,13 +2,13 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	buildRefusedMessage,
 	type Contents,
 	judgeContents,
 	judgeRegistration,
 	pairBlobs,
 	parseStatus,
 	presentEntries,
-	refusedMessage,
 	type Status,
 } from "./orphaned-worktree-refusals.js";
 
@@ -26,8 +26,7 @@ const status = (...fields: string[]): Status =>
 const clean = (over: Partial<Contents> = {}): Contents => ({
 	target: WT,
 	ref: "origin/main",
-	refResolves: true,
-	unlandedCommits: 0,
+	commits: { unlanded: 0 },
 	status: status(),
 	keptOnRef: [],
 	files: [],
@@ -41,6 +40,7 @@ const clean = (over: Partial<Contents> = {}): Contents => ({
 describe("judgeRegistration", () => {
 	const reg = {
 		root: "/repo",
+		mainRoot: "/repo",
 		target: WT,
 		cwd: "/elsewhere",
 		linked: [WT],
@@ -85,17 +85,17 @@ describe("judgeContents", () => {
 	it.each<[string, Partial<Contents>, string]>([
 		[
 			"an unresolved landed ref",
-			{ refResolves: false, unlandedCommits: null },
+			{ commits: { unresolved: true } },
 			"origin/main does not resolve, so whether its HEAD has landed is unknown",
 		],
 		[
 			"an uncountable history",
-			{ unlandedCommits: null },
+			{ commits: { unlanded: null } },
 			"git would not count its commits off origin/main",
 		],
 		[
 			"commits off the landed ref",
-			{ unlandedCommits: 2 },
+			{ commits: { unlanded: 2 } },
 			"its HEAD has 2 commit(s) not on origin/main",
 		],
 		[
@@ -241,7 +241,7 @@ describe("judgeContents", () => {
 		expect(
 			judgeContents(
 				clean({
-					unlandedCommits: 1,
+					commits: { unlanded: 1 },
 					status: status("? new.txt"),
 					files: [{ rel: "a.txt", head: H, index: H, gone: false, blob: W }],
 					landed: [false],
@@ -282,9 +282,11 @@ describe("parseStatus", () => {
 	});
 });
 
-describe("refusedMessage", () => {
+describe("buildRefusedMessage", () => {
 	it("lists each refusal and both ways out", () => {
-		expect(refusedMessage(WT, ["one", "two"], { status: "S", land: "L" })).toBe(
+		expect(
+			buildRefusedMessage(WT, ["one", "two"], { status: "S", land: "L" }),
+		).toBe(
 			`refused, nothing removed — ${WT}:\n  - one\n  - two\nClear each, or read what it holds (S) and land it: L`,
 		);
 	});

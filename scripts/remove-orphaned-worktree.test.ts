@@ -287,6 +287,17 @@ describe("remove-orphaned-worktree", () => {
 		expect(registered(wt)).toBe(true);
 	});
 
+	it("refuses where which sessions are live will not read", async () => {
+		landOnOrigin();
+		const wt = worktree();
+		vi.stubEnv("WFC_CLAUDE_BIN", path.join(sb.dir, "bin", "absent"));
+
+		expectRefused(
+			await remove(wt),
+			"whether a live session owns it is unknown",
+		);
+	});
+
 	it("refuses while a live session owns it", async () => {
 		landOnOrigin();
 		const wt = worktree();
