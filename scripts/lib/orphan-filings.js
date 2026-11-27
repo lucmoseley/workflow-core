@@ -102,12 +102,28 @@ function readWorktreeFiling(commonDir, label, dirt) {
 }
 
 /**
+ * @param {string} commonDir
+ * @param {string} label
+ */
+function dropWorktreeFilings(commonDir, label) {
+	const dir = path.join(commonDir, FILED_DIR);
+	const prefix = worktreePrefix(label);
+	const names = orFallback(
+		() => fs.readdirSync(dir),
+		/** @type {string[]} */ ([]),
+	);
+	for (const n of names)
+		if (n.startsWith(prefix)) fs.rmSync(path.join(dir, n), { force: true });
+}
+
+/**
  * @param {string} dir
  */
 function buildWaysOut(dir) {
 	const q = shellQuote(dir);
 	return {
 		land: `cd ${q} && node ${scriptPath("session-checkout.js")} land`,
+		removeLanded: `node ${scriptPath("remove-orphaned-worktree.js")} ${q}`,
 		remove: `git worktree remove --force ${q}`,
 	};
 }
@@ -115,6 +131,7 @@ function buildWaysOut(dir) {
 module.exports = {
 	FILED_DIR,
 	buildWaysOut,
+	dropWorktreeFilings,
 	markerName,
 	readWorktreeEdits,
 	readWorktreeFiling,

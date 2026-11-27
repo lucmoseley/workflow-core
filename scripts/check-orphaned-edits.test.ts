@@ -641,7 +641,8 @@ describe("a linked worktree's dirt", () => {
 		expect(body).toContain("| `a.txt` | 30h |");
 		expect(body).toContain("| yes, byte for byte |");
 		expect(body).toContain("holds nothing unlanded");
-		expect(body).toContain(`git worktree remove --force ${wt}`);
+		expect(body).toContain(`scripts/remove-orphaned-worktree.js ${wt}`);
+		expect(body).not.toContain("git worktree remove");
 		expect(body).not.toContain("session-checkout.js land");
 		expect(r.out).toContain("on origin/main: yes, byte for byte");
 	});
@@ -771,7 +772,7 @@ describe("a linked worktree's dirt", () => {
 
 		const [body] = bodyOf();
 		expect(body).toContain("| yes, its change in place |");
-		expect(body).toContain(`git worktree remove --force ${wt}`);
+		expect(body).toContain(`scripts/remove-orphaned-worktree.js ${wt}`);
 	});
 
 	function loggedGit() {
