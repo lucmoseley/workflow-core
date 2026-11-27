@@ -86,6 +86,19 @@ function dirty(rel: string, hours: number, content = "edited\n") {
 	fs.utimesSync(file, at, at);
 }
 
+function landOnOrigin(...commits: Record<string, string>[]) {
+	const git = (...args: string[]) =>
+		spawnSync("git", args, { cwd: sb.repo, encoding: "utf8" });
+	const head = git("rev-parse", "HEAD").stdout.trim();
+	for (const files of commits) {
+		for (const [rel, content] of Object.entries(files))
+			fs.writeFileSync(path.join(sb.repo, rel), content);
+		commitAll(sb, "landed");
+	}
+	git("update-ref", "refs/remotes/origin/main", "HEAD");
+	git("reset", "-q", "--hard", head);
+}
+
 const run = async (
 	args: string[] = [],
 	notify = false,
@@ -580,19 +593,6 @@ describe("a linked worktree's dirt", () => {
 		fs.utimesSync(file, at, at);
 	}
 
-	function landOnOrigin(...commits: Record<string, string>[]) {
-		const git = (...args: string[]) =>
-			spawnSync("git", args, { cwd: sb.repo, encoding: "utf8" });
-		const head = git("rev-parse", "HEAD").stdout.trim();
-		for (const files of commits) {
-			for (const [rel, content] of Object.entries(files))
-				fs.writeFileSync(path.join(sb.repo, rel), content);
-			commitAll(sb, "landed");
-		}
-		git("update-ref", "refs/remotes/origin/main", "HEAD");
-		git("reset", "-q", "--hard", head);
-	}
-
 	const reaperSees = (wt: string) =>
 		readWorktreeFiling(
 			path.join(sb.repo, ".git"),
@@ -939,6 +939,40 @@ describe("a cut-over main checkout's dirt", () => {
 		expect(r.out).toContain(
 			"no orphaned edit in the cut-over main checkout at any age",
 		);
+	});
+
+	it("files no edit origin/main holds byte for byte, which levelling clears (#5808)", async () => {
+		landOnOrigin({ "a.txt": "landed\n" }, { "a.txt": "since changed\n" });
+		dirty("a.txt", 0, "landed\n");
+
+		const r = await cutOver();
+
+		expect(r.out).toContain("on origin/main: yes, byte for byte");
+		expect(r.out).toContain(
+			"triage:  not filed: landed byte for byte on origin/main; clears at the next level",
+		);
+		expect(readFilings()).toEqual([]);
+	});
+
+	it("files a landed edit on a path origin/main has since put back, which levelling never clears (#5808)", async () => {
+		landOnOrigin({ "a.txt": "landed\n" }, { "a.txt": "seed\n" });
+		dirty("a.txt", 0, "landed\n");
+
+		await cutOver();
+
+		const [filing] = readFilings();
+		expect(filing?.body).toContain("- On `origin/main`: yes, byte for byte");
+	});
+
+	it("files an edit origin/main never held, naming it unlanded (#5808)", async () => {
+		landOnOrigin({ "a.txt": "landed\n" });
+		dirty("a.txt", 0, "landed and more\n");
+
+		await cutOver();
+
+		const [filing] = readFilings();
+		expect(filing?.body).toContain("- On `origin/main`: no");
+		expect(filing?.body).toContain("git restore --source=HEAD");
 	});
 
 	it("waits 24 hours while main still tracks landing, not yet cut over", async () => {

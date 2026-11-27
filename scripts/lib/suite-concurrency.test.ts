@@ -125,6 +125,7 @@ interface Over {
 		unread: string | null;
 	};
 	launchWeight?: Weight | null;
+	partCapMb?: number;
 	windows?: WindowsRead;
 	tscPeakMb?: number;
 	tscPeaks?: Record<string, number>;
@@ -160,6 +161,7 @@ function harness(over: Over = {}) {
 		gateSeats: () =>
 			over.gateSeats ?? { count: 0, part: 0, under: () => false, unread: null },
 		launchWeight: over.launchWeight ?? null,
+		...(over.partCapMb === undefined ? {} : { partCapMb: over.partCapMb }),
 		partPeak: over.partPeak ?? (() => ({ peak: null })),
 		tripwire: () => over.tripwire ?? null,
 		...(over.noteAdmission ? { noteAdmission: over.noteAdmission } : {}),
@@ -2997,6 +2999,86 @@ describe("judges a part-suite on its own measured peak (#5366)", () => {
 			expect(polled(climb).verdict?.gate).toEqual(direct(climb).verdict?.gate);
 			expect(polled(climb).notes).toEqual(direct(climb).notes);
 		}
+	});
+});
+
+describe("charges a part-suite no more than its repo's measured whole-run peak (#5802)", () => {
+	const oneWhole = psListing(["node /r/node_modules/.bin/vitest run"]);
+	const Unsized = { resolvedFiles: null, wholeSlot: false };
+	const DesignVaultPeak = 2340;
+	const CapRung = rungMb(DesignVaultPeak);
+	const LadderRung = suiteRungMb(WHOLE_SUITE_WORKERS * 2);
+	const Between = CapRung + 200;
+	const run = (over: Over = {}) => {
+		const notes: PartAdmission[] = [];
+		const { verdict, text } = judge("npm run test", Between, oneWhole, {
+			launchWeight: Unsized,
+			partCapMb: DesignVaultPeak,
+			noteAdmission: (a) => notes.push(a),
+			...over,
+		});
+		return { verdict, text, notes };
+	};
+
+	it("sits between the two rungs, so the cases below tell them apart", () => {
+		expect(CapRung).toBeLessThan(Between);
+		expect(Between).toBeLessThan(LadderRung);
+	});
+
+	it("admits a design-vault part-suite at its measured peak with the ladder's rung unmet", () => {
+		const { verdict, notes } = run();
+		expect(outcome(verdict)).toBe("allow");
+		expect(notes).toEqual([
+			{
+				mode: "ladder",
+				cause: "unsized",
+				kind: "touched",
+				rungMb: CapRung,
+				climbMb: 0,
+				capMb: DesignVaultPeak,
+			},
+		]);
+		expect(outcome(run({ partCapMb: undefined }).verdict)).toBe("deny");
+	});
+
+	it("charges it every neighbour's climb, as a measured peak is, naming the cap", () => {
+		const { verdict, text } = run({ climb: { all: 300, "off-rung": 0 } });
+		expect(verdict?.gate).toMatchObject({
+			limb: "memory",
+			rungMb: CapRung,
+			climbMb: 300,
+		});
+		expect(text).toContain(
+			`measured whole-run peak of ${DesignVaultPeak} MB (#5802)`,
+		);
+	});
+
+	it("keeps the ladder's rung while the peak tripwire is tripped or blind", () => {
+		for (const tripwire of [
+			{ cause: "tripped" as const },
+			{ cause: "journal-unread" as const, why: "journalctl: exit 1" },
+		]) {
+			const { verdict, notes } = run({ tripwire });
+			expect(outcome(verdict)).toBe("deny");
+			expect(notes[0]).toMatchObject({ cause: tripwire.cause });
+			expect(notes[0]).not.toHaveProperty("capMb");
+		}
+	});
+
+	it("reads no tripwire for an unsized run offered no cap", () => {
+		const { notes } = run({
+			partCapMb: undefined,
+			tripwire: { cause: "tripped" },
+		});
+		expect(notes[0]).toMatchObject({ cause: "unsized" });
+	});
+
+	it("keeps the ladder's rung where it is the lower", () => {
+		const { verdict, notes } = run({ ps: psWith(0), mb: 1000 });
+		expect(verdict?.gate).toMatchObject({
+			rungMb: suiteRungMb(WHOLE_SUITE_WORKERS),
+		});
+		expect(notes[0]).not.toHaveProperty("capMb");
 	});
 });
 

@@ -10,35 +10,105 @@ const { matchLines } = require("./line-match.js");
  * @param {string} tree
  * @param {string} rel
  * @param {string} ref
- * @returns {string[]}
+ * @returns {{blob: string, commit: string}[]}
  */
-function readLandedBlobs(tree, rel, ref) {
+function readLandedVersions(tree, rel, ref) {
 	const atRef = gitRead(
 		["rev-parse", "--verify", "-q", `${ref}:${rel}`],
 		tree,
 	)?.trim();
+	const tip = gitRead(["rev-parse", "--verify", "-q", ref], tree)?.trim();
 	const base = gitRead(["merge-base", "HEAD", ref], tree)?.trim();
 	const raw = base
 		? gitRead(
 				[
 					"log",
-					"--format=",
+					"--format=%H",
 					"--raw",
 					"--no-abbrev",
 					`${base}..${ref}`,
 					"--",
-					rel,
+					literal(rel),
 				],
 				tree,
 			)
 		: null;
-	/** @type {string[]} */
-	const blobs = atRef ? [atRef] : [];
+	/** @type {{blob: string, commit: string}[]} */
+	const versions = [];
+	let commit = "";
 	for (const line of (raw ?? "").split("\n")) {
-		const [, , , blob] = line.startsWith(":") ? line.split(" ") : [];
-		if (blob && !blobs.includes(blob)) blobs.push(blob);
+		if (!line.startsWith(":")) {
+			if (line) commit = line;
+			continue;
+		}
+		const blob = line.split(" ")[3];
+		if (blob && !versions.some((v) => v.blob === blob))
+			versions.push({ blob, commit });
 	}
-	return blobs;
+	if (atRef && tip && !versions.some((v) => v.blob === atRef))
+		versions.push({ blob: atRef, commit: tip });
+	return versions;
+}
+
+/**
+ * @param {string} tree
+ * @param {string} rel
+ * @param {string} blob
+ * @param {string} ref
+ * @returns {string | null}
+ */
+const findLandedCommit = (tree, rel, blob, ref) =>
+	readLandedVersions(tree, rel, ref).find((v) => v.blob === blob)?.commit ??
+	null;
+
+/** @typedef {{ path: string, blob: string, commit: string }} LandedCopy */
+/** @typedef {{ state: "blob", blob: string } | { state: "absent" } | { state: "unreadable" }} IndexEntry */
+
+/** @param {string} rel */
+const literal = (rel) => `:(literal)${rel}`;
+
+/**
+ * @param {string} tree
+ * @param {string} rel
+ * @returns {IndexEntry}
+ */
+function readIndexEntry(tree, rel) {
+	const out = gitRead(["ls-files", "-s", "-z", "--", literal(rel)], tree);
+	if (out === null) return { state: "unreadable" };
+	const [only, ...rest] = out.split("\0").filter(Boolean);
+	if (only === undefined) return { state: "absent" };
+	const [, blob, stage] = only.split("\t", 1)[0]?.split(" ") ?? [];
+	return rest.length === 0 && stage === "0" && blob
+		? { state: "blob", blob }
+		: { state: "unreadable" };
+}
+
+/**
+ * @param {string} tree
+ * @param {string} rel
+ * @param {string} ref
+ * @returns {(LandedCopy & { inHead: boolean }) | null}
+ */
+function readLevelClear(tree, rel, ref) {
+	const st = fs.lstatSync(path.join(tree, rel), { throwIfNoEntry: false });
+	if (!st?.isFile()) return null;
+	if (gitRead(["merge-base", "--is-ancestor", "HEAD", ref], tree) === null)
+		return null;
+	const blobAt = (/** @type {string} */ rev) =>
+		gitRead(["rev-parse", "--verify", "-q", `${rev}:${rel}`], tree)?.trim() ||
+		null;
+	const head = blobAt("HEAD");
+	if (head === blobAt(ref)) return null;
+	const blob = gitRead(["hash-object", "--", rel], tree)?.trim();
+	if (!blob) return null;
+	const index = readIndexEntry(tree, rel);
+	if (index.state === "unreadable") return null;
+	const staged = index.state === "blob" ? index.blob : null;
+	if (staged !== head && staged !== blob) return null;
+	const commit = findLandedCommit(tree, rel, blob, ref);
+	return commit === null
+		? null
+		: { path: rel, blob, commit, inHead: head !== null };
 }
 
 /** @typedef {{from: number, to: number, lines: string[]}} Hunk */
@@ -139,7 +209,7 @@ async function readLanded(tree, files, ref) {
 	/** @type {number[]} */
 	const fileAt = [];
 	files.forEach(({ rel, blob }, i) => {
-		const blobs = readLandedBlobs(tree, rel, ref);
+		const blobs = readLandedVersions(tree, rel, ref).map((v) => v.blob);
 		if (blobs.includes(blob)) {
 			out[i] = "blob";
 			return;
@@ -179,4 +249,4 @@ function countUnlandedCommits(tree, ref) {
 	return n === null ? null : Number(n.trim());
 }
 
-module.exports = { readLanded, countUnlandedCommits };
+module.exports = { readLanded, countUnlandedCommits, literal, readLevelClear };

@@ -81,7 +81,7 @@
 		"TREE": "host — reads kernel state only, its report persisted in the host root's notify store"
 	},
 	"scripts/check-main-checkout-cutover.js": {
-		"IMPLICIT": "at every session start (`--notify`), reads the main checkout's upstream; where it is not cut over, lists the live sessions (`claude agents --json`) and, where none stands in the main checkout, runs the cutover (lib/cutover-run.js) — landing the main checkout's local commits through a queue ref, removing `main`'s upstream and running a levelling pass — and prints its report; where one does, prints a FAIL naming each; prints nothing once cut over. Run without `--notify`, as `npm run status` does, it reports a main checkout not cut over and cuts nothing.",
+		"IMPLICIT": "at every session start (`--notify`), reads the main checkout's upstream; where it is not cut over, lists the live sessions (`claude agents --json`) and, where none stands in the main checkout, runs the cutover (lib/cutover-run.js) — landing the main checkout's local commits through a queue ref, removing `main`'s upstream and running a levelling pass, which first restores to `HEAD` each blocking main-checkout edit `origin/main` already holds byte for byte, where every blocking edit is one (#5808) — and prints its report; where one does, prints a FAIL naming each; prints nothing once cut over. Run without `--notify`, as `npm run status` does, it reports a main checkout not cut over and cuts nothing.",
 		"JUSTIFIED": "fail-safe — otherwise a repo whose main checkout was never cut over shares one unguarded tree with nothing moving it (#4688), and the cutover waits on the founder's hands (#5247 Q1 (A)).",
 		"DEFEAT": "none at the hook; the cutover clears it.",
 		"TREE": "host — reads and cuts over the main checkout"
@@ -93,7 +93,7 @@
 		"TREE": "none — sweeps the machine's process table"
 	},
 	"scripts/check-orphaned-edits.js": {
-		"IMPLICIT": "at session start, at most once a clock hour across the repository's worktrees (its hook passes --write --hourly), files each uncommitted tracked file that no live session owns once as a takes:triage issue, a linked worktree's together as one, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.",
+		"IMPLICIT": "at session start, at most once a clock hour across the repository's worktrees (its hook passes --write --hourly), files each uncommitted tracked file that no live session owns once as a takes:triage issue, a linked worktree's together as one, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age, save an edit `origin/main` already holds byte for byte on a path it has changed since `HEAD`, which levelling clears (#5808). It never reverts or writes the file.",
 		"JUSTIFIED": "fail-safe — an orphan voids certificates for days unseen, and any ownership signal that cannot be read silences the report rather than calling a live session's edit orphaned.",
 		"DEFEAT": "none at the hook beyond its hourly throttle; --hours <n> moves the threshold on a hand run, save in a cut-over main checkout, which has none.",
 		"TREE": "host — walks the main checkout, as git's common dir names it from whichever tree launched the run (#4483), and every linked worktree (#4244)"

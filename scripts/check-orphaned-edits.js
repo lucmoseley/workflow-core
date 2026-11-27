@@ -19,7 +19,11 @@ const { adoptHostRoot } = require("./lib/host-root.js");
 const { worktreeLabel, worktreeOwners } = require("./lib/session-worktrees.js");
 const { readLinkedWorktrees } = require("./lib/worktree-paths.js");
 const { readDistinctFromHint } = require("./lib/similar-titles.js");
-const { readLanded, countUnlandedCommits } = require("./lib/landed-edit.js");
+const {
+	readLanded,
+	readLevelClear,
+	countUnlandedCommits,
+} = require("./lib/landed-edit.js");
 const {
 	FILED_DIR,
 	buildWaysOut,
@@ -180,7 +184,7 @@ async function readUnfiledOrphans(filings, root) {
 		let filed = whyUnfileable(f, dir);
 		if (filed === null) {
 			await judgeLanded(f, root);
-			filed = "not filed: `--write` files it";
+			filed = whyLandedUnfiled(f) ?? "not filed: `--write` files it";
 		}
 		for (const o of f.orphans) out.push({ ...o, filed });
 	}
@@ -212,6 +216,7 @@ function buildFileIssue(f) {
 		"",
 		`- Last known writer: ${o.writer}`,
 		`- Working-copy blob: \`${o.blob}\``,
+		`- On \`${LANDED_REF}\`: ${describeLanded(o.landed)}`,
 		"",
 		"It enters every suite run that reads the main checkout, rather than a worktree at HEAD, and voids each certificate whose read closure it touches (#810). Nothing has been reverted.",
 		"",
@@ -241,7 +246,7 @@ const LANDED_AS = {
 /** @param {"blob"|"lines"|null|undefined} landed */
 const describeLanded = (landed) => {
 	if (landed === undefined)
-		return "unread — read only for a worktree about to be filed";
+		return "unread — read only for an edit about to be filed";
 	return landed ? LANDED_AS[landed] : "no";
 };
 
@@ -587,7 +592,6 @@ function buildFilings(orphans, { youngIn, hours }) {
  * @param {string} root
  */
 async function judgeLanded(f, root) {
-	if (f.worktree === null) return;
 	const ref = gitRead(["rev-parse", "--verify", "-q", LANDED_REF], root)
 		? LANDED_REF
 		: null;
@@ -602,6 +606,20 @@ async function judgeLanded(f, root) {
 		o.landed = landed[i] ?? null;
 	});
 	f.unlanded = ref ? countUnlandedCommits(f.tree, ref) : null;
+}
+
+/**
+ * @param {Filing} f
+ * @returns {string|null}
+ */
+function whyLandedUnfiled(f) {
+	const [o] = f.orphans;
+	return f.worktree === null &&
+		o?.landed === "blob" &&
+		isCutOver(f.tree) &&
+		readLevelClear(f.tree, o.path, LANDED_REF) !== null
+		? `not filed: landed byte for byte on ${LANDED_REF}; clears at the next level`
+		: null;
 }
 
 /**
@@ -659,6 +677,17 @@ function fileUnderMarker(f, taken, { root, now }) {
 }
 
 /**
+ * @param {Filing} f
+ * @param {string} root
+ * @returns {Promise<string|null>}
+ */
+async function whyNotFiledNow(f, root) {
+	if (hasFilingTime()) await judgeLanded(f, root);
+	if (!hasFilingTime()) return "not filed yet: this run's time is spent";
+	return whyLandedUnfiled(f);
+}
+
+/**
  * @param {Filing[]} filings
  * @param {{root: string, now: number}} opts
  * @returns {Promise<{filings: number, orphans: Orphan[]}>}
@@ -681,9 +710,9 @@ async function fileOrphans(filings, { root, now }) {
 			record(f, "not filed yet: this run's filing cap is spent");
 			continue;
 		}
-		if (hasFilingTime()) await judgeLanded(f, root);
-		if (!hasFilingTime()) {
-			record(f, "not filed yet: this run's time is spent");
+		const skip = await whyNotFiledNow(f, root);
+		if (skip !== null) {
+			record(f, skip);
 			continue;
 		}
 		const { taken, status } = takeFiling(dir, f);
@@ -732,9 +761,7 @@ function reportOrphans(ctx, orphans, threshold) {
 				`    commit:  ${c.commit}\n` +
 				`    revert:  ${c.revert}\n` +
 				`    triage:  ${o.filed}` +
-				(o.worktree
-					? `\n    on ${LANDED_REF}: ${describeLanded(o.landed)}`
-					: ""),
+				`\n    on ${LANDED_REF}: ${describeLanded(o.landed)}`,
 		);
 	}
 	ctx.say(
