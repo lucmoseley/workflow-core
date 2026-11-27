@@ -52,6 +52,8 @@ if ($Check) {
 }
 
 if ($Register) {
+	# The elevated window closes on exit, so a failure is kept for the installer to print.
+	trap { Write-Line (Join-Path $dir 'register.log') "failed error=$($_.Exception.Message -replace '\s+', '_')"; exit 1 }
 	New-Item -ItemType Directory -Force -Path (Join-Path $dir 'dumps') | Out-Null
 	$who = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 	# Interactive, as 'WSL Disk Compaction': it runs only while the user is
@@ -59,15 +61,22 @@ if ($Register) {
 	$principal = New-ScheduledTaskPrincipal -UserId $who -LogonType Interactive -RunLevel Highest
 	foreach ($name in $tasks.Keys) {
 		$act = $tasks[$name]
-		$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (Get-TaskArgs $act)
+		$taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (Get-TaskArgs $act)
 		# guess, #5804: a 2.3 GB kernel dump (#5735) is written in minutes; Enable-MMAgent in seconds.
 		$limit = if ($act -eq 'Dump') { New-TimeSpan -Hours 1 } else { New-TimeSpan -Minutes 10 }
 		$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit $limit -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
 		# Off also runs at each sign-in: a crash that saved no dump raises no
 		# event 1001, so on-bugcheck.ps1 never runs after it.
-		$trigger = if ($act -eq 'Off') { @(New-ScheduledTaskTrigger -AtLogOn -User $who) } else { @() }
-		Register-ScheduledTask -TaskName $name -Action $action -Principal $principal -Settings $settings -Trigger $trigger -Force `
-			-Description "workflow-core#5804: $act, started by combining-trial.js through schtasks /Run." | Out-Null
+		$task = @{
+			TaskName    = $name
+			Action      = $taskAction
+			Principal   = $principal
+			Settings    = $settings
+			Description = "workflow-core#5804: $act, started by combining-trial.js through schtasks /Run."
+		}
+		# Register-ScheduledTask refuses an empty -Trigger, so only Off passes one.
+		if ($act -eq 'Off') { $task.Trigger = New-ScheduledTaskTrigger -AtLogOn -User $who }
+		Register-ScheduledTask @task -Force | Out-Null
 	}
 	if (-not (Select-String -Path $bugcheck -SimpleMatch $bugcheckMarker -Quiet)) {
 		# First in the file, so a later failing line cannot skip it.

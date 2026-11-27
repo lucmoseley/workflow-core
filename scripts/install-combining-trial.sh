@@ -49,10 +49,15 @@ check() { "$PS" -NoProfile -ExecutionPolicy Bypass -File "$ps1" -Check | tr -d '
 state="$(check)"
 if [[ "$state" != ok ]]; then
   echo "Registering the elevated tasks ($state): accept the UAC prompt on the Windows desktop."
+  rm -f /mnt/c/diag/5743/register.log
   "$PS" -NoProfile -Command "Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${ps1}','-Register'" || true
   state="$(check)"
   [[ "$state" == ok ]] || {
-    echo "error: $state - was the UAC prompt declined?" >&2
+    if [[ -f /mnt/c/diag/5743/register.log ]]; then
+      echo "error: the elevated registration failed: $(tr -d '\r' </mnt/c/diag/5743/register.log)" >&2
+    else
+      echo "error: $state - was the UAC prompt declined?" >&2
+    fi
     exit 1
   }
 fi
