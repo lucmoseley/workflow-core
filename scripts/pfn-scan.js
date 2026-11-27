@@ -13,6 +13,25 @@ const { writeFd } = require("./lib/write-fd.js");
 const USAGE = `usage: node ${scriptPath("pfn-scan.js")} <dump> [--combining <text>] [--post <issue>]`;
 
 /**
+ * @param {number} issue
+ * @param {string} body
+ */
+function postComment(issue, body) {
+	gh(
+		[
+			"issue",
+			"comment",
+			String(issue),
+			"--repo",
+			requireKey("tracker"),
+			"--body-file",
+			"-",
+		],
+		{ input: body, stdio: ["pipe", "pipe", "pipe"] },
+	);
+}
+
+/**
  * @param {string} dump
  * @param {{combining?: string, post?: number}} opts
  * @returns {string}
@@ -29,19 +48,7 @@ function scanAndReport(dump, { combining = "not recorded", post } = {}) {
 		combining,
 		earlier,
 	});
-	if (post !== undefined)
-		gh(
-			[
-				"issue",
-				"comment",
-				String(post),
-				"--repo",
-				requireKey("tracker"),
-				"--body-file",
-				"-",
-			],
-			{ input: report },
-		);
+	if (post !== undefined) postComment(post, report);
 	return report;
 }
 
@@ -74,4 +81,4 @@ function main(argv = process.argv.slice(2)) {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { main, scanAndReport };
+module.exports = { main, postComment, scanAndReport };
