@@ -6,9 +6,6 @@ from collections import Counter
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-import pytest  # noqa: E402
-
-import corpus  # noqa: E402
 import report  # noqa: E402 - imported after HERE, which the sys.path.insert above reads (#1272)
 
 START, END = "2026-10-10T00:00:00Z", "2026-10-12T00:00:00Z"
@@ -17,13 +14,11 @@ CHECKOUTS = {
 }
 
 
-@pytest.fixture(autouse=True)
-def checkouts(monkeypatch):
-    monkeypatch.setattr(corpus, "adopter_checkouts", lambda home=None: CHECKOUTS)
-
-
 def daily(roots, repos=("workflow-core",)):
-    return report.daily(roots, START, END, set(repos), tally=Counter())
+    blocked, active = report.daily_by_repo(
+        roots, START, END, set(repos), checkouts=CHECKOUTS, tally=Counter()
+    )
+    return report.pooled(blocked), report.pooled(active)
 
 
 def bash(t, tid, command, background=False):
@@ -205,3 +200,39 @@ def test_foreground_run_moved_to_background_counts_its_idle_from_the_move(tmp_pa
     )
     blocked, _ = daily(roots)
     assert blocked == {"2026-10-10": 600.0 + 120.0}
+
+
+def test_each_named_repo_keeps_its_own_days(tmp_path):
+    for i, (project, end) in enumerate(
+        (("-home-x-workflow-core", "10:02"), ("-home-x-design-vault", "10:04"))
+    ):
+        roots = tree(
+            tmp_path,
+            [
+                bash("2026-10-10T10:01:00Z", f"t{i}", "npm test"),
+                result(f"2026-10-10T{end}:00Z", f"t{i}"),
+            ],
+            project=project,
+        )
+    blocked, _ = report.daily_by_repo(
+        roots,
+        START,
+        END,
+        {"workflow-core", "design-vault"},
+        checkouts=CHECKOUTS,
+        tally=Counter(),
+    )
+    assert blocked["workflow-core"] == {"2026-10-10": 60.0}
+    assert blocked["design-vault"] == {"2026-10-10": 180.0}
+
+
+def test_a_day_with_blocked_time_and_no_active_time_has_no_share():
+    assert report.day_rows({"2026-10-10": 3600.0}, {}) == [
+        ("2026-10-10", 1.0, 0.0, None)
+    ]
+
+
+def test_a_checkout_queue_log_sits_in_its_markers_dir():
+    assert report.queue_log_of("/home/x/design-vault") == (
+        "/home/x/design-vault/.claude/tmp/markers/.suite-queue-exits.jsonl"
+    )

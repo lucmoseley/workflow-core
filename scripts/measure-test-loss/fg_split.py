@@ -2,6 +2,7 @@ import collections
 import json
 import re
 import sys
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -11,36 +12,51 @@ def ts(s):
 
 bl, rf, qf = sys.argv[1:4]
 runs = {}
-for r in map(json.loads, open(rf)):
-    if r["sessionId"]:
-        runs.setdefault(r["sessionId"], []).append(
-            (ts(r["startedAt"]), ts(r["at"]), r["durationMs"] / 1000, r["_k"], r["_v"])
-        )
+for path in rf.split(","):
+    for r in map(json.loads, open(path)):
+        if r["sessionId"]:
+            runs.setdefault(r["sessionId"], []).append(
+                (
+                    ts(r["startedAt"]),
+                    ts(r["at"]),
+                    r["durationMs"] / 1000,
+                    r["_k"],
+                    r["_v"],
+                )
+            )
 qs = {}
-for r in map(json.loads, open(qf)):
-    if r.get("skipped"):
-        continue
-    b = ts(r["at"])
-    qs.setdefault(r["session"], []).append((b - r["waitS"], b))
+for path in qf.split(","):
+    for r in map(json.loads, open(path)):
+        if r.get("skipped"):
+            continue
+        b = ts(r["at"])
+        qs.setdefault(r["session"], []).append((b - r["waitS"], b))
 
 
 def q(x, p):
     return x[int((len(x) - 1) * p)] if x else 0
 
 
-def fresh():
-    return {
-        "rest": [],
-        "qw": [],
-        "vt": [],
-        "tot": [],
-        "byk": collections.defaultdict(float),
-        "byv": collections.defaultdict(float),
-        "byvk": collections.defaultdict(float),
-    }
+def hours_desc(by):
+    return {k: round(x / 3600, 2) for k, x in sorted(by.items(), key=lambda kv: -kv[1])}
 
 
-per = collections.defaultdict(fresh)
+@dataclass
+class ForegroundSplit:
+    call: list = field(default_factory=list)
+    queue_wait: list = field(default_factory=list)
+    vitest: list = field(default_factory=list)
+    rest: list = field(default_factory=list)
+    queue_and_vitest_by_kind: dict = field(
+        default_factory=lambda: collections.defaultdict(float)
+    )
+    vitest_by_verdict: dict = field(
+        default_factory=lambda: collections.defaultdict(float)
+    )
+    vitest_by_kind: dict = field(default_factory=lambda: collections.defaultdict(float))
+
+
+by_repo = collections.defaultdict(ForegroundSplit)
 for r in map(json.loads, open(bl)):
     if r["cls"] != "fg" or r["sub"] or r["s"] > 1800 or r["at"] < "2026-10-17T00:39":
         continue
@@ -55,41 +71,27 @@ for r in map(json.loads, open(bl)):
         continue
     w = sum(max(0, min(b, y) - max(a, x)) for x, y in qs.get(sid, []))
     v = inside[0][2]
-    g = per[r["repo"]]
-    g["byk"][inside[0][3]] += v + w
-    g["byv"][inside[0][4]] += v
-    g["byvk"][inside[0][3]] += v
-    g["rest"].append(r["s"] - v - w)
-    g["qw"].append(w)
-    g["vt"].append(v)
-    g["tot"].append(r["s"])
-for repo, g in sorted(per.items()):
+    split = by_repo[r["repo"]]
+    split.queue_and_vitest_by_kind[inside[0][3]] += v + w
+    split.vitest_by_verdict[inside[0][4]] += v
+    split.vitest_by_kind[inside[0][3]] += v
+    split.rest.append(r["s"] - v - w)
+    split.queue_wait.append(w)
+    split.vitest.append(v)
+    split.call.append(r["s"])
+for repo, split in sorted(by_repo.items()):
     print(f"===== {repo}")
-    n = len(g["rest"])
+    n = len(split.rest)
     for name, xs in (
-        ("call", g["tot"]),
-        ("queue wait", g["qw"]),
-        ("vitest", g["vt"]),
-        ("rest", g["rest"]),
+        ("call", split.call),
+        ("queue wait", split.queue_wait),
+        ("vitest", split.vitest),
+        ("rest", split.rest),
     ):
         s = sorted(xs)
         print(
             f"{name:10} n {n} sum {sum(xs) / 3600:7.2f} h  p50 {q(s, 0.5):6.1f}s  p95 {q(s, 0.95):6.1f}s"
         )
-    print(
-        "queue + vitest by run kind (h):",
-        {
-            k: round(x / 3600, 2)
-            for k, x in sorted(g["byk"].items(), key=lambda kv: -kv[1])
-        },
-    )
-    print(
-        "vitest by verdict (h):", {k: round(x / 3600, 2) for k, x in g["byv"].items()}
-    )
-    print(
-        "vitest only by run kind (h):",
-        {
-            k: round(x / 3600, 2)
-            for k, x in sorted(g["byvk"].items(), key=lambda kv: -kv[1])
-        },
-    )
+    print("queue + vitest by run kind (h):", hours_desc(split.queue_and_vitest_by_kind))
+    print("vitest by verdict (h):", hours_desc(split.vitest_by_verdict))
+    print("vitest only by run kind (h):", hours_desc(split.vitest_by_kind))

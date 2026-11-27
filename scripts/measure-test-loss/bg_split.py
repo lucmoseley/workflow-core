@@ -2,6 +2,7 @@ import json
 import re
 import sys
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime
 
 
@@ -12,22 +13,33 @@ def ts(s):
 bi, rf, qf = sys.argv[1:4]
 start = sys.argv[4] if len(sys.argv) > 4 else "2026-10-17T00:39"
 runs, qs = {}, {}
-for r in map(json.loads, open(rf)):
-    if r["sessionId"]:
-        runs.setdefault(r["sessionId"], []).append((ts(r["startedAt"]), ts(r["at"])))
-for r in map(json.loads, open(qf)):
-    if not r.get("skipped"):
-        b = ts(r["at"])
-        qs.setdefault(r["session"], []).append((b - r["waitS"], b))
+for path in rf.split(","):
+    for r in map(json.loads, open(path)):
+        if r["sessionId"]:
+            runs.setdefault(r["sessionId"], []).append(
+                (ts(r["startedAt"]), ts(r["at"]))
+            )
+for path in qf.split(","):
+    for r in map(json.loads, open(path)):
+        if not r.get("skipped"):
+            b = ts(r["at"])
+            qs.setdefault(r["session"], []).append((b - r["waitS"], b))
 
 
 def ov(xs, a, b):
     return sum(max(0, min(b, y) - max(a, x)) for x, y in xs)
 
 
-tot = defaultdict(
-    lambda: {"n": 0, "idle": 0.0, "queue": 0.0, "vitest": 0.0, "rest": 0.0}
-)
+@dataclass
+class IdleSplit:
+    rows: int = 0
+    idle: float = 0.0
+    queue: float = 0.0
+    vitest: float = 0.0
+    rest: float = 0.0
+
+
+by_repo = defaultdict(IdleSplit)
 for r in map(json.loads, open(bi)):
     if r["sub"] or r["at"] < start:
         continue
@@ -42,13 +54,13 @@ for r in map(json.loads, open(bi)):
     w = min(ov(qs.get(sid, []), a, b), b - a)
     v = min(ov(runs.get(sid, []), a, b), b - a - w)
     f = r["idle_s"]
-    t = tot[r["repo"]]
-    t["n"] += 1
-    t["idle"] += f
-    t["queue"] += f * w / (b - a)
-    t["vitest"] += f * v / (b - a)
-    t["rest"] += f * (b - a - w - v) / (b - a)
-for repo, t in sorted(tot.items()):
+    split = by_repo[r["repo"]]
+    split.rows += 1
+    split.idle += f
+    split.queue += f * w / (b - a)
+    split.vitest += f * v / (b - a)
+    split.rest += f * (b - a - w - v) / (b - a)
+for repo, split in sorted(by_repo.items()):
     print(
-        f"{repo} main-session bg idle rows {t['n']}: idle {t['idle'] / 3600:.2f} h = queue {t['queue'] / 3600:.2f} h + vitest {t['vitest'] / 3600:.2f} h + rest {t['rest'] / 3600:.2f} h"
+        f"{repo} main-session bg idle rows {split.rows}: idle {split.idle / 3600:.2f} h = queue {split.queue / 3600:.2f} h + vitest {split.vitest / 3600:.2f} h + rest {split.rest / 3600:.2f} h"
     )
