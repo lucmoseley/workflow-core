@@ -193,20 +193,41 @@ function checkOut(root, dir, sha, exec) {
 
 /**
  * @param {string} dir
+ * @returns {string[]}
+ */
+function trackedLockDirs(dir) {
+	const listed = execFileSync(
+		gitBinary(),
+		["ls-files", "-z", "--", `*${LOCKFILE}`],
+		gitSpawnOptions({ cwd: dir, timeout: CHECKOUT_TIMEOUT_MS }),
+	);
+	return String(listed)
+		.split("\0")
+		.filter((f) => path.posix.basename(f) === LOCKFILE)
+		.map((f) => path.posix.dirname(f))
+		.sort();
+}
+
+/**
+ * @param {string} dir
  * @param {Exec} exec
  */
 function install(dir, exec) {
-	const lock = readBytes(path.join(dir, LOCKFILE));
-	if (lock.state === "absent") return;
-	if (lock.state === "unreadable") throw lock.error;
-	const hash = crypto.createHash("sha256").update(lock.data).digest("hex");
-	const stamp = path.join(dir, STAMP);
-	const stamped = readText(stamp);
-	if (stamped.state === "read" && stamped.data.trim() === hash) return;
-	exec(npmBin(), ["ci", "--no-audit", "--no-fund"], dir, {
-		timeout: INSTALL_TIMEOUT_MS,
-	});
-	fs.writeFileSync(stamp, `${hash}\n`);
+	for (const rel of trackedLockDirs(dir)) {
+		const at = path.join(dir, rel);
+		const lock = readBytes(path.join(at, LOCKFILE));
+		if (lock.state === "absent") continue;
+		if (lock.state === "unreadable") throw lock.error;
+		const hash = crypto.createHash("sha256").update(lock.data).digest("hex");
+		const stamp = path.join(at, STAMP);
+		const stamped = readText(stamp);
+		if (stamped.state === "read" && stamped.data.trim() === hash) continue;
+		const scripts = rel === "." ? [] : ["--ignore-scripts"];
+		exec(npmBin(), ["ci", ...scripts, "--no-audit", "--no-fund"], at, {
+			timeout: INSTALL_TIMEOUT_MS,
+		});
+		fs.writeFileSync(stamp, `${hash}\n`);
+	}
 }
 
 /**

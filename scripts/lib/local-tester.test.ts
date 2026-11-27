@@ -73,11 +73,14 @@ const commit = (message: string) => {
 
 const recordingExec = () => {
 	const npm: string[] = [];
+	const installs: { cwd: string; args: string[] }[] = [];
 	return {
 		npm,
+		installs,
 		exec: (bin: string, args: string[], cwd: string) => {
 			if (args[0] === "ci") {
 				npm.push(bin);
+				installs.push({ cwd, args });
 				fs.mkdirSync(path.join(cwd, "node_modules"), { recursive: true });
 				return;
 			}
@@ -316,6 +319,69 @@ it("installs once per lockfile through WFC_NPM, again only when it changes", asy
 	expect(npm).toEqual([stub]);
 	await tester.verdict(BATCH0, changed);
 	expect(npm).toEqual([stub, stub]);
+});
+
+it("installs each tracked nested lockfile in its own directory, scripts off, before the test command runs (#5828)", async () => {
+	vi.stubEnv("WFC_NPM", path.join(tmp, "stub-npm"));
+	write("package-lock.json", '{"root":1}');
+	write("plugin/package-lock.json", '{"plugin":1}');
+	write(
+		"a.check.js",
+		`if (!require("node:fs").existsSync("plugin/node_modules")) throw new Error("no plugin install");`,
+	);
+	const nested = commit("nested lock");
+	const { installs, exec } = recordingExec();
+	const tester = localTester({ root: work, admit: admitted().admit, exec });
+
+	expect(await tester.verdict(BATCH0, nested)).toEqual({ kind: "green" });
+	const dirs = installs.map((i) => path.relative(work, i.cwd));
+	expect(dirs).toEqual([LANDER_WORKTREE, path.join(LANDER_WORKTREE, "plugin")]);
+	expect(installs[0]?.args).not.toContain("--ignore-scripts");
+	expect(installs[1]?.args).toContain("--ignore-scripts");
+});
+
+it("stamps each lockfile's directory apart, so only the changed one reinstalls (#5828)", async () => {
+	vi.stubEnv("WFC_NPM", path.join(tmp, "stub-npm"));
+	write("package-lock.json", '{"root":1}');
+	write("plugin/package-lock.json", '{"plugin":1}');
+	const first = commit("both locks");
+	write("c.check.js", "");
+	const sameLocks = commit("same locks");
+	write("plugin/package-lock.json", '{"plugin":2}');
+	const pluginChanged = commit("plugin lock v2");
+	const { installs, exec } = recordingExec();
+	const tester = localTester({ root: work, admit: admitted().admit, exec });
+	const plugin = () =>
+		installs.filter((i) => path.basename(i.cwd) === "plugin").length;
+
+	await tester.verdict(BATCH0, first);
+	expect([installs.length, plugin()]).toEqual([2, 1]);
+	await tester.verdict(BATCH0, sameLocks);
+	expect([installs.length, plugin()]).toEqual([2, 1]);
+	await tester.verdict(BATCH0, pluginChanged);
+	expect([installs.length, plugin()]).toEqual([3, 2]);
+});
+
+it("installs no lockfile git does not track, such as one inside a node_modules (#5828)", async () => {
+	vi.stubEnv("WFC_NPM", path.join(tmp, "stub-npm"));
+	write("plugin/package-lock.json", '{"plugin":1}');
+	const tracked = commit("plugin lock");
+	const { installs, exec } = recordingExec();
+	const tester = localTester({ root: work, admit: admitted().admit, exec });
+	const lander = path.join(work, LANDER_WORKTREE);
+	await tester.verdict(BATCH0, tracked);
+	fs.mkdirSync(path.join(lander, "node_modules", "dep"), { recursive: true });
+	fs.writeFileSync(
+		path.join(lander, "node_modules", "dep", "package-lock.json"),
+		"{}",
+	);
+	fs.mkdirSync(path.join(lander, "stray"), { recursive: true });
+	fs.writeFileSync(path.join(lander, "stray", "package-lock.json"), "{}");
+
+	installs.length = 0;
+	write("c.check.js", "");
+	await tester.verdict(BATCH0, commit("again"));
+	expect(installs).toEqual([]);
 });
 
 it("beats between a group's checkout and its install, so the lander's heartbeat waits on one bounded call (#5644)", async () => {
