@@ -405,7 +405,9 @@ describe("check-comment-policy", () => {
 			);
 			git("add", "-A");
 			write("requirements.txt", "playwright==1.48\n");
-			expect(run("--against", "HEAD").out).toContain("scripts/a.py:2");
+			const r = run("--against", "HEAD");
+			expect(r.out).toContain("scripts/a.py:2");
+			expect(r.status).toBe(1);
 		});
 
 		it("reads the commentMarkers of the config the commit carries, not the worktree's (#5709; pair: refuses each refused shape)", () => {
