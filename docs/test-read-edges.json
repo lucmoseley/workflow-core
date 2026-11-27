@@ -12542,6 +12542,7 @@
 		],
 		"scripts/install-combining-trial.sh": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/install-combining-trial.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -12550,6 +12551,13 @@
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
+		],
+		"scripts/install-combining-trial.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/install-fstrim-wsl.sh": [
 			"scripts/checker-registrations.test.ts",
@@ -22455,6 +22463,31 @@
 			"scripts/session-checkout.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
+		"scripts/lib/combining-trial-fake.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-dispatchers.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-msg-dispatch.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/post-commit-dispatch.test.ts",
+			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/combining-trial.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -29197,6 +29230,7 @@
 			"scripts/check-vendored-skills.test.ts",
 			"scripts/check-wsl-currency.test.ts",
 			"scripts/claim-issue.test.ts",
+			"scripts/combining-trial.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop-floor.test.ts",
 			"scripts/concision-backstop-markers.test.ts",
@@ -73216,6 +73250,7 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/win-interop-watchdog/page-combining.ps1": [
+			"scripts/install-combining-trial.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"

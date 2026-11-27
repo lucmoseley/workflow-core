@@ -9,8 +9,7 @@ const scan = require("./pfn-scan.js");
 const { writeFd } = require("./write-fd.js");
 const { POWERSHELL, toWin } = require("./windows-host.js");
 
-const DIAG = "/mnt/c/diag/5743";
-const SYMBOLS = `${DIAG}/sym`;
+const diagDir = () => process.env.WFC_DIAG_DIR || "/mnt/c/diag/5743";
 const SYMBOL_SERVER = "https://msdl.microsoft.com/download/symbols";
 // guess, #5804
 const MAX_OUT = 64 * 1024 * 1024;
@@ -24,11 +23,24 @@ const MAX_OUT = 64 * 1024 * 1024;
 function runCdb(dump, symbolDir, commands, work) {
 	const file = path.join(work, "commands.txt");
 	fs.writeFileSync(file, `${commands.join("\r\n")}\r\n`);
-	const cmd = `& cdbARM64.exe -z '${toWin(dump)}' -y '${toWin(symbolDir)}' -cf '${toWin(file)}'`;
-	const r = spawnSync(POWERSHELL, ["-NoProfile", "-Command", cmd], {
-		encoding: "utf8",
-		maxBuffer: MAX_OUT,
-	});
+	const z = toWin(dump);
+	const y = toWin(symbolDir);
+	const cf = toWin(file);
+	const fake = process.env.WFC_CDB;
+	const r = fake
+		? spawnSync(fake, ["-z", z, "-y", y, "-cf", cf], {
+				encoding: "utf8",
+				maxBuffer: MAX_OUT,
+			})
+		: spawnSync(
+				POWERSHELL,
+				[
+					"-NoProfile",
+					"-Command",
+					`& cdbARM64.exe -z '${z}' -y '${y}' -cf '${cf}'`,
+				],
+				{ encoding: "utf8", maxBuffer: MAX_OUT },
+			);
 	if (r.error) throw new Error(`cdb: ${r.error.message}`);
 	if (r.status !== 0)
 		throw new Error(`cdb exited ${r.status}: ${(r.stderr ?? "").trim()}`);
@@ -40,7 +52,7 @@ function runCdb(dump, symbolDir, commands, work) {
  * @returns {string}
  */
 function fetchSymbols({ pdb, key }) {
-	const dir = path.join(SYMBOLS, pdb, key);
+	const dir = path.join(diagDir(), "sym", pdb, key);
 	const file = path.join(dir, pdb);
 	if (fs.existsSync(file)) return dir;
 	fs.mkdirSync(dir, { recursive: true });
@@ -61,12 +73,13 @@ function fetchSymbols({ pdb, key }) {
  * @returns {import("./pfn-scan.js").Scan}
  */
 function scanDump(dump) {
-	const work = path.join(DIAG, `scan-${process.pid}`);
+	const work = path.join(diagDir(), `scan-${process.pid}`);
+	const symbols = path.join(diagDir(), "sym");
 	fs.mkdirSync(work, { recursive: true });
 	try {
-		fs.mkdirSync(SYMBOLS, { recursive: true });
+		fs.mkdirSync(symbols, { recursive: true });
 		const id = scan.parseIdentity(
-			runCdb(dump, SYMBOLS, scan.IDENTITY_COMMANDS, work),
+			runCdb(dump, symbols, scan.IDENTITY_COMMANDS, work),
 		);
 		if ("why" in id) throw new Error(id.why);
 		const symbolDir = fetchSymbols(id);
@@ -131,4 +144,4 @@ function earlierFlagged(dump) {
 	return seen;
 }
 
-module.exports = { DIAG, earlierFlagged, scanDump };
+module.exports = { diagDir, earlierFlagged, scanDump };
