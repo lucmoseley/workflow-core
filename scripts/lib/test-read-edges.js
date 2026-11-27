@@ -852,10 +852,58 @@ const NODE_SCRIPT = /\.[mc]?js$/;
 const isScript = (/** @type {string} */ p) =>
 	NODE_SCRIPT.test(p) || /\.sh$/.test(p) || /^\.husky\/[^/.]+$/.test(p);
 
-const SOURCE_LINE = /^[ \t]*(?:source|\.)[ \t]+(\S.*)$/gm;
+const SOURCE_LINE = /(?<=^|\|\||&&|;)[ \t]*(?:source|\.)[ \t]+(["'$./\w].*)$/gm;
+
+const TOPLEVEL = /^"?\$\(git rev-parse --show-toplevel\b[^)]*\)"?(?:\s|$)/;
 
 const SOURCE_ARG =
 	/^["']?(?<dirVar>\$\(dirname\s+"?\$(?:\{BASH_SOURCE\[0\]\}|BASH_SOURCE|0)"?\)|\$\{BASH_SOURCE\[0\]%\/\*\}|\$\{?[A-Za-z_](?:(?=(?<whole>[A-Za-z0-9_]*))\k<whole>\}?|(?=(?<lessLast>[A-Za-z0-9_]*)[A-Za-z0-9_])\k<lessLast>))?(?<tail>\/?[A-Za-z0-9_./-]+)["']?(?:\s|;|$)/;
+
+/**
+ * @param {string} s
+ * @returns {string}
+ */
+function expandDefaults(s) {
+	let out = s;
+	for (;;) {
+		const m = /\$\{[A-Za-z_][A-Za-z0-9_]*:?-/.exec(out);
+		if (!m) return out;
+		let depth = 1;
+		let i = m.index + m[0].length;
+		for (; i < out.length && depth > 0; i++)
+			if (out[i] === "{") depth++;
+			else if (out[i] === "}") depth--;
+		if (depth > 0) return out;
+		out =
+			out.slice(0, m.index) +
+			out.slice(m.index + m[0].length, i - 1) +
+			out.slice(i);
+	}
+}
+
+/**
+ * @param {string} sourced
+ * @param {string} source
+ * @returns {string}
+ */
+function expandSourced(sourced, source) {
+	let arg = expandDefaults(sourced).replace(/["']/g, "");
+	for (let hop = 0; hop < 4; hop++) {
+		const lead =
+			/^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/.exec(arg);
+		const name = lead?.[1] ?? lead?.[2];
+		if (!lead || !name) break;
+		const assign = new RegExp(`^[ \\t]*${name}=(\\S.*)$`, "gm");
+		const [only, ...more] = source.matchAll(assign);
+		if (!only || more.length > 0) break;
+		const raw = requiredGroup(only, 1, assign);
+		const value = TOPLEVEL.test(raw)
+			? "."
+			: expandDefaults(raw).replace(/["']/g, "");
+		arg = value + arg.slice(lead[0].length);
+	}
+	return arg;
+}
 
 /**
  * @param {string} sourced
@@ -906,7 +954,10 @@ function scriptDeps(file, source, tracked) {
 	for (const m of source.matchAll(SOURCE_LINE)) {
 		const sourced = requiredGroup(m, 1, SOURCE_LINE);
 		const { tail, candidates } = sourceCandidates(sourced, dir);
-		const hit = candidates.find((c) => c && tracked.has(c));
+		const expanded = sourceCandidates(expandSourced(sourced, source), dir);
+		const hit = [...expanded.candidates, ...candidates].find(
+			(c) => c && tracked.has(c),
+		);
 		if (hit) {
 			deps.push(hit);
 			continue;

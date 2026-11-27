@@ -741,6 +741,47 @@ describe("buildManifest over a spawned script's dependencies (#657, #1126)", () 
 		]);
 	});
 
+	it("resolves a hook's defaulted, guarded, variable-held and toplevel sources (#5817)", () => {
+		const { edges, warnings } = build({
+			[T]: drives(".husky/zz-hook"),
+			".husky/zz-hook": [
+				`[ ! -r "\${R:-$(dirname "$0")/..}/scripts/zz/root.sh" ] || . "\${R:-$(dirname "$0")/..}/scripts/zz/root.sh"`,
+				`. "\${R:-.}"/scripts/zz/gate.sh`,
+				`here="$(dirname "$0")"`,
+				`lib="\${R:-$here/..}/scripts/zz/lib.sh"`,
+				`. "$lib"`,
+				"top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0",
+				`. "\${R:-$top}/scripts/zz/relink.sh"`,
+				`out="$(jq 'any(.[]; . == $m)')"`,
+			].join("\n"),
+			"scripts/zz/root.sh": "",
+			"scripts/zz/gate.sh": "",
+			"scripts/zz/lib.sh": "",
+			"scripts/zz/relink.sh": "",
+		});
+		for (const lib of ["root", "gate", "lib", "relink"])
+			expect(edges[`scripts/zz/${lib}.sh`]).toEqual([T]);
+		expect(warnings).toEqual([]);
+	});
+
+	it("still warns on a source through a variable it cannot trace (#5817)", () => {
+		const { warnings } = build({
+			[T]: drives("scripts/zz/guard.sh"),
+			"scripts/zz/guard.sh": [
+				`lib="$(mktemp)"`,
+				`. "$lib"`,
+				`two="scripts/zz/a.sh"`,
+				`two="scripts/zz/b.sh"`,
+				`. "$two"`,
+			].join("\n"),
+			"scripts/zz/a.sh": "",
+		});
+		expect(warnings).toEqual([
+			'scripts/zz/guard.sh: source "$lib" resolves to no tracked file',
+			'scripts/zz/guard.sh: source "$two" resolves to no tracked file',
+		]);
+	});
+
 	it("resolves a real source opening a subshell's body", () => {
 		const { edges } = build({
 			[T]: drives("scripts/zz/guard.sh"),

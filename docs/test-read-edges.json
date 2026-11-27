@@ -64175,6 +64175,7 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-msg-dispatch.test.ts",
 			"scripts/commit-paths.test.ts",
