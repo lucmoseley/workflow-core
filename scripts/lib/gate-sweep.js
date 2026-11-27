@@ -8,6 +8,7 @@ const {
 	parseVerdict,
 } = require("./gate-check.js");
 const { readJson, writeJson } = require("./refill-json.js");
+const { WATCH_CLOSED_LABEL } = require("./watch-label.js");
 
 // guess, #2279
 const GATE_SWEEP_MS = 30 * 60 * 1000;
@@ -37,20 +38,31 @@ const RELEASE_DUE_TIMEOUT_MS = 2 * 60 * 1000;
 /** @param {string} root @param {number} n */
 const keyOf = (root, n) => `${root}#${n}`;
 
-/** @param {number} n */
-const buildJudgementPrompt = (n) =>
-	`/triage ${n} — its Gated on: reading changed. Run check-gates.js --issue ${n} and judge the reading against the condition: met, comment the evidence and strip the marker; unmet, leave the gate and end.`;
+/** @param {number} n @param {boolean} closed */
+const buildMetAct = (n, closed) =>
+	closed
+		? `reopen it (gh issue reopen ${n}), remove its ${WATCH_CLOSED_LABEL} label, comment the evidence and strip the marker`
+		: "comment the evidence and strip the marker";
+
+/** @param {boolean} closed */
+const buildWatchNote = (closed) =>
+	closed ? `, the issue closed under ${WATCH_CLOSED_LABEL}` : "";
+
+/** @param {number} n @param {boolean} closed */
+const buildJudgementPrompt = (n, closed) =>
+	`/triage ${n} — its Gated on: reading changed${buildWatchNote(closed)}. Run check-gates.js --issue ${n} and judge the reading against the condition: met, ${buildMetAct(n, closed)}; unmet, leave the gate and end.`;
 
 /**
  * @param {number} n
+ * @param {boolean} closed
  * @param {string} state
  */
-const buildRepairPrompt = (n, state) =>
-	`/triage ${n} — its Gated on: check reads ${state}. Judge the condition by hand: met, comment the evidence and strip the marker; unmet, rewrite the check: so that it prints what it saw (for example ${PRINTING_FIX}), run check-gates.js --issue ${n} to see it print, and end.`;
+const buildRepairPrompt = (n, closed, state) =>
+	`/triage ${n} — its Gated on: check reads ${state}${buildWatchNote(closed)}. Judge the condition by hand: met, ${buildMetAct(n, closed)}; unmet, rewrite the check: so that it prints what it saw (for example ${PRINTING_FIX}), run check-gates.js --issue ${n} to see it print, and end.`;
 
-/** @param {number} n */
-const buildUncheckedPrompt = (n) =>
-	`/triage ${n} — its Gated on: line carries no check:. Judge the condition by hand: met, comment the evidence and strip the marker; unmet, leave the gate, and where one command could test the condition add it as the line's check: segment so that it prints what it saw (for example ${PRINTING_FIX}), run check-gates.js --issue ${n} to see it print, and end.`;
+/** @param {number} n @param {boolean} closed */
+const buildUncheckedPrompt = (n, closed) =>
+	`/triage ${n} — its Gated on: line carries no check:${buildWatchNote(closed)}. Judge the condition by hand: met, ${buildMetAct(n, closed)}; unmet, leave the gate, and where one command could test the condition add it as the line's check: segment so that it prints what it saw (for example ${PRINTING_FIX}), run check-gates.js --issue ${n} to see it print, and end.`;
 
 /** @param {string} state */
 const buildStateSeen = (state) => `[${state}]`;
@@ -99,7 +111,7 @@ function readGateStore(file, log) {
 }
 
 /**
- * @typedef {{number: number, seen: string|null} & (
+ * @typedef {{number: number, closed: boolean, seen: string|null} & (
  *   {kind: "reading"} | {kind: "repair", state: string} | {kind: "unchecked"}
  * )} SweptRow
  */
@@ -120,13 +132,25 @@ function sweptRows(stdout) {
 		/** @returns {SweptRow[]} */ (r) => {
 			const { number, state, reading } = recordOf(r);
 			if (typeof number !== "number") return [];
+			const closed = recordOf(r).closed === true;
 			if (typeof state === "string" && REPAIR_STATES.has(state))
-				return [{ number, seen: buildStateSeen(state), kind: "repair", state }];
+				return [
+					{
+						number,
+						closed,
+						seen: buildStateSeen(state),
+						kind: "repair",
+						state,
+					},
+				];
 			if (state === NOT_STATED)
-				return [{ number, seen: buildStateSeen(state), kind: "unchecked" }];
+				return [
+					{ number, closed, seen: buildStateSeen(state), kind: "unchecked" },
+				];
 			return [
 				{
 					number,
+					closed,
 					seen:
 						state === "READING" && typeof reading === "string" ? reading : null,
 					kind: "reading",
@@ -140,11 +164,11 @@ function sweptRows(stdout) {
 function buildPrompt(row) {
 	switch (row.kind) {
 		case "reading":
-			return buildJudgementPrompt(row.number);
+			return buildJudgementPrompt(row.number, row.closed);
 		case "repair":
-			return buildRepairPrompt(row.number, row.state);
+			return buildRepairPrompt(row.number, row.closed, row.state);
 		case "unchecked":
-			return buildUncheckedPrompt(row.number);
+			return buildUncheckedPrompt(row.number, row.closed);
 	}
 }
 

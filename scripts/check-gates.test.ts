@@ -18,6 +18,8 @@ interface Issue {
 	number: number;
 	body: string;
 	title?: string;
+	state?: string;
+	labels?: { name: string }[];
 	pull_request?: object;
 }
 
@@ -29,21 +31,32 @@ const gatedOn = (
 		command === null ? "" : ` — check: ${command}`
 	} — abandon if: the ticket stops mattering\n`;
 
-const stubGh = (issues: Issue[], { failing = false } = {}) => {
-	const fixture = path.join(dir, "issues.json");
+const page = (file: string, issues: Issue[], state: string) =>
 	fs.writeFileSync(
-		fixture,
+		file,
 		JSON.stringify([
 			issues.map((i) => ({
 				title: `t${i.number}`,
 				html_url: `http://example/${i.number}`,
+				state,
 				...i,
 			})),
 		]),
 	);
+
+const WATCH = [{ name: "watch:closed" }];
+
+const stubGh = (
+	issues: Issue[],
+	{ failing = false, closed = [] as Issue[] } = {},
+) => {
+	const open = path.join(dir, "issues.json");
+	const shut = path.join(dir, "closed.json");
+	page(open, issues, "open");
+	page(shut, closed, "closed");
 	return stubGhScript(
 		dir,
-		`#!/bin/sh\nprintf '%s\\n' "$*" >> ${shellQuote(ghLog)}\ncat ${shellQuote(fixture)}\n`,
+		`#!/bin/sh\nprintf '%s\\n' "$*" >> ${shellQuote(ghLog)}\ncase "$*" in *state=closed*) cat ${shellQuote(shut)};; *) cat ${shellQuote(open)};; esac\n`,
 		{ failing },
 	);
 };
@@ -262,10 +275,12 @@ describe("what it never does", () => {
 			]),
 		);
 		const calls = fs.readFileSync(ghLog, "utf8").trim().split("\n");
-		expect(calls).toHaveLength(1);
-		expect(calls[0]).toContain("repos/{owner}/{repo}/issues");
-		for (const forbidden of ["issue edit", "issue close", "issue comment"])
-			expect(calls[0]).not.toContain(forbidden);
+		expect(calls.length).toBeGreaterThan(0);
+		for (const call of calls) {
+			expect(call).toMatch(/^api repos\/\{owner\}\/\{repo\}\/issues -X GET /);
+			for (const forbidden of ["issue edit", "issue close", "issue reopen"])
+				expect(call).not.toContain(forbidden);
+		}
 	});
 
 	it("ignores pull requests, which share the number space", () => {
@@ -274,13 +289,13 @@ describe("what it never does", () => {
 			stubGh([{ number: 99, body: gatedOn("echo 41"), pull_request: {} }]),
 		);
 		expect(r.status).toBe(0);
-		expect(r.out).toContain("no open issue carries");
+		expect(r.out).toContain("no open or `watch:closed` issue carries");
 	});
 
 	it("stays silent on an issue carrying no gate at all", () => {
 		const r = run([], stubGh([{ number: 7, body: "No marker here." }]));
 		expect(r.status).toBe(0);
-		expect(r.out).toContain("no open issue carries");
+		expect(r.out).toContain("no open or `watch:closed` issue carries");
 	});
 });
 
@@ -364,21 +379,35 @@ describe("modes", () => {
 			stubOne({ number: 8, state: "closed", body: gatedOn("echo eight") }),
 		);
 		expect(r.status).toBe(0);
-		expect(r.out).toContain("#8 is not an open issue");
+		expect(r.out).toContain("#8 is not an open or `watch:closed` issue");
 		expect(r.out).not.toContain("eight");
+	});
+
+	it("--issue on a closed watch:closed issue reads its gate", () => {
+		const r = run(
+			["--issue", "8"],
+			stubOne({
+				number: 8,
+				state: "closed",
+				labels: WATCH,
+				body: gatedOn("echo eight"),
+			}),
+		);
+		expect(r.out).toContain("#8  [READING] (closed watch)");
+		expect(r.out).toContain("eight");
 	});
 
 	it("--issue on a number GitHub has no issue for prints the not-gated line", () => {
 		const r = run(["--issue", "8"], stubOne("gh: Not Found (HTTP 404)"));
 		expect(r.status).toBe(0);
-		expect(r.out).toContain("#8 is not an open issue");
+		expect(r.out).toContain("#8 is not an open or `watch:closed` issue");
 	});
 
 	it("--issue whose read fails otherwise is BROKEN, never the not-gated line", () => {
 		const r = run(["--issue", "8"], stubOne("gh: HTTP 502 Bad Gateway"));
 		expect(r.status).toBe(2);
 		expect(r.out).toContain("HTTP 502");
-		expect(r.out).not.toContain("not an open issue");
+		expect(r.out).not.toContain("not an open or");
 	});
 
 	it.each(["0", "-5", "abc"])(
@@ -414,5 +443,56 @@ describe("modes", () => {
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("SKIP");
 		expect(r.out).not.toContain("OK:");
+	});
+});
+
+describe("a closed watch (#5801)", () => {
+	it("reads closed issues carrying watch:closed beside the open ones, marking each", () => {
+		const r = run(
+			["--json"],
+			stubGh([{ number: 7, body: gatedOn("echo open-seven") }], {
+				closed: [
+					{
+						number: 3996,
+						body: gatedOn("echo unmet: no change"),
+						labels: WATCH,
+					},
+				],
+			}),
+		);
+		const env = JSON.parse(r.out);
+		expect(
+			env.rows.map((x: { number: number; closed: boolean }) => [
+				x.number,
+				x.closed,
+			]),
+		).toEqual([
+			[7, false],
+			[3996, true],
+		]);
+		expect(fs.readFileSync(ghLog, "utf8")).toContain(
+			"state=closed -f per_page=100 -f labels=watch:closed",
+		);
+	});
+
+	it("still runs a closed watch's broken check, so its repair is owed", () => {
+		const r = run(
+			[],
+			stubGh([], {
+				closed: [{ number: 4093, body: gatedOn("false"), labels: WATCH }],
+			}),
+		);
+		expect(r.out).toContain("#4093  [DEAD] (closed watch)");
+	});
+
+	it("warns on a closed watch carrying no gate line, which nothing could reopen", () => {
+		const r = run(
+			[],
+			stubGh([], {
+				closed: [{ number: 3425, body: "No marker.", labels: WATCH }],
+			}),
+		);
+		expect(r.out).toContain("#3425  [GATES-NOTHING] (closed watch)");
+		expect(r.out).toContain("nothing can reopen it");
 	});
 });

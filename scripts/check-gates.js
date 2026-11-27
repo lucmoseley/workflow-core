@@ -3,6 +3,7 @@
 const { runCheck } = require("./lib/check");
 const {
 	parseErrLine,
+	ghClosedIssuesWithLabel,
 	ghJson,
 	ghOpenIssues,
 	raiseGhFailure,
@@ -16,6 +17,7 @@ const {
 	runCheckCommand,
 	unwrap,
 } = require("./lib/gate-check.js");
+const { WATCH_CLOSED_LABEL, isClosedWatch } = require("./lib/watch-label.js");
 
 // guess, lucmoseley/mantahostels#2656
 const ROW_LINES = 3;
@@ -39,27 +41,36 @@ const REPAIRS = new Set([...REPAIR_STATES, "GATES-NOTHING"]);
 const WARNED = new Set([...REPAIRS, NOT_STATED]);
 
 /**
- * @typedef {{number: number, title: string, url: string, condition: string|null, command: string|null, abandonIf: string|null, state: string, reading: string, detail: string|null}} GateRow
+ * @typedef {{number: number, title: string, url: string, closed: boolean, condition: string|null, command: string|null, abandonIf: string|null, state: string, reading: string, detail: string|null}} GateRow
  */
 
 /**
- * @param {{number: number, title: string, html_url: string, body: string}} iss
+ * @param {{number: number, title: string, html_url: string, body: string, state: string}} iss
  * @param {number} timeoutMs
  * @returns {GateRow | null}
  */
 function gateRow(iss, timeoutMs) {
 	const resolved = resolveGate(iss.body);
 	const gateOn = resolved.gateOn;
-	if (!gateOn) return null;
+	const closed = iss.state === "closed";
 	const base = {
 		number: iss.number,
 		title: iss.title,
 		url: iss.html_url,
+		closed,
 		condition: null,
 		command: null,
 		abandonIf: null,
 		detail: null,
 	};
+	if (!gateOn) {
+		if (!closed) return null;
+		return {
+			...base,
+			state: "GATES-NOTHING",
+			reading: `carries \`${WATCH_CLOSED_LABEL}\` but no \`**Gated on:**\` line, so nothing can reopen it`,
+		};
+	}
 
 	if (gateOn.malformed) {
 		return {
@@ -116,7 +127,7 @@ function printTable(ctx, rows, warned) {
 			ctx.notify
 				? `\nGATE SWEEP — ${warned.length} conditioned issue(s) owe a repair to their\n` +
 						"`check:` segment, or carry none. Nothing here is a verdict on the condition.\n"
-				: `\nGATE SWEEP — ${rows.length} open issue(s) carrying \`**Gated on:**\`, each with\n` +
+				: `\nGATE SWEEP — ${rows.length} open or \`${WATCH_CLOSED_LABEL}\` issue(s) carrying \`**Gated on:**\`, each with\n` +
 						"the reading its own `check:` command produced. NOTHING BELOW SAYS MET OR\n" +
 						"UNMET (mantahostels#1332): read the reading against the condition and judge it.\n",
 		);
@@ -125,7 +136,7 @@ function printTable(ctx, rows, warned) {
 			"  A met condition is discharged by the session that judges it — /pick-next\n" +
 				"  on its GATED rows, or the /triage the refill loop launches on a changed\n" +
 				"  reading: comment the evidence, strip the marker, and the issue re-enters\n" +
-				"  the batch. A DEAD, NO-OUTPUT,\n" +
+				`  the batch, a closed one reopened and its \`${WATCH_CLOSED_LABEL}\` stripped first. A DEAD, NO-OUTPUT,\n` +
 				"  OVER-BUDGET or NOT-A-COMMAND segment is repaired or deleted, and is never\n" +
 				"  itself the blocker in either direction (mantahostels#1332).\n",
 		);
@@ -137,7 +148,9 @@ function printTable(ctx, rows, warned) {
  * @param {GateRow} r
  */
 function sayRow(ctx, r) {
-	ctx.say(`  #${r.number}  [${r.state}] ${r.title}`);
+	ctx.say(
+		`  #${r.number}  [${r.state}]${r.closed ? " (closed watch)" : ""} ${r.title}`,
+	);
 	if (r.condition) ctx.say(`      condition: ${r.condition}`);
 	for (const line of buildRowLines(r.reading)) ctx.say(`      ${line}`);
 	if (r.detail) ctx.say(`      (${r.detail})`);
@@ -155,9 +168,9 @@ function okLineFor(rows, only) {
 	if (rows.length > 0)
 		okLine = `${rows.length} conditioned issue(s) read; every \`check:\` segment ran.`;
 	else if (only === null)
-		okLine = "no open issue carries a `**Gated on:**` marker.";
+		okLine = `no open or \`${WATCH_CLOSED_LABEL}\` issue carries a \`**Gated on:**\` marker.`;
 	else
-		okLine = `#${only} is not an open issue carrying a \`**Gated on:**\` marker.`;
+		okLine = `#${only} is not an open or \`${WATCH_CLOSED_LABEL}\` issue carrying a \`**Gated on:**\` marker.`;
 	return okLine;
 }
 
@@ -166,7 +179,8 @@ function okLineFor(rows, only) {
  * @returns {any[]}
  */
 function readIssues(only) {
-	if (only === null) return ghOpenIssues();
+	if (only === null)
+		return [...ghOpenIssues(), ...ghClosedIssuesWithLabel(WATCH_CLOSED_LABEL)];
 	let iss;
 	try {
 		iss = ghJson(["api", `repos/{owner}/{repo}/issues/${only}`]);
@@ -174,7 +188,7 @@ function readIssues(only) {
 		if (/HTTP (404|410)/.test(parseErrLine(e))) return [];
 		throw e;
 	}
-	return iss.state === "open" ? [iss] : [];
+	return iss.state === "open" || isClosedWatch(iss) ? [iss] : [];
 }
 
 runCheck({

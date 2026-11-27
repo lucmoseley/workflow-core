@@ -9,6 +9,7 @@ const { CORE_STYLE, namespaced } = require("./output-styles.js");
 const { withoutSelfPlugin } = require("./core-hooks.js");
 const { shellQuote } = require("./sh-quote.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
+const { WATCH_CLOSED_LABEL } = require("./watch-label.js");
 const { RESOLVE_CORE_SCRIPT } = require("./tree-core.js");
 const { realPathOrNull } = require("./real-path.js");
 const { FAIL_OPEN_HOOKS, SHIM_MARK, isHookShim } = require("./hook-shim.js");
@@ -434,6 +435,12 @@ const CORE_LABELS = [
 		color: "FEF2C0",
 		description:
 			"Waits on the founder; an away-mode refill loop skips it, a normal-mode one resumes it first.",
+	},
+	{
+		name: WATCH_CLOSED_LABEL,
+		color: "D4C5F9",
+		description:
+			"A closed issue whose Gated on: check the gate sweep still runs; a met reading reopens it.",
 	},
 	{
 		name: URGENT_LABEL,
