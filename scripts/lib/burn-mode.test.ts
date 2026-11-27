@@ -23,17 +23,6 @@ const STANDARD = {
 		opusish: { effortLevel: "high" },
 	},
 };
-const BURN = {
-	model: "test-sonnet-1[1m]",
-	modelSettings: {
-		"test-haiku-1": { effortLevel: "max" },
-		"test-haiku-0": { effortLevel: "max" },
-		"test-opus-2": { effortLevel: "medium" },
-		"test-opus-1": { effortLevel: "medium" },
-		opusish: { effortLevel: "medium" },
-		"test-fable-1": { effortLevel: "xhigh" },
-	},
-};
 
 const cli = (args: string[], stdin = "", env?: NodeJS.ProcessEnv) =>
 	runInProcess(LIB, args, env ? { stdin, env } : { stdin });
@@ -99,34 +88,39 @@ describe("readBurnState — what the switch left on the machine", () => {
 		});
 	});
 
-	it("names a plan left on the burn model with the marker gone", () => {
+	it("names a plan off the routing file's model", () => {
 		plan(".claude", STANDARD);
-		plan(".claude2", { ...STANDARD, model: BURN.model });
+		plan(".claude2", { ...STANDARD, model: "hand-set" });
 		expect(readBurnState(env()).disagreeing).toEqual([
 			path.join(".claude2", "settings.json"),
 		]);
 	});
 
-	it("names a plan not moved while the marker reads on", () => {
+	it("judges the plans against the same settings while the marker reads on", () => {
 		markerOn();
-		plan(".claude", BURN);
-		plan(".claude2", STANDARD);
+		plan(".claude", STANDARD);
+		plan(".claude2", { ...STANDARD, model: "hand-set" });
 		const state = readBurnState(env());
 		expect(state.on).toBe(true);
 		expect(state.disagreeing).toEqual([path.join(".claude2", "settings.json")]);
 	});
 
-	it("names a plan whose written effort departs, under any id the mode writes, or is missing", () => {
-		markerOn();
+	it("names a plan whose written effort departs, under any id the routing file writes, or is missing", () => {
 		plan(".claude", {
-			...BURN,
-			modelSettings: { ...BURN.modelSettings, opusish: { effortLevel: "low" } },
+			...STANDARD,
+			modelSettings: {
+				...STANDARD.modelSettings,
+				opusish: { effortLevel: "low" },
+			},
 		});
-		const { "test-fable-1": _gone, ...rest } = BURN.modelSettings;
-		plan(".claude2", { ...BURN, modelSettings: rest });
+		const { "test-haiku-0": _gone, ...rest } = STANDARD.modelSettings;
+		plan(".claude2", { ...STANDARD, modelSettings: rest });
 		plan(".claude3", {
-			...BURN,
-			modelSettings: { ...BURN.modelSettings, other: { effortLevel: "low" } },
+			...STANDARD,
+			modelSettings: {
+				...STANDARD.modelSettings,
+				other: { effortLevel: "low" },
+			},
 		});
 		expect(readBurnState(env()).disagreeing.sort()).toEqual([
 			path.join(".claude", "settings.json"),
@@ -135,7 +129,7 @@ describe("readBurnState — what the switch left on the machine", () => {
 	});
 
 	it("names one symlinked file once, and skips one resolving to nothing", () => {
-		plan(".claude", { ...STANDARD, model: BURN.model });
+		plan(".claude", { ...STANDARD, model: "hand-set" });
 		fs.mkdirSync(path.join(home, ".claude2"));
 		fs.symlinkSync(
 			path.join(home, ".claude", "settings.json"),
@@ -193,7 +187,7 @@ describe("the CLI half", () => {
 		expect(cli(["marker", "--brun"]).status).toBe(2);
 	});
 
-	it("report prints each plan, exiting 1 where one departs from the mode's writes", () => {
+	it("report prints each plan, exiting 1 where one departs from the routing file's writes", () => {
 		const home = fs.mkdtempSync(path.join(os.tmpdir(), "burn-report-"));
 		try {
 			fs.mkdirSync(path.join(home, ".claude"));
@@ -205,9 +199,13 @@ describe("the CLI half", () => {
 			const ok = cli(["report"], "", routed);
 			expect(ok.status).toBe(0);
 			expect(ok.stdout).toContain(`model=${STANDARD.model}`);
-			const off = cli(["report", "--burn"], "", routed);
+			fs.writeFileSync(
+				path.join(home, ".claude", "settings.json"),
+				JSON.stringify({ ...STANDARD, model: "hand-set" }),
+			);
+			const off = cli(["report"], "", routed);
 			expect(off.status).toBe(1);
-			expect(off.stdout).toContain("not the burn model");
+			expect(off.stdout).toContain("not the routing file's model");
 		} finally {
 			fs.rmSync(home, { recursive: true, force: true });
 		}

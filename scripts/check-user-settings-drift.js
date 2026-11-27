@@ -13,8 +13,7 @@ const {
 	USER_SETTINGS_SNAPSHOT_DEFAULT,
 } = require("./lib/workflow-core-config");
 const { caught } = require("./lib/caught.js");
-const { isBurnMarkerOn } = require("./lib/burn-mode.js");
-const { modeSettings } = require("./lib/model-table.js");
+const { planSettings } = require("./lib/model-table.js");
 const { copyBlockPattern } = require("./lib/settings-copy");
 const { trimEndRun } = require("./lib/trim-run.js");
 
@@ -403,12 +402,11 @@ const SPEC = {
 		const live = readLive(ctx, settingsPath);
 		if (live === null) return { noun: "unreadable live settings file" };
 		const { liveJson } = live;
-		const burn = isBurnMarkerOn(process.env);
 
 		const [liveRest, liveRouted] = splitRouted(liveJson);
 		let routedDiffs;
 		try {
-			routedDiffs = diff(modeSettings(burn), liveRouted, "", {
+			routedDiffs = diff(planSettings(), liveRouted, "", {
 				side: "routing file",
 				lines: [],
 			});

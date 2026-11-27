@@ -80,7 +80,7 @@ function rewrite(
 		notes.push(remapped.note);
 	}
 
-	const tier = tierDeparture(asked, burn);
+	const tier = tierDeparture(asked);
 	if (tier) {
 		notes.push(tier);
 		rules.push(TIER_RULE);
@@ -187,7 +187,7 @@ function decide(_prompt, ctx) {
 	try {
 		const table = loadModelTable(ctx);
 		const burn = table ? isBurnApplied(table, ctx) : false;
-		const inherited = table && !burn ? ctx.sessionModel(ctx.session) : "";
+		const inherited = table ? ctx.sessionModel(ctx.session) : "";
 		if (
 			table?.isRoutedAway(inherited) &&
 			String(ctx.input.subagent_type ?? "").trim() === "fork"

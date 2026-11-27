@@ -3,7 +3,7 @@ const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
 const { machineMarkerPath } = require("./machine-marker.js");
-const { modeSettings } = require("./model-table.js");
+const { planSettings } = require("./model-table.js");
 const { readPlanDirs } = require("./plan-dirs.js");
 const { trimmed } = require("./trimmed.js");
 const { writeFd } = require("./write-fd.js");
@@ -64,12 +64,10 @@ function isPresent(file) {
 
 /**
  * @param {string} file
- * @param {boolean} burn
  * @returns {{model: string, faults: string[]}}
  */
-function readPlanFaults(file, burn) {
-	const want = modeSettings(burn);
-	const mode = burn ? "burn" : "standard";
+function readPlanFaults(file) {
+	const want = planSettings();
 	let settings;
 	try {
 		settings = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -79,12 +77,13 @@ function readPlanFaults(file, burn) {
 	const model = trimmed(settings?.model);
 	/** @type {string[]} */
 	const faults = [];
-	if (model !== want.model) faults.push(`not the ${mode} model, ${want.model}`);
+	if (model !== want.model)
+		faults.push(`not the routing file's model, ${want.model}`);
 	for (const [id, { effortLevel }] of Object.entries(want.modelSettings)) {
 		const has = settings?.modelSettings?.[id]?.effortLevel;
 		if (has !== effortLevel)
 			faults.push(
-				`${id} effortLevel=${has ?? "absent"}, not the ${mode} effort, ${effortLevel}`,
+				`${id} effortLevel=${has ?? "absent"}, not the routing file's effort, ${effortLevel}`,
 			);
 	}
 	return { model, faults };
@@ -98,7 +97,7 @@ function readBurnState(env = process.env) {
 	try {
 		const on = fs.existsSync(markerPath(env));
 		const disagreeing = [...readPlanFiles(env.HOME ?? "").files]
-			.filter(([file]) => readPlanFaults(file, on).faults.length > 0)
+			.filter(([file]) => readPlanFaults(file).faults.length > 0)
 			.map(([, name]) => name);
 		return { on, disagreeing, error: null };
 	} catch (err) {
@@ -117,7 +116,7 @@ if (require.main === module) {
 		const { values, positionals } = parseArgs({
 			allowPositionals: true,
 			strict: true,
-			options: { quiet: { type: "boolean" }, burn: { type: "boolean" } },
+			options: { quiet: { type: "boolean" } },
 		});
 		const [mode] = positionals;
 		if (mode === "marker") {
@@ -151,7 +150,7 @@ if (require.main === module) {
 				rows = [...readPlanFiles(process.env.HOME ?? "").files].map(
 					([file, name]) => ({
 						name,
-						...readPlanFaults(file, values.burn === true),
+						...readPlanFaults(file),
 					}),
 				);
 			} catch (err) {

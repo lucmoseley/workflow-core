@@ -1661,7 +1661,7 @@ describe("the Burn mode switch", () => {
 		const rows = burnRows(panel);
 		expect(rows.map((r) => r.text)).toEqual([
 			"Burn mode  [!]",
-			`Not at the burn effort: ${Plan}`,
+			`Off the routing file's settings: ${Plan}`,
 			"burn-mode.sh off: exit 1",
 			"error: still on the burn effort after off:",
 			`  ${Plan}`,
@@ -1672,13 +1672,13 @@ describe("the Burn mode switch", () => {
 		expect(rows[0].control?.state).toBe("failed");
 	});
 
-	it("reads a plan left at the burn effort as no done state, with no flip of its own", () => {
+	it("reads a plan off the routing file's settings as no done state, with no flip of its own", () => {
 		const rows = burnRowsOf({
 			status: running({ on: false, disagreeing: [Plan], error: null }),
 		});
 		expect(rows[0].control?.state).toBe("failed");
 		expect(rows[1]).toMatchObject({
-			text: `At the burn effort: ${Plan}`,
+			text: `Off the routing file's settings: ${Plan}`,
 			role: "value",
 		});
 		expect(rows[2].text).toBe("Click runs burn-mode.sh on");
@@ -3058,7 +3058,7 @@ describe("the spacing scale", () => {
 	it("sets what Burn mode reports one row below its title", () => {
 		const burnMode = { on: true, disagreeing: [".claude2"], error: null };
 		const drawn = rowsOf({ status: { ...RUNNING, repos, burnMode } });
-		expect(blankRunBefore(drawn, "Not at the burn effort")).toBe(1);
+		expect(blankRunBefore(drawn, "Off the routing file's settings")).toBe(1);
 		expect(blankRunBefore(drawn, "Click runs")).toBe(0);
 	});
 

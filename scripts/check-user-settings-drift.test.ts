@@ -19,18 +19,6 @@ const STANDARD = {
 		opusish: { effortLevel: "high" },
 	},
 };
-const BURN = {
-	model: "test-sonnet-1[1m]",
-	modelSettings: {
-		"test-haiku-1": { effortLevel: "max" },
-		"test-haiku-0": { effortLevel: "max" },
-		"test-opus-2": { effortLevel: "medium" },
-		"test-opus-1": { effortLevel: "medium" },
-		opusish: { effortLevel: "medium" },
-		"test-fable-1": { effortLevel: "xhigh" },
-	},
-};
-
 const contract = fs.readFileSync(
 	path.resolve(__dirname, "..", "docs", "working-contract.md"),
 	"utf8",
@@ -78,7 +66,6 @@ const run = (
 		env: {
 			...process.env,
 			HOME: dir,
-			WFC_BURN_MARKER: path.join(dir, "no-burn-marker"),
 			WFC_MODEL_ROUTING: FIXTURE,
 			...env,
 		},
@@ -94,29 +81,14 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe("the routed keys, judged against the routing file's current mode", () => {
-	const burnOn = () => {
-		const marker = path.join(dir, "burn-marker");
-		fs.writeFileSync(marker, "");
-		return { WFC_BURN_MARKER: marker };
-	};
-
-	it("passes live settings holding the standard writes while burn mode is off", () => {
+describe("the routed keys, judged against the routing file", () => {
+	it("passes live settings holding the routing file's writes", () => {
 		const { status, out } = run({ theme: "dark" }, { theme: "dark" });
 		expect(status).toBe(0);
 		expect(out).toMatch(/^OK:/m);
 	});
 
-	it("passes the burn writes while burn mode is on, and reports the standard ones then", () => {
-		expect(run({}, BURN, undefined, burnOn()).status).toBe(0);
-		const { status, out } = run({}, STANDARD, undefined, burnOn());
-		expect(status).toBe(1);
-		expect(out).toContain(
-			`model: routing file "${BURN.model}" ≠ live "${STANDARD.model}"`,
-		);
-	});
-
-	it("reports a model other than the mode's", () => {
+	it("reports a model other than the routing file's", () => {
 		const { status, out } = run({}, { model: "hand-set" });
 		expect(status).toBe(1);
 		expect(out).toContain(

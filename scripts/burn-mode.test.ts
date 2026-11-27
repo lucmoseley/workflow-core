@@ -20,19 +20,7 @@ const STANDARD = {
 		opusish: { effortLevel: "high" },
 	},
 };
-const BURN = {
-	model: "test-sonnet-1[1m]",
-	modelSettings: {
-		"test-haiku-1": { effortLevel: "max" },
-		"test-haiku-0": { effortLevel: "max" },
-		"test-opus-2": { effortLevel: "medium" },
-		"test-opus-1": { effortLevel: "medium" },
-		opusish: { effortLevel: "medium" },
-		"test-fable-1": { effortLevel: "xhigh" },
-	},
-};
-const ON_MODEL = BURN.model;
-const OFF_MODEL = STANDARD.model;
+const MODEL = STANDARD.model;
 
 let dir: string;
 let home: string;
@@ -87,16 +75,16 @@ afterEach(() => {
 });
 
 describe("on", () => {
-	it("writes the marker and the burn settings into every plan, over hand-set values, every other key kept", () => {
+	it("writes the marker and the routing file's settings into every plan, over hand-set values, every other key kept", () => {
 		const r = run("on");
 		expect(r.status, r.stderr).toBe(0);
 		expect(fs.existsSync(marker)).toBe(true);
 		for (const plan of [".claude", ".claude2"])
 			expect(read(plan)).toEqual({
-				model: ON_MODEL,
+				model: MODEL,
 				modelSettings: {
-					...BURN.modelSettings,
-					"test-opus-2": { effortLevel: "medium", other: 1 },
+					...STANDARD.modelSettings,
+					"test-opus-2": { effortLevel: "high", other: 1 },
 					"unrelated-id": { effortLevel: "max" },
 				},
 				effortLevel: "medium",
@@ -108,7 +96,7 @@ describe("on", () => {
 		run("on");
 		write(".claude", { model: "drifted", keep: 2 });
 		expect(run("on").status).toBe(0);
-		expect(read(".claude")).toEqual({ ...BURN, keep: 2 });
+		expect(read(".claude")).toEqual({ ...STANDARD, keep: 2 });
 	});
 
 	it("stops with exit 2, writing nothing, on a routing file that will not load", () => {
@@ -122,7 +110,7 @@ describe("on", () => {
 		expect(fs.readFileSync(settings(".claude"), "utf8")).toBe(before);
 	});
 
-	it("leaves the marker through a failed on, so off undoes the plans it moved", () => {
+	it("exits 1 naming the plan a failed on could not write, the marker set", () => {
 		const plan = path.dirname(settings(".claude2"));
 		fs.chmodSync(plan, 0o555);
 		const r = run("on");
@@ -130,44 +118,36 @@ describe("on", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain(".claude2/settings.json");
 		expect(fs.existsSync(marker)).toBe(true);
-		expect(run("off").status).toBe(0);
-		expect(modelOf(".claude")).toBe(OFF_MODEL);
+		expect(modelOf(".claude")).toBe(MODEL);
 	});
 });
 
 describe("the closing warnings", () => {
-	// #568
 	it.each(["on", "off"])(
-		"%s says a restart is needed and names both stale sessions",
+		"%s says the dispatch routing is live with no restart",
 		(mode) => {
 			const r = run(mode);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain(`burn mode: ${mode}`);
-			expect(r.stdout).toMatch(/restart/i);
-			expect(r.stdout).toContain("bg-spare");
-			expect(r.stdout).toMatch(/agents view/);
-			expect(r.stdout).toMatch(/launch line/);
-			expect(r.stdout).toMatch(/throwaway/);
+			expect(r.stdout).toContain("next Agent call");
+			expect(r.stdout).toContain("no session needs a restart");
 		},
 	);
 
-	it("status prints neither", () => {
-		const r = run("status");
-		expect(r.stdout).not.toContain("bg-spare");
-		expect(r.stdout).not.toMatch(/launch line/);
+	it("status prints none of it", () => {
+		expect(run("status").stdout).not.toContain("next Agent call");
 	});
 });
 
 describe("off", () => {
-	it("writes the standard settings into every plan and removes the marker", () => {
+	it("writes the routing file's settings into every plan and removes the marker", () => {
 		run("on");
 		const r = run("off");
 		expect(r.status, r.stderr).toBe(0);
 		expect(fs.existsSync(marker)).toBe(false);
 		expect(read(".claude2")).toEqual({
-			model: OFF_MODEL,
+			model: MODEL,
 			modelSettings: {
-				...BURN.modelSettings,
 				...STANDARD.modelSettings,
 				"test-opus-2": { effortLevel: "high", other: 1 },
 				"unrelated-id": { effortLevel: "max" },
@@ -186,29 +166,28 @@ describe("off", () => {
 
 	it("stops with exit 2, writing nothing and keeping the marker, on a routing file that will not load", () => {
 		run("on");
+		write(".claude", withModel("hand-set"));
 		const broken = path.join(dir, "routing.json");
 		fs.writeFileSync(broken, "{");
 		const r = run("off", home, broken);
 		expect(r.status).toBe(2);
 		expect(fs.existsSync(marker)).toBe(true);
-		expect(modelOf(".claude")).toBe(ON_MODEL);
+		expect(modelOf(".claude")).toBe("hand-set");
 	});
 
-	it("exits 1 naming the plan it could not write, keeping the marker, so a second off retries it", () => {
-		run("on");
+	it("exits 1 naming the plan it could not write, the marker removed, so a second off retries it", () => {
 		const plan = path.dirname(settings(".claude2"));
 		fs.chmodSync(plan, 0o555);
 		const r = run("off");
 		fs.chmodSync(plan, 0o755);
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("still departs from the standard settings");
+		expect(r.stderr).toContain("departs from the routing file's settings");
 		expect(r.stdout).toContain(".claude2/settings.json");
-		expect(fs.existsSync(marker)).toBe(true);
-		expect(modelOf(".claude2")).toBe(ON_MODEL);
-		expect(modelOf(".claude")).toBe(OFF_MODEL);
-		expect(run("off").status).toBe(0);
-		expect(modelOf(".claude2")).toBe(OFF_MODEL);
 		expect(fs.existsSync(marker)).toBe(false);
+		expect(modelOf(".claude2")).toBe("hand-set");
+		expect(modelOf(".claude")).toBe(MODEL);
+		expect(run("off").status).toBe(0);
+		expect(modelOf(".claude2")).toBe(MODEL);
 	});
 
 	it("treats a plan whose settings.json is a symlink to another's as one file", () => {
@@ -221,8 +200,8 @@ describe("off", () => {
 		expect(on.status).toBe(0);
 		const r = run("off");
 		expect(r.status).toBe(0);
-		expect(r.stderr).not.toContain("still departs");
-		expect(modelOf(".claude")).toBe(OFF_MODEL);
+		expect(r.stderr).not.toContain("departs");
+		expect(modelOf(".claude")).toBe(MODEL);
 		const listed = run("status").stdout;
 		expect(listed).toContain(".claude/settings.json");
 		expect(listed).not.toContain(".claude2/settings.json");
@@ -234,9 +213,7 @@ describe("off", () => {
 		const r = run("on");
 		expect(r.status).toBe(0);
 		expect(r.stderr.split(".claude2/settings.json")).toHaveLength(2);
-		expect(modelOf(".claude")).toBe(ON_MODEL);
-		expect(run("off").status).toBe(0);
-		expect(modelOf(".claude")).toBe(OFF_MODEL);
+		expect(modelOf(".claude")).toBe(MODEL);
 	});
 
 	it("names and skips a plan whose settings.json loops", () => {
@@ -245,7 +222,7 @@ describe("off", () => {
 		const r = run("on");
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain(".claude2/settings.json");
-		expect(modelOf(".claude")).toBe(ON_MODEL);
+		expect(modelOf(".claude")).toBe(MODEL);
 	});
 
 	it("is idempotent — off when already off still exits 0", () => {
@@ -260,19 +237,19 @@ describe("status", () => {
 		const r = run("status");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("burn mode: off");
-		expect(r.stdout).toContain(`model=${OFF_MODEL}`);
+		expect(r.stdout).toContain(`model=${MODEL}`);
 		expect(r.stdout).not.toContain("not the");
 		expect(fs.readFileSync(settings(".claude"), "utf8")).toBe(before);
 	});
 
-	it("names a plan whose model departs from the mode's", () => {
+	it("names a plan whose model departs from the routing file's", () => {
 		run("on");
-		write(".claude2", { ...BURN, model: OFF_MODEL });
+		write(".claude2", { ...STANDARD, model: "hand-set" });
 		const r = run("status");
 		expect(r.stdout).toContain("burn mode: on");
 		expect(r.stdout).toMatch(
 			new RegExp(
-				`\\.claude2/settings\\.json.*not the burn model, ${ON_MODEL.replace(/[[\]]/g, "\\$&")}`,
+				`\\.claude2/settings\\.json.*not the routing file's model, ${MODEL.replace(/[[\]]/g, "\\$&")}`,
 			),
 		);
 		expect(r.stdout).not.toMatch(/\.claude\/settings\.json.*not the/);
@@ -291,10 +268,10 @@ describe("status", () => {
 		write(".claude2", { ...STANDARD, modelSettings: rest });
 		const r = run("status");
 		expect(r.stdout).toContain(
-			"opusish effortLevel=max, not the standard effort, high",
+			"opusish effortLevel=max, not the routing file's effort, high",
 		);
 		expect(r.stdout).toContain(
-			"test-haiku-0 effortLevel=absent, not the standard effort, low",
+			"test-haiku-0 effortLevel=absent, not the routing file's effort, low",
 		);
 	});
 
@@ -334,7 +311,6 @@ describe("the marker is one per machine, not one per checkout", () => {
 		expect(runIn(b, "status").stdout).toContain("burn mode: on");
 		expect(runIn(b, "off").status).toBe(0);
 		expect(runIn(a, "status").stdout).toContain("burn mode: off");
-		expect(modelOf(".claude")).toBe(OFF_MODEL);
 	});
 
 	it("writes it beside the settings files it is the record for", () => {
@@ -351,26 +327,24 @@ describe("the plan dirs", () => {
 			settings(".claude2"),
 		);
 		fs.mkdirSync(path.join(home, ".claude-exp-a"));
-		write(".claude-exp-a", withModel(OFF_MODEL));
+		write(".claude-exp-a", withModel("hand-set"));
 		expect(run("on").status).toBe(0);
-		expect(modelOf(".claude")).toBe(ON_MODEL);
-		expect(modelOf(".claude-exp-a")).toBe(OFF_MODEL);
+		expect(modelOf(".claude")).toBe(MODEL);
+		expect(modelOf(".claude-exp-a")).toBe("hand-set");
 		const listed = run("status").stdout;
 		expect(listed).toContain(".claude/settings.json");
 		expect(listed).not.toContain(".claude-exp-a");
 		expect(listed).not.toContain(".claude2/settings.json");
-		write(".claude-exp-a", withModel(ON_MODEL));
 		expect(run("off").status).toBe(0);
-		expect(modelOf(".claude")).toBe(OFF_MODEL);
-		expect(modelOf(".claude-exp-a")).toBe(ON_MODEL);
+		expect(modelOf(".claude-exp-a")).toBe("hand-set");
 	});
 
 	it("finds the plans under a HOME that is itself a symlink", () => {
 		const linked = path.join(dir, "linked-home");
 		fs.symlinkSync(home, linked);
 		expect(run("on", linked).status).toBe(0);
-		expect(modelOf(".claude")).toBe(ON_MODEL);
-		expect(modelOf(".claude2")).toBe(ON_MODEL);
+		expect(modelOf(".claude")).toBe(MODEL);
+		expect(modelOf(".claude2")).toBe(MODEL);
 	});
 
 	it("refuses on, recording nothing, when HOME cannot be read", () => {

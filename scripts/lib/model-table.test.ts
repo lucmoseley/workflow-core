@@ -16,7 +16,7 @@ import {
 	isOverflowSession,
 	isRoutedAway,
 	loadRouting,
-	modeSettings,
+	planSettings,
 	relaunchFlags,
 	remapModel,
 } from "./model-table";
@@ -44,8 +44,8 @@ const dispatched = (call: Record<string, unknown>, burn: boolean) => {
 	return `${out.model ?? ""}${out.effort ? ` · ${out.effort}` : ""}`;
 };
 
-const launched = (model: string, burn: boolean) => {
-	const r = cli(["launch", model, ...(burn ? ["--burn"] : [])]);
+const launched = (model: string) => {
+	const r = cli(["launch", model]);
 	expect(r.status, r.stderr).toBe(0);
 	return r.stdout.trim();
 };
@@ -159,15 +159,17 @@ describe("a dispatch inheriting a routed-away session model (#4992)", () => {
 		["no model", {}],
 		["a type pinning none", { subagent_type: "general-purpose" }],
 		["`inherit`", { model: "inherit" }],
-	])("pins %s to the standard row in standard mode", (_n, call) => {
-		const r = remapModel(call, false, "test-sonnet-1[1m]");
-		expect(r?.input.model).toBe("opus");
-		expect(r?.input.effort).toBeUndefined();
-		expect(r?.note).toContain("would have inherited");
+	])("pins %s to the standard row, in either mode", (_n, call) => {
+		for (const burn of [false, true]) {
+			const r = remapModel(call, burn, "test-sonnet-1[1m]");
+			expect(r?.input.model).toBe("opus");
+			expect(r?.input.effort).toBeUndefined();
+			expect(r?.note).toContain("would have inherited");
+		}
 	});
 
-	it("leaves it alone in burn mode, on a session not routed away, and on a fork", () => {
-		expect(remapModel({}, true, "test-sonnet-1")).toBeNull();
+	it("leaves it alone on a session not routed away, and on a fork", () => {
+		expect(remapModel({}, true, "test-fable-1")).toBeNull();
 		expect(remapModel({}, false, "test-fable-1")).toBeNull();
 		expect(remapModel({}, false, "test-opus-2")).toBeNull();
 		expect(remapModel({}, false, "")).toBeNull();
@@ -197,7 +199,7 @@ describe("the one spelling rule", () => {
 	});
 });
 
-describe("isRoutedAway — a model only burn mode puts work on", () => {
+describe("isRoutedAway — a model only the burn dispatch rows put work on", () => {
 	it("holds for a model standard mode moves and burn mode runs on, in every spelling", () => {
 		for (const s of ["sonnet", "test-sonnet-0[1m]", "test-sonnet-1"])
 			expect(isRoutedAway(s)).toBe(true);
@@ -209,12 +211,12 @@ describe("isRoutedAway — a model only burn mode puts work on", () => {
 	});
 });
 
-describe("relaunchFlags — a saved routed-away launch resumed in standard mode (#4992)", () => {
+describe("relaunchFlags — a saved routed-away launch resumed on its standard row (#4992)", () => {
 	it("moves the saved model to the standard row's launch spelling, joined or split, every other flag kept", () => {
 		expect(
-			relaunchFlags(["--name", "n", "--model", "test-sonnet-1[1m]"], false),
+			relaunchFlags(["--name", "n", "--model", "test-sonnet-1[1m]"]),
 		).toEqual(["--name", "n", "--model", "test-opus-2[1m]"]);
-		expect(relaunchFlags(["--model=sonnet", "--name", "n"], false)).toEqual([
+		expect(relaunchFlags(["--model=sonnet", "--name", "n"])).toEqual([
 			"--model=test-opus-2[1m]",
 			"--name",
 			"n",
@@ -228,15 +230,13 @@ describe("relaunchFlags — a saved routed-away launch resumed in standard mode 
 			["--name", "n"],
 			["--model"],
 		])
-			expect(relaunchFlags(flags, false)).toBe(flags);
-		const away = ["--model", "test-sonnet-1[1m]"];
-		expect(relaunchFlags(away, true)).toBe(away);
+			expect(relaunchFlags(flags)).toBe(flags);
 	});
 });
 
-describe("modeSettings — what a mode writes into every plan", () => {
+describe("planSettings — what the switch writes into every plan", () => {
 	it("names the session's launch spelling, and each effort under the id and every other name", () => {
-		expect(modeSettings(false)).toEqual({
+		expect(planSettings()).toEqual({
 			model: "test-haiku-1[1m]",
 			modelSettings: {
 				"test-haiku-1": { effortLevel: "low" },
@@ -245,10 +245,6 @@ describe("modeSettings — what a mode writes into every plan", () => {
 				"test-opus-1": { effortLevel: "high" },
 				opusish: { effortLevel: "high" },
 			},
-		});
-		expect(modeSettings(true).model).toBe("test-sonnet-1[1m]");
-		expect(modeSettings(true).modelSettings["test-fable-1"]).toEqual({
-			effortLevel: "xhigh",
 		});
 	});
 });
@@ -264,29 +260,21 @@ describe("isOverflowSession — burn mode never reaches an overflow seat", () =>
 
 describe("the CLI half", () => {
 	it("launch renders the row's target as its id with [1m]", () => {
-		expect(launched("sonnet", false)).toBe("test-opus-2[1m]");
-		expect(launched("test-sonnet-0[1m]", false)).toBe("test-opus-2[1m]");
-		expect(launched("opus[1m]", true)).toBe("test-sonnet-1[1m]");
-		expect(launched("haiku", true)).toBe("test-fable-1[1m]");
-		expect(launched("fable", true)).toBe("test-haiku-1[1m]");
+		expect(launched("sonnet")).toBe("test-opus-2[1m]");
+		expect(launched("test-sonnet-0[1m]")).toBe("test-opus-2[1m]");
 	});
 
 	it("launch keeps a spelling its row keeps on its own alias, or one it does not know, as given", () => {
-		expect(launched("haiku", false)).toBe("haiku");
-		expect(launched("test-haiku-0[1m]", false)).toBe("test-haiku-0[1m]");
-		expect(launched("test-opus-1", false)).toBe("test-opus-1");
-		expect(launched("sonnet[1m]", true)).toBe("sonnet[1m]");
-		expect(launched("gpt-4", true)).toBe("gpt-4");
+		expect(launched("haiku")).toBe("haiku");
+		expect(launched("test-haiku-0[1m]")).toBe("test-haiku-0[1m]");
+		expect(launched("test-opus-1")).toBe("test-opus-1");
+		expect(launched("fable")).toBe("fable");
+		expect(launched("gpt-4")).toBe("gpt-4");
 	});
 
-	it("session reads an absent model as the mode's session model", () => {
+	it("session reads an absent model as the routing file's session model", () => {
 		expect(cli(["session", ""]).stdout.trim()).toBe("test-haiku-1[1m]");
-		expect(cli(["session", "", "--burn"]).stdout.trim()).toBe(
-			"test-sonnet-1[1m]",
-		);
-		expect(cli(["session", "opus", "--burn"]).stdout.trim()).toBe(
-			"test-sonnet-1[1m]",
-		);
+		expect(cli(["session", "sonnet"]).stdout.trim()).toBe("test-opus-2[1m]");
 	});
 
 	it("alias prints the alias a spelling runs as, or nothing", () => {
@@ -303,10 +291,10 @@ describe("the CLI half", () => {
 			expect(cli(["admits", s]).status, s).toBe(1);
 	});
 
-	it("settings prints the mode's writes as JSON", () => {
-		const r = cli(["settings", "--burn"]);
+	it("settings prints the plans' writes as JSON", () => {
+		const r = cli(["settings"]);
 		expect(r.status).toBe(0);
-		expect(JSON.parse(r.stdout).model).toBe("test-sonnet-1[1m]");
+		expect(JSON.parse(r.stdout).model).toBe("test-haiku-1[1m]");
 	});
 
 	it("an unknown mode or a missing argument exits 2", () => {
@@ -316,11 +304,8 @@ describe("the CLI half", () => {
 		expect(cli(["settings", "extra"]).status).toBe(2);
 	});
 
-	it("reads --burn wherever it stands, and refuses an unknown flag", () => {
-		expect(cli(["launch", "--burn", "haiku"]).stdout.trim()).toBe(
-			"test-fable-1[1m]",
-		);
-		expect(cli(["launch", "haiku", "--brun"]).status).toBe(2);
+	it("refuses any flag", () => {
+		expect(cli(["launch", "haiku", "--burn"]).status).toBe(2);
 	});
 });
 
@@ -373,10 +358,10 @@ describe("a routing file that will not load", () => {
 			"a settings effort that is null",
 			() => {
 				const f = fixture();
-				f.modes.standard.modelSettings.haiku = null;
+				f.modelSettings.haiku = null;
 				return f;
 			},
-			"modes.standard.modelSettings.haiku is not an effort level",
+			"modelSettings.haiku is not an effort level",
 		],
 		[
 			"a name two aliases claim",
@@ -409,16 +394,16 @@ describe("the real routing file — its shape, never its values", () => {
 		const routing = loadRouting({ WFC_MODEL_ROUTING: REAL });
 		const aliases = Object.keys(routing.models);
 		const levels = ["low", "medium", "high", "xhigh", "max"];
+		expect(aliases).toContain(routing.session);
+		for (const [alias, level] of Object.entries(routing.modelSettings)) {
+			expect(aliases).toContain(alias);
+			expect(levels).toContain(level);
+		}
 		for (const mode of Object.values(routing.modes)) {
-			expect(aliases).toContain(mode.session);
 			expect(Object.keys(mode.route).sort()).toEqual([...aliases].sort());
 			for (const row of Object.values(mode.route)) {
 				expect(aliases).toContain(row.to);
 				if (row.effort !== null) expect(levels).toContain(row.effort);
-			}
-			for (const [alias, level] of Object.entries(mode.modelSettings)) {
-				expect(aliases).toContain(alias);
-				expect(levels).toContain(level);
 			}
 		}
 	});

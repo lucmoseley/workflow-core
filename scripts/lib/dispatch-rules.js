@@ -7,10 +7,9 @@ const GUIDE = `${docPath("effort-guide.md")} §Which model each subagent dispatc
 
 /**
  * @param {Record<string, unknown>} call
- * @param {boolean} burn
  * @returns {string|null}
  */
-function tierDeparture(call, burn) {
+function tierDeparture(call) {
 	const model = typeof call.model === "string" ? call.model.trim() : "";
 	if (!model) return null;
 	const type = agentTypeOf(call);
@@ -20,7 +19,7 @@ function tierDeparture(call, burn) {
 		return model === "opus"
 			? null
 			: `This dispatch names \`${model}\` for the code reviewer, a departure from ${GUIDE}.`;
-	if (model === "haiku" || (model === "opus" && burn)) return null;
+	if (model === "haiku") return null;
 	return `This dispatch names \`${model}\`, a departure from ${GUIDE} unless it is one of that section's carve-outs.`;
 }
 

@@ -621,9 +621,11 @@ function buildAwayRows(view, now) {
 function buildBurnMachineRows(burnMode) {
 	if (burnMode?.error) return [{ text: burnMode.error, role: "secondary" }];
 	if (!burnMode?.disagreeing.length) return [];
-	const words = burnMode.on ? "Not at the burn effort" : "At the burn effort";
 	return [
-		{ text: `${words}: ${burnMode.disagreeing.join(", ")}`, role: "value" },
+		{
+			text: `Off the routing file's settings: ${burnMode.disagreeing.join(", ")}`,
+			role: "value",
+		},
 	];
 }
 

@@ -1,6 +1,4 @@
-const fs = require("node:fs");
 const { parseArgs } = require("node:util");
-const { markerPath } = require("./burn-mode.js");
 const { caught, orFallback } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const { ROOT_VARS } = require("./inherited-roots.js");
@@ -13,27 +11,6 @@ const {
 } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
 const { writeFd } = require("./write-fd.js");
-
-/** @returns {"on" | "off"} */
-function readBurnMode() {
-	let marker;
-	try {
-		marker = markerPath();
-	} catch {
-		writeFd(
-			2,
-			"WARNING: burn-mode marker path unresolved — launching as if burn mode were off\n",
-		);
-		return "off";
-	}
-	try {
-		return fs.statSync(marker, { throwIfNoEntry: false })?.isFile()
-			? "on"
-			: "off";
-	} catch {
-		return "off";
-	}
-}
 
 /**
  * @param {string} dir
@@ -110,7 +87,7 @@ if (require.main === module) {
 		writeFd(2, `REFUSED: ${outcome.why}`);
 		process.exit(2);
 	}
-	writeFd(1, `${outcome.kind} ${readBurnMode()}\n`);
+	writeFd(1, `${outcome.kind}\n`);
 	const unset = [...ROOT_VARS, ...(outcome.overflow?.unset ?? [])];
 	writeFd(1, `${unset.join(" ")}\n${outcome.label}\n`);
 }

@@ -55,7 +55,6 @@ export const ANSWERS = {
 		admitted: null,
 		refused: "an apiKeyHelper setting is in force (#2236)",
 	},
-	burnOn: { off: false, on: true },
 	settingsLockout: {
 		admitted: null,
 		lockedOut:
@@ -236,7 +235,6 @@ export function fakeResumeIo(picks: Picks = {}, env?: NodeJS.ProcessEnv) {
 	const io: ResumeIo = {
 		log: (line) => lines.push(line),
 		env: () => processEnv,
-		burnOn: served("burnOn"),
 		authRefusal: served("authRefusal"),
 		settingsLockout: served("settingsLockout"),
 		launchHeadless: served("launchHeadless"),

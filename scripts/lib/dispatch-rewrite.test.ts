@@ -223,7 +223,7 @@ const watchCommand = (file: string) =>
 		String(rewrite({ prompt: "Do it." }, { file })?.prelude),
 	)?.[1] ?? expect.fail("the context names no backgrounded watch");
 
-describe("a routed-away session with burn mode off (#4992)", () => {
+describe("a routed-away session, in either mode (#4992)", () => {
 	const Away = "test-sonnet-1[1m]";
 	it("pins a dispatch that would inherit the session's model to the standard row", () => {
 		const v = rewrite(
@@ -234,12 +234,12 @@ describe("a routed-away session with burn mode off (#4992)", () => {
 		expect(v?.prelude).toContain("would have inherited");
 	});
 
-	it("leaves the inherited model alone while burn mode is on", () => {
+	it("pins it while burn mode is on too", () => {
 		const v = rewrite(
 			{ prompt: "Artefact: .claude/tmp/x.md", description: "d" },
 			{ model: Away, burn: true },
 		);
-		expect(v).not.toHaveProperty("updatedInput");
+		expect(v?.updatedInput?.model).toBe("opus");
 	});
 
 	it("refuses a fork, whose model no field moves, with the rule and the model to name instead", () => {
