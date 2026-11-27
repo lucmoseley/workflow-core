@@ -113,7 +113,7 @@ describe("check-comment-policy", () => {
 		expect(after.status).toBe(0);
 	});
 
-	it("warns where commentMarkers is malformed, and judges the marker lines as prose", () => {
+	it("warns where commentMarkers is malformed, and judges the marker lines as prose (#5709; pair: reads a line opening on a commentMarkers entry in the judged tree's config as code)", () => {
 		write("scripts/c.js", "// @encodes docs/a.md § B :: 7c89\nconst a = 1;\n");
 		write(
 			".claude/workflow-core.json",
