@@ -811,7 +811,12 @@ const DERIVATION = /\b(?:measured|guess)\b/i;
 const ISSUE = new RegExp(String.raw`(?<![\w&])${ISSUE_REF}`);
 const ANY_ISSUE = /(?<!&)#\d+/;
 const URL = /\bhttps?:\/\/\S/;
-const POINTER_LINK = new RegExp(String.raw`\[${ISSUE_REF}\]\([^)\s]*\)`, "g");
+const POINTER_LINK = new RegExp(
+	String.raw`\[${ISSUE_REF}\](?:\([^)\s]*\)|:\s*\S+)`,
+	"g",
+);
+// guess: a fact and its source fit two lines (#5589)
+const SOURCE_NOTE_MAX_LINES = 2;
 
 /**
  * @param {string} line
@@ -899,7 +904,7 @@ function splitDirectives(unit, facts) {
  */
 function isSourceNote(prose, facts) {
 	return (
-		prose.length <= 2 &&
+		prose.length <= SOURCE_NOTE_MAX_LINES &&
 		prose.some(
 			(line) =>
 				URL.test(line.replace(POINTER_LINK, "")) || facts.deps?.test(line),

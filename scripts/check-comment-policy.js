@@ -12,7 +12,12 @@ const {
 	langOf,
 } = require("./lib/comment-policy.js");
 const { readText } = require("./lib/file-read.js");
-const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
+const {
+	CONFIG_PATH,
+	buildWarningLine,
+	faultsOn,
+	readConfig,
+} = require("./lib/workflow-core-config.js");
 const STYLE_ONLY = require("./lib/style-only-rules.json").rules;
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
@@ -134,9 +139,7 @@ function readTreeFacts(root) {
 		deps: depsPattern(readManifestDeps(root)),
 		checkJs: /"checkJs"\s*:\s*true/.test(readOr(root, "tsconfig.json") ?? ""),
 		commentMarkers: config.commentMarkers ?? [],
-		configWarnings: config.warnings.filter((w) =>
-			w.includes('"commentMarkers"'),
-		),
+		configWarnings: faultsOn(config, "commentMarkers").map(buildWarningLine),
 	};
 }
 

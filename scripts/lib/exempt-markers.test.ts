@@ -18,10 +18,19 @@ describe("exemptMarker", () => {
 		"cli-args-exempt: a pass-through wrapper",
 		"cli-args-exempt: #12abc",
 		"cli-args-exempt: repo#12",
-		"cli-args-exempt: x-workflow-core#12",
 	])("refuses %s", (line) => {
 		expect(exemptMarker("cli-args").test(line)).toBe(false);
 	});
+
+	it.each([
+		"cli-args-exempt: x-workflow-core#12",
+		"cli-args-exempt: a.workflow-core#12",
+	])(
+		"refuses %s, a workflow-core#N pointer joined on its left (#5694; pair: reads // cli-args-exempt: workflow-core#12)",
+		(line) => {
+			expect(exemptMarker("cli-args").test(line)).toBe(false);
+		},
+	);
 
 	it("never reads one marker inside a longer name", () => {
 		expect(exemptMarker("citation").test("bare-citation-exempt: #435")).toBe(

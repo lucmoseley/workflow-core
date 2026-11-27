@@ -175,6 +175,12 @@ describe("the permitted shapes", () => {
 				"js",
 			),
 		).toEqual(["COMMENT@1"]);
+		expect(
+			tags(
+				"// WHY THIS EXISTS: history.\n// [#1297]: https://github.com/o/r/issues/1297\nconst a = 1;\n",
+				"js",
+			),
+		).toEqual(["COMMENT@1"]);
 	});
 
 	it("refuses a dependency's name used as a word, unquoted or bare of its scope (#5492)", () => {
@@ -585,7 +591,7 @@ describe("what is not a comment", () => {
 		).toEqual(["COMMENT@1"]);
 	});
 
-	it("judges a suppression declared as a marker as a suppression still", () => {
+	it("judges a suppression declared as a marker as a suppression still (#5709; pair: reads a line opening on an adopter's declared marker as code)", () => {
 		expect(
 			tags(
 				"// biome-ignore lint/suspicious/noExplicitAny\nconst a = 1;\n",
