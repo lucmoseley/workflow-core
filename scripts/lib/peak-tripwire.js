@@ -5,6 +5,7 @@ const { readText } = require("./file-read.js");
 const { hostRoot } = require("./host-root.js");
 const { toSecond } = require("./journalctl.js");
 const { markersDir } = require("./marker-root.js");
+const { isCapped } = require("./part-suite-peak.js");
 const { heldUntil } = require("./run-memory.js");
 const { scriptPath } = require("./script-path.js");
 
@@ -84,9 +85,7 @@ const writeTripwire = (file, t) =>
 	writeFileAtomic(file, `${JSON.stringify(t, null, "\t")}\n`, { mkdir: true });
 
 /** @param {ReturnType<RunReader>["runs"][number]} r */
-const underCharged = (r) =>
-	r.mode === "peak" ||
-	(r.admission?.mode === "ladder" && r.admission.capMb !== undefined);
+const underCharged = (r) => r.mode === "peak" || isCapped(r.admission);
 
 /**
  * @param {ReturnType<RunReader>["runs"]} runs

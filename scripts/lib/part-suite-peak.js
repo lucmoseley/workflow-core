@@ -65,6 +65,12 @@ function nearestRank(values, p) {
 /** @typedef {Pick<Extract<PartAdmission, { mode: "peak" }>, "kind" | "bucket" | "p99Mb" | "samples">} PeakCharge */
 
 /**
+ * @param {PartAdmission | null | undefined} a
+ * @returns {a is Extract<PartAdmission, { mode: "ladder" }> & { capMb: number }}
+ */
+const isCapped = (a) => a?.mode === "ladder" && a.capMb !== undefined;
+
+/**
  * @param {PeakCharge} peak
  */
 const peakClause = ({ kind, bucket, p99Mb, samples }) =>
@@ -100,6 +106,7 @@ function partSuitePeak(lines, { kind, files, now }) {
 }
 
 module.exports = {
+	isCapped,
 	bucketOf,
 	partKindOf,
 	partKindOfRoute,

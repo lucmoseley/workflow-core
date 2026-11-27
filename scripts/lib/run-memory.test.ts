@@ -215,7 +215,7 @@ describe("heldUntil (#5183)", () => {
 			role: "wrapper",
 			until: start + 30_000 + 2000,
 		});
-		expect(memory.heldUntil(run, 999_999_997)?.role).toBe("vitest main");
+		expect(memory.heldUntil(run, 999_999_997)?.role).toBe("main");
 		expect(memory.heldUntil(run, 4)).toBeNull();
 		sampler.discard();
 	});

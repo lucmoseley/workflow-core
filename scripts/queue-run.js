@@ -44,6 +44,7 @@ const {
 	tscDenial,
 	tscLaunchBin,
 } = require("./lib/tsc-slot.js");
+const { isCapped } = require("./lib/part-suite-peak.js");
 const { rungMb } = require("./lib/suite-ladder.js");
 const { readWindowsRecorded } = require("./lib/windows-memory.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -224,6 +225,10 @@ const suiteRefusedWith = (why) => (words) => {
  * }} Options
  */
 
+/** @param {Options} options */
+const sessionOf = (options) =>
+	options.sessionId === undefined ? idSeam.fromEnv() : options.sessionId;
+
 /** @type {Out} */
 const STDERR = { write: (s) => writeFd(2, s) };
 
@@ -363,8 +368,7 @@ function buildTscWait(options, words) {
  */
 function withJoining(plain, options, key) {
 	const { queue } = plain;
-	const session =
-		options.sessionId === undefined ? idSeam.fromEnv() : options.sessionId;
+	const session = sessionOf(options);
 	const pid = options.pid ?? process.pid;
 	const asked = {
 		wall: (options.clock ?? Date.now)(),
@@ -439,7 +443,7 @@ function buildOtherWait(options, words) {
 		refused: refusedRun,
 		sayPlace: sayNoPlace,
 		start: (startWords, launch) =>
-			admission?.mode === "ladder" && admission.capMb !== undefined
+			isCapped(admission)
 				? startCapped(startWords, launch, admission)
 				: spawnCommand(startWords, { handed: null, ...launch }),
 	};
@@ -453,28 +457,36 @@ function buildOtherWait(options, words) {
 function startCapped(words, launch, admission) {
 	const { startSampler } = require("./lib/run-memory.js");
 	const { runStore } = launch.options;
-	const memory = startSampler(
-		{
-			session:
-				launch.options.sessionId === undefined
-					? idSeam.fromEnv()
-					: launch.options.sessionId,
-			kind: "capped",
-			argv: words,
-			files: [],
-			fileCount: 0,
-			repo: gateRepoName() ?? path.basename(hostRoot()),
-			mode: admission.mode,
-			admission,
-		},
-		runStore === undefined ? {} : { dir: runStore },
-	);
+	let memory;
+	try {
+		memory = startSampler(
+			{
+				session: sessionOf(launch.options),
+				kind: "named",
+				argv: words,
+				files: [],
+				fileCount: 0,
+				repo: gateRepoName() ?? path.basename(hostRoot()),
+				mode: admission.mode,
+				admission,
+			},
+			runStore === undefined ? {} : { dir: runStore },
+		);
+	} catch (e) {
+		launch.err.write(
+			`${LABEL}: the capped run's memory record would not start — the peak tripwire will not count it live (#5812): ${caught(e).message}\n`,
+		);
+		return spawnCommand(words, { handed: null, ...launch });
+	}
 	const child = spawnCommand(words, {
 		handed: null,
 		...launch,
 		finish: (code) => {
-			memory.stop();
-			launch.finish(code);
+			try {
+				memory.stop();
+			} finally {
+				launch.finish(code);
+			}
 		},
 	});
 	memory.setMain(child.pid ?? null);
@@ -520,8 +532,7 @@ function isNamedFilesRun(words) {
  * @returns {SlotWait}
  */
 function buildGateWait(options, words) {
-	const session =
-		options.sessionId === undefined ? idSeam.fromEnv() : options.sessionId;
+	const session = sessionOf(options);
 	const holder = {
 		repo: gateRepoName(),
 		session,
@@ -787,8 +798,7 @@ async function main(argv, options = {}) {
  * @returns {Promise<number>}
  */
 async function run(words, slot, options, err) {
-	const session =
-		options.sessionId === undefined ? idSeam.fromEnv() : options.sessionId;
+	const session = sessionOf(options);
 	const logExit = queueExitLogger({
 		file:
 			options.queueLog === undefined

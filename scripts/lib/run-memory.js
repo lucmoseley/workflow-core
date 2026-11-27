@@ -31,7 +31,7 @@ const FILES_KEPT = 10;
  * @typedef {RunLaunch & RunMemory & { at: string, bootId: string|null,
  *   sampledAt: string, workersSeenAt: Record<string, string>,
  *   endedAt?: string }} RunFile
- * @typedef {"wrapper"|"vitest main"|"worker"} Role
+ * @typedef {"wrapper"|"main"|"worker"} Role
  */
 
 const storeDir = () => refillPath(STORE_DIR);
@@ -358,7 +358,7 @@ function heldUntil(run, pid) {
 	/** @type {[Role, number]|null} */
 	let held = null;
 	if (run.pids.wrapper === pid) held = ["wrapper", lastSample];
-	else if (run.pids.main === pid) held = ["vitest main", lastSample];
+	else if (run.pids.main === pid) held = ["main", lastSample];
 	else if (run.workersSeenAt[pid])
 		held = ["worker", Date.parse(run.workersSeenAt[pid])];
 	return (
