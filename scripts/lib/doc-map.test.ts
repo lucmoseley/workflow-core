@@ -3885,15 +3885,17 @@ describe("readPluginFiles (#5818)", () => {
 		}
 	};
 
+	const stagedCheckout = defineTemplate((root) => {
+		gitAt(root, "init", "-q", ".");
+		plant(root, ["package.json", "scripts/a.js"]);
+		fs.writeFileSync(path.join(root, ".gitignore"), ".claude/tmp/\n");
+		gitAt(root, "add", "--", ".gitignore", "package.json", "scripts/a.js");
+	});
+
 	const checkout = () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-files-"));
 		roots.push(root);
-		const git = (...args: string[]) =>
-			execFileSync("git", args, { cwd: root, stdio: "ignore" });
-		git("init", "-q", ".");
-		plant(root, ["package.json", "scripts/a.js"]);
-		fs.writeFileSync(path.join(root, ".gitignore"), ".claude/tmp/\n");
-		git("add", "--", ".gitignore", "package.json", "scripts/a.js");
+		stagedCheckout.instantiate(root);
 		plant(root, [".claude/tmp/git-fixture/other-run/x.txt", "skills/new.md"]);
 		return root;
 	};

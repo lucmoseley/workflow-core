@@ -403,7 +403,7 @@ describe("PROGRAM's exits and input channels", () => {
 		expect(runProgram(repo)).toEqual({ code: 0, output: "" });
 	});
 
-	it("throws a spawn failure naming its error, never reading it as a doc-map fault (#5818)", () => {
+	it("throws a spawn failure naming its error, where the checker's own exit is propagated (#5818)", () => {
 		const repo = fixture({
 			staged: { "docs/research/note.md": "x\n" },
 			checkerExit: 0,

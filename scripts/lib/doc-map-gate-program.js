@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { parseOrExit } = require("./cli-args.js");
 const { Interrupted, realPorts } = require("./doc-map-gate-ports.js");
 const { runDocMapGate } = require("./doc-map-gate.js");
@@ -39,7 +40,12 @@ if (require.main === module) {
 	parseOrExit(process.argv.slice(2), {
 		usage: "usage: node doc-map-gate-program.js (takes no arguments)",
 	});
-	const { exit, stderr } = PROGRAM({ cwd: process.cwd(), env: process.env });
-	if (stderr) writeFd(2, stderr);
-	process.exit(exit);
+	let verdict;
+	try {
+		verdict = PROGRAM({ cwd: process.cwd(), env: process.env });
+	} catch (err) {
+		verdict = { exit: 2, stderr: `doc-map gate: ${caught(err).message}\n` };
+	}
+	if (verdict.stderr) writeFd(2, verdict.stderr);
+	process.exit(verdict.exit);
 }

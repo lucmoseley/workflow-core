@@ -27,14 +27,14 @@ class Interrupted extends Error {
 /**
  * @template {import("node:child_process").SpawnSyncReturns<unknown>} T
  * @param {T} run
- * @param {string} what
+ * @param {string} command
  * @returns {T}
  */
-function ran(run, what) {
+function ranOrThrow(run, command) {
 	if (run.error) {
 		const { code } = /** @type {NodeJS.ErrnoException} */ (run.error);
 		throw new Error(
-			`could not run ${what}${code ? ` (${code})` : ""}: ${run.error.message}`,
+			`could not run ${command}${code ? ` (${code})` : ""}: ${run.error.message}`,
 		);
 	}
 	if (run.signal && HOOK_SIGNALS.has(run.signal))
@@ -54,7 +54,7 @@ function realPorts(scripts, made, { cwd, env }) {
 	 * @param {Record<string, string>} [extra]
 	 */
 	const git = (args, extra) =>
-		ran(
+		ranOrThrow(
 			spawnSync(
 				gitBinary(),
 				args,
@@ -76,7 +76,7 @@ function realPorts(scripts, made, { cwd, env }) {
 	const nodeInto = (script, args, out, opts) => {
 		const fd = fs.openSync(out, "w");
 		try {
-			return ran(
+			return ranOrThrow(
 				spawnSync(process.execPath, [path.join(scripts, script), ...args], {
 					cwd,
 					stdio: ["ignore", fd, opts.err ? fd : "ignore"],
@@ -136,7 +136,7 @@ function realPorts(scripts, made, { cwd, env }) {
 		},
 		read: (out) => fs.readFileSync(out, "utf8"),
 		newFaults: (staged, baseline) => {
-			const run = ran(
+			const run = ranOrThrow(
 				spawnSync(
 					process.execPath,
 					[

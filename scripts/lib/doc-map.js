@@ -1308,6 +1308,9 @@ function readIndexEntries({ quiet }) {
 	);
 }
 
+/** @param {string} out */
+const nulList = (out) => out.split("\0").filter(Boolean);
+
 /** @param {string | null} [root] */
 function readTrackedFiles(root) {
 	if (root) return walkTracked(root);
@@ -1321,27 +1324,25 @@ function readTrackedFiles(root) {
 function readPluginFiles(root) {
 	if (!fs.existsSync(path.join(root, ".git"))) return walkTracked(root);
 	// #5818
-	return execGit(
+	const listed = execGit(
 		["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
 		{
 			cwd: root,
 			env: scrubbedGitEnv(process.env),
 			encoding: "utf8",
 		},
-	)
-		.split("\0")
-		.filter(Boolean)
-		.sort();
+	);
+	return nulList(listed).sort();
 }
 
 function readUntrackedFiles() {
 	try {
-		return execGit(["ls-files", "--others", "--exclude-standard", "-z"], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-		})
-			.split("\0")
-			.filter(Boolean);
+		return nulList(
+			execGit(["ls-files", "--others", "--exclude-standard", "-z"], {
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "ignore"],
+			}),
+		);
 	} catch {
 		return [];
 	}

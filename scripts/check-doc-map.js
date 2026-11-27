@@ -316,7 +316,7 @@ function walkTree(ctx, root) {
 		try {
 			resolvable = [...allTracked, ...readPluginFiles(coreRoot())];
 		} catch (e) {
-			ctx.broken(`could not walk the plugin root — ${caught(e).message}`);
+			ctx.broken(`could not list the plugin root — ${caught(e).message}`);
 		}
 	return { allTracked, resolvable };
 }
