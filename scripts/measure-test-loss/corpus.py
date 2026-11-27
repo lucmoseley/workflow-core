@@ -37,11 +37,32 @@ def default_roots():
     return [os.path.join(d, "projects") for d in tc.seats()]
 
 
+def adopter_checkouts(home=None):
+    home = home or os.path.expanduser("~")
+    found = {}
+    for name in sorted(os.listdir(home)):
+        root = os.path.join(home, name)
+        if os.path.isfile(os.path.join(root, ".claude", "workflow-core.json")):
+            found[name] = root
+    return found
+
+
+def repo_matcher(names):
+    alts = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    return re.compile(rf"(?<=-)({alts})(?=-|$)")
+
+
+def repo_of(proj, matcher):
+    m = matcher.search(proj)
+    return m.group(1) if m else None
+
+
 records_with_lines = tc.records_with_lines
 counts_line = tc.counts_line
 
 
-def transcripts(roots, t_start, tally, subagents=True):
+def transcripts(roots, t_start, tally, *, subagents=True, repos=None):
+    matcher = repo_matcher(repos or adopter_checkouts())
     for root in roots:
         try:
             projects = sorted(os.listdir(root))
@@ -49,10 +70,9 @@ def transcripts(roots, t_start, tally, subagents=True):
             tallied(e, tally, tc.UNREADABLE)
             continue
         for proj in projects:
-            m = re.search(r"workflow-core|mantahostels", proj)
-            if not m:
+            repo = repo_of(proj, matcher)
+            if not repo:
                 continue
-            repo = "wfc" if m.group(0) == "workflow-core" else "mh"
             for dp, _dn, fn in os.walk(os.path.join(root, proj)):
                 if not subagents and is_subagent(dp):
                     continue
@@ -82,7 +102,7 @@ def run_scanner(description, scan_file, subagents=True):
     nfiles = 0
     with open(a.out, "w") as out:
         for repo, p in transcripts(
-            a.roots or default_roots(), epoch(a.start), tally, subagents
+            a.roots or default_roots(), epoch(a.start), tally, subagents=subagents
         ):
             nfiles += 1
             for row in scan_file(p, repo, a.start, a.end, tally=tally):

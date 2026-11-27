@@ -22,7 +22,7 @@ print(
 )
 rows = [r for r in rows if not (r["cls"] == "fg" and r["s"] > CAP)]
 DAYS = float(sys.argv[2]) if len(sys.argv) > 2 else 14
-for repo in ("wfc", "mh"):
+for repo in sorted({r["repo"] for r in rows}):
     R = [r for r in rows if r["repo"] == repo]
     print(f"===== {repo}: rows {len(R)}")
     for cls in ("fg", "wait"):

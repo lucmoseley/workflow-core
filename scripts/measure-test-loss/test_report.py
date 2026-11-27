@@ -6,13 +6,24 @@ from collections import Counter
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import pytest  # noqa: E402
+
+import corpus  # noqa: E402
 import report  # noqa: E402 - imported after HERE, which the sys.path.insert above reads (#1272)
 
 START, END = "2026-10-10T00:00:00Z", "2026-10-12T00:00:00Z"
+CHECKOUTS = {
+    n: f"/home/x/{n}" for n in ("workflow-core", "mantahostels", "design-vault")
+}
 
 
-def daily(roots):
-    return report.daily(roots, START, END, "wfc", tally=Counter())
+@pytest.fixture(autouse=True)
+def checkouts(monkeypatch):
+    monkeypatch.setattr(corpus, "adopter_checkouts", lambda home=None: CHECKOUTS)
+
+
+def daily(roots, repos=("workflow-core",)):
+    return report.daily(roots, START, END, set(repos), tally=Counter())
 
 
 def bash(t, tid, command, background=False):
@@ -96,6 +107,22 @@ def test_non_test_command_and_the_other_repo_are_not_counted(tmp_path):
     )
     blocked, _ = daily(roots)
     assert sum(blocked.values()) == 0
+
+
+def test_named_repos_are_pooled_and_an_unnamed_one_is_not(tmp_path):
+    for i, project in enumerate(
+        ("-home-x-workflow-core", "-home-x-design-vault", "-home-x-mantahostels")
+    ):
+        roots = tree(
+            tmp_path,
+            [
+                bash("2026-10-10T10:01:00Z", f"t{i}", "npm test"),
+                result("2026-10-10T10:02:00Z", f"t{i}"),
+            ],
+            project=project,
+        )
+    blocked, _ = daily(roots, repos=("workflow-core", "design-vault"))
+    assert blocked == {"2026-10-10": 120.0}
 
 
 def test_foreground_call_over_the_cap_is_left_out(tmp_path):

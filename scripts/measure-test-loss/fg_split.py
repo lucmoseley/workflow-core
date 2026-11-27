@@ -28,18 +28,21 @@ def q(x, p):
     return x[int((len(x) - 1) * p)] if x else 0
 
 
-rest, qw, vt, tot = [], [], [], []
-byk = collections.defaultdict(float)
-byv = collections.defaultdict(float)
-byvk = collections.defaultdict(float)
+def fresh():
+    return {
+        "rest": [],
+        "qw": [],
+        "vt": [],
+        "tot": [],
+        "byk": collections.defaultdict(float),
+        "byv": collections.defaultdict(float),
+        "byvk": collections.defaultdict(float),
+    }
+
+
+per = collections.defaultdict(fresh)
 for r in map(json.loads, open(bl)):
-    if (
-        r["repo"] != "wfc"
-        or r["cls"] != "fg"
-        or r["sub"]
-        or r["s"] > 1800
-        or r["at"] < "2026-10-17T00:39"
-    ):
+    if r["cls"] != "fg" or r["sub"] or r["s"] > 1800 or r["at"] < "2026-10-17T00:39":
         continue
     m = re.search(r"([0-9a-f-]{36})\.jsonl$", r["file"])
     if not m:
@@ -52,25 +55,41 @@ for r in map(json.loads, open(bl)):
         continue
     w = sum(max(0, min(b, y) - max(a, x)) for x, y in qs.get(sid, []))
     v = inside[0][2]
-    byk[inside[0][3]] += v + w
-    byv[inside[0][4]] += v
-    byvk[inside[0][3]] += v
-    rest.append(r["s"] - v - w)
-    qw.append(w)
-    vt.append(v)
-    tot.append(r["s"])
-n = len(rest)
-for name, xs in (("call", tot), ("queue wait", qw), ("vitest", vt), ("rest", rest)):
-    s = sorted(xs)
+    g = per[r["repo"]]
+    g["byk"][inside[0][3]] += v + w
+    g["byv"][inside[0][4]] += v
+    g["byvk"][inside[0][3]] += v
+    g["rest"].append(r["s"] - v - w)
+    g["qw"].append(w)
+    g["vt"].append(v)
+    g["tot"].append(r["s"])
+for repo, g in sorted(per.items()):
+    print(f"===== {repo}")
+    n = len(g["rest"])
+    for name, xs in (
+        ("call", g["tot"]),
+        ("queue wait", g["qw"]),
+        ("vitest", g["vt"]),
+        ("rest", g["rest"]),
+    ):
+        s = sorted(xs)
+        print(
+            f"{name:10} n {n} sum {sum(xs) / 3600:7.2f} h  p50 {q(s, 0.5):6.1f}s  p95 {q(s, 0.95):6.1f}s"
+        )
     print(
-        f"{name:10} n {n} sum {sum(xs) / 3600:7.2f} h  p50 {q(s, 0.5):6.1f}s  p95 {q(s, 0.95):6.1f}s"
+        "queue + vitest by run kind (h):",
+        {
+            k: round(x / 3600, 2)
+            for k, x in sorted(g["byk"].items(), key=lambda kv: -kv[1])
+        },
     )
-print(
-    "queue + vitest by run kind (h):",
-    {k: round(x / 3600, 2) for k, x in sorted(byk.items(), key=lambda kv: -kv[1])},
-)
-print("vitest by verdict (h):", {k: round(x / 3600, 2) for k, x in byv.items()})
-print(
-    "vitest only by run kind (h):",
-    {k: round(x / 3600, 2) for k, x in sorted(byvk.items(), key=lambda kv: -kv[1])},
-)
+    print(
+        "vitest by verdict (h):", {k: round(x / 3600, 2) for k, x in g["byv"].items()}
+    )
+    print(
+        "vitest only by run kind (h):",
+        {
+            k: round(x / 3600, 2)
+            for k, x in sorted(g["byvk"].items(), key=lambda kv: -kv[1])
+        },
+    )

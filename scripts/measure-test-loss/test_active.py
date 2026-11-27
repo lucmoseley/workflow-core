@@ -14,7 +14,11 @@ def test_a_malformed_timestamp_is_skipped_and_reported(tmp_path, capsys):
     p.write_text(json.dumps({"type": "assistant", "timestamp": "not a time"}) + "\n")
     tally = Counter()
     rows = active.scan_file(
-        str(p), "wfc", "2026-10-10T00:00:00Z", "2026-10-12T00:00:00Z", tally=tally
+        str(p),
+        "workflow-core",
+        "2026-10-10T00:00:00Z",
+        "2026-10-12T00:00:00Z",
+        tally=tally,
     )
     assert rows == []
     assert tally[active.BAD_TIMESTAMP] == 1
