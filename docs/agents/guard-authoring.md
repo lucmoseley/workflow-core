@@ -276,8 +276,7 @@ a doc.**
   reads the text only on that call's result (mantahostels#3421). A first breach that cannot
   be undone needs a denial from the same hook.
 - **`PreToolUse` `updatedInput`** is applied only beside `permissionDecision`
-  `allow` or `ask` (Claude Code 2.1.332, read in its hook-result handling,
-  #5800), and the dispatcher pairs it with `allow`. A rewrite therefore
+  `allow` or `ask` (Claude Code 2.1.332, #5800), and the dispatcher pairs it with `allow`. A rewrite therefore
   auto-approves the call, which the founder's auto-mode rules do not cover for
   a call the hook did not already allow; on a Bash call, refuse and name the
   corrected command instead.
