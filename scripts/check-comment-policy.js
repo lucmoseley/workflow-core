@@ -83,22 +83,24 @@ const PACKAGE_KEYS = [
 
 /**
  * @param {string} root
+ * @param {string[]} requirements
  */
-function readRequirementDeps(root) {
-	const files = fs.existsSync(root)
-		? fs.readdirSync(root).filter((n) => DIRECT_REQUIREMENTS.test(n))
-		: [];
-	return files.flatMap((name) =>
+const readRequirementDeps = (root, requirements) =>
+	requirements.flatMap((rel) =>
 		[
-			...(readOr(root, name) ?? "").matchAll(/^[ \t]*([A-Za-z0-9][\w.-]*)/gm),
+			...(readOr(root, rel) ?? "").matchAll(/^[ \t]*([A-Za-z0-9][\w.-]*)/gm),
 		].map((m) => m[1] ?? ""),
 	);
-}
+
+/** @param {string} rel */
+const isRequirements = (rel) =>
+	DIRECT_REQUIREMENTS.test(path.posix.basename(rel));
 
 /**
  * @param {string} root
+ * @param {string[]} requirements
  */
-function readManifestDeps(root) {
+function readManifestDeps(root, requirements) {
 	const pkg = JSON.parse(readOr(root, "package.json") ?? "{}");
 	const pyproject = readOr(root, "pyproject.toml") ?? "";
 	const fromPyproject = [
@@ -110,15 +112,16 @@ function readManifestDeps(root) {
 	);
 	return [
 		...PACKAGE_KEYS.flatMap((key) => Object.keys(pkg[key] ?? {})),
-		...readRequirementDeps(root),
+		...readRequirementDeps(root, requirements),
 		...fromPyproject,
 	].filter(Boolean);
 }
 
 /**
  * @param {string} root
+ * @param {string[]} files
  */
-function readTreeFacts(root) {
+function readTreeFacts(root, files) {
 	const surface = JSON.parse(readOr(root, SURFACE) ?? "{}");
 	const pluginSurface = JSON.parse(fs.readFileSync(PLUGIN_SURFACE, "utf8"));
 	const adrDir = path.join(root, ADR_DIR);
@@ -136,7 +139,7 @@ function readTreeFacts(root) {
 		/** @type {Set<string>} */
 		copies: new Set(pluginSurface.copies),
 		adrs,
-		deps: depsPattern(readManifestDeps(root)),
+		deps: depsPattern(readManifestDeps(root, files.filter(isRequirements))),
 		checkJs: /"checkJs"\s*:\s*true/.test(readOr(root, "tsconfig.json") ?? ""),
 		commentMarkers: config.commentMarkers ?? [],
 		configWarnings: faultsOn(config, "commentMarkers").map(buildWarningLine),
@@ -204,24 +207,23 @@ function readExcludedOrBroken(ctx, paths, read) {
 /**
  * @param {Ctx} ctx
  * @param {string} root
- * @returns {string[]}
+ * @returns {{ files: string[], read: import("./lib/git-attributes.js").AttributeRead | null }}
  */
-function readJudgedFiles(ctx, root) {
+function readCandidateFiles(ctx, root) {
 	const walked = ctx.has("--root");
 	const files = readTreeFiles(ctx, root, walked);
 	if (ctx.side)
-		return ctx.sideRev
-			? withoutExcluded(ctx, files, { from: { rev: ctx.sideRev } })
-			: files;
+		return {
+			files,
+			read: ctx.sideRev ? { from: { rev: ctx.sideRev } } : null,
+		};
 	const env = walked ? withoutGitRedirects() : undefined;
-	if (!isInWorkTree(ctx, root, env)) return files;
+	if (!isInWorkTree(ctx, root, env)) return { files, read: null };
 	const tracked = walked ? new Set(readTrackedPaths(ctx, root, env)) : null;
-	const judged = tracked ? files.filter((p) => tracked.has(p)) : files;
-	return withoutExcluded(ctx, judged, {
-		from: walked ? "worktree" : "index",
-		cwd: root,
-		env,
-	});
+	return {
+		files: tracked ? files.filter((p) => tracked.has(p)) : files,
+		read: { from: walked ? "worktree" : "index", cwd: root, env },
+	};
 }
 
 /**
@@ -298,9 +300,9 @@ const changedOnce = (ctx) => {
  */
 function sidePaths(ctx, rev) {
 	const { paths, renames } = changedOnce(ctx);
-	const requirements = listTree(rev, [], { recursive: false })
+	const requirements = listTree(rev, [])
 		.map((e) => e.path)
-		.filter((p) => DIRECT_REQUIREMENTS.test(p));
+		.filter(isRequirements);
 	const code = [...paths, ...renames.values()].filter((p) => CODE_FILE.test(p));
 	return [...SUPPORT, ...requirements, ...code];
 }
@@ -350,12 +352,13 @@ const SPEC = {
 		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		if (!fs.existsSync(root))
 			ctx.broken(`the root ${root} does not exist — nothing was read`);
-		const tree = readTreeFacts(root);
+		const { files, read } = readCandidateFiles(ctx, root);
+		const tree = readTreeFacts(root, files);
 		for (const w of tree.configWarnings) ctx.say(`WARN ${w}`);
 		/** @type {Map<string, number>} */
 		const perFile = new Map();
 		let judged = 0;
-		for (const rel of readJudgedFiles(ctx, root)) {
+		for (const rel of read ? withoutExcluded(ctx, files, read) : files) {
 			const text = readOr(root, rel);
 			const lang = text === null ? null : langOf(rel, text);
 			if (text === null || lang === null) continue;

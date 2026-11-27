@@ -126,6 +126,19 @@ describe("check-comment-policy", () => {
 		expect(r.status).toBe(1);
 	});
 
+	it("reads a nested requirements file as a manifest, and charges a dependency none lists (#5792)", () => {
+		write("plugin/requirements.txt", "playwright==1.48\n");
+		write(
+			"scripts/a.py",
+			"x = 1\n# `playwright` has no public getter\ny = 2\n# `Pillow` rejects it\nz = 3\n",
+		);
+		git("add", "-A");
+		const r = run();
+		expect(r.out).not.toContain("scripts/a.py:2");
+		expect(r.out).toContain("scripts/a.py:4");
+		expect(r.status).toBe(1);
+	});
+
 	it("--all prints the count per file, most first, in place of each breach", () => {
 		write("scripts/c.js", "const a = 1;\n// one\nconst b = 1;\n// two\n");
 		write("scripts/b.py", "x = 1\n# a stray note\n");
@@ -367,6 +380,16 @@ describe("check-comment-policy", () => {
 			write(
 				"scripts/b.js",
 				"// `ajv` rejects a bare key\nconst a = 1;\n// ADR-0011\nconst b = 1;\n",
+			);
+			git("add", "-A");
+			expect(run("--against", "HEAD").status).toBe(0);
+		});
+
+		it("reads a nested requirements file the commit carries (#5792)", () => {
+			write("plugin/requirements.txt", "playwright==1.48\n");
+			write(
+				"scripts/a.py",
+				"x = 1\n# `playwright` has no public getter\ny = 2\n",
 			);
 			git("add", "-A");
 			expect(run("--against", "HEAD").status).toBe(0);
