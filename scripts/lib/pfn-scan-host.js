@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { curlBin } = require("./registry-call.js");
+const { readSize } = require("./file-size.js");
 const { runCommand } = require("./run-command.js");
 const scan = require("./pfn-scan.js");
 const { writeFd } = require("./write-fd.js");
@@ -49,12 +50,16 @@ function spawnCdb(dump, symbolDir, commands, work) {
  */
 function runCdb(dump, symbolDir, commands, work) {
 	const r = spawnCdb(dump, symbolDir, commands, work);
-	if (r.status !== 0) {
-		const why = r.stderr.trim() || r.stdout.trim().split("\n").at(-1);
-		throw new Error(`cdb exited ${r.status}: ${why}`);
-	}
+	if (r.status !== 0)
+		throw new Error(`cdb exited ${r.status}: ${cdbFailure(r)}`);
 	return r.stdout;
 }
+
+/**
+ * @param {{stdout: string, stderr: string}} r
+ */
+const cdbFailure = (r) =>
+	r.stderr.trim() || (r.stdout.trim().split("\n").at(-1) ?? "");
 
 /**
  * @param {{pdb: string, key: string}} id
@@ -114,9 +119,7 @@ function scanDump(dump) {
 			work,
 		);
 		const result = scan.emptyScan(layout);
-		const read = parts.filter(
-			(p) => fs.existsSync(p.file) && fs.statSync(p.file).size === p.bytes,
-		);
+		const read = parts.filter((p) => readSize(p.file) === p.bytes);
 		for (const p of read)
 			scan.scanInto(result, layout, p.first, fs.readFileSync(p.file));
 		for (const p of read)
@@ -153,4 +156,11 @@ function earlierFlagged(dump) {
 	return seen;
 }
 
-module.exports = { diagDir, earlierFlagged, fetchSymbols, scanDump, spawnCdb };
+module.exports = {
+	cdbFailure,
+	diagDir,
+	earlierFlagged,
+	fetchSymbols,
+	scanDump,
+	spawnCdb,
+};

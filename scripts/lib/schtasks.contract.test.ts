@@ -1,27 +1,20 @@
 // @vitest-environment node
-// #5813
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { writeSchtasks } from "./schtasks-fake";
+import {
+	itNamesItsRecorder,
+	readRecording,
+	type ToolAnswer,
+} from "./windows-tool-recording";
 
-interface Answer {
-	status: number | null;
-	stdout: string;
-	stderr: string;
-}
 type Key = "run" | "missing";
 
-const recorded: {
-	recordedBy: string;
-	responses: Record<Key, Answer>;
-} = JSON.parse(
-	fs.readFileSync(
-		path.join(__dirname, "..", "fixtures", "schtasks.json"),
-		"utf8",
-	),
+const recorded = readRecording<Record<Key, ToolAnswer>>(
+	path.join(__dirname, "..", "fixtures", "schtasks.json"),
 );
 
 const TASK = "Verifier 5743 combining on";
@@ -30,7 +23,7 @@ const CASES: {
 	key: Key;
 	name: string;
 	task: string;
-	check: (a: Answer) => void;
+	check: (a: ToolAnswer) => void;
 }[] = [
 	{
 		key: "run",
@@ -43,10 +36,10 @@ const CASES: {
 	},
 	{
 		key: "missing",
-		name: "/Run of an absent task exits non-zero, printing ERROR on stderr",
+		name: "/Run of an absent task exits 1, printing ERROR on stderr",
 		task: `${TASK} absent`,
 		check(a) {
-			expect(a.status).not.toBe(0);
+			expect(a.status).toBe(1);
 			expect(a.stderr).toMatch(/^ERROR: /);
 		},
 	},
@@ -66,10 +59,11 @@ describe("the fake", () => {
 });
 
 describe("the recorded schtasks.exe", () => {
-	it("names the command that re-records it", () => {
-		expect(recorded.recordedBy).toBe(
-			"node scripts/record-windows-tools.js schtasks",
-		);
-	});
-	for (const c of CASES) it(c.name, () => c.check(recorded.responses[c.key]));
+	itNamesItsRecorder(recorded, "schtasks");
+	for (const c of CASES)
+		it(c.name, () => {
+			const a = recorded.responses[c.key];
+			expect(a.argv?.slice(0, 2)).toEqual(["/Run", "/TN"]);
+			c.check(a);
+		});
 });

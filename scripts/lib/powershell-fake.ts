@@ -10,7 +10,7 @@ export function writePowershell(dir: string) {
 			"powershell.exe",
 			`printf '%s\\n' "$*" >>${shellQuote(calls)}
 case "$*" in *" -Check") echo ok; exit 0;; esac
-[ "$2" = -Command ] && eval "\${3#& }"`,
+[ "$2" = -Command ] && { eval "\${3#& }" || exit 1; }`,
 		),
 		calls,
 	};

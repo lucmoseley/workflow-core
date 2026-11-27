@@ -156,7 +156,7 @@ describe("pfn-scan", () => {
 		});
 		expect(r.status).toBe(1);
 		expect(r.stderr).toBe(
-			"pfn-scan: cdb exited 3: The system cannot find the file specified.\n",
+			"pfn-scan: cdb exited 1: The system cannot find the file specified.\n",
 		);
 		expect(ghCalls()).toEqual([]);
 	});

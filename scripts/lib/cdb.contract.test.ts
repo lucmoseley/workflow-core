@@ -1,11 +1,15 @@
 // @vitest-environment node
-// #5813
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { writeCdb } from "./cdb-fake";
+import { UNOPENED, writeCdb } from "./cdb-fake";
 import { writePowershell } from "./powershell-fake";
+import {
+	itNamesItsRecorder,
+	readRecording,
+	type ToolAnswer,
+} from "./windows-tool-recording";
 import { writeWslpath } from "./wslpath-fake";
 
 const scan = require("./pfn-scan.js") as {
@@ -19,7 +23,8 @@ const scan = require("./pfn-scan.js") as {
 	) => { entrySize: number; runs: unknown[] } | { why: string };
 	chunks: (layout: object) => { address: bigint }[];
 };
-const { spawnCdb } = require("./pfn-scan-host.js") as {
+const { cdbFailure, spawnCdb } = require("./pfn-scan-host.js") as {
+	cdbFailure: (a: Answer) => string;
 	spawnCdb: (
 		dump: string,
 		symbolDir: string,
@@ -27,24 +32,22 @@ const { spawnCdb } = require("./pfn-scan-host.js") as {
 		work: string,
 	) => Answer;
 };
+const { readSize } = require("./file-size.js") as {
+	readSize: (file: string) => number | null;
+};
 
-interface Answer {
-	status: number | null;
-	stdout: string;
-	stderr: string;
+interface Answer extends ToolAnswer {
 	asked?: number;
 	written?: number | null;
 }
 type Key = "identity" | "layout" | "read" | "unread" | "unopened";
 
-const recorded: {
-	recordedBy: string;
-	responses: Record<Key, Answer>;
-} = JSON.parse(
-	fs.readFileSync(path.join(__dirname, "..", "fixtures", "cdb.json"), "utf8"),
+const recorded = readRecording<Record<Key, Answer>>(
+	path.join(__dirname, "..", "fixtures", "cdb.json"),
 );
 
-const ENTRY = 0x30;
+// guess, #5813: any short length shows a whole or a short write
+const ASKED = 0x30;
 
 const CASES: { key: Key; name: string; check: (a: Answer) => void }[] = [
 	{
@@ -87,10 +90,12 @@ const CASES: { key: Key; name: string; check: (a: Answer) => void }[] = [
 	},
 	{
 		key: "unopened",
-		name: "a dump that cannot be opened exits non-zero, saying so on stdout",
+		name: "a dump that cannot be opened exits 1, saying why on stdout's last line",
 		check(a) {
-			expect(a.status).not.toBe(0);
+			expect(a.status).toBe(1);
 			expect(a.stdout).toMatch(/^Could not open dump file \[/m);
+			expect(a.stderr).toBe("");
+			expect(cdbFailure(a)).toBe(UNOPENED);
 		},
 	},
 ];
@@ -103,7 +108,6 @@ beforeEach(() => {
 	vi.stubEnv("WFC_POWERSHELL", writePowershell(bin).bin);
 });
 afterEach(() => {
-	vi.unstubAllEnvs();
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -115,13 +119,13 @@ function fakeAnswer(key: Key): Answer {
 	const writemem = (reads: boolean) => {
 		const file = path.join(dir, "c0.bin");
 		const a = cdb({ reads }, [
-			`.writemem ${file} 0x1000 L?0x${ENTRY.toString(16)}`,
+			`.writemem ${file} 0x1000 L?0x${ASKED.toString(16)}`,
 			"q",
 		]);
 		return {
 			...a,
-			asked: ENTRY,
-			written: fs.existsSync(file) ? fs.statSync(file).size : null,
+			asked: ASKED,
+			written: readSize(file),
 		};
 	};
 	switch (key) {
@@ -143,10 +147,6 @@ describe("the fake", () => {
 });
 
 describe("the recorded cdbARM64.exe, reached through powershell.exe", () => {
-	it("names the command that re-records it", () => {
-		expect(recorded.recordedBy).toBe(
-			"node scripts/record-windows-tools.js cdb",
-		);
-	});
+	itNamesItsRecorder(recorded, "cdb");
 	for (const c of CASES) it(c.name, () => c.check(recorded.responses[c.key]));
 });

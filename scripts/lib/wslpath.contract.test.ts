@@ -1,33 +1,25 @@
 // @vitest-environment node
-// #5813
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import {
+	itNamesItsRecorder,
+	readRecording,
+	type ToolAnswer,
+} from "./windows-tool-recording";
 import { writeWslpath } from "./wslpath-fake";
 
-interface Answer {
-	status: number | null;
-	stdout: string;
-	stderr: string;
-}
-
-const recorded: {
-	recordedBy: string;
-	responses: { roundTrip: Answer[] };
-} = JSON.parse(
-	fs.readFileSync(
-		path.join(__dirname, "..", "fixtures", "wslpath.json"),
-		"utf8",
-	),
+const recorded = readRecording<{ roundTrip: ToolAnswer[] }>(
+	path.join(__dirname, "..", "fixtures", "wslpath.json"),
 );
 
 const DUMP = "/mnt/c/diag/5743/dumps/live.dmp";
 
 const CASES: {
 	name: string;
-	check: (call: (args: string[]) => Answer) => void;
+	check: (call: (args: string[]) => ToolAnswer) => void;
 }[] = [
 	{
 		name: "-w then -u gives back the WSL path, each one line exiting 0",
@@ -62,17 +54,14 @@ describe("the live wslpath", () => {
 });
 
 describe("the recorded wslpath", () => {
-	it("names the command that re-records it", () => {
-		expect(recorded.recordedBy).toBe(
-			"node scripts/record-windows-tools.js wslpath",
-		);
-	});
+	itNamesItsRecorder(recorded, "wslpath");
 	for (const c of CASES)
 		it(c.name, () => {
 			const answers = [...recorded.responses.roundTrip];
-			c.check(() => {
+			c.check((args) => {
 				const next = answers.shift();
 				if (!next) throw new Error("the recording holds no further answer");
+				expect(args).toEqual(next.argv);
 				return next;
 			});
 		});

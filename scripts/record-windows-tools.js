@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// #5813
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { caught } = require("./lib/caught.js");
+const { readSize } = require("./lib/file-size.js");
 const scan = require("./lib/pfn-scan.js");
 const { diagDir, fetchSymbols, spawnCdb } = require("./lib/pfn-scan-host.js");
 const { powershellBin, toWin } = require("./lib/windows-host.js");
@@ -12,10 +12,11 @@ const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = "usage: record-windows-tools.js cdb|schtasks|powershell|wslpath";
 const PROBE_TASK = "workflow-core contract probe";
+// guess, #5813: a few entries show a whole write and keep the fixture short
 const READ_ENTRIES = 4;
 
 /** @param {string} s */
-const synthetic = (s) =>
+const withoutUserNames = (s) =>
 	s
 		.replace(/([Cc]:\\Users\\)[^\\\s"']+/g, "$1user")
 		.replace(/(\\\\wsl\.localhost\\[^\\]+\\home\\)[^\\\s"']+/g, "$1user")
@@ -32,15 +33,12 @@ function call(file, argv, opts = {}) {
 	return {
 		argv,
 		status: r.status,
-		stdout: synthetic(r.stdout),
-		stderr: synthetic(r.stderr),
+		stdout: withoutUserNames(r.stdout),
+		stderr: withoutUserNames(r.stderr),
 	};
 }
 
-/** @param {string} file */
-const sizeOf = (file) => (fs.existsSync(file) ? fs.statSync(file).size : null);
-
-function newestDump() {
+function readNewestDump() {
 	const dir = path.join(diagDir(), "dumps");
 	const dumps = fs
 		.readdirSync(dir)
@@ -52,17 +50,17 @@ function newestDump() {
 }
 
 function recordCdb() {
-	const dump = newestDump();
+	const dump = readNewestDump();
 	const work = path.join(diagDir(), `record-${process.pid}`);
 	fs.mkdirSync(work, { recursive: true });
 	/** @param {string} d @param {string} sym @param {string[]} commands */
 	const cdb = (d, sym, commands) => {
 		const r = spawnCdb(d, sym, commands, work);
 		return {
-			commands: commands.map(synthetic),
+			commands: commands.map(withoutUserNames),
 			status: r.status,
-			stdout: synthetic(r.stdout),
-			stderr: synthetic(r.stderr),
+			stdout: withoutUserNames(r.stdout),
+			stderr: withoutUserNames(r.stderr),
 		};
 	};
 	/** @param {string} sym @param {bigint} address @param {number} bytes */
@@ -72,7 +70,7 @@ function recordCdb() {
 			`.writemem ${toWin(file)} 0x${address.toString(16)} L?0x${bytes.toString(16)}`,
 			"q",
 		]);
-		return { ...r, asked: bytes, written: sizeOf(file) };
+		return { ...r, asked: bytes, written: readSize(file) };
 	};
 	try {
 		const symbols = path.join(diagDir(), "sym");

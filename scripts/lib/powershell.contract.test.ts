@@ -1,5 +1,4 @@
 // @vitest-environment node
-// #5813
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -7,27 +6,24 @@ import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { writeFakeBin } from "./fake-bin";
 import { writePowershell } from "./powershell-fake";
+import {
+	itNamesItsRecorder,
+	readRecording,
+	type ToolAnswer,
+} from "./windows-tool-recording";
 
-interface Answer {
-	status: number | null;
-	stdout: string;
-	stderr: string;
-}
 type Key = "command" | "failing" | "check";
 
-const recorded: {
-	recordedBy: string;
-	responses: Record<Key, Answer>;
-} = JSON.parse(
-	fs.readFileSync(
-		path.join(__dirname, "..", "fixtures", "powershell.json"),
-		"utf8",
-	),
+const recorded = readRecording<Record<Key, ToolAnswer>>(
+	path.join(__dirname, "..", "fixtures", "powershell.json"),
 );
+
+const REAL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe";
+const DIAG = "/mnt/c/diag/5743";
 
 const withoutCr = (s: string) => s.replace(/\r/g, "");
 
-const CASES: { key: Key; name: string; check: (a: Answer) => void }[] = [
+const CASES: { key: Key; name: string; check: (a: ToolAnswer) => void }[] = [
 	{
 		key: "command",
 		name: "-Command \"& '<exe>' …\" passes the program's stdout through, exiting 0",
@@ -38,9 +34,9 @@ const CASES: { key: Key; name: string; check: (a: Answer) => void }[] = [
 	},
 	{
 		key: "failing",
-		name: "-Command \"& '<exe>' …\" exits non-zero where the program does",
+		name: "-Command \"& '<exe>' …\" exits 1 where the program fails",
 		check(a) {
-			expect(a.status).not.toBe(0);
+			expect(a.status).toBe(1);
 		},
 	},
 	{
@@ -52,6 +48,20 @@ const CASES: { key: Key; name: string; check: (a: Answer) => void }[] = [
 		},
 	},
 ];
+
+const reachable = (file: string) => {
+	try {
+		fs.accessSync(file);
+		return !process.env.CI;
+	} catch {
+		return false;
+	}
+};
+const live: Record<Key, boolean> = {
+	command: reachable(REAL),
+	failing: reachable(REAL),
+	check: reachable(REAL) && reachable(path.join(DIAG, "page-combining.ps1")),
+};
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "powershell-contract-"));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -77,11 +87,19 @@ describe("the fake", () => {
 		it(c.name, () => c.check(spawnSync(ps, argv[c.key], { encoding: "utf8" })));
 });
 
-describe("the recorded powershell.exe", () => {
-	it("names the command that re-records it", () => {
-		expect(recorded.recordedBy).toBe(
-			"node scripts/record-windows-tools.js powershell",
+describe("the live powershell.exe, given the recorded arguments", () => {
+	for (const c of CASES)
+		it.skipIf(!live[c.key])(c.name, { timeout: 30_000 }, () =>
+			c.check(
+				spawnSync(REAL, recorded.responses[c.key].argv ?? [], {
+					encoding: "utf8",
+					cwd: DIAG,
+				}),
+			),
 		);
-	});
+});
+
+describe("the recorded powershell.exe", () => {
+	itNamesItsRecorder(recorded, "powershell");
 	for (const c of CASES) it(c.name, () => c.check(recorded.responses[c.key]));
 });
