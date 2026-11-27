@@ -27,9 +27,16 @@ class Interrupted extends Error {
 /**
  * @template {import("node:child_process").SpawnSyncReturns<unknown>} T
  * @param {T} run
+ * @param {string} what
  * @returns {T}
  */
-function uninterrupted(run) {
+function ran(run, what) {
+	if (run.error) {
+		const { code } = /** @type {NodeJS.ErrnoException} */ (run.error);
+		throw new Error(
+			`could not run ${what}${code ? ` (${code})` : ""}: ${run.error.message}`,
+		);
+	}
 	if (run.signal && HOOK_SIGNALS.has(run.signal))
 		throw new Interrupted(run.signal);
 	return run;
@@ -47,14 +54,17 @@ function realPorts(scripts, made, { cwd, env }) {
 	 * @param {Record<string, string>} [extra]
 	 */
 	const git = (args, extra) =>
-		spawnSync(
-			gitBinary(),
-			args,
-			gitSpawnOptions({
-				cwd,
-				stdio: /** @type {const} */ (["ignore", "pipe", "ignore"]),
-				env: extra ? { ...env, ...extra } : env,
-			}),
+		ran(
+			spawnSync(
+				gitBinary(),
+				args,
+				gitSpawnOptions({
+					cwd,
+					stdio: /** @type {const} */ (["ignore", "pipe", "ignore"]),
+					env: extra ? { ...env, ...extra } : env,
+				}),
+			),
+			`git ${args[0]}`,
 		);
 
 	/**
@@ -66,7 +76,7 @@ function realPorts(scripts, made, { cwd, env }) {
 	const nodeInto = (script, args, out, opts) => {
 		const fd = fs.openSync(out, "w");
 		try {
-			return uninterrupted(
+			return ran(
 				spawnSync(process.execPath, [path.join(scripts, script), ...args], {
 					cwd,
 					stdio: ["ignore", fd, opts.err ? fd : "ignore"],
@@ -74,6 +84,7 @@ function realPorts(scripts, made, { cwd, env }) {
 						? { ...env, GIT_INDEX_FILE: opts.indexFile }
 						: env,
 				}),
+				script,
 			);
 		} finally {
 			fs.closeSync(fd);
@@ -125,7 +136,7 @@ function realPorts(scripts, made, { cwd, env }) {
 		},
 		read: (out) => fs.readFileSync(out, "utf8"),
 		newFaults: (staged, baseline) => {
-			const run = uninterrupted(
+			const run = ran(
 				spawnSync(
 					process.execPath,
 					[
@@ -142,6 +153,7 @@ function realPorts(scripts, made, { cwd, env }) {
 						maxBuffer: CHILD_MAX_BUFFER,
 					},
 				),
+				"checker-new-faults.js",
 			);
 			return {
 				status: shellStatus(run, 2),

@@ -354,7 +354,7 @@ describe("the dispatcher row", () => {
 		});
 
 		const { code, output } = await runGate(repo);
-		expect(code).toBe(1);
+		expect(code, output).toBe(1);
 		expect(output).toContain(STUB_MARKER);
 	});
 
@@ -365,7 +365,7 @@ describe("the dispatcher row", () => {
 		});
 
 		const { code, output } = await runGate(repo);
-		expect(code).toBe(0);
+		expect(code, output).toBe(0);
 		expect(output).not.toContain(STUB_MARKER);
 	});
 
@@ -374,7 +374,7 @@ describe("the dispatcher row", () => {
 
 		const mutant: PrecommitGate = { ...ROW, arm: { always: true } };
 		const { code, output } = await runGate(repo, mutant);
-		expect(code).not.toBe(0);
+		expect(code, output).not.toBe(0);
 		expect(output).toContain(STUB_MARKER);
 	});
 
@@ -388,7 +388,7 @@ describe("the dispatcher row", () => {
 		git("rm", "-q", "--", "docs/gone.md");
 
 		const { code, output } = await runGate(repo);
-		expect(code).not.toBe(0);
+		expect(code, output).not.toBe(0);
 		expect(output).toContain(STUB_MARKER);
 	});
 });
@@ -403,6 +403,18 @@ describe("PROGRAM's exits and input channels", () => {
 		expect(runProgram(repo)).toEqual({ code: 0, output: "" });
 	});
 
+	it("throws a spawn failure naming its error, never reading it as a doc-map fault (#5818)", () => {
+		const repo = fixture({
+			staged: { "docs/research/note.md": "x\n" },
+			checkerExit: 0,
+		});
+		vi.stubEnv("WFC_GIT", path.join(repo, "no-such-git"));
+
+		expect(() => runProgram(repo)).toThrow(
+			"could not run git checkout-index (ENOENT)",
+		);
+	});
+
 	it("propagates the checker's own exit code", () => {
 		const repo = fixture({
 			staged: { "docs/research/note.md": "x\n" },
@@ -410,7 +422,7 @@ describe("PROGRAM's exits and input channels", () => {
 		});
 
 		const { code, output } = runProgram(repo);
-		expect(code).toBe(2);
+		expect(code, output).toBe(2);
 		expect(output).toContain(STUB_MARKER);
 		expect(output).toContain("NOT in HEAD");
 	});
@@ -423,7 +435,7 @@ describe("PROGRAM's exits and input channels", () => {
 		});
 
 		const { code, output } = runProgram(repo);
-		expect(code).toBe(0);
+		expect(code, output).toBe(0);
 		expect(output).toContain(STUB_MARKER);
 		expect(output).toContain("already in HEAD");
 	});
@@ -436,7 +448,7 @@ describe("PROGRAM's exits and input channels", () => {
 		fs.rmSync(path.join(repo, "scripts", "checker-new-faults.js"));
 
 		const { code, output } = runProgram(repo);
-		expect(code).toBe(1);
+		expect(code, output).toBe(1);
 		expect(output).toContain("could not tell inherited doc-map faults");
 		expect(output).not.toContain("NOT in HEAD");
 		expect(output).toContain("diagnostics, not findings");
@@ -452,7 +464,7 @@ describe("PROGRAM's exits and input channels", () => {
 		});
 
 		const { code, output } = runProgram(repo);
-		expect(code).toBe(1);
+		expect(code, output).toBe(1);
 		expect(output).toContain("no readable HEAD baseline for the doc-map check");
 	});
 
@@ -465,7 +477,7 @@ describe("PROGRAM's exits and input channels", () => {
 		});
 
 		const { code, output } = runProgram(repo);
-		expect(code).toBe(1);
+		expect(code, output).toBe(1);
 		expect(output).toContain(
 			"this commit adds the doc-map Section A row(s) below and not the file(s) they name:\n  docs/research/fresh.md",
 		);
@@ -519,7 +531,7 @@ describe("PROGRAM's exits and input channels", () => {
 		});
 
 		const { code, output } = runProgram(repo, { WFC_PLUGIN_ROOT: plugin });
-		expect(code).toBe(3);
+		expect(code, output).toBe(3);
 		expect(output).toContain(STUB_MARKER);
 	});
 });
@@ -578,7 +590,7 @@ describe("the index the checker is handed, extracted by real git", () => {
 		const { code, output } = runProgram(repo);
 		expect(output).toContain(STUB_MARKER);
 		expect(output).not.toContain("skipped the doc-map check");
-		expect(code).not.toBe(0);
+		expect(code, output).not.toBe(0);
 	});
 
 	it("hands the checker the staged map, flagged dirty, when only the map is staged", () => {
@@ -803,7 +815,7 @@ describe("a pointer count disagreeing with its sidecar", () => {
 	it("lets the commit through when the pointer and its key agree", async () => {
 		const repo = realCheckerRepo(1);
 		const { code, output } = await runGate(repo);
-		expect(code).toBe(0);
+		expect(code, output).toBe(0);
 		expect(output).not.toContain("pointer says");
 	});
 
@@ -838,14 +850,14 @@ describe("a pointer count disagreeing with its sidecar", () => {
 		);
 
 		const { code, output } = await runGate(repo);
-		expect(code).not.toBe(0);
+		expect(code, output).not.toBe(0);
 		expect(output).toContain("docs/notes.md");
 		expect(output).toContain("no doc-map register entry");
 	});
 
 	it("refuses the commit and prints the fix", async () => {
 		const { code, output } = await runGate(realCheckerRepo(2, 2, 1));
-		expect(code).not.toBe(0);
+		expect(code, output).not.toBe(0);
 		expect(output).toContain(
 			"B1 — pointer says 2 path(s), the sidecar holds 1",
 		);
@@ -957,7 +969,7 @@ describe("a hand-edited Section A row", () => {
 
 			stage(root, (t) => t);
 			const { code, output } = await runGate(root);
-			expect(code).toBe(0);
+			expect(code, output).toBe(0);
 			expect(output).not.toContain("does not match what the generator renders");
 		},
 		slowGateMs,
@@ -974,7 +986,7 @@ describe("a hand-edited Section A row", () => {
 				),
 			);
 			const { code, output } = await runGate(root);
-			expect(code).not.toBe(0);
+			expect(code, output).not.toBe(0);
 			expect(output).toContain("§A does not match what the generator renders");
 			expect(output).toContain("docs/notes.md — row differs");
 			expect(output).toContain(
