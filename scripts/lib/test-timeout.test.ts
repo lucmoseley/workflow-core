@@ -101,7 +101,7 @@ describe("a session's own snapshot test run over 30 s", () => {
 	});
 });
 
-describe("a run the snapshot does not cover keeps its timeout", () => {
+describe("a command launching no snapshot run, or another suite beside one, keeps its timeout", () => {
 	it.each([
 		["a --full run", "npm run test -- --full=release"],
 		["a bare --full run", "npm run test -- --full"],
@@ -124,6 +124,19 @@ describe("a run the snapshot does not cover keeps its timeout", () => {
 		],
 	])("is let through: %s", (_, command) => {
 		expect(refusal(command)).toBeNull();
+	});
+
+	it("is let through where the repo has no test script", () => {
+		fs.writeFileSync(
+			path.join(dir, "package.json"),
+			JSON.stringify({ scripts: { lint: "biome check ." } }),
+		);
+		expect(refusal("npm run test")).toBeNull();
+	});
+
+	it("is let through where package.json is absent", () => {
+		fs.rmSync(path.join(dir, "package.json"));
+		expect(refusal("npm run test")).toBeNull();
 	});
 
 	it("is let through where the test script is not the wrapper", () => {

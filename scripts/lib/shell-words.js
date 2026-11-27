@@ -150,6 +150,17 @@ function literal(word, spans) {
 	};
 }
 
+/**
+ * @param {string} word
+ * @param {string[]} spans
+ * @returns {string}
+ */
+function typedWord(word, spans) {
+	if (!word.includes(QUOTED)) return word;
+	const lit = literal(word, spans);
+	return lit.known ? lit.text : word;
+}
+
 const ASSIGNMENT_RE = /^[A-Za-z_].*=/s;
 
 /** @param {string} w */
@@ -914,6 +925,7 @@ module.exports = {
 	runText,
 	carriesVar,
 	commandName,
+	typedWord,
 	isGhCommand,
 	programSource,
 	stepGitOptions,

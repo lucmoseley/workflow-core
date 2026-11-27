@@ -304,6 +304,24 @@ function buildIsWrapperScript(tree, log) {
 	};
 }
 
+/**
+ * @param {() => Pick<import("./guard-host-ports.js").TreePorts, "read">} tree
+ * @param {(what: string) => void} log
+ * @returns {(script: string) => boolean}
+ */
+function buildCallsWrapperScript(tree, log) {
+	/** @type {Record<string, unknown> | null | undefined} */
+	let scripts;
+	return (script) => {
+		if (scripts === undefined)
+			scripts = parsePackageScripts(tree().read("package.json"), (fault) =>
+				log(`${fault} — no npm script counted as running run-vitest.js`),
+			);
+		const body = scripts?.[script];
+		return typeof body === "string" && body.includes("run-vitest.js");
+	};
+}
+
 module.exports = {
 	afterSlash,
 	isOtherRunner,
@@ -314,6 +332,7 @@ module.exports = {
 	hasNamedTestFiles,
 	pytestPathWords,
 	TEST_PY_WORKERS,
+	buildCallsWrapperScript,
 	buildIsWrapperScript,
 	isSnapshotLaunch,
 };

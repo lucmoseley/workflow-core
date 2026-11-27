@@ -1,4 +1,4 @@
-const { QUOTED, carriesVar, literal } = require("./shell-words.js");
+const { QUOTED, carriesVar, literal, typedWord } = require("./shell-words.js");
 const {
 	BASH_SPACE,
 	asWritten,
@@ -171,11 +171,7 @@ function decide(command, ctx) {
 	const parsed = parseCommand(command);
 	const { spans } = parsed;
 	/** @param {string} w */
-	const typed = (w) => {
-		if (!w.includes(QUOTED)) return w;
-		const lit = literal(w, spans);
-		return lit.known ? lit.text : w;
-	};
+	const typed = (w) => typedWord(w, spans);
 	/** @type {import("./suite-launch.js").LaunchPorts} */
 	const launchPorts = {
 		runners: ctx.runners,

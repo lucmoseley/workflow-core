@@ -6,7 +6,7 @@ const {
 	unmask,
 	walkCommands,
 } = require("./shell-parse.js");
-const { QUOTED, literal, runText } = require("./shell-words.js");
+const { literal, runText, typedWord } = require("./shell-words.js");
 const {
 	SUITE_MAX,
 	WHOLE_SUITE_MAX,
@@ -258,11 +258,7 @@ function buildState(command, parsed, ctx) {
 	return {
 		ctx,
 		spans,
-		typed: (w) => {
-			if (!w.includes(QUOTED)) return w;
-			const lit = literal(w, spans);
-			return lit.known ? lit.text : w;
-		},
+		typed: (w) => typedWord(w, spans),
 		launchPorts: {
 			runners: () => {
 				runners ??= ctx.runners();

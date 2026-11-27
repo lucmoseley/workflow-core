@@ -86,6 +86,7 @@
 			"tools": "Bash",
 			"failure": "open",
 			"tree": "session",
+			"host": "suite-background-host.js",
 			"if": ["Bash(*npm *)", "Bash(*run-vitest.js*)"]
 		},
 		{
