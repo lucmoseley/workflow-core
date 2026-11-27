@@ -31,9 +31,9 @@ fi
 SRC_DIR="${BASH_SOURCE[0]%/*}"
 [[ "$SRC_DIR" == "${BASH_SOURCE[0]}" ]] && SRC_DIR=.
 SRC_DIR="$(cd "$SRC_DIR" && pwd)"
-PS='/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
-DIAG_WSL='/mnt/c/diag/5743'
-DIAG_WIN='C:\diag\5743'
+PS="${WFC_POWERSHELL:-/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe}"
+DIAG_WSL="${WFC_DIAG_DIR:-/mnt/c/diag/5743}"
+DIAG_WIN="$("${WFC_WSLPATH:-wslpath}" -w "$DIAG_WSL")"
 [[ -x "$PS" ]] || {
   echo "error: Windows PowerShell not reachable - is this WSL with interop enabled?" >&2
   exit 1
@@ -49,12 +49,12 @@ check() { "$PS" -NoProfile -ExecutionPolicy Bypass -File "$ps1" -Check | tr -d '
 state="$(check)"
 if [[ "$state" != ok ]]; then
   echo "Registering the elevated tasks ($state): accept the UAC prompt on the Windows desktop."
-  rm -f /mnt/c/diag/5743/register.log
+  rm -f "$DIAG_WSL/register.log"
   "$PS" -NoProfile -Command "Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${ps1}','-Register'" || true
   state="$(check)"
   [[ "$state" == ok ]] || {
-    if [[ -f /mnt/c/diag/5743/register.log ]]; then
-      echo "error: the elevated registration failed: $(tr -d '\r' </mnt/c/diag/5743/register.log)" >&2
+    if [[ -f "$DIAG_WSL/register.log" ]]; then
+      echo "error: the elevated registration failed: $(tr -d '\r' <"$DIAG_WSL/register.log")" >&2
     else
       echo "error: $state - was the UAC prompt declined?" >&2
     fi

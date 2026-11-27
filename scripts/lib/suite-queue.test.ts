@@ -2274,7 +2274,7 @@ describe("queueSeat's wait, composing the gate from the launch's words, read and
 			"npm run test -- a.test.ts",
 			null,
 			0,
-			expect.any(Function),
+			{ onAdmission: expect.any(Function) },
 		);
 	});
 
@@ -2293,8 +2293,23 @@ describe("queueSeat's wait, composing the gate from the launch's words, read and
 			"npm run test -- --changed",
 			gateWeight,
 			0,
-			expect.any(Function),
+			{ onAdmission: expect.any(Function) },
 		);
+	});
+
+	it("hands the gate the cap on a part-suite's charge (#5802)", async () => {
+		const gateRead = vi.fn(() => null);
+		await seatWait({
+			gateRead,
+			gateCapMb: 2340,
+			admit: noQueue,
+			sleepFn: () => Promise.resolve(),
+			out: { write: () => true },
+		});
+		expect(gateRead).toHaveBeenCalledWith("npm run test", null, 0, {
+			onAdmission: expect.any(Function),
+			capMb: 2340,
+		});
 	});
 
 	it("waits on each deny the gate reads", async () => {
@@ -2323,9 +2338,9 @@ describe("queueSeat's wait, composing the gate from the launch's words, read and
 						_command: string,
 						_weight: unknown,
 						_climb: number,
-						hear?: (a: unknown) => void,
+						reads: { onAdmission?: (a: unknown) => void },
 					) => {
-						hear?.(admission);
+						reads.onAdmission?.(admission);
 						return null;
 					},
 					admit: noQueue,
@@ -2352,7 +2367,7 @@ describe("gateDenies, the command it asks the gate about (#2558)", () => {
 	])("asks about %j as `%s`", (words, command) => {
 		const read = vi.fn(() => null);
 		expect(gateDenies(words, read)).toBeNull();
-		expect(read).toHaveBeenCalledWith(command, null, 0);
+		expect(read).toHaveBeenCalledWith(command, null, 0, {});
 	});
 
 	it("hands back the limb the gate reads", () => {
