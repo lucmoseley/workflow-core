@@ -67296,6 +67296,7 @@
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-plugin-gap.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/commit-dispatch-cost.test.ts",
 			"scripts/commit-msg-dispatch.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -67319,6 +67320,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/status-report.test.ts",
 			"scripts/upgrade.test.ts"

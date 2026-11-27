@@ -183,6 +183,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"lib/trim-run.js",
 			"lib/trimmed.js",
 			"lib/urgent-label.js",
+			"lib/watch-label.js",
 			"lib/workflow-core-config.js",
 			"lib/worktree-dirs.js",
 			"lib/worktree-paths.js",
