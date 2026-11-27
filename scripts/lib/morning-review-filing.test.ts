@@ -998,7 +998,7 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 					wfc(),
 					"2026-10-09T12:00:00.000Z",
 					2,
-					"Wfc: window edge",
+					"Wfc: last before window",
 				);
 				fs.appendFileSync(ledger(), "\0".repeat(64));
 				appendDecision(wfc(), "2026-10-10T12:00:00.000Z", 3, "Wfc: inside");
