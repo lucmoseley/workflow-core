@@ -88,7 +88,7 @@
 	"scripts/refill-wake.sh": "a3deabe0979a4500",
 	"scripts/register-doc.js": "29590d248de82380",
 	"scripts/release-issue-claim.js": "35680cdff10f783f",
-	"scripts/remove-orphaned-worktree.js": "945dc28fda5477a1",
+	"scripts/remove-orphaned-worktree.js": "aa6064221e9ae6cc",
 	"scripts/replay-notify-reports.js": "5130a56b9049ce87",
 	"scripts/report-suite-queue-wait.js": "c14d15bce76a21ad",
 	"scripts/review-hold-gate.js": "0a5e98ee21398add",
