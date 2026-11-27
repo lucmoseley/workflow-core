@@ -92,13 +92,13 @@ function buildHostPorts(root, log) {
 /**
  * @param {string} command
  * @param {string | undefined} root
- * @param {{ weight?: import("./suite-handoff.js").CarriedWeight | null, climbMb?: number, allClimbMb: () => number, gateSeats: () => import("./suite-ladder.js").GateSeats, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void }} reads
+ * @param {{ weight?: import("./suite-handoff.js").CarriedWeight | null, climbMb?: number, allClimbMb: () => number, gateSeats: () => import("./suite-ladder.js").GateSeats, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, capMb?: number }} reads
  * @returns {import("./gate-wait.js").GateDenial | null}
  */
 function readGate(
 	command,
 	root,
-	{ weight = null, climbMb = 0, allClimbMb, gateSeats, onAdmission },
+	{ weight = null, climbMb = 0, allClimbMb, gateSeats, onAdmission, capMb },
 ) {
 	const { guardDisabled, hostRoot } = require("./workflow-core-config.js");
 	const host = root ?? hostRoot();
@@ -120,6 +120,7 @@ function readGate(
 		climbMb: (scope) => (scope === "all" ? allClimbMb() : climbMb),
 		gateSeats,
 		launchWeight: weight,
+		...(capMb === undefined ? {} : { partCapMb: capMb }),
 		...(onAdmission ? { noteAdmission: onAdmission } : {}),
 		tree: () =>
 			treePorts(root ?? require("./host-root.js").sessionTree({}) ?? host),

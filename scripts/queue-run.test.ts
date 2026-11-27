@@ -447,6 +447,64 @@ describe("queue-run.js", () => {
 			},
 		);
 
+		it("hands the gate its repo's measured whole-run peak as the most it is charged (#5802)", async () => {
+			const f = fixture();
+			const gateLog = path.join(f.dir, "gate-runs.jsonl");
+			fs.writeFileSync(
+				gateLog,
+				[1201, 2340, 565, 577, 900]
+					.map(
+						(peakTreeMb) =>
+							`${JSON.stringify({ repo: gateRepoName(), command: "bash test/all.sh", outcome: "pass", runS: 300, peakTreeMb })}\n`,
+					)
+					.join(""),
+			);
+			const caps: unknown[] = [];
+			const read = (
+				_command: string,
+				_weight: unknown,
+				_climb: number,
+				reads: { capMb?: number },
+			) => {
+				caps.push(reads.capMb);
+				return null;
+			};
+			main(
+				["--", "node", "--test", "a.test.js"],
+				f.options({ gate: undefined, gateRead: read, gateLog }),
+			);
+			await tick();
+			main(
+				["--", "pytest"],
+				f.options({ gate: undefined, gateRead: read, gateLog }),
+			);
+			await tick();
+			expect(caps).toEqual([2340, undefined]);
+		});
+
+		it("charges it uncapped where no gate command has 5 measured runs", async () => {
+			const f = fixture();
+			const caps: unknown[] = [];
+			main(
+				["--", "pytest", "tests/test_a.py"],
+				f.options({
+					gate: undefined,
+					gateLog: path.join(f.dir, "absent.jsonl"),
+					gateRead: (
+						_c: string,
+						_w: unknown,
+						_m: number,
+						reads: { capMb?: number },
+					) => {
+						caps.push(reads.capMb);
+						return null;
+					},
+				}),
+			);
+			await tick();
+			expect(caps).toEqual([undefined]);
+		});
+
 		it("still joins a run naming no file whole", async () => {
 			const { weights, marker } = await joinOf(["pytest"]);
 			expect(weights).toEqual([null]);

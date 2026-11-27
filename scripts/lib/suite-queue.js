@@ -70,7 +70,7 @@ const MARKER_STAMPS = [
  * @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, memoryRungMb?: number, part?: boolean, kind?: PartKind, files?: number, spawned?: boolean, enteredAt?: number } & Partial<SeatHolder> & { [K in MarkerStamp]?: boolean }} QueueRecord
  */
 /**
- * @typedef {Omit<Parameters<typeof waitForGate>[0], "admit" | "gate"> & { gate?: Parameters<typeof waitForGate>[0]["gate"], gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null }} SeatWaitOptions
+ * @typedef {Omit<Parameters<typeof waitForGate>[0], "admit" | "gate"> & { gate?: Parameters<typeof waitForGate>[0]["gate"], gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, gateCapMb?: number }} SeatWaitOptions
  * @typedef {Omit<SeatWaitOptions, "onExit"> & Parameters<typeof queueJoin>[0] & Parameters<typeof readTurn>[0]} QueuedLaunchOptions
  */
 
@@ -1121,33 +1121,33 @@ const PART_PASS_AGE_MS = 7 * 60 * 1000;
 
 const QUEUE_SIGNALS = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 };
 
+/** @typedef {{ onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, capMb?: number }} GateReads */
+
 /**
  * @param {string[]} [words]
- * @param {(command: string, weight: import("./suite-handoff.js").CarriedWeight | null, climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null} [read]
+ * @param {(command: string, weight: import("./suite-handoff.js").CarriedWeight | null, climbMb: number, reads: GateReads) => GateDenial | null} [read]
  * @param {import("./suite-handoff.js").CarriedWeight | null} [weight]
- * @param {{ climbMb?: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void }} [charge]
+ * @param {{ climbMb?: number } & GateReads} [charge]
  * @returns {GateDenial | null}
  */
 function gateDenies(
 	words = [],
-	read = (command, carried, climb, hear) =>
+	read = (command, carried, climb, asked) =>
 		require("./suite-concurrency-host.js").readGate(command, undefined, {
 			weight: carried,
 			climbMb: climb,
 			allClimbMb: () => readQueuesClimbMb("all"),
 			gateSeats: () => readGateSeats(),
-			...(hear ? { onAdmission: hear } : {}),
+			...asked,
 		}),
 	weight = null,
-	{ climbMb = 0, onAdmission } = {},
+	{ climbMb = 0, ...reads } = {},
 ) {
 	const command = ["npm run test", ...(words.length > 0 ? ["--"] : [])]
 		.concat(words.map(shellQuote))
 		.join(" ");
 	try {
-		return onAdmission
-			? read(command, weight, climbMb, onAdmission)
-			: read(command, weight, climbMb);
+		return read(command, weight, climbMb, reads);
 	} catch (err) {
 		ignoreFailure(() =>
 			require("./arbiter-core.js").logError(
@@ -1271,6 +1271,7 @@ function queueSeat({
 		gateWords = [],
 		gateRead,
 		gateWeight = null,
+		gateCapMb,
 		...options
 	} = {}) => {
 		waiting = true;
@@ -1282,6 +1283,7 @@ function queueSeat({
 						gateDenies(gateWords, gateRead, gateWeight, {
 							climbMb: charged,
 							onAdmission,
+							...(gateCapMb === undefined ? {} : { capMb: gateCapMb }),
 						})),
 				turn: passing ? passing.turn : turn,
 				...(passing ? { turnHold: passing.turnHold } : {}),
