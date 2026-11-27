@@ -1,0 +1,5 @@
+**An issue you file for later is created unassigned.** `--assignee @me` on a
+create belongs only where the session works what it creates — `/to-spec`'s
+spec, not a `/to-tickets` batch or a spun-off ticket it is not working.
+Claiming unstarted work hides it from `/wayfinder`'s frontier (mantahostels#270,
+mantahostels#702). Posting a question round on an issue is working it: claim it then (#1066).

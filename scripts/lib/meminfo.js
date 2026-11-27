@@ -1,0 +1,56 @@
+const fs = require("node:fs");
+const { caught } = require("./caught.js");
+const { meminfoPath } = require("./proc-root.js");
+
+/**
+ * @typedef {{ ok: true, mb: number } | { ok: false, error: string }} MbResult
+ * @typedef {{ ok: true, totalKb: number | null, availableKb: number, freeKb: number | null, swapTotalKb: number | null, swapFreeKb: number | null } | { ok: false, error: string }} MeminfoRead
+ */
+
+/** @returns {MeminfoRead} */
+function readMeminfoKb() {
+	const path = meminfoPath();
+	try {
+		const text = fs.readFileSync(path, "utf8");
+		/** @param {string} key */
+		const kb = (key) => {
+			const m = text.match(new RegExp(`^${key}:\\s+(\\d+) kB$`, "m"));
+			return m ? Number(m[1]) : null;
+		};
+		const availableKb = kb("MemAvailable");
+		if (availableKb === null)
+			return { ok: false, error: `${path} carries no MemAvailable line` };
+		return {
+			ok: true,
+			totalKb: kb("MemTotal"),
+			availableKb,
+			freeKb: kb("MemFree"),
+			swapTotalKb: kb("SwapTotal"),
+			swapFreeKb: kb("SwapFree"),
+		};
+	} catch (e) {
+		return { ok: false, error: caught(e).message };
+	}
+}
+
+/**
+ * @param {MeminfoRead} read
+ * @returns {MbResult}
+ */
+const availableFrom = (read) =>
+	read.ok
+		? { ok: true, mb: Math.floor(read.availableKb / 1024) }
+		: { ok: false, error: read.error };
+
+/** @returns {MbResult} */
+const readAvailableMb = () => availableFrom(readMeminfoKb());
+
+/** @returns {number | null} */
+function readTotalMb() {
+	const read = readMeminfoKb();
+	return read.ok && read.totalKb !== null
+		? Math.floor(read.totalKb / 1024)
+		: null;
+}
+
+module.exports = { availableFrom, readAvailableMb, readMeminfoKb, readTotalMb };

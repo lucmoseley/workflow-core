@@ -1,0 +1,1272 @@
+const fs = require("node:fs");
+const path = require("node:path");
+const { readJsonl } = require("./jsonl.js");
+const { requiredGroup } = require("./regex-group");
+const { docPath } = require("./script-path.js");
+const { WHOLE_SLOT_FILES, WHOLE_SUITE_WORKERS } = require("./suite-bounded");
+const {
+	DRAW_MARGIN_MB,
+	WHOLE_SUITE_MAX,
+	reachableRung,
+	rungMb,
+	suiteRungMb,
+} = require("./suite-ladder");
+const {
+	SESSION_PLACES,
+	WINDOWS_MAX_HOLD_MS,
+	isClimbKept,
+} = require("./gate-wait.js");
+const {
+	PART_PASS_AGE_MS,
+	splitPlaces,
+	partLaneOf,
+	turnOf,
+	waiterOf,
+} = require("./suite-queue");
+const { chargeMb } = require("./launch-charge");
+const { partKindOf } = require("./part-suite-peak.js");
+const { TSC_MAX, isCutTscRunner } = require("./tsc-slot");
+const { GATE_RUN_LOG } = require("./gate-seat.js");
+const { unionS, waitOwner } = require("./queue-exit-log.js");
+const {
+	isWindowsFresh,
+	windowsReadingOf,
+	windowsShortfall,
+} = require("./windows-memory");
+
+// workflow-core#2909 guess
+const TICK_S = 10;
+// workflow-core#3047 guess
+const MATCH_BEFORE_S = 3;
+const MATCH_AFTER_S = 900;
+// workflow-core#2909 guess
+const MARKER_MATCH_S = 3;
+// workflow-core#2909 guess
+const WHOLE_SHARE = 0.9;
+// workflow-core#2726 guess an hour, past the 840 s suite ceiling
+const PAD_MS = 3_600_000;
+// guess, workflow-core#3060
+const TOP = 8;
+const BOUND_LIMBS = new Set(["fifo-part", "touched-claim"]);
+const LIMBS = [
+	"session-cap",
+	"count",
+	"memory",
+	"tsc-count",
+	"tsc-memory",
+	"climb",
+	"windows",
+	"fifo-whole",
+	"fifo-part",
+	"touched-claim",
+	"tsc-fifo",
+	"admitted",
+	"peer-climb",
+	"load",
+	"open",
+];
+// workflow-core#2931 measured: the gate's whole-run file and worker counts, and the commit times each changed at
+const PRE_FIELDS_GATE = {
+	wholeFilesUntil: Date.parse("2026-10-25T11:26:00Z"),
+	wholeFilesBefore: 3,
+	wholeWorkersUntil: Date.parse("2026-10-24T07:27:00Z"),
+	wholeWorkersBefore: 3,
+};
+// workflow-core#3058 measured: its commit's time
+const PART_PASS_FROM = Date.parse("2026-10-26T10:39:01Z");
+// workflow-core#5367 measured: its commit's time
+const PART_PEAK_FROM = Date.parse("2026-11-17T09:59:14Z");
+// workflow-core#4557 measured: its commit's time
+const WINDOWS_HOLD_FROM = Date.parse("2026-11-09T05:09:20Z");
+// workflow-core#4850 measured: its commit's time
+const WINDOWS_FLOOR_FROM = Date.parse("2026-11-10T01:48:21Z");
+// workflow-core#4782 measured: its commit's time
+const WINDOWS_PASS_FROM = Date.parse("2026-11-09T13:33:04Z");
+// workflow-core#4783 measured: its commit's time
+const REST_PASS_FROM = Date.parse("2026-11-09T15:00:37Z");
+// workflow-core#4760 measured: its commit's time
+const PEER_CLIMB_FROM = Date.parse("2026-11-09T08:18:51Z");
+// workflow-core#5310 measured: its commit's time
+const RUNG_CLAMP_FROM = Date.parse("2026-11-17T02:16:39Z");
+// workflow-core#4799 measured: its commit's time
+const CLIMB_KEEP_FROM = Date.parse("2026-11-09T15:36:27Z");
+// workflow-core#5595 measured: its commit's time
+const SESSION_CAP_FROM = Date.parse("2026-11-23T00:15:43Z");
+const MEMWATCH_HEADER =
+	/^=== (\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d) (\d+)MB used \| cpu: \d+% .*?load ([\d.]+)/;
+const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
+
+/**
+ * @typedef {{ at: string, waitS: number, reason: string, kind: string,
+ *   session: string | null, pid: number, slotFree?: boolean,
+ *   skipped?: boolean, passed?: number, climbMb?: number,
+ *   chargeMb?: number, peerS?: number, sessionCapS?: number,
+ *   lane?: import("./part-suite-peak.js").PartKind,
+ *   admission?: import("./part-suite-peak.js").PartAdmission,
+ *   limb?: import("./queue-exit-log.js").HeldLimb,
+ *   joined?: { pid: number, session: string | null } }} Exit
+ * @typedef {{ st: number, en: number, session: string | null, kind: string,
+ *   wholeSlot: boolean | null, resolvedFiles: number | null, verdict: string,
+ *   modulesRun: number | null, modulesTotal: number | null }} Run
+ * @typedef {{ used: number, load: number, tsc: number }} MemBlock
+ * @typedef {{ exits: Exit[], runs: Run[], mem: Map<number, MemBlock>,
+ *   windows: Map<number, WindowsMinute>, unread: Unread }} Logs
+ * @typedef {import("./windows-memory.js").WindowsMinute} WindowsMinute
+ * @typedef {{ since: number, until: number, eras: { label: string, from: number }[],
+ *   memTotalMb: number, loadCeiling: number | null, capFrom?: number }} Window
+ */
+
+/** @typedef {{ absent: string[], unparsed: number, zeroed: number }} Unread */
+
+/**
+ * @param {string} file
+ * @param {Unread} unread
+ * @param {(line: string) => boolean} [pre]
+ * @returns {any[]}
+ */
+function readRows(file, unread, pre) {
+	const read = readJsonl(file, pre);
+	if (!read) {
+		unread.absent.push(file);
+		return [];
+	}
+	unread.unparsed += read.bad.length;
+	unread.zeroed += read.zeroed.length;
+	return read.rows;
+}
+
+/** @param {string} s */
+const isoAt = (s) => {
+	const i = s.indexOf('"at":"');
+	return i < 0 ? "" : s.slice(i + 6, i + 30);
+};
+
+/**
+ * @param {{ markers: string, memwatch: string[], minuteLog: string, since: number, until: number }} o
+ * @returns {Logs}
+ */
+function readLogs({ markers, memwatch, minuteLog, since, until }) {
+	const lo = new Date(since - PAD_MS).toISOString();
+	const hi = new Date(until + PAD_MS).toISOString();
+	const inRange = (/** @type {string} */ line) => {
+		const at = isoAt(line);
+		return lo <= at && at <= hi;
+	};
+	/** @type {Unread} */
+	const unread = { absent: [], unparsed: 0, zeroed: 0 };
+	const exits = readRows(
+		path.join(markers, ".suite-queue-exits.jsonl"),
+		unread,
+	);
+	const ledger = readRows(
+		path.join(markers, ".test-runs.jsonl"),
+		unread,
+		inRange,
+	).map((d) => ({
+		suite: d.suite,
+		run: {
+			st: Date.parse(d.startedAt),
+			en: Date.parse(d.at),
+			session: d.session ?? null,
+			kind: d.kind,
+			wholeSlot: d.wholeSlot ?? null,
+			resolvedFiles: d.resolvedFiles ?? null,
+			verdict: d.verdict,
+			modulesRun: null,
+			modulesTotal: null,
+		},
+	}));
+	const logged = ledger.filter((d) => d.suite === "vitest").map((d) => d.run);
+	const vitest = logged.some((r) => r.resolvedFiles === null)
+		? withModuleCounts(logged, readModuleCounts(markers, unread, inRange))
+		: logged;
+	const otherWhole = ledger
+		.filter((d) => d.suite !== "vitest" && d.run.wholeSlot === true)
+		.map((d) => d.run);
+	const gates = readRows(path.join(markers, GATE_RUN_LOG), unread, inRange)
+		.filter((g) => g.part !== true)
+		.map(gateRunOf)
+		.filter((g) => ![...vitest, ...otherWhole].some((r) => isRunOfGate(g, r)));
+	const runs = [...vitest, ...otherWhole, ...gates];
+	const mem = readMemwatch(memwatch, unread);
+	const windows = readWindowsMinutes(
+		minuteLog,
+		unread,
+		since - PAD_MS,
+		until + PAD_MS,
+	);
+	return { exits, runs, mem, windows, unread };
+}
+
+/**
+ * @param {import("./gate-seat.js").GateRun} g
+ * @returns {Run}
+ */
+const gateRunOf = (g) => {
+	const en = Date.parse(g.at);
+	return {
+		st: en - g.runS * 1000,
+		en,
+		session: g.session ?? null,
+		kind: "gate",
+		wholeSlot: true,
+		resolvedFiles: null,
+		verdict: g.outcome,
+		modulesRun: null,
+		modulesTotal: null,
+	};
+};
+
+/**
+ * @param {Run} g
+ * @param {Run} r
+ */
+const isRunOfGate = (g, r) =>
+	r.session !== null && r.session === g.session && g.st <= r.st && r.en <= g.en;
+
+/**
+ * @param {string} file
+ * @param {Unread} unread
+ * @param {number} lo
+ * @param {number} hi
+ */
+function readWindowsMinutes(file, unread, lo, hi) {
+	/** @type {Map<number, WindowsMinute>} */
+	const windows = new Map();
+	const inRange = (/** @type {string} */ line) => {
+		const t = Date.parse(/"ts":"([^"]+)"/.exec(line)?.[1] ?? "");
+		return lo <= t && t <= hi;
+	};
+	for (const row of readRows(file, unread, inRange)) {
+		const reading = windowsReadingOf(row);
+		if (reading && isWindowsFresh(reading))
+			windows.set(Math.floor(Date.parse(row.ts) / 60_000), reading);
+	}
+	return windows;
+}
+
+/**
+ * @param {string[]} files
+ * @param {Unread} unread
+ */
+function readMemwatch(files, unread) {
+	/** @type {Map<number, MemBlock>} */
+	const mem = new Map();
+	for (const file of files) {
+		if (fs.existsSync(file))
+			parseMemwatch(fs.readFileSync(file, "latin1"), mem);
+		else unread.absent.push(file);
+	}
+	return mem;
+}
+
+/**
+ * @param {string} text
+ * @param {Map<number, MemBlock>} mem
+ */
+function parseMemwatch(text, mem) {
+	/** @type {MemBlock | null} */
+	let block = null;
+	/** @type {Set<number>} */
+	const tscPids = new Set();
+	for (const line of text.split("\n")) {
+		const m = MEMWATCH_HEADER.exec(line);
+		if (m) {
+			const n = (/** @type {number} */ i) =>
+				Number(requiredGroup(m, i, MEMWATCH_HEADER));
+			const t = new Date(n(1), n(2) - 1, n(3), n(4), n(5), n(6)).getTime();
+			block = { used: n(7), load: n(8), tsc: 0 };
+			tscPids.clear();
+			mem.set(Math.floor(t / 60_000), block);
+			continue;
+		}
+		const row = MEMWATCH_ROW.exec(line);
+		if (!block || !row) continue;
+		if (isCutTscRunner(requiredGroup(row, 2, MEMWATCH_ROW)))
+			tscPids.add(Number(requiredGroup(row, 1, MEMWATCH_ROW)));
+		block.tsc = tscPids.size;
+	}
+}
+
+/**
+ * @param {string} markers
+ * @param {Unread} unread
+ * @param {(line: string) => boolean} inRange
+ */
+function readModuleCounts(markers, unread, inRange) {
+	/** @type {Map<string, { st: number, run: number | null, total: number | null }[]>} */
+	const bySession = new Map();
+	const files = ["pass", "fail"].flatMap((store) => [
+		`.test-${store}-markers.jsonl`,
+		`.test-${store}-markers.archive.jsonl`,
+	]);
+	for (const file of files)
+		for (const d of readRows(path.join(markers, file), unread, inRange)) {
+			const list = bySession.get(d.sessionId) ?? [];
+			list.push({
+				st: Date.parse(d.startedAt),
+				run: d.scope?.modulesRun ?? null,
+				total: d.scope?.modulesTotal ?? null,
+			});
+			bySession.set(d.sessionId, list);
+		}
+	return bySession;
+}
+
+/**
+ * @param {Run[]} runs
+ * @param {ReturnType<typeof readModuleCounts>} bySession
+ * @returns {Run[]}
+ */
+function withModuleCounts(runs, bySession) {
+	return runs.map((r) => {
+		if (r.resolvedFiles !== null || r.session === null) return r;
+		const list = bySession.get(r.session) ?? [];
+		const m =
+			list.find((x) => x.st === r.st) ??
+			list.find((x) => Math.abs(x.st - r.st) < MARKER_MATCH_S * 1000);
+		return m ? { ...r, modulesRun: m.run, modulesTotal: m.total } : r;
+	});
+}
+
+/** @param {Run} r */
+function filesOf(r) {
+	if (r.resolvedFiles !== null) return r.resolvedFiles;
+	if (r.modulesRun === null) return null;
+	if (r.modulesTotal && r.modulesRun >= WHOLE_SHARE * r.modulesTotal)
+		return Number.POSITIVE_INFINITY;
+	return r.modulesRun;
+}
+
+/** @param {Run} r */
+function isWhole(r) {
+	if (r.kind === "lander") return true;
+	const sessionWhole = ["bare", "full", "adopt"].includes(r.kind);
+	if (r.wholeSlot !== null) {
+		if (
+			r.verdict === "killed" &&
+			!r.wholeSlot &&
+			r.resolvedFiles === null &&
+			(sessionWhole || r.kind === "changed")
+		)
+			return true;
+		return r.wholeSlot;
+	}
+	if (r.kind === "touched") return false;
+	if (sessionWhole) return true;
+	const n = filesOf(r);
+	if (n === null) return r.kind !== "named";
+	const bound =
+		r.st < PRE_FIELDS_GATE.wholeFilesUntil
+			? PRE_FIELDS_GATE.wholeFilesBefore
+			: WHOLE_SLOT_FILES;
+	return n === 0 || n >= bound;
+}
+
+/**
+ * @param {Run} r
+ * @param {boolean} whole
+ */
+function workersOf(r, whole) {
+	if (whole)
+		return r.st > PRE_FIELDS_GATE.wholeWorkersUntil
+			? WHOLE_SUITE_WORKERS
+			: PRE_FIELDS_GATE.wholeWorkersBefore;
+	return Math.max(1, Math.min(filesOf(r) || 1, WHOLE_SUITE_WORKERS));
+}
+
+/** @param {number | null} n */
+function sizeOf(n) {
+	if (n === null) return "";
+	if (n < 6) return ", under 6 files";
+	if (n < WHOLE_SLOT_FILES) return `, 6-${WHOLE_SLOT_FILES - 1} files`;
+	return `, ${WHOLE_SLOT_FILES}+ files`;
+}
+
+/** @param {Run} r */
+function holderOf(r) {
+	if (r.kind !== "lander")
+		return `${r.session === null ? "sessionless " : ""}\`${r.kind}\`${sizeOf(filesOf(r))}`;
+	return "lander push gate";
+}
+
+/**
+ * @template K
+ * @param {Map<K, number>} m
+ * @param {K} k
+ * @param {number} v
+ */
+const add = (m, k, v) => m.set(k, (m.get(k) ?? 0) + v);
+
+/** @param {Map<string, Map<string, number>>} m @param {string} k @param {string} limb */
+const addNested = (m, k, limb) => {
+	const inner = m.get(k) ?? new Map();
+	add(inner, limb, TICK_S);
+	m.set(k, inner);
+};
+
+/**
+ * @param {{ st: number, en: number }} e
+ * @param {Window} w
+ * @returns {[number, number] | null}
+ */
+function spanIn(e, w) {
+	const a = Math.max(e.st, w.since);
+	const b = Math.min(e.en, w.until);
+	return b > a ? [a, b] : null;
+}
+
+/**
+ * @param {number} a
+ * @param {number} b
+ * @param {number} from
+ * @param {number} to
+ */
+const clip = (a, b, from, to) =>
+	Math.max(0, Math.min(b, to) - Math.max(a, from)) / 1000;
+
+/**
+ * @typedef {Run & { whole: boolean, workers: number }} WeighedRun
+ * @typedef {Exit & { st: number, en: number, run: WeighedRun | null,
+ *   gap: number, whole: boolean, cls: string, workers: number }} Waiter
+ */
+
+/**
+ * @param {Exit} e
+ * @param {number} en
+ * @param {WeighedRun[]} runs
+ * @param {Set<WeighedRun>} used
+ */
+function matchRun(e, en, runs, used) {
+	/** @type {{ run: WeighedRun, gap: number } | null} */
+	let best = null;
+	if (!isMatchable(e)) return best;
+	for (const r of runs) {
+		if (used.has(r) || r.session !== (e.session ?? null)) continue;
+		const g = (r.st - en) / 1000;
+		if (
+			g >= -MATCH_BEFORE_S &&
+			g <= MATCH_AFTER_S &&
+			g < (best?.gap ?? Number.POSITIVE_INFINITY)
+		)
+			best = { run: r, gap: g };
+	}
+	if (best) used.add(best.run);
+	return best;
+}
+
+/** @param {Exit} e */
+const isMatchable = (e) =>
+	e.kind !== "tsc" && (e.reason === "opened" || e.reason === "timeout");
+
+/**
+ * @param {Exit} e
+ * @param {WeighedRun | null} run
+ */
+function classOf(e, run) {
+	if (e.slotFree === true) return { whole: false, sure: true };
+	if (run) return { whole: run.whole, sure: true };
+	if (e.slotFree === false) return { whole: true, sure: true };
+	/* No run matched: the kinds that run whole by default (workflow-core#2909's guess). */
+	const whole = ["bare", "full", "changed", "other"].includes(e.kind);
+	return { whole, sure: false };
+}
+
+/**
+ * @param {Exit[]} queued
+ * @param {WeighedRun[]} runs
+ * @returns {Waiter[]}
+ */
+function toWaiters(queued, runs) {
+	/** @type {Set<WeighedRun>} */
+	const used = new Set();
+	return queued.map((e) => {
+		const en = Date.parse(e.at);
+		const match = matchRun(e, en, runs, used);
+		const run = match?.run ?? null;
+		const { whole, sure } = classOf(e, run);
+		const unmatched = whole ? WHOLE_SUITE_WORKERS : 1;
+		return {
+			...e,
+			st: en - e.waitS * 1000,
+			en,
+			run,
+			gap: Math.max(0, match?.gap ?? 0),
+			whole,
+			cls:
+				e.kind === "tsc"
+					? "tsc"
+					: `${whole ? "whole" : "part"}${sure ? "" : "?"}`,
+			workers: run ? run.workers : unmatched,
+		};
+	});
+}
+
+/**
+ * @typedef {{ t: number, whole: WeighedRun[], busy: number,
+ *   mem: MemBlock | undefined, win: WindowsMinute | undefined, waiting: Waiter[],
+ *   admitting: Waiter[], era: string, capped: Set<Waiter>,
+ *   enteredAt: Map<Waiter, number> }} GateTick
+ * @typedef {{ everCapped: Set<Waiter>, enteredAt: Map<Waiter, number> }} CapState
+ * @typedef {GateTick & { climbStamped: Set<Waiter> }} Tick
+ */
+
+/**
+ * @param {number} t
+ * @param {{ runs: WeighedRun[], waiters: Waiter[], admitting: Waiter[],
+ *   mem: Logs["mem"], windows: Logs["windows"], eraOf: (t: number) => string,
+ *   cap: CapState }} s
+ * @param {Window} w
+ * @param {Set<Waiter>} stamped
+ * @returns {Tick}
+ */
+function tickAt(t, s, w, stamped) {
+	const live = s.runs.filter((r) => r.st <= t && t < r.en);
+	const waiting = s.waiters.filter((e) => e.st <= t && t < e.en);
+	/** @type {GateTick} */
+	const tick = {
+		t,
+		whole: live.filter((r) => r.whole),
+		busy: live.reduce((n, r) => n + r.workers, 0),
+		mem: s.mem.get(Math.floor(t / 60_000)),
+		win: s.windows.get(Math.floor(t / 60_000)),
+		waiting,
+		admitting: s.admitting,
+		era: s.eraOf(t),
+		capped:
+			t >= (w.capFrom ?? SESSION_CAP_FROM)
+				? cappedAt(t, waiting, s.waiters, s.cap)
+				: new Set(),
+		enteredAt: s.cap.enteredAt,
+	};
+	return { ...tick, climbStamped: climbStampsAt(tick, w, stamped) };
+}
+
+/** @param {Waiter} e */
+const queueOf = (e) => (e.kind === "tsc" ? "tsc" : "suite");
+
+/**
+ * @param {number} t
+ * @param {Waiter[]} waiting
+ * @param {Waiter[]} waiters
+ * @param {CapState} cap
+ * @returns {Set<Waiter>}
+ */
+function cappedAt(t, waiting, waiters, { everCapped, enteredAt }) {
+	const holding = placesRunning(t, waiters);
+	/** @type {Set<Waiter>} */
+	const capped = new Set();
+	for (const [key, group] of groupBy(
+		waiting.filter((e) => e.session),
+		capKeyOf,
+	)) {
+		const { entered, over } = splitPlaces(
+			holding.get(key) ?? 0,
+			group,
+			(e) => e.st,
+		);
+		for (const e of over) {
+			capped.add(e);
+			everCapped.add(e);
+		}
+		for (const e of entered)
+			if (everCapped.has(e) && !enteredAt.has(e)) enteredAt.set(e, t);
+	}
+	return capped;
+}
+
+/** @param {Waiter} e */
+const capKeyOf = (e) => `${queueOf(e)}\0${e.session}`;
+
+/**
+ * @param {number} t
+ * @param {Waiter[]} waiters
+ * @returns {Map<string, number>}
+ */
+function placesRunning(t, waiters) {
+	/** @type {Map<string, number>} */
+	const holding = new Map();
+	for (const e of waiters)
+		if (e.session && e.run && e.run.st <= t && t < e.run.en)
+			add(holding, capKeyOf(e), 1);
+	return holding;
+}
+
+/**
+ * @template T
+ * @param {T[]} items
+ * @param {(item: T) => string} keyOf
+ * @returns {Map<string, T[]>}
+ */
+function groupBy(items, keyOf) {
+	/** @type {Map<string, T[]>} */
+	const groups = new Map();
+	for (const item of items) {
+		const key = keyOf(item);
+		groups.set(key, [...(groups.get(key) ?? []), item]);
+	}
+	return groups;
+}
+
+/**
+ * @param {Waiter} e
+ * @param {GateTick} tick
+ */
+const queueTimeOf = (e, tick) => tick.enteredAt.get(e) ?? e.st;
+
+/**
+ * @param {GateTick} tick
+ * @param {Window} w
+ * @param {Set<Waiter>} stamped
+ * @returns {Set<Waiter>}
+ */
+function climbStampsAt(tick, w, stamped) {
+	/** @param {Waiter} e */
+	const limbOf = (e) => {
+		if (isMemoryHeld(e, tick, w)) return "memory";
+		return isWindowsHeld(e, tick) ? "windows" : undefined;
+	};
+	const isCharged = (/** @type {Waiter} */ e) =>
+		e.kind === "tsc" ? tick.busy > 0 : (tick.mem?.tsc ?? 0) > 0;
+	const isKept = (/** @type {Waiter} */ e) =>
+		tick.t >= CLIMB_KEEP_FROM &&
+		stamped.has(e) &&
+		isClimbKept(limbOf(e), isCharged(e));
+	return new Set(
+		tick.waiting.filter(
+			(e) =>
+				!tick.capped.has(e) &&
+				!isCountHeld(e, tick) &&
+				(isClimbHeld(e, tick, w) || isKept(e)),
+		),
+	);
+}
+
+function buildTallies() {
+	/** @type {() => Map<string, number>} */
+	const flat = () => new Map();
+	/** @type {() => Map<string, Map<string, number>>} */
+	const nested = () => new Map();
+	return {
+		limb: flat(),
+		limbClass: flat(),
+		limbAlso: flat(),
+		limbSession: nested(),
+		limbEra: nested(),
+		holder: flat(),
+		holderSession: flat(),
+		slotBusy: 0,
+		landerSlot: 0,
+		/** @type {Set<number>} */
+		memMinutes: new Set(),
+		boundCostS: 0,
+		/** @type {Map<Waiter, number>} */
+		rungHeldPastS: new Map(),
+	};
+}
+
+/**
+ * @param {Tick} tick
+ * @param {Window} w
+ * @param {ReturnType<typeof buildTallies>} acc
+ */
+function tallyTick(tick, w, acc) {
+	if (tick.whole.length >= WHOLE_SUITE_MAX) acc.slotBusy += TICK_S;
+	if (tick.whole.some((r) => r.kind === "lander")) acc.landerSlot += TICK_S;
+	if (tick.mem) acc.memMinutes.add(Math.floor(tick.t / 60_000));
+	for (const e of tick.waiting) {
+		const [first = "open", ...also] = limbsOf(e, tick, w);
+		for (const a of also) add(acc.limbAlso, `${first} / ${a}`, TICK_S);
+		add(acc.limb, first, TICK_S);
+		if (isBoundHold(e, first, tick, w)) acc.boundCostS += TICK_S;
+		tallyRungHeld(e, tick, w, acc.rungHeldPastS);
+		add(acc.limbClass, `${first} / ${e.cls}`, TICK_S);
+		addNested(acc.limbSession, waitOwner(e), first);
+		addNested(acc.limbEra, tick.era, first);
+		if (first === "count") shareSlot(tick.whole, acc.holder, acc.holderSession);
+	}
+}
+
+/**
+ * @param {Waiter} e
+ * @param {string} first
+ * @param {Tick} tick
+ * @param {Window} w
+ */
+const isBoundHold = (e, first, tick, w) =>
+	BOUND_LIMBS.has(first) &&
+	!BOUND_LIMBS.has(limbsOf(e, tick, w, { liftBound: true })[0] ?? "open");
+
+/**
+ * @param {Waiter} e
+ * @param {Tick} tick
+ * @param {Window} w
+ * @param {Map<Waiter, number>} pastS
+ */
+function tallyRungHeld(e, tick, w, pastS) {
+	if (e.whole || e.kind === "tsc" || !isRungHeld(e, tick, w)) return;
+	const pastBound = tick.t - queueTimeOf(e, tick) >= PART_PASS_AGE_MS;
+	add(pastS, e, pastBound ? TICK_S : 0);
+}
+
+/**
+ * @param {Waiter} e
+ * @param {GateTick} tick
+ */
+const isCountHeld = (e, tick) =>
+	e.kind === "tsc"
+		? (tick.mem?.tsc ?? 0) >= TSC_MAX
+		: e.whole && tick.whole.length >= WHOLE_SUITE_MAX;
+
+/**
+ * @param {Waiter} e
+ * @param {GateTick} tick
+ * @param {Window} w
+ */
+function isMemoryHeld(e, tick, w) {
+	return (
+		tick.mem !== undefined && w.memTotalMb - tick.mem.used < rungOf(e, tick, w)
+	);
+}
+
+/**
+ * @param {Waiter} e
+ * @param {GateTick} tick
+ * @param {Window} w
+ */
+function rungOf(e, tick, w) {
+	if (e.kind === "tsc") return rungMb(tscChargeOf(e));
+	if (tick.t >= PART_PEAK_FROM && e.admission?.mode === "peak")
+		return e.admission.rungMb;
+	const rung = suiteRungMb(tick.busy + e.workers);
+	return tick.t >= RUNG_CLAMP_FROM
+		? reachableRung(rung, w.memTotalMb).rungMb
+		: rung;
+}
+
+/** @param {Waiter} e */
+const tscChargeOf = (e) => e.chargeMb ?? chargeMb({ kind: "tsc", major: 5 });
+
+/**
+ * @param {Waiter} e
+ * @param {GateTick} tick
+ * @param {Window} w
+ */
+function isClimbHeld(e, tick, w) {
+	if (!e.climbMb || tick.mem === undefined) return false;
+	const available = w.memTotalMb - tick.mem.used;
+	const rung = rungOf(e, tick, w);
+	return available >= rung && available - e.climbMb < rung;
+}
+
+/** @type {WeakMap<Waiter, number>} */
+const windowsSpell = new WeakMap();
+
+/**
+ * @param {Waiter} e
+ * @param {GateTick} tick
+ */
+function isWindowsHeld(e, tick) {
+	if (tick.win === undefined || tick.t < WINDOWS_HOLD_FROM) return false;
+	if (tick.t >= WINDOWS_FLOOR_FROM) {
+		if (windowsShortfall(tick.win) === null) {
+			windowsSpell.delete(e);
+			return false;
+		}
+		const since = windowsSpell.get(e) ?? tick.t;
+		windowsSpell.set(e, since);
+		return tick.t - since < WINDOWS_MAX_HOLD_MS;
+	}
+	const drawMb =
+		e.kind === "tsc"
+			? tscChargeOf(e)
+			: suiteRungMb(tick.busy + e.workers) - suiteRungMb(tick.busy);
+	return tick.win.mb < drawMb + DRAW_MARGIN_MB;
+}
+
+/**
+ * @param {Waiter} e
+ * @param {Tick} tick
+ * @param {Window} w
+ */
+const isRungHeld = (e, tick, w) =>
+	isMemoryHeld(e, tick, w) || isClimbHeld(e, tick, w);
+
+/**
+ * @param {Waiter} e
+ * @param {Tick} tick
+ * @param {Window} w
+ * @param {{ liftBound?: boolean }} [opts]
+ */
+function turnReasonsOf(e, tick, w, { liftBound = false } = {}) {
+	const tsc = e.kind === "tsc";
+	// workflow-core#3163
+	const ahead = tick.waiting
+		.filter(
+			(o) =>
+				o !== e &&
+				!tick.capped.has(o) &&
+				queueTimeOf(o, tick) < queueTimeOf(e, tick) &&
+				(o.kind === "tsc") === tsc,
+		)
+		.map((o) => ({
+			at: queueTimeOf(o, tick),
+			part: !tsc && !o.whole,
+			kind: laneOf(o),
+			spawned: false,
+			memoryHeld: isRungHeld(o, tick, w),
+			restHeld:
+				tick.t >= REST_PASS_FROM &&
+				tick.busy === 0 &&
+				!o.climbMb &&
+				isMemoryHeld(o, tick, w),
+			windowsHeld:
+				tick.t >= WINDOWS_PASS_FROM &&
+				!isRungHeld(o, tick, w) &&
+				isWindowsHeld(o, tick),
+		}));
+	/** @type {import("./suite-queue.js").TurnWaiter} */
+	const waiter = tsc ? "tsc" : waiterOf({ part: !e.whole, kind: laneOf(e) });
+	const peerClimbHeld =
+		tick.t >= PEER_CLIMB_FROM &&
+		tick.waiting.some(
+			(o) =>
+				queueTimeOf(o, tick) < queueTimeOf(e, tick) &&
+				(o.kind === "tsc") !== tsc &&
+				tick.climbStamped.has(o),
+		);
+	const admissionOpen = tick.admitting.some(
+		(o) => o.pid !== e.pid && o.en <= tick.t && tick.t < o.en + o.gap * 1000,
+	);
+	return turnOf(
+		{
+			waiter,
+			ahead,
+			admissionOpen,
+			peerClimbHeld,
+			slots: WHOLE_SUITE_MAX,
+			now: liftBound ? Number.NEGATIVE_INFINITY : tick.t,
+		},
+		{
+			partPass: tick.t >= PART_PASS_FROM,
+			namedLane: tick.t >= PART_PEAK_FROM,
+		},
+	).reasons;
+}
+
+/**
+ * @param {Waiter} e
+ * @returns {import("./suite-queue.js").PartKind}
+ */
+const laneOf = (e) => e.lane ?? partLaneOf(partKindOf(e.kind));
+
+/**
+ * @param {Waiter} e
+ * @param {Tick} tick
+ * @param {Window} w
+ * @param {{ liftBound?: boolean }} [opts]
+ */
+function limbsOf(e, tick, w, opts) {
+	if (tick.capped.has(e)) return ["session-cap"];
+	const memory = isMemoryHeld(e, tick, w);
+	const climb = isClimbHeld(e, tick, w);
+	const windows = isWindowsHeld(e, tick);
+	/** @type {Record<string, boolean>} */
+	const held =
+		e.kind === "tsc"
+			? {
+					"tsc-count": isCountHeld(e, tick),
+					"tsc-memory": memory,
+					climb,
+					windows,
+				}
+			: {
+					count: isCountHeld(e, tick),
+					memory,
+					climb,
+					windows,
+					load:
+						w.loadCeiling !== null && (tick.mem?.load ?? 0) >= w.loadCeiling,
+				};
+	for (const reason of turnReasonsOf(e, tick, w, opts)) held[reason] = true;
+	const limbs = LIMBS.filter((l) => held[l]);
+	return limbs.length > 0 ? limbs : ["open"];
+}
+
+/**
+ * @param {WeighedRun[]} whole
+ * @param {Map<string, number>} holder
+ * @param {Map<string, number>} holderSession
+ */
+function shareSlot(whole, holder, holderSession) {
+	for (const r of whole) {
+		add(holder, holderOf(r), TICK_S / whole.length);
+		const session = r.kind === "lander" ? "lander" : r.session;
+		add(holderSession, session ?? "(no session)", TICK_S / whole.length);
+	}
+}
+
+/** @param {Window} w */
+function erasOf(w) {
+	const eras = [...w.eras].sort((a, b) => a.from - b.from);
+	if ((eras[0]?.from ?? w.since) > w.since)
+		eras.unshift({ label: "window start", from: w.since });
+	return eras;
+}
+
+/**
+ * @param {Waiter[]} waiters
+ * @param {Window} w
+ * @param {Map<string, Map<string, number>>} limbSession
+ */
+function sessionSums(waiters, w, limbSession) {
+	/** @type {Map<string, { iv: [number, number][], joined: number, joinedS: number }>} */
+	const spans = new Map();
+	for (const e of waiters) {
+		const span = spanIn(e, w);
+		if (!span) continue;
+		const s = waitOwner(e);
+		const got = spans.get(s) ?? { iv: [], joined: 0, joinedS: 0 };
+		got.iv.push(span);
+		if (e.joined) {
+			got.joined++;
+			got.joinedS += (span[1] - span[0]) / 1000;
+		}
+		spans.set(s, got);
+	}
+	return [...spans].map(([session, { iv, joined, joinedS }]) => {
+		const sum = iv.reduce((s, [a, b]) => s + b - a, 0) / 1000;
+		const limbs = limbSession.get(session) ?? new Map();
+		return {
+			session,
+			waits: iv.length,
+			sum,
+			union: unionS(iv),
+			joined,
+			joinedS,
+			limbs,
+		};
+	});
+}
+
+/**
+ * @param {Waiter[]} waiters
+ * @param {Window} w
+ */
+function peakOf(waiters, w) {
+	/** @type {[number, number][]} */
+	const edges = [];
+	for (const e of waiters) {
+		const span = spanIn(e, w);
+		if (span) edges.push([span[0], 1], [span[1], -1]);
+	}
+	edges.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+	let level = 0;
+	let peak = { n: 0, at: w.since };
+	for (const [t, d] of edges) {
+		level += d;
+		if (level > peak.n) peak = { n: level, at: t };
+	}
+	return peak;
+}
+
+/**
+ * @param {Logs} logs
+ * @param {Pick<Window, "since" | "until">} w
+ */
+function waitersOf(logs, w) {
+	const touching = logs.exits.filter((e) => {
+		const en = Date.parse(e.at);
+		return en <= w.until && en >= w.since && en - e.waitS * 1000 < w.until;
+	});
+	const runs = logs.runs.map((r) => {
+		const whole = isWhole(r);
+		return { ...r, whole, workers: workersOf(r, whole) };
+	});
+	const queued = touching.filter((e) => e.skipped !== true);
+	const waiters = toWaiters(
+		queued.filter((e) => !e.joined),
+		runs,
+	);
+	const joined = toWaiters(
+		queued.filter((e) => e.joined),
+		[],
+	);
+	return { touching, runs, waiters, joined };
+}
+
+/**
+ * @param {Logs} logs
+ * @param {Pick<Window, "since" | "until">} w
+ * @returns {{ st: number, en: number }[]}
+ */
+const waitSpans = (logs, w) => {
+	const { waiters, joined } = waitersOf(logs, w);
+	return [...waiters, ...joined].map((e) => ({ st: e.st, en: e.en }));
+};
+
+/**
+ * @param {Logs} logs
+ * @param {Window} w
+ */
+function replay(logs, w) {
+	const { touching, runs, waiters, joined } = waitersOf(logs, w);
+	const all = [...waiters, ...joined];
+	const inWindow = (/** @type {Waiter} */ e) =>
+		clip(e.st, e.en, w.since, w.until);
+	const admitting = waiters.filter((e) => e.gap > 0);
+	const eras = erasOf(w);
+	const eraOf = (/** @type {number} */ t) =>
+		eras.findLast((e) => t >= e.from)?.label ?? "";
+
+	const acc = buildTallies();
+	const state = {
+		runs,
+		waiters,
+		admitting,
+		mem: logs.mem,
+		windows: logs.windows,
+		eraOf,
+		cap: { everCapped: new Set(), enteredAt: new Map() },
+	};
+	/** @type {Set<Waiter>} */
+	let stamped = new Set();
+	for (let t = w.since; t < w.until; t += TICK_S * 1000) {
+		const tick = tickAt(t, state, w, stamped);
+		stamped = tick.climbStamped;
+		tallyTick(tick, w, acc);
+	}
+	const eraWait = eras.map((era, i) => {
+		const to = eras[i + 1]?.from ?? w.until;
+		const from = Math.max(era.from, w.since);
+		return {
+			label: era.label,
+			spanS: (to - from) / 1000,
+			waitS: all.reduce((s, e) => s + clip(e.st, e.en, from, to), 0),
+		};
+	});
+	const sessions = sessionSums(all, w, acc.limbSession);
+	const matchable = waiters.filter(isMatchable);
+	const counts = waiters.flatMap((e) =>
+		e.passed === undefined ? [] : [e.passed],
+	);
+	const passing = counts.filter((n) => n > 0);
+	return {
+		peers: recordedHolds(waiters, "peerS", "peer"),
+		capHolds: recordedHolds(waiters, "sessionCapS", "session-cap"),
+		exits: touching.length,
+		skipped: touching.length - all.length,
+		queued: all.length,
+		waitS: all.reduce((s, e) => s + inWindow(e), 0),
+		joined: {
+			waits: joined.length,
+			waitS: joined.reduce((s, e) => s + inWindow(e), 0),
+		},
+		matched: waiters.filter((e) => e.run).length,
+		matchable: matchable.length,
+		passes: {
+			counted: counts.length,
+			passing: passing.length,
+			passed: passing.reduce((s, n) => s + n, 0),
+		},
+		limb: acc.limb,
+		limbClass: acc.limbClass,
+		limbAlso: acc.limbAlso,
+		limbEra: acc.limbEra,
+		eraWait,
+		slotBusy: acc.slotBusy,
+		landerSlot: acc.landerSlot,
+		holder: acc.holder,
+		holderSession: acc.holderSession,
+		sessions,
+		sessionWallS: sessions.reduce((s, x) => s + x.union, 0),
+		peak: peakOf(all, w),
+		gaps: waiters
+			.filter((e) => e.run)
+			.map((e) => e.gap)
+			.sort((a, b) => a - b),
+		boundCostS: acc.boundCostS,
+		...rungHeldOf(acc.rungHeldPastS),
+		unread: logs.unread,
+		memMinutes: acc.memMinutes.size,
+		minutes: Math.ceil((w.until - w.since) / 60_000),
+	};
+}
+
+/** @param {Map<Waiter, number>} pastS */
+function rungHeldOf(pastS) {
+	const opened = [...pastS].filter(
+		([e]) => e.reason === "opened" && e.waitS > 0,
+	);
+	return {
+		rungHeldPart: opened.length,
+		pastBoundS: opened
+			.map(([, s]) => s)
+			.filter((s) => s > 0)
+			.sort((a, b) => a - b),
+	};
+}
+
+/**
+ * @param {Waiter[]} waiters
+ * @param {"peerS" | "sessionCapS"} field
+ * @param {import("./queue-exit-log.js").HeldLimb} limb
+ */
+function recordedHolds(waiters, field, limb) {
+	/** @param {Waiter[]} ws */
+	const sum = (ws) => ({
+		held: ws.filter((e) => (e[field] ?? 0) > 0).length,
+		heldS: ws.reduce((n, e) => n + (e[field] ?? 0), 0),
+		atBound: ws.filter((e) => e.limb === limb).length,
+	});
+	return {
+		tsc: sum(waiters.filter((e) => e.kind === "tsc")),
+		suite: sum(waiters.filter((e) => e.kind !== "tsc")),
+	};
+}
+
+/** @param {number} s */
+const hours = (s) => (s / 3600).toFixed(2);
+
+/**
+ * @param {number[]} sorted
+ * @param {number} p
+ */
+const quantileOf = (sorted, p) =>
+	sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? 0;
+
+/**
+ * @param {number} part
+ * @param {number} whole
+ */
+const percentOf = (part, whole) =>
+	`${whole > 0 ? ((100 * part) / whole).toFixed(1) : "0.0"}%`;
+
+/** @param {Map<string, number>} m */
+const byValue = (m) => [...m].sort((a, b) => b[1] - a[1]);
+
+/**
+ * @param {ReturnType<typeof replay>} r
+ * @param {Window} w
+ */
+function render(r, w) {
+	const total = [...r.limb.values()].reduce((s, v) => s + v, 0);
+	const past = r.pastBoundS;
+	const lines = [
+		`# Suite queue wait replay, ${new Date(w.since).toISOString()} to ${new Date(w.until).toISOString()}`,
+		"",
+		`${r.queued} queued waits (${r.exits} exits less ${r.skipped} skipped), ${hours(r.waitS)} h inside the window summed per wait; ${hours(r.sessionWallS)} h as each launching session's wall-clock wait, its overlapping waits counted once, the figure the queue-wait alarm compares to its limit (workflow-core#5740). ${r.matched} of ${r.matchable} opened or timed-out suite waits matched to their run. At most ${r.peak.n} waited at once, at ${new Date(r.peak.at).toISOString()}. ${r.joined.waits} of the waits joined a queued same-key \`tsc\` run rather than queue their own, ${hours(r.joined.waitS)} h; no limb, run count or match counts them (workflow-core#5639).`,
+		"",
+		"## Limb",
+		"",
+		"| Limb | Hours |",
+		"| --- | --- |",
+		...LIMBS.filter((l) => r.limb.has(l)).map(
+			(l) => `| ${l} | ${hours(r.limb.get(l) ?? 0)} |`,
+		),
+		`| total | ${hours(total)} |`,
+		"",
+		"By waiter class (`?`: no run matched, classed by kind):",
+		"",
+		...byValue(r.limbClass).map(([k, v]) => `- ${k}: ${hours(v)} h`),
+		"",
+		"Held by a later limb as well, which clearing the first would leave binding (first / also):",
+		"",
+		...byValue(r.limbAlso).map(([k, v]) => `- ${k}: ${hours(v)} h`),
+		"",
+		r.passes.counted > 0
+			? `Recorded passes: ${r.passes.passing} of the ${r.passes.counted} waits whose exit line counts its passes opened their turn past ${r.passes.passed} older part waiter(s) the memory rung held (workflow-core#3115).`
+			: "Recorded passes: no exit line in the window counts its passes; the fifo-part limb above is the replay's model alone.",
+		"",
+		.../** @type {const} */ (["tsc", "suite"]).map((k) => {
+			const p = r.peers[k];
+			return `Recorded peer holds, ${k} waits: ${p.held} held on an older waiter in the other queue the climb charge holds, ${hours(p.heldS)} h, ${p.atBound} still held at the queue's wait bound (workflow-core#4765).`;
+		}),
+		.../** @type {const} */ (["tsc", "suite"]).map((k) => {
+			const p = r.capHolds[k];
+			return `Recorded session-cap holds, ${k} waits: ${p.held} held behind their own session's ${SESSION_PLACES} places, ${hours(p.heldS)} h, ${p.atBound} refused at the queue's wait bound (workflow-core#5595).`;
+		}),
+		"",
+		`The part-pass bound's cost (workflow-core#5679): with PART_PASS_AGE_MS lifted, ${hours(r.boundCostS)} h of fifo-part and touched-claim time goes, ${percentOf(r.boundCostS, r.waitS)} of the window's ${hours(r.waitS)} h summed wait. Labels only, so an upper limit.`,
+		`What the bound protects: ${past.length} of the ${r.rungHeldPart} opened part waits the rung (memory or climb) held were still rung-held at PART_PASS_AGE_MS (${PART_PASS_AGE_MS / 1000} s) of age, ${percentOf(past.length, r.rungHeldPart)}; their rung-held time past it p50 ${quantileOf(past, 0.5)} s, p90 ${quantileOf(past, 0.9)} s.`,
+		"",
+		"## Whole slot",
+		"",
+		`Busy ${hours(r.slotBusy)} h of the window; a lander whole run held it ${hours(r.landerSlot)} h. Who held it while the count limb held a waiter, each tick shared between the whole runs on it:`,
+		"",
+		"| Holder | Count-hold share (h) |",
+		"| --- | --- |",
+		...byValue(r.holder).map(([k, v]) => `| ${k} | ${hours(v)} |`),
+		"",
+		"By launching session:",
+		"",
+		...byValue(r.holderSession)
+			.slice(0, TOP)
+			.map(([k, v]) => `- \`${k}\`: ${hours(v)} h`),
+	];
+	if (r.eraWait.length > 0)
+		lines.push(
+			"",
+			"## Era",
+			"",
+			`| Era | Span (h) | Wait (h) | ${LIMBS.join(" | ")} |`,
+			`| --- | --- | --- | ${LIMBS.map(() => "---").join(" | ")} |`,
+			...r.eraWait.map((e) => {
+				const m = r.limbEra.get(e.label) ?? new Map();
+				return `| ${e.label} | ${hours(e.spanS)} | ${hours(e.waitS)} | ${LIMBS.map((l) => (m.has(l) ? hours(m.get(l) ?? 0) : "—")).join(" | ")} |`;
+			}),
+		);
+	const bySum = [...r.sessions].sort((a, b) => b.sum - a.sum).slice(0, TOP);
+	const sum = r.sessions.reduce((s, x) => s + x.sum, 0);
+	const union = r.sessions.reduce((s, x) => s + x.union, 0);
+	lines.push(
+		"",
+		"## Sessions",
+		"",
+		`Summed ${hours(sum)} h, union ${hours(union)} h: ${hours(sum - union)} h is one session's waits running side by side.`,
+		"",
+		"| Session | Waits | Sum (h) | Union (h) | Joined | Joined (h) | Limbs (h) |",
+		"| --- | --- | --- | --- | --- | --- | --- |",
+		...bySum.map(
+			(s) =>
+				`| \`${s.session}\` | ${s.waits} | ${hours(s.sum)} | ${hours(s.union)} | ${s.joined} | ${hours(s.joinedS)} | ${byValue(
+					s.limbs,
+				)
+					.map(([k, v]) => `${k} ${hours(v)}`)
+					.join(", ")} |`,
+		),
+		"",
+		`Exit to spawn, ${r.gaps.length} matched waits: median ${quantileOf(r.gaps, 0.5).toFixed(1)} s, p90 ${quantileOf(r.gaps, 0.9).toFixed(1)} s, max ${(r.gaps.at(-1) ?? 0).toFixed(1)} s.`,
+		"",
+		"## Limits",
+		"",
+		`- The memory limb is a lower bound: memwatch wrote a block in ${r.memMinutes} of the window's ${r.minutes} minutes, only above its used-memory or CPU threshold (${docPath("environment.md")} §4), and a minute with none counts as memory open.`,
+		"- The climb limb tries each tick against the highest charge the wait's exit line recorded, so it can overstate a wait whose charge fell. A minute with no memwatch block counts as climb open.",
+		`- The session-cap limb holds a session's waiters past its first ${SESSION_PLACES} in a queue, less its matched runs still running there, from ${new Date(w.capFrom ?? SESSION_CAP_FROM).toISOString()}; it moves no wait in time, so a waiter it lets ahead still ends when it did, and the waits it held still started when they did. A \`tsc\` run, or a suite run matched to no wait, holds no place, so the limb is a lower bound.`,
+		"- The peer-climb limb reads the `climbHeld` stamp off the climb limb, and keeps it while a launch of the other queue runs (from workflow-core#4799's commit); it inherits the climb limb's overstatement.",
+		"- The windows limb is a lower bound too: it charges a waiter no climb, and a minute with no fresh Windows reading in memwatch's minute log counts as open.",
+		"- The tsc-count limb is a lower bound too: it reads a `tsc` off memwatch's process lines, which list the top few by RSS and by CPU and cut each command short: a 7.0 `tsc` listed by CPU alone, cut at its `node_modules/`, reads as no `tsc`.",
+		"- tsc-count reads a `tsc` as lib/tsc-slot.js does since 27 Oct 2026 15:26 UTC (workflow-core#3276); before then the gate also counted a queued `--tsc` waiter, so a wait it held then reads here as open or tsc-fifo.",
+		"- A `tsc` admission is matched to no run, so it holds no `admitted` limb, neither a younger `tsc` waiter's nor a suite waiter's (workflow-core#3203).",
+		"- The lander's own queue wait is not in the exits log; its runs count here only as slot holders and busy workers.",
+		...(r.unread.absent.length > 0
+			? [
+					`- Not found, so read as empty: ${r.unread.absent.map((f) => `\`${f}\``).join(", ")}.`,
+				]
+			: []),
+		...(r.unread.unparsed > 0
+			? [
+					`- ${r.unread.unparsed} log line(s) would not parse and are not counted.`,
+				]
+			: []),
+		...(r.unread.zeroed > 0
+			? [
+					`- ${r.unread.zeroed} log record(s) zeroed by a crash are not counted.`,
+				]
+			: []),
+		`- Each run is charged its workers, not its memory; MemTotal is taken as ${w.memTotalMb} MB.`,
+	);
+	return lines.join("\n");
+}
+
+module.exports = { readLogs, replay, render, waitSpans };

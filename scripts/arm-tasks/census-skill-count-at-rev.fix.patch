@@ -1,0 +1,257 @@
+diff --git a/scripts/check-instruction-surface.js b/scripts/check-instruction-surface.js
+index 2b05ff109f7bc6e9c63bcbcbe6c154ca8232ca9c..afff5827e0c83e3d89270ea0734af7ed543da2e4 100644
+--- a/scripts/check-instruction-surface.js
++++ b/scripts/check-instruction-surface.js
+@@ -13,6 +13,8 @@ const {
+ } = require("./lib/census-digest");
+ const { brokenError, runCheck, errMessage } = require("./lib/check");
+ const { readCommitOrBroken } = require("./lib/commit-sha.js");
++const { readObjectBatch, listTree } = require("./lib/git-objects");
++const { GIT_MODE } = require("./lib/git-mode.js");
+ const { claimDataFile } = require("./lib/doc-map-generator");
+ const {
+ 	readOwnHookSources,
+@@ -38,7 +40,7 @@ const DEFAULT_THRESHOLD_PCT = 10;
+ /** @type {Record<string, (root: string, rev: string | undefined) => object>} */
+ const COUNTERS = {
+ 	hooks: (root, rev) => hookCountsPlain(root, rev),
+-	skills: (root) => skillCounts(root),
++	skills: (root, rev) => skillCounts(root, rev),
+ };
+ 
+ const REQUIRED_SECTIONS = [
+@@ -169,9 +171,65 @@ function buildHookKey(event, hook, line) {
+ 
+ /**
+  * @param {string} root
++ * @param {string} [rev]
+  * @returns {SkillCounts}
+  */
+-function skillCounts(root) {
++function skillCounts(root, rev = "HEAD") {
++	let listing;
++	try {
++		listing = listTree(rev, [".claude/skills/"], {
++			cwd: root,
++			recursive: false,
++		});
++	} catch (e) {
++		if (!isGitRepo(root)) return diskSkillCounts(root);
++		throw e;
++	}
++	const listed = listing
++		.filter((e) => e.mode === GIT_MODE.tree || e.mode === GIT_MODE.symlink)
++		.map((e) => ({ link: e.mode === GIT_MODE.symlink, rel: e.path }));
++	const texts = followedTexts(
++		root,
++		rev,
++		listed.map(({ rel }) => `${rel}/SKILL.md`),
++	);
++	return tallySkills(
++		listed.map(({ link }, i) => ({ link, text: texts[i] ?? null })),
++	);
++}
++
++/**
++ * @param {string} root
++ * @param {string} rev
++ * @param {string[]} rels
++ * @returns {(string | null)[]}
++ */
++function followedTexts(root, rev, rels) {
++	const objects = readObjectBatch(
++		rels.map((rel) => `${rev}:./${rel}`),
++		`${rev}'s SKILL.md files`,
++		{ cwd: root, followSymlinks: true },
++	);
++	return rels.map((rel, i) => {
++		const object = objects[i];
++		if (object?.type === "blob") return object.body.toString("utf8");
++		if (object?.type === "symlink") return readIfPresent(path.join(root, rel));
++		return null;
++	});
++}
++
++/** @param {string} root */
++function isGitRepo(root) {
++	const r = gitOutcome(["-C", root, "rev-parse", "--git-dir"], [128]);
++	if (!r.ok) throw brokenError(`git rev-parse --git-dir failed: ${r.why}`);
++	return r.out !== "";
++}
++
++/**
++ * @param {string} root
++ * @returns {SkillCounts}
++ */
++function diskSkillCounts(root) {
+ 	const dir = path.join(root, ".claude", "skills");
+ 	let names;
+ 	try {
+@@ -193,15 +251,6 @@ function skillCounts(root) {
+ 	return tallySkills(entries);
+ }
+ 
+-/**
+- * @param {string} root
+- */
+-function isGitRepo(root) {
+-	const r = gitOutcome(["-C", root, "rev-parse", "--git-dir"], [128]);
+-	if (!r.ok) throw brokenError(`git rev-parse --git-dir failed: ${r.why}`);
+-	return r.out !== "";
+-}
+-
+ /**
+  * @param {SkillEntry[]} entries
+  * @returns {SkillCounts}
+diff --git a/scripts/check-instruction-surface.test.ts b/scripts/check-instruction-surface.test.ts
+index adc72b8fce2d175c05565dc9df23ac5dfef13303..0093c729f2c4be763093ea6db9176e5ca54114e1 100644
+--- a/scripts/check-instruction-surface.test.ts
++++ b/scripts/check-instruction-surface.test.ts
+@@ -1457,6 +1457,147 @@ describe("reading git rather than the working tree", () => {
+ 		expect(r.out).toMatch(/no \.claude\/settings\.json at HEAD/);
+ 	});
+ 
++	it("ignores an uncommitted skill directory, in the check and a re-anchor (#1977)", () => {
++		writeBaseline();
++		skill("gamma");
++		expect(run().out).not.toMatch(/SKILL-COUNT/);
++		run("--rebaseline", "--no-claim", "--only", "skills");
++		git("add", "-A");
++		git("commit", "-q", "-m", "skill");
++		expect(run().out).toMatch(/SKILL-COUNT/);
++	});
++
++	it("--at counts the skill directories at the tree named, not the working tree (#1977)", () => {
++		const measuredAt = git("rev-parse", "HEAD").trim();
++		writeBaseline();
++		skill("gamma");
++		git("add", "-A");
++		git("commit", "-q", "-m", "skill");
++		const r = run(
++			"--rebaseline",
++			"--no-claim",
++			"--only",
++			"skills",
++			"--at",
++			measuredAt,
++		);
++		expect(r.status).toBe(0);
++		expect(run().out).toMatch(/SKILL-COUNT/);
++	});
++
++	it("counts no committed directory that holds no SKILL.md (#1977)", () => {
++		writeBaseline();
++		write(".claude/skills/gamma/notes.md", "not a skill\n");
++		git("add", "-A");
++		git("commit", "-q", "-m", "stray dir");
++		expect(run().out).not.toMatch(/SKILL-COUNT/);
++	});
++
++	it("counts at a root below the repository's top (#1977)", () => {
++		writeBaseline();
++		const sub = path.join(dir, "sub");
++		fs.mkdirSync(sub);
++		for (const name of fs.readdirSync(dir))
++			if (name !== "sub" && name !== ".git")
++				fs.renameSync(path.join(dir, name), path.join(sub, name));
++		git("add", "-A");
++		git("commit", "-q", "-m", "move under sub");
++		const r = runInProcess(SCRIPT, ["--root", sub, "--json"], {
++			env: { ...process.env, GITHUB_ACTIONS: "" },
++		});
++		expect(JSON.parse(r.stdout).skills.live).toMatchObject({
++			own: 2,
++			disabled: 1,
++		});
++	});
++
++	const betaVendored = { distinct: 2, own: 1, vendored: 1, disabled: 1 };
++
++	it("follows a committed vendored link to its committed SKILL.md (#1977)", () => {
++		fs.mkdirSync(path.join(dir, ".agents/skills"), { recursive: true });
++		fs.renameSync(
++			path.join(dir, ".claude/skills/beta"),
++			path.join(dir, ".agents/skills/beta"),
++		);
++		fs.symlinkSync(
++			"../../.agents/skills/beta",
++			path.join(dir, ".claude/skills/beta"),
++		);
++		git("add", "-A");
++		git("commit", "-q", "-m", "vendor beta");
++		writeBaseline();
++		write(".agents/skills/beta/SKILL.md", "---\nname: beta\n---\n");
++		expect(run("--json").json().skills.live).toEqual(betaVendored);
++	});
++
++	it("reads a committed SKILL.md link from its committed target, as the disk route does (#2369)", () => {
++		fs.mkdirSync(path.join(dir, "shared"));
++		fs.renameSync(
++			path.join(dir, ".claude/skills/beta/SKILL.md"),
++			path.join(dir, "shared/beta.md"),
++		);
++		fs.symlinkSync(
++			"../../../shared/beta.md",
++			path.join(dir, ".claude/skills/beta/SKILL.md"),
++		);
++		git("add", "-A");
++		git("commit", "-q", "-m", "link beta's SKILL.md");
++		writeBaseline();
++		const counts = { distinct: 2, own: 2, vendored: 0, disabled: 1 };
++		expect(run("--json").json().skills.live).toEqual(counts);
++		fs.rmSync(path.join(dir, ".git"), { recursive: true });
++		expect(run("--json").json().skills.live).toEqual(counts);
++	});
++
++	it.each([
++		[
++			"a relative",
++			(outside: string) =>
++				path.relative(
++					path.join(dir, ".claude/skills"),
++					path.join(outside, "beta"),
++				),
++		],
++		["an absolute", (outside: string) => path.join(outside, "beta")],
++	])(
++		"reads %s vendored link leaving the repo from disk, as the disk route does (#2369)",
++		(_, target) => {
++			const outside = fs.mkdtempSync(path.join(os.tmpdir(), "instr-outside-"));
++			try {
++				fs.renameSync(
++					path.join(dir, ".claude/skills/beta"),
++					path.join(outside, "beta"),
++				);
++				fs.symlinkSync(target(outside), path.join(dir, ".claude/skills/beta"));
++				git("add", "-A");
++				git("commit", "-q", "-m", "vendor beta from outside");
++				writeBaseline();
++				expect(run("--json").json().skills.live).toEqual(betaVendored);
++				fs.rmSync(path.join(dir, ".git"), { recursive: true });
++				expect(run("--json").json().skills.live).toEqual(betaVendored);
++			} finally {
++				fs.rmSync(outside, { recursive: true, force: true });
++			}
++		},
++	);
++
++	it("follows a vendored link whose target is itself a link (#2369)", () => {
++		fs.mkdirSync(path.join(dir, ".agents/skills"), { recursive: true });
++		fs.renameSync(
++			path.join(dir, ".claude/skills/beta"),
++			path.join(dir, ".agents/skills/beta-v1"),
++		);
++		fs.symlinkSync("beta-v1", path.join(dir, ".agents/skills/beta"));
++		fs.symlinkSync(
++			"../../.agents/skills/beta",
++			path.join(dir, ".claude/skills/beta"),
++		);
++		git("add", "-A");
++		git("commit", "-q", "-m", "vendor beta through a second link");
++		writeBaseline();
++		expect(run("--json").json().skills.live).toEqual(betaVendored);
++	});
++
+ 	describe("--touched-by, the post-commit notice (#1810)", () => {
+ 		const commit = (msg: string) => {
+ 			git("add", "-A");

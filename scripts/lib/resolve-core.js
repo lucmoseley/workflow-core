@@ -1,0 +1,244 @@
+/*
+ * Usage:
+ *   const { resolveCore } = require("./resolve-core.js");
+ *   node scripts/lib/resolve-core.js scripts/run-vitest.js --changed
+ *
+ * Required, resolveCore() returns the workflow-core directory an adopter's
+ * checks, tests and husky hook shims run from. Run as a script, it runs that
+ * core script with the rest of its argv and exits as the script did. init and
+ * upgrade overwrite an adopter's copy.
+ *
+ * FROZEN: a change to its lookup, its export or its variable names is a major
+ * release with a migration note. It requires node builtins only.
+ *
+ * LOOKUP, first hit wins:
+ *   1. WORKFLOW_CORE_DIR — an explicit override.
+ *   2. WORKFLOW_CORE_CHECKOUT — where CI checked the core out, at the pin.
+ *   3. The installed plugin: the last `workflow-core@<marketplace>` row of
+ *      `<config>/plugins/installed_plugins.json` whose `projectPath` is the
+ *      adopter root as spelt, else, where the root is a checkout's top level,
+ *      that checkout's main checkout as git spells it, the marketplace read
+ *      from the pin in the root's `.claude/settings.json`. git is asked only
+ *      where the root as spelt has no row. `<config>` is CLAUDE_CONFIG_DIR,
+ *      else ~/.claude.
+ * A variable that is set but names no directory fails rather than falling
+ * through.
+ *
+ * An installed plugin whose version is not the pinned tag warns and still
+ * resolves; the two variables are never compared with the pin.
+ */
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+
+const PLUGIN = "workflow-core";
+const OVERRIDE = "WORKFLOW_CORE_DIR";
+const CHECKOUT = "WORKFLOW_CORE_CHECKOUT";
+const TAG_REF = /^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+
+/**
+ * workflow-core#1274, workflow-core#5504
+ * @param {string} at
+ * @returns {any}
+ */
+function readJson(at) {
+	if (!fs.existsSync(at) || !fs.statSync(at).isFile()) return null;
+	let text;
+	try {
+		text = fs.readFileSync(at, "utf8");
+	} catch (cause) {
+		throw new Error(`resolve-core: ${at} cannot be read`, { cause });
+	}
+	try {
+		return JSON.parse(text);
+	} catch (cause) {
+		throw new Error(`resolve-core: ${at} is not JSON`, { cause });
+	}
+}
+
+/** @param {string} dir */
+function isDir(dir) {
+	try {
+		return fs.statSync(dir).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * @param {{cwd?: string, env?: NodeJS.ProcessEnv}} [options]
+ * @returns {{main: string, top: string} | null}
+ */
+function readGitRoots({ cwd, env } = {}) {
+	const r = spawnSync(
+		"git",
+		[
+			"rev-parse",
+			"--path-format=absolute",
+			"--git-common-dir",
+			"--show-toplevel",
+		],
+		{ cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+	);
+	if (r.error)
+		throw new Error("resolve-core: git cannot be run", { cause: r.error });
+	/* workflow-core#4117 */
+	if (r.status !== 0) return null;
+	const out = r.stdout;
+	const [common, top] = out.trim().split("\n");
+	if (common === undefined || top === undefined)
+		throw new Error(`git rev-parse printed fewer than two lines: ${out}`);
+	return {
+		main: path.basename(common) === ".git" ? path.dirname(common) : top,
+		top,
+	};
+}
+
+function adopterRoot() {
+	return readGitRoots()?.main ?? process.cwd();
+}
+
+/**
+ * @param {string} root
+ * @returns {string}
+ */
+function readMainCheckout(root) {
+	const env = { ...process.env };
+	for (const name of ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"])
+		delete env[name];
+	const roots = readGitRoots({ cwd: root, env });
+	return roots && fs.realpathSync(roots.top) === fs.realpathSync(root)
+		? roots.main
+		: root;
+}
+
+/**
+ * @param {string} root
+ * @returns {{marketplace: string|null, ref: string|null}}
+ */
+function readPin(root) {
+	const settings = readJson(path.join(root, ".claude", "settings.json"));
+	const raw = settings?.extraKnownMarketplaces;
+	const known =
+		raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+	for (const key of Object.keys(settings?.enabledPlugins ?? {})) {
+		const [name, marketplace] = key.split("@");
+		if (name === PLUGIN && marketplace && Object.hasOwn(known, marketplace))
+			return { marketplace, ref: known[marketplace]?.source?.ref ?? null };
+	}
+	return { marketplace: null, ref: null };
+}
+
+/**
+ * workflow-core#4150, workflow-core#5504
+ * @param {unknown} entries
+ * @param {string} root
+ * @returns {{rows: any[], searched: string}}
+ */
+function readInstallRows(entries, root) {
+	/** @param {string} tree */
+	const rowsFor = (tree) =>
+		Array.isArray(entries)
+			? entries.filter((row) => row?.projectPath === tree)
+			: [];
+	const own = rowsFor(root);
+	if (own.length > 0) return { rows: own, searched: root };
+	const main = readMainCheckout(root);
+	return main === root
+		? { rows: [], searched: root }
+		: { rows: rowsFor(main), searched: `${root} or ${main}` };
+}
+
+/**
+ * @param {{root?: string, env?: Record<string, string|undefined>,
+ *   warn?: (line: string) => void}} [options]
+ * @returns {string}
+ */
+function resolveCore({
+	root = adopterRoot(),
+	env = process.env,
+	warn = (line) => process.stderr.write(`${line}\n`),
+} = {}) {
+	const { marketplace, ref } = readPin(root);
+	const pin = ref ?? "none";
+	/** @param {string} missing @returns {never} */
+	const fail = (missing) => {
+		throw new Error(
+			`resolve-core: no ${PLUGIN} directory for pin ${pin} — ${missing}`,
+		);
+	};
+
+	for (const name of [OVERRIDE, CHECKOUT]) {
+		const dir = env[name];
+		if (!dir) continue;
+		if (!isDir(dir)) fail(`${name} names ${dir}, which is not a directory`);
+		return path.resolve(dir);
+	}
+
+	const unset = `${OVERRIDE} and ${CHECKOUT} are unset`;
+	if (!marketplace)
+		fail(
+			`${unset}, and ${path.join(root, ".claude", "settings.json")} enables no ${PLUGIN} from a known marketplace`,
+		);
+	const config = env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
+	const record = path.join(config, "plugins", "installed_plugins.json");
+	const key = `${PLUGIN}@${marketplace}`;
+	const { rows, searched } = readInstallRows(
+		readJson(record)?.plugins?.[key],
+		root,
+	);
+	const installPath = rows.at(-1)?.installPath;
+	if (!installPath)
+		fail(`${unset}, and ${record} records no ${key} install for ${searched}`);
+	if (!isDir(installPath))
+		fail(`${record} records ${installPath}, which is not a directory`);
+
+	const version = readJson(
+		path.join(installPath, ".claude-plugin", "plugin.json"),
+	)?.version;
+	if (
+		TAG_REF.test(pin) &&
+		typeof version === "string" &&
+		version.replace(/^v/, "") !== pin.replace(/^v/, "")
+	)
+		warn(
+			`resolve-core: the installed ${PLUGIN} is ${version}, not the pinned ${pin} — local results can differ from CI's until the install catches up`,
+		);
+	return installPath;
+}
+
+/**
+ * @param {string[]} argv
+ * @returns {number}
+ */
+function runCore([script, ...args]) {
+	if (!script) {
+		process.stderr.write(
+			"resolve-core: name the core script to run, core-relative, then its arguments\n",
+		);
+		return 2;
+	}
+	let core;
+	try {
+		core = resolveCore();
+	} catch (err) {
+		process.stderr.write(
+			`${err instanceof Error ? err.message : String(err)}\n`,
+		);
+		return 1;
+	}
+	const r = spawnSync(process.execPath, [path.join(core, script), ...args], {
+		stdio: "inherit",
+	});
+	if (r.error) {
+		process.stderr.write(`resolve-core: ${r.error.message}\n`);
+		return 1;
+	}
+	if (r.signal) process.kill(process.pid, r.signal);
+	return r.status ?? 1;
+}
+
+module.exports = { resolveCore };
+
+if (require.main === module) process.exitCode = runCore(process.argv.slice(2));

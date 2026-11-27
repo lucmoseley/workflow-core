@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+
+set -e
+# shellcheck source=scripts/lib/hook-root.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
+
+here="$(dirname "$0")"
+
+status=0
+WFC_INDEX_FROZEN=1 sh -e "$here/pre-commit" || status=$?
+if [ "$status" -eq 0 ]; then
+  exit 0
+fi
+
+echo "pre-merge-commit: the gates above refused this merge's content." >&2
+echo "  The merge is still in progress and this tree cannot take a pathspec commit until it is cleared." >&2
+echo "  'git merge --abort' to clear it, or fix the finding and 'git commit', which runs the same gates." >&2
+exit "$status"

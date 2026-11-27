@@ -1,0 +1,3 @@
+#!/bin/sh
+echo "arbiter sandbox: bare gh call off WFC_GH: $*" >&2
+exit 1
