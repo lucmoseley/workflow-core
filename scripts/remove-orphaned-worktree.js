@@ -23,6 +23,7 @@ const { readOwnedByLive, treeOfKey } = require("./lib/orphan-owners.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { recordOwnAct } = require("./lib/own-acts.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const {
 	worktreeHolding,
 	worktreeLabel,
@@ -93,8 +94,8 @@ function parseStatus(out) {
 	/** @type {Status} */
 	const acc = { tracked: [], deleted: [], untracked: [], odd: [] };
 	const fields = out.split("\0").filter(Boolean);
-	for (let i = 0; i < fields.length; i++) {
-		const f = /** @type {string} */ (fields[i]);
+	const it = fields[Symbol.iterator]();
+	for (const f of it) {
 		if (f.startsWith("? ")) {
 			acc.untracked.push(f.slice(2));
 			continue;
@@ -105,8 +106,8 @@ function parseStatus(out) {
 			continue;
 		}
 		if (f.startsWith("2 ")) {
-			const from = fields[++i];
-			if (from === undefined) {
+			const { value: from, done } = it.next();
+			if (done) {
 				acc.odd.push(f);
 				continue;
 			}
@@ -349,7 +350,7 @@ async function main() {
 	if (refusals.length > 0)
 		io.fail(
 			`refused, nothing removed — ${target}:\n${refusals.map((r) => `  - ${r}`).join("\n")}\n` +
-				`Clear each, or read what it holds (git -C ${target} status) and land it: ${buildWaysOut(target).land}`,
+				`Clear each, or read what it holds (git -C ${shellQuote(target)} status) and land it: ${buildWaysOut(target).land}`,
 			1,
 		);
 	const common = gitCommonDir(root, { timeout: GIT_TIMEOUT_MS });

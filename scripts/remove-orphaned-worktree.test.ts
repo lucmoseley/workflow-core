@@ -13,6 +13,7 @@ import {
 	putLock,
 } from "./lib/arbiter-testkit";
 import { writeClaudeStub } from "./lib/claude-stub";
+import { readText } from "./lib/file-read.js";
 import { stubGhScript } from "./lib/gh-stub";
 import { markerName } from "./lib/orphan-filings.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
@@ -52,11 +53,10 @@ function fakeGh() {
 }
 
 function ghCalls() {
-	try {
-		return fs.readFileSync(ghLog(), "utf8").split("\n").filter(Boolean);
-	} catch {
-		return [];
-	}
+	const read = readText(ghLog());
+	if (read.state === "absent") return [];
+	if (read.state === "unreadable") throw read.error;
+	return read.data.split("\n").filter(Boolean);
 }
 
 const git = (cwd: string, ...args: string[]) =>

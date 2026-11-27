@@ -73,30 +73,39 @@ function readWorktreeEdits(dir) {
 /**
  * @param {string} commonDir
  * @param {string} label
+ * @returns {{at: number, ref: string, dirt: string[]}[]}
+ */
+function readWorktreeMarkers(commonDir, label) {
+	const dir = path.join(commonDir, FILED_DIR);
+	const prefix = worktreePrefix(label);
+	const names = orFallback(
+		() => fs.readdirSync(dir),
+		/** @type {string[]} */ ([]),
+	);
+	return names
+		.filter((n) => n.startsWith(prefix))
+		.flatMap((n) =>
+			orFallback(() => {
+				const m = JSON.parse(fs.readFileSync(path.join(dir, n), "utf8"));
+				return typeof m.ref === "string" && m.ref !== ""
+					? [{ at: Number(m.at), ref: m.ref, dirt: m.dirt ?? [] }]
+					: [];
+			}, []),
+		);
+}
+
+/**
+ * @param {string} commonDir
+ * @param {string} label
  * @param {string[]} [dirt]
  * @returns {string|null}
  */
 function readWorktreeFiling(commonDir, label, dirt) {
-	const dir = path.join(commonDir, FILED_DIR);
-	const prefix = worktreePrefix(label);
-	let names;
-	try {
-		names = fs.readdirSync(dir).filter((n) => n.startsWith(prefix));
-	} catch {
-		return null;
-	}
 	const want = dirt?.join("\n");
 	let best = { at: -1, ref: /** @type {string|null} */ (null) };
-	for (const n of names) {
-		const floor = best.at;
-		const better = orFallback(() => {
-			const m = JSON.parse(fs.readFileSync(path.join(dir, n), "utf8"));
-			if (want !== undefined && (m.dirt ?? []).join("\n") !== want) return null;
-			return m.ref && Number(m.at) > floor
-				? { at: Number(m.at), ref: m.ref }
-				: null;
-		}, null);
-		if (better) best = better;
+	for (const m of readWorktreeMarkers(commonDir, label)) {
+		if (want !== undefined && m.dirt.join("\n") !== want) continue;
+		if (m.at > best.at) best = m;
 	}
 	return best.ref;
 }
@@ -106,24 +115,9 @@ function readWorktreeFiling(commonDir, label, dirt) {
  * @param {string} label
  * @returns {string[]}
  */
-function readWorktreeRefs(commonDir, label) {
-	const dir = path.join(commonDir, FILED_DIR);
-	const prefix = worktreePrefix(label);
-	const names = orFallback(
-		() => fs.readdirSync(dir),
-		/** @type {string[]} */ ([]),
-	);
-	const refs = names
-		.filter((n) => n.startsWith(prefix))
-		.map((n) =>
-			orFallback(
-				() => JSON.parse(fs.readFileSync(path.join(dir, n), "utf8")).ref,
-				null,
-			),
-		)
-		.filter((ref) => typeof ref === "string" && ref !== "");
-	return [...new Set(refs)];
-}
+const readWorktreeRefs = (commonDir, label) => [
+	...new Set(readWorktreeMarkers(commonDir, label).map((m) => m.ref)),
+];
 
 /**
  * @param {string} commonDir
