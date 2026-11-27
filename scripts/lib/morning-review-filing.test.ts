@@ -985,6 +985,21 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 				);
 			});
 
+			it("lists no zeroed record whose later neighbour predates the window, and still lists one that does not (#5795)", async () => {
+				seed([previousReview()]);
+				appendDecision(wfc(), "2026-10-09T10:00:00.000Z", 1, "Wfc: old");
+				fs.appendFileSync(ledger(), "\0".repeat(64));
+				appendDecision(wfc(), "2026-10-09T12:00:00.000Z", 2, "Wfc: older");
+				fs.appendFileSync(ledger(), "\0".repeat(64));
+				appendDecision(wfc(), "2026-10-10T12:00:00.000Z", 3, "Wfc: inside");
+				stubCloses();
+				await reviewAt(dayTwo);
+
+				expect(bodies()[0]).toContain(
+					"- acme/wfc: `1 ledger record(s) zeroed by a crash, written between 2026-10-09T12:00:00.000Z and 2026-10-10T12:00:00.000Z`",
+				);
+			});
+
 			it("names a zeroed record's missing neighbour as the ledger's end, and an undated one as undated", async () => {
 				seed([previousReview()]);
 				fs.appendFileSync(ledger(), '{"note":"undated"}\n');

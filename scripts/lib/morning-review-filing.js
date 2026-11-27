@@ -83,7 +83,7 @@ function readRepo(ctx, root, windowSince, reviews) {
 	let repo = checkout;
 	try {
 		repo = requireKey("tracker", { root });
-		const ledger = readDecisions(root, repo);
+		const ledger = readDecisions(root, repo, start.decisions);
 		const closes = readCloses(ctx, repo, start.closes);
 		const stalls = readStalls(ctx, repo);
 		const alarms = readAlarms(root, repo);
@@ -131,11 +131,13 @@ function readRepo(ctx, root, windowSince, reviews) {
 /**
  * @param {string} root
  * @param {string} repo
+ * @param {string} since
  * @returns {{entries: import("./morning-review.js").LedgerLine[] | null, unread: Unread[]}}
  */
-function readDecisions(root, repo) {
+function readDecisions(root, repo, since) {
 	try {
-		const { lines, torn, zeroed } = readLedger(root);
+		const { lines, torn, zeroed: all } = readLedger(root);
+		const zeroed = all.filter(({ after }) => !isBefore(after, since));
 		return {
 			entries: lines,
 			unread: [
@@ -154,6 +156,14 @@ function readDecisions(root, repo) {
 		};
 	}
 }
+
+/**
+ * #5795
+ * @param {string | null} after
+ * @param {string} since
+ */
+const isBefore = (after, since) =>
+	after !== null && Date.parse(after) < Date.parse(since);
 
 /** @param {import("./delegated-decision.js").ZeroedRecord[]} zeroed */
 const buildZeroedText = (zeroed) =>
