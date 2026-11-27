@@ -529,6 +529,7 @@ it("warns, and exits 1, where the sessions that started during the re-mark could
 		head: "b".repeat(40),
 		late: { why: "the oracle is down" },
 		fetchError: null,
+		discarded: [],
 		install: { installed: false },
 	};
 
@@ -550,6 +551,7 @@ it("names each session that started during the re-mark and is still refused afte
 				],
 			},
 			fetchError: null,
+			discarded: [],
 			install: { installed: false },
 		},
 		Date.now(),

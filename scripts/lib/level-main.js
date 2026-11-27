@@ -14,6 +14,7 @@ const {
 	SHORT_SHA,
 } = require("./git.js");
 const { isCutOver, LANDING_REF } = require("./cutover.js");
+const { readLandedCopy } = require("./landed-edit.js");
 const { QUEUE_TRACKING_GLOB } = require("./landing-refs.js");
 const { pidLock } = require("./pid-lock.js");
 const { buildCheckoutEnv, startDetachedIn } = require("./refill-repos.js");
@@ -37,6 +38,7 @@ const HOLDERS = ["level-main.js", "refill-loop.js"];
  * @typedef {import("./canary-remark.js").Stranding} Stranding
  * @typedef {(rel: string) => {sessionId: string, at: number} | null} LastWriter
  * @typedef {{ path: string, ageMs: number | null, writer: {sessionId: string, at: number} | null }} Blocker
+ * @typedef {import("./landed-edit.js").LandedCopy} Discard
  * @typedef {{ installed: boolean, error?: string }} InstallResult
  * @typedef {(
  *   | { status: "level", head: string }
@@ -49,8 +51,8 @@ const HOLDERS = ["level-main.js", "refill-loop.js"];
  *   | ({ status: "stranding", from: string, to: string } & Stranding)
  * )} Moved
  * @typedef {(
- *   | (Moved & { fetchError: string | null })
- *   | { status: "busy", holder: number | null, fetchError: null }
+ *   | (Moved & { fetchError: string | null, discarded: Discard[] })
+ *   | { status: "busy", holder: number | null, fetchError: null, discarded: [] }
  * ) & { install: InstallResult }} Outcome
  */
 
@@ -234,6 +236,48 @@ function installIfStale(root, work, install) {
 
 /**
  * @param {string} root
+ * @param {string} rel
+ * @param {boolean} inHead
+ * @returns {boolean}
+ */
+function tryDiscard(root, rel, inHead) {
+	try {
+		if (inHead)
+			git(
+				["restore", "--source=HEAD", "--staged", "--worktree", "--", rel],
+				root,
+			);
+		else {
+			git(["rm", "-q", "--cached", "--ignore-unmatch", "--", rel], root);
+			fs.rmSync(path.join(root, rel));
+		}
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * @param {string} root
+ * @param {string[]} edited
+ * @returns {{ discarded: Discard[], kept: string[] }}
+ */
+function discardLanded(root, edited) {
+	/** @type {Discard[]} */
+	const discarded = [];
+	/** @type {string[]} */
+	const kept = [];
+	for (const rel of edited) {
+		const copy = readLandedCopy(root, rel, UPSTREAM);
+		if (copy && tryDiscard(root, rel, readHeadBlob(root, rel) !== null))
+			discarded.push(copy);
+		else kept.push(rel);
+	}
+	return { discarded, kept };
+}
+
+/**
+ * @param {string} root
  * @returns {string[]}
  */
 function readUnqueued(root) {
@@ -256,9 +300,22 @@ function readUnqueued(root) {
  * @param {string} root
  * @param {{ now: number, lastWriter: LastWriter, work: string,
  *   listSessions?: ListSessions }} how
+ * @returns {Moved & { discarded: Discard[] }}
+ */
+function forward(root, how) {
+	/** @type {Discard[]} */
+	const discarded = [];
+	return { ...advance(root, how, discarded), discarded };
+}
+
+/**
+ * @param {string} root
+ * @param {{ now: number, lastWriter: LastWriter, work: string,
+ *   listSessions?: ListSessions }} how
+ * @param {Discard[]} discarded
  * @returns {Moved}
  */
-function forward(root, { now, lastWriter, work, listSessions }) {
+function advance(root, { now, lastWriter, work, listSessions }, discarded) {
 	let branch = null;
 	try {
 		branch = git(["symbolic-ref", "--quiet", "--short", "HEAD"], root).trim();
@@ -278,10 +335,14 @@ function forward(root, { now, lastWriter, work, listSessions }) {
 	const changed = parseNulList(
 		git(["diff", "--name-only", "--no-renames", "-z", from, to], root),
 	);
-	const blockers = [...readEditedPaths(root)]
-		.filter((p) => clashes(p, changed))
-		.sort()
-		.map((p) => readBlocker(root, p, now, lastWriter));
+	const cleared = discardLanded(
+		root,
+		[...readEditedPaths(root)].filter((p) => clashes(p, changed)).sort(),
+	);
+	discarded.push(...cleared.discarded);
+	const blockers = cleared.kept.map((p) =>
+		readBlocker(root, p, now, lastWriter),
+	);
 	if (blockers.length > 0) return { status: "blocked", from, to, blockers };
 	const moved = remarkAroundMove(
 		buildRemarkPorts(root, path.join(work, "canary"), listSessions),
@@ -322,6 +383,7 @@ function level(
 			status: "busy",
 			holder: lock.holder(),
 			fetchError: null,
+			discarded: [],
 			install: { installed: false },
 		};
 	try {
@@ -519,6 +581,10 @@ function renderOutcome(o, now) {
 			);
 			break;
 	}
+	for (const d of o.discarded)
+		lines.push(
+			`discarded ${d.path} from the main checkout: its blob ${short(d.blob)} is the file at ${short(d.commit)} on ${UPSTREAM}, so nothing was lost`,
+		);
 	if (o.fetchError !== null)
 		lines.push(
 			`fetching ${UPSTREAM} failed, so this pass used the last one fetched: ${o.fetchError}`,
