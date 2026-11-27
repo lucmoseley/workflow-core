@@ -2,22 +2,18 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
+const { curlBin } = require("./registry-call.js");
 const { runCommand } = require("./run-command.js");
 const scan = require("./pfn-scan.js");
+const { writeFd } = require("./write-fd.js");
+const { POWERSHELL, toWin } = require("./windows-host.js");
 
-const PS = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe";
 const DIAG = "/mnt/c/diag/5743";
 const SYMBOLS = `${DIAG}/sym`;
 const SYMBOL_SERVER = "https://msdl.microsoft.com/download/symbols";
 // guess, #5804
 const MAX_OUT = 64 * 1024 * 1024;
-
-/** @param {string} p @returns {string} */
-function toWin(p) {
-	const r = runCommand("wslpath", ["-w", p]);
-	if (r.error !== null) throw new Error(r.error);
-	return r.out;
-}
 
 /**
  * @param {string} dump
@@ -29,11 +25,13 @@ function runCdb(dump, symbolDir, commands, work) {
 	const file = path.join(work, "commands.txt");
 	fs.writeFileSync(file, `${commands.join("\r\n")}\r\n`);
 	const cmd = `& cdbARM64.exe -z '${toWin(dump)}' -y '${toWin(symbolDir)}' -cf '${toWin(file)}'`;
-	const r = spawnSync(PS, ["-NoProfile", "-Command", cmd], {
+	const r = spawnSync(POWERSHELL, ["-NoProfile", "-Command", cmd], {
 		encoding: "utf8",
 		maxBuffer: MAX_OUT,
 	});
 	if (r.error) throw new Error(`cdb: ${r.error.message}`);
+	if (r.status !== 0)
+		throw new Error(`cdb exited ${r.status}: ${(r.stderr ?? "").trim()}`);
 	return (r.stdout ?? "").replace(/\r/g, "");
 }
 
@@ -46,7 +44,7 @@ function fetchSymbols({ pdb, key }) {
 	const file = path.join(dir, pdb);
 	if (fs.existsSync(file)) return dir;
 	fs.mkdirSync(dir, { recursive: true });
-	const r = runCommand("curl", [
+	const r = runCommand(curlBin(), [
 		"-fsSL",
 		"-o",
 		`${file}.part`,
@@ -98,9 +96,11 @@ function scanDump(dump) {
 			(p) => fs.existsSync(p.file) && fs.statSync(p.file).size === p.bytes,
 		);
 		for (const p of read)
-			scan.addEntries(result, layout, p.first, fs.readFileSync(p.file));
+			scan.scanInto(result, layout, p.first, fs.readFileSync(p.file));
 		for (const p of read)
-			scan.addRarePatterns(result, layout, p.first, fs.readFileSync(p.file));
+			scan.flagRareInto(result, layout, p.first, fs.readFileSync(p.file));
+		if (result.read === BigInt(0))
+			throw new Error("no PFN entry could be read from the dump");
 		return result;
 	} finally {
 		fs.rmSync(work, { recursive: true, force: true });
@@ -121,8 +121,11 @@ function earlierFlagged(dump) {
 		try {
 			const j = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
 			for (const f of j.flagged ?? []) seen.add(f.pfn);
-		} catch {
-			// #5804
+		} catch (e) {
+			writeFd(
+				2,
+				`pfn-scan: skipped ${name}, which did not parse: ${caught(e).message}\n`,
+			);
 		}
 	}
 	return seen;

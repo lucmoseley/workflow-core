@@ -134,6 +134,17 @@ describe("runMorning", () => {
 		expect(f.posts).toEqual([]);
 	});
 
+	it("renews the hold while a dump that never logs is waited on", () => {
+		const f = fake({
+			start: "2026-11-28T07:00:00",
+			combining: [ON],
+			writes: { [TASKS.dump]: null, [TASKS.off]: ["combining.log", OFF] },
+		});
+		expect(runMorning(f.ports)).toBe(1);
+		expect(f.calls.filter((c) => c === "hold").length).toBeGreaterThan(2);
+		expect(f.calls.at(-1)).toBe("release");
+	});
+
 	it("holds nothing on a morning after a night with combining off", () => {
 		const f = fake({
 			start: "2026-12-02T07:00:00",

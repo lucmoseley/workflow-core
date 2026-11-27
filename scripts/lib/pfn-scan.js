@@ -1,5 +1,7 @@
 // #5804
 
+const { requiredGroup } = require("./regex-group.js");
+
 /**
  * @typedef {{pos: number, bits: number}} BitField
  * @typedef {{base: bigint, count: bigint}} Run
@@ -26,9 +28,15 @@ function hex(text) {
 function sections(out) {
 	/** @type {Record<string, string>} */
 	const found = {};
-	const parts = out.split(new RegExp(`^.*?${MARK}(\\w+)\\s*$`, "m"));
-	for (let i = 1; i + 1 < parts.length; i += 2)
-		found[parts[i] ?? ""] = parts[i + 1] ?? "";
+	const re = new RegExp(`^.*?${MARK}(\\w+)\\s*$`, "gm");
+	const marks = [...out.matchAll(re)];
+	marks.forEach((m, i) => {
+		const end = marks[i + 1]?.index ?? out.length;
+		found[requiredGroup(m, 1, re)] = out.slice(
+			(m.index ?? 0) + m[0].length,
+			end,
+		);
+	});
 	return found;
 }
 
@@ -42,14 +50,13 @@ const IDENTITY_COMMANDS = [echo("lmi"), "!lmi nt", echo("end"), "q"];
  * @returns {{pdb: string, key: string} | {why: string}}
  */
 function parseIdentity(out) {
-	const m = /GUID: \{([0-9A-Fa-f-]+)\}\s+Age: ([0-9A-Fa-f]+), Pdb: (\S+)/.exec(
-		sections(out).lmi ?? "",
-	);
+	const re = /GUID: \{([0-9A-Fa-f-]+)\}\s+Age: ([0-9A-Fa-f]+), Pdb: (\S+)/;
+	const m = re.exec(sections(out).lmi ?? "");
 	if (!m) return { why: "`!lmi nt` printed no CODEVIEW GUID" };
-	const [, guid = "", age = "", pdb = ""] = m;
+	const guid = requiredGroup(m, 1, re).replace(/-/g, "");
 	return {
-		pdb,
-		key: `${guid.replace(/-/g, "")}${age}`.toUpperCase(),
+		pdb: requiredGroup(m, 3, re),
+		key: `${guid}${requiredGroup(m, 2, re)}`.toUpperCase(),
 	};
 }
 
@@ -94,12 +101,12 @@ function dumpWords(text) {
 function parseFields(text) {
 	/** @type {Record<string, BitField>} */
 	const fields = {};
-	for (const m of text.matchAll(
-		/\+0x[0-9a-f]+ (\w+) : Pos (\d+), (\d+) Bits?/g,
-	)) {
-		const [, name = "", pos = "", bits = ""] = m;
-		fields[name] = { pos: Number(pos), bits: Number(bits) };
-	}
+	const re = /\+0x[0-9a-f]+ (\w+) +: Pos (\d+), (\d+) Bits?/g;
+	for (const m of text.matchAll(re))
+		fields[requiredGroup(m, 1, re)] = {
+			pos: Number(requiredGroup(m, 2, re)),
+			bits: Number(requiredGroup(m, 3, re)),
+		};
 	return fields;
 }
 
@@ -130,9 +137,12 @@ function parseRuns(countText, runsText) {
  */
 function parseLayout(out) {
 	const s = sections(out);
-	const db = /Evaluate expression: .* = ([0-9a-f`]+)/i.exec(s.db ?? "");
-	const size = /unsigned int64 (0x[0-9a-f]+)/i.exec(s.size ?? "");
-	const u4 = /\+(0x[0-9a-f]+) u4/i.exec(s.u4 ?? "");
+	const dbRe = /Evaluate expression: .* = ([0-9a-f`]+)/i;
+	const sizeRe = /unsigned int64 (0x[0-9a-f]+)/i;
+	const u4Re = /\+(0x[0-9a-f]+) u4/i;
+	const db = dbRe.exec(s.db ?? "");
+	const size = sizeRe.exec(s.size ?? "");
+	const u4 = u4Re.exec(s.u4 ?? "");
 	if (!db || !size || !u4)
 		return { why: "the kernel symbols gave no MmPfnDatabase or _MMPFN" };
 	const fields = parseFields(s.u4 ?? "");
@@ -141,9 +151,9 @@ function parseLayout(out) {
 	const runs = parseRuns(s.nruns ?? "", s.runs ?? "");
 	if ("why" in runs) return runs;
 	return {
-		database: hex(db[1] ?? "0"),
-		entrySize: Number(size[1]),
-		u4Offset: Number(u4[1]),
+		database: hex(requiredGroup(db, 1, dbRe)),
+		entrySize: Number(requiredGroup(size, 1, sizeRe)),
+		u4Offset: Number(requiredGroup(u4, 1, u4Re)),
 		fields,
 		runs,
 	};
@@ -163,11 +173,8 @@ const field = (value, f) =>
 const isRam = (pfn, runs) =>
 	runs.some((r) => pfn >= r.base && pfn < r.base + r.count);
 
-/** @param {Layout} layout */
-function patternShift(layout) {
-	const f = layout.fields.PteFrame;
-	return BigInt((f?.pos ?? 0) + (f?.bits ?? 36));
-}
+/** @param {BitField} pteFrame */
+const patternShift = (pteFrame) => BigInt(pteFrame.pos + pteFrame.bits);
 
 /** @param {Layout} layout @returns {Scan} */
 function emptyScan(layout) {
@@ -185,10 +192,10 @@ function emptyScan(layout) {
  * @param {bigint} first
  * @param {Buffer} bytes
  */
-function addEntries(scan, layout, first, bytes) {
+function scanInto(scan, layout, first, bytes) {
 	const { PteFrame: pte, Partition: part, Unused1: unused } = layout.fields;
 	if (!pte || !part) return;
-	const shift = patternShift(layout);
+	const shift = patternShift(pte);
 	// measured, #5804: 118,594 entries in the 24 Nov dump carry the frame 0xffffffffe
 	const sentinel = (BigInt(1) << BigInt(pte.bits)) - BigInt(2);
 	const n = Math.floor(bytes.length / layout.entrySize);
@@ -224,8 +231,10 @@ function addEntries(scan, layout, first, bytes) {
  * @param {bigint} first
  * @param {Buffer} bytes
  */
-function addRarePatterns(scan, layout, first, bytes) {
-	const shift = patternShift(layout);
+function flagRareInto(scan, layout, first, bytes) {
+	const pte = layout.fields.PteFrame;
+	if (!pte) return;
+	const shift = patternShift(pte);
 	const n = Math.floor(bytes.length / layout.entrySize);
 	const byPfn = new Map(scan.flagged.map((f) => [f.pfn, f]));
 	for (let i = 0; i < n; i++) {
@@ -268,12 +277,16 @@ function chunks(layout) {
 	return out;
 }
 
+const QWORD_DIGITS = 16;
+// guess, #5804: the 24 Nov dump has 8 patterns in all
+const PATTERNS_SHOWN = 8;
+
 /** @param {bigint} v */
 const hx = (v) => `0x${v.toString(16)}`;
 /** @param {bigint} v */
 const qw = (v) => {
-	const s = v.toString(16).padStart(16, "0");
-	return `${s.slice(0, 8)}'${s.slice(8)}`;
+	const s = v.toString(16).padStart(QWORD_DIGITS, "0");
+	return `${s.slice(0, QWORD_DIGITS / 2)}'${s.slice(QWORD_DIGITS / 2)}`;
 };
 
 // guess, #5804
@@ -315,7 +328,7 @@ function formatReport(scan, { dump, combining, earlier }) {
 	lines.push(
 		"",
 		`High-bit patterns (bits above PteFrame), ${top.length} seen: ${top
-			.slice(0, 8)
+			.slice(0, PATTERNS_SHOWN)
 			.map(([p, n]) => `${hx(p)} ×${n}`)
 			.join(", ")}`,
 		"",
@@ -342,12 +355,12 @@ const toJson = (scan) => ({
 module.exports = {
 	IDENTITY_COMMANDS,
 	LAYOUT_COMMANDS,
-	addEntries,
-	addRarePatterns,
+	flagRareInto,
 	chunks,
 	emptyScan,
 	formatReport,
 	parseIdentity,
 	parseLayout,
+	scanInto,
 	toJson,
 };

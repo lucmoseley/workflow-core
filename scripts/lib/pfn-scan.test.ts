@@ -1,13 +1,13 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import {
-	addEntries,
-	addRarePatterns,
 	chunks,
 	emptyScan,
+	flagRareInto,
 	formatReport,
 	parseIdentity,
 	parseLayout,
+	scanInto,
 } from "./pfn-scan.js";
 
 // #5735
@@ -102,7 +102,7 @@ describe("parseLayout", () => {
 	});
 });
 
-describe("addEntries and addRarePatterns", () => {
+describe("scanInto and flagRareInto", () => {
 	const common = BigInt("0x0044000000000105");
 	it("flags the 24 Nov damaged qword and nothing in a common pattern", () => {
 		const l = layoutOf();
@@ -112,8 +112,8 @@ describe("addEntries and addRarePatterns", () => {
 			...Array.from({ length: 8 }, () => BigInt("0x0004000ffffffffe")),
 			BigInt("0x71b53de1c168c949"),
 		]);
-		addEntries(scan, l, BigInt(0x1_00), bytes);
-		addRarePatterns(scan, l, BigInt(0x1_00), bytes);
+		scanInto(scan, l, BigInt(0x1_00), bytes);
+		flagRareInto(scan, l, BigInt(0x1_00), bytes);
 		expect(scan.read).toBe(BigInt(17));
 		expect(scan.flagged).toHaveLength(1);
 		expect(scan.flagged[0]?.pfn).toBe(BigInt(0x1_10));
@@ -144,12 +144,7 @@ describe("formatReport", () => {
 	it("names the flagged entry and whether an earlier scan had it", () => {
 		const l = layoutOf();
 		const scan = emptyScan(l);
-		addEntries(
-			scan,
-			l,
-			BigInt(0x1_00),
-			entries([BigInt("0x71b53de1c168c949")]),
-		);
+		scanInto(scan, l, BigInt(0x1_00), entries([BigInt("0x71b53de1c168c949")]));
 		const text = formatReport(scan, {
 			dump: "live-261128-0700.dmp",
 			combining: "on",

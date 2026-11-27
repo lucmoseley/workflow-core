@@ -9,11 +9,13 @@ const HOLDER = "page-combining-trial";
 const REPORT_ISSUE = 5743;
 // guess, #5804: half the hold's 60-minute limit
 const RENEW_MS = 30 * 60_000;
+// guess, #5804
 const POLL_MS = 10_000;
 // guess, #5804
 const TOGGLE_WAIT_MS = 5 * 60_000;
 // guess, #5804: the dump task's own limit
 const DUMP_WAIT_MS = 60 * 60_000;
+// guess, #5804: off the founder's working hours, as the 23:00 start
 const MORNING_HOUR = 7;
 
 /**
@@ -41,12 +43,10 @@ const logLines = (text) =>
 
 /**
  * @param {Ports} ports
- * @param {string} task
- * @param {LogName} log
- * @param {number} waitMs
+ * @param {{task: string, log: LogName, waitMs: number, renew?: boolean}} what
  * @returns {string | null}
  */
-function act(ports, task, log, waitMs) {
+function act(ports, { task, log, waitMs, renew = false }) {
 	const before = logLines(ports.readLog(log)).length;
 	const err = ports.startTask(task);
 	if (err !== null) {
@@ -54,6 +54,7 @@ function act(ports, task, log, waitMs) {
 		return null;
 	}
 	const deadline = ports.now() + waitMs;
+	let renewAt = ports.now() + RENEW_MS;
 	for (;;) {
 		const lines = logLines(ports.readLog(log));
 		if (lines.length > before) return lines.at(-1) ?? null;
@@ -62,6 +63,11 @@ function act(ports, task, log, waitMs) {
 			return null;
 		}
 		ports.sleep(POLL_MS);
+		if (renew && ports.now() >= renewAt) {
+			renewAt = ports.now() + RENEW_MS;
+			const renewed = ports.hold();
+			if (renewed !== null) ports.say(`hold renewal failed: ${renewed}`);
+		}
 	}
 }
 
@@ -89,7 +95,11 @@ function runNight(ports) {
 		ports.say(`launches not held, so combining stays off: ${held}`);
 		return 1;
 	}
-	const line = act(ports, TASKS.on, "combining.log", TOGGLE_WAIT_MS);
+	const line = act(ports, {
+		task: TASKS.on,
+		log: "combining.log",
+		waitMs: TOGGLE_WAIT_MS,
+	});
 	if (line === null || !/ on PageCombining=True\b/.test(line)) {
 		ports.say(`combining did not turn on: ${line ?? "no log line"}`);
 		ports.release();
@@ -112,7 +122,7 @@ function runNight(ports) {
  * @param {string | null} off
  * @returns {string[]}
  */
-function morningProblems(ports, last, dumped, off) {
+function scanAndListProblems(ports, last, dumped, off) {
 	const combining = `last combining.log line before the dump: \`${last}\``;
 	/** @type {string[]} */
 	const problems = [];
@@ -144,10 +154,20 @@ function runMorning(ports) {
 		const held = ports.hold();
 		if (held !== null) ports.say(`launches not held: ${held}`);
 	}
-	const dumped = act(ports, TASKS.dump, "dumps.log", DUMP_WAIT_MS);
-	const off = act(ports, TASKS.off, "combining.log", TOGGLE_WAIT_MS);
+	const dumped = act(ports, {
+		task: TASKS.dump,
+		log: "dumps.log",
+		waitMs: DUMP_WAIT_MS,
+		renew: wasOn,
+	});
+	const off = act(ports, {
+		task: TASKS.off,
+		log: "combining.log",
+		waitMs: TOGGLE_WAIT_MS,
+		renew: wasOn,
+	});
 	if (wasOn) ports.release();
-	const problems = morningProblems(ports, last, dumped, off);
+	const problems = scanAndListProblems(ports, last, dumped, off);
 	for (const p of problems) {
 		ports.say(p);
 		const err = ports.post(`${p} (#5804's morning run)`);

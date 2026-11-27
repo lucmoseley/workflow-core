@@ -40,6 +40,7 @@ function Get-Missing {
 	foreach ($name in $tasks.Keys) {
 		$t = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
 		if (-not $t -or $t.Actions[0].Arguments -ne (Get-TaskArgs $tasks[$name])) { $missing += "task '$name'" }
+		elseif ($tasks[$name] -eq 'Off' -and $t.Triggers.Count -eq 0) { $missing += "the logon trigger of '$name'" }
 	}
 	if (-not (Test-Path $bugcheck) -or -not (Select-String -Path $bugcheck -SimpleMatch $bugcheckMarker -Quiet)) {
 		$missing += "the combining-off step in $bugcheck"
@@ -62,10 +63,13 @@ if ($Register) {
 	foreach ($name in $tasks.Keys) {
 		$act = $tasks[$name]
 		$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (Get-TaskArgs $act)
-		# Untraced: a 2.3 GB kernel dump (#5735) is written in minutes; an hour bounds a stuck one.
+		# guess, #5804: a 2.3 GB kernel dump (#5735) is written in minutes; Enable-MMAgent in seconds.
 		$limit = if ($act -eq 'Dump') { New-TimeSpan -Hours 1 } else { New-TimeSpan -Minutes 10 }
 		$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit $limit -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
-		Register-ScheduledTask -TaskName $name -Action $action -Principal $principal -Settings $settings -Force `
+		# Off also runs at each sign-in: a crash that saved no dump raises no
+		# event 1001, so on-bugcheck.ps1 never runs after it.
+		$trigger = if ($act -eq 'Off') { @(New-ScheduledTaskTrigger -AtLogOn -User $who) } else { @() }
+		Register-ScheduledTask -TaskName $name -Action $action -Principal $principal -Settings $settings -Trigger $trigger -Force `
 			-Description "workflow-core#5804: $act, started by combining-trial.js through schtasks /Run." | Out-Null
 	}
 	if (-not (Select-String -Path $bugcheck -SimpleMatch $bugcheckMarker -Quiet)) {
@@ -84,61 +88,71 @@ if ($Register) {
 }
 
 switch ($Action) {
-	'On' {
-		Enable-MMAgent -PageCombining
-		Write-Line $combiningLog "on PageCombining=$((Get-MMAgent).PageCombining)"
-	}
-	'Off' {
-		Disable-MMAgent -PageCombining
-		Write-Line $combiningLog "off PageCombining=$((Get-MMAgent).PageCombining)"
-	}
-	'Dump' {
-		# The call Task Manager's "Create live kernel memory dump file" makes:
-		# NtSystemDebugControl(SysDbgGetLiveKernelDump = 37) with a version-1
-		# SYSDBG_LIVEDUMP_CONTROL, layout from System Informer's phnt
-		# (ntexapi.h). No selective control, so a full kernel dump without user
-		# pages; flag bit 3 is AbortIfMemoryPressure, Task Manager's default.
-		Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class Wfc5804LiveDump {
-	[StructLayout(LayoutKind.Sequential)]
-	public struct Control {
-		public uint Version; public uint BugCheckCode;
-		public UIntPtr Param1; public UIntPtr Param2; public UIntPtr Param3; public UIntPtr Param4;
-		public IntPtr DumpFileHandle; public IntPtr CancelEventHandle;
-		public uint Flags; public uint AddPagesControl;
-	}
-	[DllImport("ntdll.dll")]
-	public static extern int RtlAdjustPrivilege(int privilege, bool enable, bool currentThread, out bool wasEnabled);
-	[DllImport("ntdll.dll")]
-	public static extern int NtSystemDebugControl(int command, ref Control input, int inputLength, IntPtr output, int outputLength, out int returnLength);
-}
-'@
-		$path = Join-Path $dir ("dumps\live-{0}.dmp" -f (Get-Date -Format 'yyMMdd-HHmm'))
-		$was = $false
-		# 20 is SE_DEBUG_PRIVILEGE, which the elevated token holds disabled.
-		$priv = [Wfc5804LiveDump]::RtlAdjustPrivilege(20, $true, $false, [ref]$was)
-		if ($priv -ne 0) { Write-Line $dumpsLog ('failed step=privilege status=0x{0:X8}' -f $priv); exit 1 }
-		$file = [IO.File]::Open($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+	{ $_ -in 'On', 'Off' } {
+		# combining-trial.js waits on a combining.log line; a throw must still write one.
 		try {
-			$ctl = New-Object Wfc5804LiveDump+Control
-			$ctl.Version = 1
-			# LIVE_SYSTEM_DUMP, the code Task Manager's dumps carry.
-			$ctl.BugCheckCode = 0x161
-			$ctl.DumpFileHandle = $file.SafeFileHandle.DangerousGetHandle()
-			$ctl.Flags = 0x8
-			$ret = 0
-			$status = [Wfc5804LiveDump]::NtSystemDebugControl(37, [ref]$ctl, [Runtime.InteropServices.Marshal]::SizeOf($ctl), [IntPtr]::Zero, 0, [ref]$ret)
+			if ($Action -eq 'On') { Enable-MMAgent -PageCombining } else { Disable-MMAgent -PageCombining }
+			Write-Line $combiningLog "$($Action.ToLower()) PageCombining=$((Get-MMAgent).PageCombining)"
 		}
-		finally { $file.Close() }
-		$bytes = (Get-Item $path).Length
-		if ($status -ne 0 -or $bytes -eq 0) {
-			Remove-Item $path -ErrorAction SilentlyContinue
-			Write-Line $dumpsLog ('failed step=dump status=0x{0:X8} bytes={1}' -f $status, $bytes)
+		catch {
+			Write-Line $combiningLog "$($Action.ToLower()) failed error=$($_.Exception.Message -replace '\s+', '_')"
 			exit 1
 		}
-		Write-Line $dumpsLog "ok path=$path bytes=$bytes"
+	}
+	'Dump' {
+		try {
+			# The call Task Manager's "Create live kernel memory dump file" makes:
+			# NtSystemDebugControl(SysDbgGetLiveKernelDump = 37) with a version-1
+			# SYSDBG_LIVEDUMP_CONTROL, layout from System Informer's phnt
+			# (ntexapi.h). No selective control, so a full kernel dump without user
+			# pages; flag bit 3 is AbortIfMemoryPressure, Task Manager's default.
+			Add-Type -TypeDefinition @'
+	using System;
+	using System.Runtime.InteropServices;
+	public static class Wfc5804LiveDump {
+		[StructLayout(LayoutKind.Sequential)]
+		public struct Control {
+			public uint Version; public uint BugCheckCode;
+			public UIntPtr Param1; public UIntPtr Param2; public UIntPtr Param3; public UIntPtr Param4;
+			public IntPtr DumpFileHandle; public IntPtr CancelEventHandle;
+			public uint Flags; public uint AddPagesControl;
+		}
+		[DllImport("ntdll.dll")]
+		public static extern int RtlAdjustPrivilege(int privilege, [MarshalAs(UnmanagedType.U1)] bool enable, [MarshalAs(UnmanagedType.U1)] bool currentThread, [MarshalAs(UnmanagedType.U1)] out bool wasEnabled);
+		[DllImport("ntdll.dll")]
+		public static extern int NtSystemDebugControl(int command, ref Control input, int inputLength, IntPtr output, int outputLength, out int returnLength);
+	}
+'@
+			$path = Join-Path $dir ("dumps\live-{0}.dmp" -f (Get-Date -Format 'yyMMdd-HHmmss'))
+			$was = $false
+			# 20 is SE_DEBUG_PRIVILEGE, which the elevated token holds disabled.
+			$priv = [Wfc5804LiveDump]::RtlAdjustPrivilege(20, $true, $false, [ref]$was)
+			if ($priv -ne 0) { Write-Line $dumpsLog ('failed step=privilege status=0x{0:X8}' -f $priv); exit 1 }
+			$file = [IO.File]::Open($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+			try {
+				$ctl = New-Object Wfc5804LiveDump+Control
+				$ctl.Version = 1
+				# LIVE_SYSTEM_DUMP, the code Task Manager's dumps carry.
+				$ctl.BugCheckCode = 0x161
+				$ctl.DumpFileHandle = $file.SafeFileHandle.DangerousGetHandle()
+				$ctl.Flags = 0x8
+				$ret = 0
+				$status = [Wfc5804LiveDump]::NtSystemDebugControl(37, [ref]$ctl, [Runtime.InteropServices.Marshal]::SizeOf($ctl), [IntPtr]::Zero, 0, [ref]$ret)
+			}
+			finally { $file.Close() }
+			$bytes = (Get-Item $path).Length
+			if ($status -ne 0 -or $bytes -eq 0) {
+				Remove-Item $path -ErrorAction SilentlyContinue
+				Write-Line $dumpsLog ('failed step=dump status=0x{0:X8} bytes={1}' -f $status, $bytes)
+				exit 1
+			}
+			Write-Line $dumpsLog "ok path=$path bytes=$bytes"
+		}
+		catch {
+			# combining-trial.js waits on a dumps.log line; a throw must still write one.
+			Write-Line $dumpsLog "failed step=script error=$($_.Exception.Message -replace '\s+', '_')"
+			exit 1
+		}
 	}
 	default { Write-Error 'give -Action On|Off|Dump, -Register or -Check' }
 }

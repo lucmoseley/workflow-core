@@ -22,6 +22,12 @@ if [[ ! "$first_night" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || ! date -d "$first_n
   exit 2
 fi
 
+last_night="$(date -d "$first_night + $((NIGHTS - 1)) day" +%F)"
+if [[ ! "$last_night" < "$LAST_MORNING" ]]; then
+  echo "error: the last night, $last_night, would have no 07:00 run to turn combining off; the last morning is $LAST_MORNING." >&2
+  exit 2
+fi
+
 SRC_DIR="${BASH_SOURCE[0]%/*}"
 [[ "$SRC_DIR" == "${BASH_SOURCE[0]}" ]] && SRC_DIR=.
 SRC_DIR="$(cd "$SRC_DIR" && pwd)"
@@ -89,7 +95,8 @@ SYSTEMCTL="${WFC_SYSTEMCTL:-systemctl}"
 unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$unit_dir"
 for run in night morning; do
-  if [[ "$run" == night ]]; then limit=9h; else limit=2h; fi
+  # guess, #5804: a night ends at 07:00; a morning waits up to 65 min, then scans
+  if [[ "$run" == night ]]; then limit=9h; else limit=3h; fi
   cat >"$unit_dir/combining-trial-$run.service" <<UNIT
 [Unit]
 Description=Page combining trial, $run run (workflow-core#5804)

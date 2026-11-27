@@ -14,14 +14,14 @@ const {
 const { gh } = require("./lib/gh.js");
 const { setLaunchHold } = require("./lib/launch-hold.js");
 const { DIAG } = require("./lib/pfn-scan-host.js");
-const { runCommand } = require("./lib/run-command.js");
+const { readText } = require("./lib/file-read.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const { requireKey } = require("./lib/workflow-core-config.js");
+const { runTask, toWsl } = require("./lib/windows-host.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = `usage: node ${scriptPath("combining-trial.js")} night | morning`;
-const SCHTASKS = "/mnt/c/Windows/System32/schtasks.exe";
 
 /** @param {() => void} fn @returns {string | null} */
 function attempt(fn) {
@@ -38,24 +38,18 @@ const ports = {
 	now: () => now(),
 	ended: () => fs.existsSync(path.join(DIAG, "ended.txt")),
 	readLog: (name) => {
-		try {
-			return fs.readFileSync(path.join(DIAG, name), "utf8");
-		} catch {
-			return "";
-		}
+		const r = readText(path.join(DIAG, name));
+		if (r.state === "unreadable") throw new Error(`${name}: ${r.message}`);
+		return r.state === "read" ? r.data : "";
 	},
-	startTask: (name) =>
-		runCommand(process.env.WFC_SCHTASKS || SCHTASKS, ["/Run", "/TN", name])
-			.error,
+	startTask: runTask,
 	sleep: sleepSync,
 	hold: () => setLaunchHold(HOLDER, "hold"),
 	release: () => setLaunchHold(HOLDER, "release"),
 	scan: (dump, combining) =>
 		attempt(() => {
-			const wsl = runCommand("wslpath", ["-u", dump]);
-			if (wsl.error !== null) throw new Error(wsl.error);
 			const { scanAndReport } = require("./pfn-scan.js");
-			scanAndReport(wsl.out, { combining, post: REPORT_ISSUE });
+			scanAndReport(toWsl(dump), { combining, post: REPORT_ISSUE });
 		}),
 	post: (body) =>
 		attempt(() =>

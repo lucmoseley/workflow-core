@@ -24,6 +24,7 @@ const {
 	WSL_EXE,
 	readInstalled,
 } = require("./lib/wsl-version.js");
+const { runTask } = require("./lib/windows-host.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const TASK = "WSL Disk Compaction";
@@ -137,11 +138,7 @@ const runPorts = {
 	release: () => setLaunchHold(HOLDER, "release"),
 	sleep: sleepSync,
 	trim: () => runCommand(wslExe(), ["-u", "root", "fstrim", "-av"]),
-	startTask: () =>
-		runCommand(
-			process.env.WFC_SCHTASKS || "/mnt/c/Windows/System32/schtasks.exe",
-			["/Run", "/TN", TASK],
-		).error,
+	startTask: () => runTask(TASK),
 	say: (line) => writeFd(2, `${new Date(now()).toISOString()} ${line}\n`),
 };
 
