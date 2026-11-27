@@ -81,6 +81,14 @@
 			"host": "suite-background-host.js"
 		},
 		{
+			"name": "guard-test-timeout",
+			"core": "test-timeout.js",
+			"tools": "Bash",
+			"failure": "open",
+			"tree": "session",
+			"if": ["Bash(*npm *)", "Bash(*run-vitest.js*)"]
+		},
+		{
 			"name": "guard-sweep-fire",
 			"core": "sweep-fire.js",
 			"tools": "Bash",

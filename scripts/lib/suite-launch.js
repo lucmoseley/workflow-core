@@ -248,6 +248,19 @@ function isQueueable(words, ports) {
 	return false;
 }
 
+/**
+ * @param {Launch} launch
+ * @param {string[]} words
+ */
+const isSnapshotLaunch = (launch, words) => {
+	const { QUEUE_FLAG, isSnapshotArgv } = require("./launch-route.js");
+	return (
+		(launch.kind === "wrapper" || launch.kind === "npm-vitest") &&
+		!words.includes(QUEUE_FLAG) &&
+		isSnapshotArgv(words)
+	);
+};
+
 /** @param {string | null} body */
 const hasWrapperCall = (body) => !body || body.includes("run-vitest.js");
 
@@ -302,4 +315,5 @@ module.exports = {
 	pytestPathWords,
 	TEST_PY_WORKERS,
 	buildIsWrapperScript,
+	isSnapshotLaunch,
 };
