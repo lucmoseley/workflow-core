@@ -553,7 +553,36 @@ describe("JavaScript a Python file holds in a string (#5793)", () => {
 			'URL = "https://example.com/a"',
 			"",
 		].join("\n");
-		expect(tags(src, "py")).toEqual(["COMMENT@1", "COMMENT@4"]);
+		expect(tags(src, "py")).toEqual(["COMMENT@1", "COMMENT@3"]);
+	});
+
+	it("reads annotated, augmented and attribute targets, and script keywords", () => {
+		const src = [
+			'WATCH_JS: str = "// a stray note"',
+			'A_JS += "// a stray note"',
+			'self.B_JS = "// a stray note"',
+			'page.evaluate(expression="// a stray note")',
+			'page.evaluate("1;", arg="// not code a page runs")',
+			'C_JS = load("// not code a page runs")',
+			"",
+		].join("\n");
+		expect(tags(src, "py")).toEqual([
+			"COMMENT@1",
+			"COMMENT@2",
+			"COMMENT@3",
+			"COMMENT@4",
+		]);
+	});
+
+	it("decodes a plain string's escapes and joins its pieces before the scan", () => {
+		const src = [
+			'X_JS = "// #5793\\nconst a = 1; // a stray note"',
+			"page.evaluate('a = \\'it\\' // a stray note')",
+			'Y_JS = ("const s = \'a" "b // not a comment\';")',
+			"Z_JS = r\"const b = '\\n'; // #5793\"",
+			"",
+		].join("\n");
+		expect(tags(src, "py")).toEqual(["COMMENT@1", "COMMENT@2"]);
 	});
 });
 

@@ -21,6 +21,7 @@ const {
  *   jsdoc: boolean,
  *   next: string,
  *   owner: string,
+ *   lang?: Lang,
  * }} Unit
  * @typedef {{ tool: string, rules: string[] }} Suppression
  * @typedef {{
@@ -345,10 +346,22 @@ function pyStringEnd(source, i) {
 }
 
 /** @param {string} raw */
+function pyStringBody(raw) {
+	const m = /^([A-Za-z]*)("""|'''|"|')/.exec(raw);
+	const quote = m?.[2] ?? "";
+	const open = m?.[0].length ?? 0;
+	const closed =
+		quote !== "" && raw.length >= open + quote.length && raw.endsWith(quote);
+	return {
+		prefix: (m?.[1] ?? "").toLowerCase(),
+		open,
+		body: raw.slice(open, closed ? raw.length - quote.length : raw.length),
+	};
+}
+
+/** @param {string} raw */
 function pyStringLines(raw) {
-	const body = raw
-		.replace(/^[A-Za-z]*("""|'''|"|')/, "")
-		.replace(/("""|'''|"|')$/, "");
+	const { body } = pyStringBody(raw);
 	const lines = body.split("\n");
 	const indents = lines
 		.slice(1)
@@ -390,10 +403,11 @@ function pyUnits(source) {
 			owners.set(first.start, src.slice(head.start, tail.end));
 	});
 	raws.sort((a, b) => a.start - b.start);
-	return foldUnits(src, raws, (raw) => ({
+	const own = foldUnits(src, raws, (raw) => ({
 		jsdoc: false,
 		owner: owners.get(raw.start) ?? "",
 	}));
+	return [...own, ...heldJsUnits(src, logical)];
 }
 
 const PAGE_JS_CALLS = new Set([
@@ -404,48 +418,201 @@ const PAGE_JS_CALLS = new Set([
 	"wait_for_function",
 ]);
 
+const PAGE_JS_KEYWORDS = new Set(["expression", "script"]);
+
+/** @type {Record<string, string>} */
+const PY_ESCAPES = { n: "\n", t: "\t", "\\": "\\", "'": "'", '"': '"' };
+
+/**
+ * @param {string} source
+ * @param {PyToken[]} tokens
+ */
+const tokenText = (source, tokens) => (/** @type {number} */ i) => {
+	const t = tokens[i];
+	return t ? source.slice(t.start, t.end) : "";
+};
+
+/**
+ * @param {(i: number) => string} text
+ * @param {PyToken[]} tokens
+ * @returns {number}
+ */
+function jsAssignmentStart(text, tokens) {
+	let a = 0;
+	while (tokens[a]?.kind === "word" || text(a) === ".") a++;
+	if (a === 0 || !/_JS$/.test(text(a - 1))) return -1;
+	const op = text(a);
+	if (op === "=" && text(a + 1) !== "=") return a + 1;
+	if (op === "+" && text(a + 1) === "=") return a + 2;
+	if (op !== ":") return -1;
+	for (let i = a + 1; i < tokens.length; i++)
+		if (text(i) === "=" && text(i + 1) !== "=") return i + 1;
+	return -1;
+}
+
+/**
+ * @param {(i: number) => string} text
+ * @param {PyToken[]} tokens
+ * @param {number} k
+ */
+function openBrackets(text, tokens, k) {
+	/** @type {number[]} */
+	const opens = [];
+	for (let i = 0; i < k; i++) {
+		if (tokens[i]?.kind !== "op") continue;
+		if ("([{".includes(text(i))) opens.push(i);
+		else if (")]}".includes(text(i))) opens.pop();
+	}
+	return opens;
+}
+
+/**
+ * @param {(i: number) => string} text
+ * @param {PyToken[]} tokens
+ * @param {number} o
+ * @param {number} k
+ */
+function isScriptArgument(text, tokens, o, k) {
+	let arg = o + 1;
+	let depth = 0;
+	for (let i = o + 1; i < k; i++) {
+		const c = text(i);
+		if ("([{".includes(c)) depth++;
+		else if (")]}".includes(c)) depth--;
+		else if (c === "," && depth === 0) arg = i + 1;
+	}
+	if (tokens[arg]?.kind === "word" && text(arg + 1) === "=")
+		return PAGE_JS_KEYWORDS.has(text(arg));
+	return arg === o + 1;
+}
+
 /**
  * @param {string} source
  * @param {PyToken[]} tokens
  * @param {number} k
  */
-function holdsJs(source, tokens, k) {
-	const text = (/** @type {PyToken | undefined} */ t) =>
-		t ? source.slice(t.start, t.end) : "";
-	if (k >= 2 && /_JS$/.test(text(tokens[0])) && text(tokens[1]) === "=")
-		return true;
-	let j = k - 1;
-	while (j >= 0 && tokens[j]?.kind === "str") j--;
-	return text(tokens[j]) === "(" && PAGE_JS_CALLS.has(text(tokens[j - 1]));
+function isPageJs(source, tokens, k) {
+	const text = tokenText(source, tokens);
+	const opens = openBrackets(text, tokens, k);
+	const isCall = (/** @type {number} */ i) =>
+		text(i) === "(" && tokens[i - 1]?.kind === "word";
+	const rhs = jsAssignmentStart(text, tokens);
+	if (rhs >= 0 && k >= rhs) return !opens.some((at) => at >= rhs && isCall(at));
+	const o = opens.at(-1);
+	return (
+		o !== undefined &&
+		isCall(o) &&
+		PAGE_JS_CALLS.has(text(o - 1)) &&
+		isScriptArgument(text, tokens, o, k)
+	);
 }
 
 /**
- * @param {string} source
+ * @param {string} part
+ * @param {boolean} raw
+ * @param {boolean} fmt
+ */
+function decodePyLine(part, raw, fmt) {
+	let continued = false;
+	const escaped = raw
+		? part
+		: part.replace(/\\(.?)/g, (_, /** @type {string} */ e) => {
+				if (e === "") continued = true;
+				return e === "" ? "" : (PY_ESCAPES[e] ?? `\\${e}`);
+			});
+	const text = fmt
+		? escaped.replace(/\{\{|\}\}/g, (m) => m.charAt(0))
+		: escaped;
+	return { text, continued };
+}
+
+/**
+ * @param {string} body
+ * @param {string} prefix
+ * @param {number} line
+ * @returns {{ text: string, lines: number[] }}
+ */
+function decodePyBody(body, prefix, line) {
+	const raw = prefix.includes("r");
+	const fmt = prefix.includes("f");
+	let text = "";
+	/** @type {number[]} */
+	const lines = [];
+	let joined = false;
+	body.split("\n").forEach((part, n) => {
+		const d = decodePyLine(part, raw, fmt);
+		if (!joined) {
+			if (n > 0) text += "\n";
+			lines.push(line + n);
+		}
+		const split = d.text.split("\n");
+		for (let x = 1; x < split.length; x++) lines.push(line + n);
+		text += d.text;
+		joined = d.continued;
+	});
+	return { text, lines };
+}
+
+/**
+ * @param {string} src
+ * @param {number[]} starts
+ * @param {PyToken[]} pieces
+ */
+function joinPieces(src, starts, pieces) {
+	let text = "";
+	/** @type {number[]} */
+	let lines = [];
+	for (const t of pieces) {
+		const { prefix, open, body } = pyStringBody(src.slice(t.start, t.end));
+		const d = decodePyBody(body, prefix, lineAt(starts, t.start + open));
+		text += d.text;
+		lines = lines.length === 0 ? d.lines : [...lines, ...d.lines.slice(1)];
+	}
+	return { text, lines };
+}
+
+/**
+ * @param {(i: number) => string} text
+ * @param {PyToken[]} tokens
+ * @param {number} k
+ * @returns {number}
+ */
+function pieceRunEnd(text, tokens, k) {
+	let end = k;
+	for (;;) {
+		if (tokens[end + 1]?.kind === "str") end++;
+		else if (text(end + 1) === "+" && tokens[end + 2]?.kind === "str") end += 2;
+		else return end;
+	}
+}
+
+/**
+ * @param {string} src
+ * @param {PyToken[][]} logical
  * @returns {Unit[]}
  */
-function pyEmbeddedJsUnits(source) {
-	const src = blankShebang(source);
+function heldJsUnits(src, logical) {
 	const starts = lineStarts(src);
-	return scanPy(src).logical.flatMap((tokens) =>
-		tokens.flatMap((t, k) => {
-			if (t.kind !== "str" || !holdsJs(src, tokens, k)) return [];
-			const raw = src.slice(t.start, t.end);
-			const open = /^[A-Za-z]*("""|'''|"|')/.exec(raw);
-			if (!open?.[1]) return [];
-			const body = raw.slice(
-				open[0].length,
-				raw.endsWith(open[1]) && raw.length >= open[0].length + open[1].length
-					? raw.length - open[1].length
-					: raw.length,
-			);
-			const shift = lineAt(starts, t.start + open[0].length) - 1;
-			return jsUnits(body).map((u) => ({
-				...u,
-				line: u.line + shift,
-				top: false,
-			}));
-		}),
-	);
+	/** @type {Unit[]} */
+	const out = [];
+	for (const tokens of logical) {
+		const text = tokenText(src, tokens);
+		for (let k = 0; k < tokens.length; k++) {
+			if (tokens[k]?.kind !== "str" || !isPageJs(src, tokens, k)) continue;
+			const end = pieceRunEnd(text, tokens, k);
+			const pieces = tokens.slice(k, end + 1).filter((t) => t.kind === "str");
+			k = end;
+			const { text: js, lines } = joinPieces(src, starts, pieces);
+			for (const u of jsUnits(js))
+				out.push({
+					...u,
+					line: lines[u.line - 1] ?? u.line,
+					top: false,
+					lang: "js",
+				});
+		}
+	}
+	return out;
 }
 
 const HEREDOC = /<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|\\?([\w.-]+))/y;
@@ -1011,18 +1178,28 @@ function judgeUnit(unit, facts) {
  * @returns {Breach[]}
  */
 function judgeSource(source, facts) {
-	const own = UNITS[facts.lang](source).flatMap((u) => judgeUnit(u, facts));
-	if (facts.lang !== "py") return own;
-	const asJs = {
-		...facts,
-		lang: /** @type {Lang} */ ("js"),
-		checkJs: false,
-		exports: new Set(),
-		shipped: false,
-	};
-	const held = pyEmbeddedJsUnits(source).flatMap((u) => judgeUnit(u, asJs));
-	return [...own, ...held].sort((a, b) => a.line - b.line);
+	return UNITS[facts.lang](source)
+		.flatMap((u) =>
+			judgeUnit(
+				u,
+				u.lang && u.lang !== facts.lang ? heldFacts(facts, u.lang) : facts,
+			),
+		)
+		.sort((a, b) => a.line - b.line);
 }
+
+/**
+ * @param {FileFacts} facts
+ * @param {Lang} lang
+ * @returns {FileFacts}
+ */
+const heldFacts = (facts, lang) => ({
+	...facts,
+	lang,
+	checkJs: false,
+	exports: new Set(),
+	shipped: false,
+});
 
 /** @param {string[]} names */
 function depsPattern(names) {
