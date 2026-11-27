@@ -852,7 +852,10 @@ const NODE_SCRIPT = /\.[mc]?js$/;
 const isScript = (/** @type {string} */ p) =>
 	NODE_SCRIPT.test(p) || /\.sh$/.test(p) || /^\.husky\/[^/.]+$/.test(p);
 
-const SOURCE_LINE = /(?<=^|\|\||&&|;)[ \t]*(?:source|\.)[ \t]+(["'$./\w].*)$/gm;
+const SOURCE_LINE = /(?<=^|\|\||&&|;)[ \t]*(?:source|\.)[ \t]+(\S.*)$/gm;
+
+// guess: the hooks' deepest chain, lib through here, is two hops; four leaves slack (#5817)
+const MAX_ASSIGN_HOPS = 4;
 
 const TOPLEVEL = /^"?\$\(git rev-parse --show-toplevel\b[^)]*\)"?(?:\s|$)/;
 
@@ -882,24 +885,57 @@ function expandDefaults(s) {
 }
 
 /**
+ * @param {string} s
+ * @returns {string}
+ */
+function unquotedDefaults(s) {
+	return expandDefaults(s).replace(/["']/g, "");
+}
+
+/**
+ * @param {string} prefix
+ * @returns {boolean}
+ */
+function opensCommand(prefix) {
+	/** @type {string | null} */
+	let quote = null;
+	for (let i = 0; i < prefix.length; i++) {
+		const c = prefix[i];
+		if (quote) {
+			if (c === quote) quote = null;
+		} else if (c === '"' || c === "'") quote = c;
+		else if (c === "#" && (i === 0 || /\s/.test(prefix[i - 1] ?? "")))
+			return false;
+	}
+	return quote === null;
+}
+
+/**
  * @param {string} sourced
  * @param {string} source
  * @returns {string}
  */
 function expandSourced(sourced, source) {
-	let arg = expandDefaults(sourced).replace(/["']/g, "");
-	for (let hop = 0; hop < 4; hop++) {
+	let arg = unquotedDefaults(sourced);
+	for (let hop = 0; hop < MAX_ASSIGN_HOPS; hop++) {
 		const lead =
 			/^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/.exec(arg);
 		const name = lead?.[1] ?? lead?.[2];
 		if (!lead || !name) break;
-		const assign = new RegExp(`^[ \\t]*${name}=(\\S.*)$`, "gm");
+		const bare = escapeRe(name);
+		const assign = new RegExp(
+			`^[ \\t]*(?:(?:export|local|readonly|declare)[ \\t]+)?${bare}=(\\S.*)$`,
+			"gm",
+		);
 		const [only, ...more] = source.matchAll(assign);
 		if (!only || more.length > 0) break;
+		const elsewhere = new RegExp(
+			`\\b${bare}=|\\b(?:for|read)\\b[^\\n]*\\b${bare}\\b`,
+			"g",
+		);
+		if ([...source.matchAll(elsewhere)].length > 1) break;
 		const raw = requiredGroup(only, 1, assign);
-		const value = TOPLEVEL.test(raw)
-			? "."
-			: expandDefaults(raw).replace(/["']/g, "");
+		const value = TOPLEVEL.test(raw) ? "." : unquotedDefaults(raw);
 		arg = value + arg.slice(lead[0].length);
 	}
 	return arg;
@@ -952,6 +988,8 @@ function scriptDeps(file, source, tracked) {
 	const warnings = [];
 	const dir = file.split("/").slice(0, -1);
 	for (const m of source.matchAll(SOURCE_LINE)) {
+		const lineStart = source.lastIndexOf("\n", m.index - 1) + 1;
+		if (!opensCommand(source.slice(lineStart, m.index))) continue;
 		const sourced = requiredGroup(m, 1, SOURCE_LINE);
 		const { tail, candidates } = sourceCandidates(sourced, dir);
 		const expanded = sourceCandidates(expandSourced(sourced, source), dir);
