@@ -3065,6 +3065,14 @@ describe("charges a part-suite no more than its repo's measured whole-run peak (
 		}
 	});
 
+	it("reads no tripwire for an unsized run offered no cap", () => {
+		const { notes } = run({
+			partCapMb: undefined,
+			tripwire: { cause: "tripped" },
+		});
+		expect(notes[0]).toMatchObject({ cause: "unsized" });
+	});
+
 	it("keeps the ladder's rung where it is the lower", () => {
 		const { verdict, notes } = run({ ps: psWith(0), mb: 1000 });
 		expect(verdict?.gate).toMatchObject({

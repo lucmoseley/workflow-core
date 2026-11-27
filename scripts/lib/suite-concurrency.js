@@ -640,16 +640,14 @@ function waitLeverOf(running) {
 function peakChargeOf(st, s) {
 	if (!s.partKind) return { cause: "untold" };
 	const bucket = s.files === null ? null : bucketOf(s.files);
-	const wire = st.ctx.tripwire();
-	if (wire) {
-		if (wire.cause !== "tripped")
-			st.ctx.log(
-				`${wire.cause === "journal-unread" ? "earlyoom's journal" : "the peak tripwire's state"} unreadable — a part-suite judged on the ladder (#5366)`,
-				wire.why,
-			);
-		return { cause: wire.cause, ...(bucket === null ? {} : { bucket }) };
-	}
-	if (s.files === null || bucket === null) return { cause: "unsized" };
+	if (s.files === null || bucket === null)
+		return (
+			(st.ctx.partCapMb === undefined ? null : wireCause(st)) ?? {
+				cause: "unsized",
+			}
+		);
+	const wire = wireCause(st);
+	if (wire) return { ...wire, bucket };
 	const read = st.ctx.partPeak({ kind: s.partKind, files: s.files });
 	if ("why" in read) {
 		st.ctx.log(
@@ -659,6 +657,21 @@ function peakChargeOf(st, s) {
 		return { cause: "unread", bucket };
 	}
 	return read.peak ?? { cause: "thin", bucket };
+}
+
+/**
+ * @param {St} st
+ * @returns {{ cause: import("./peak-tripwire.js").Fallback["cause"] } | null}
+ */
+function wireCause(st) {
+	const wire = st.ctx.tripwire();
+	if (!wire) return null;
+	if (wire.cause !== "tripped")
+		st.ctx.log(
+			`${wire.cause === "journal-unread" ? "earlyoom's journal" : "the peak tripwire's state"} unreadable — a part-suite judged on the ladder (#5366)`,
+			wire.why,
+		);
+	return { cause: wire.cause };
 }
 
 /**
