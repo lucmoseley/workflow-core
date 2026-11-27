@@ -13,6 +13,16 @@ const { countUnlandedCommits, readLanded } = require("./lib/landed-edit.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const { readProcesses } = require("./lib/checkout-repo.js");
 const { isDepLink, unlinkDepLink } = require("./lib/dep-store.js");
+const {
+	deletedPaths,
+	judgeContents,
+	judgeRegistration,
+	judgedFiles,
+	pairBlobs,
+	parseStatus,
+	presentEntries,
+	refusedMessage,
+} = require("./lib/orphaned-worktree-refusals.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const {
 	buildWaysOut,
@@ -24,111 +34,22 @@ const { procRoot } = require("./lib/proc-root.js");
 const { recordOwnAct } = require("./lib/own-acts.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { shellQuote } = require("./lib/sh-quote.js");
-const {
-	worktreeHolding,
-	worktreeLabel,
-	worktreeOwners,
-} = require("./lib/session-worktrees.js");
+const { worktreeLabel, worktreeOwners } = require("./lib/session-worktrees.js");
 const { releaseOwnClaim, scriptIo } = require("./lib/tracker-ops.js");
 const { readLinkedWorktrees } = require("./lib/worktree-paths.js");
 
 const LANDED_REF = VERIFIED_REF;
 const USAGE = `usage: node ${scriptPath("remove-orphaned-worktree.js")} <dir>`;
-// guess: enough to recognise a worktree by, #5806
-const NAMED_MAX = 5;
 
 /** @type {import("./lib/tracker-ops.js").ScriptIo} */
 const io = scriptIo("remove-orphaned-worktree");
 
-/** @param {string[]} paths */
-const nameSome = (paths) =>
-	`${paths.slice(0, NAMED_MAX).join(", ")}${paths.length > NAMED_MAX ? `, and ${String(paths.length - NAMED_MAX)} more` : ""}`;
-
-/**
- * @param {string} root
- * @param {string} target
- * @returns {string|null}
- */
-function whyNotRegistered(root, target) {
-	const linked = readLinkedWorktrees(root);
-	if (linked === null)
-		return `git would not list the worktrees of ${root}, so ${target} cannot be confirmed as one`;
-	if (target === deref(root))
-		return `${target} is the main checkout, not a linked worktree`;
-	if (!linked.includes(target))
-		return `${target} is not a registered worktree of ${root}`;
-	if (worktreeHolding(deref(process.cwd()), [target]))
-		return `${target} holds this command's own working directory`;
-	return null;
-}
-
 /**
  * @param {string} target
  * @returns {string|null}
  */
-function whyCommitsOff(target) {
-	if (!gitRead(["rev-parse", "--verify", "-q", LANDED_REF], target))
-		return `${LANDED_REF} does not resolve, so whether its HEAD has landed is unknown`;
-	const n = countUnlandedCommits(target, LANDED_REF);
-	if (n === null) return `git would not count its commits off ${LANDED_REF}`;
-	return n > 0
-		? `its HEAD has ${String(n)} commit(s) not on ${LANDED_REF}`
-		: null;
-}
-
-/**
- * @typedef {{rel: string, head: string, index: string, gone: boolean}} Entry
- * @typedef {{tracked: Entry[], deleted: string[], untracked: string[],
- *   odd: string[]}} Status
- */
-
-// https://git-scm.com/docs/git-status#_porcelain_format_version_2
-const CHANGED =
-	/^[12] (\S\S) (\S{4}) \S+ \S+ \S+ ([0-9a-f]+) ([0-9a-f]+) (?:[RC]\d+ )?(.+)$/;
-
-/**
- * @param {string} out
- * @returns {Status}
- */
-function parseStatus(out) {
-	/** @type {Status} */
-	const acc = { tracked: [], deleted: [], untracked: [], odd: [] };
-	const fields = out.split("\0").filter(Boolean);
-	const it = fields[Symbol.iterator]();
-	for (const f of it) {
-		if (f.startsWith("? ")) {
-			acc.untracked.push(f.slice(2));
-			continue;
-		}
-		const m = CHANGED.exec(f);
-		if (!m || requiredGroup(m, 2, CHANGED).startsWith("S")) {
-			acc.odd.push(f);
-			continue;
-		}
-		if (f.startsWith("2 ")) {
-			const { value: from, done } = it.next();
-			if (done) {
-				acc.odd.push(f);
-				continue;
-			}
-			acc.deleted.push(from);
-		}
-		acc.tracked.push({
-			rel: requiredGroup(m, 5, CHANGED),
-			head: requiredGroup(m, 3, CHANGED),
-			index: requiredGroup(m, 4, CHANGED),
-			gone: requiredGroup(m, 1, CHANGED).includes("D"),
-		});
-	}
-	return acc;
-}
-
-/**
- * @param {string} target
- * @returns {Status|null}
- */
-function readStatus(target) {
-	const out = gitRead(
+function readRawStatus(target) {
+	return gitRead(
 		[
 			"--no-optional-locks",
 			"status",
@@ -141,108 +62,101 @@ function readStatus(target) {
 		],
 		target,
 	);
-	return out === null ? null : parseStatus(out);
 }
 
 /**
  * @param {string} target
- * @param {Status} status
- * @returns {Promise<string[]>}
+ * @param {string} spec
  */
-async function whyDirtUnlanded(target, status) {
-	/** @type {string[]} */
-	const why = [];
-	if (status.odd.length > 0)
-		why.push(
-			`unmerged or submodule path(s) it cannot judge: ${nameSome(status.odd)}`,
-		);
-	const deleted = [
-		...status.deleted,
-		...status.tracked.filter((e) => e.gone).map((e) => e.rel),
-	];
-	const kept = deleted.filter((rel) =>
-		gitRead(["rev-parse", "--verify", "-q", `${LANDED_REF}:${rel}`], target),
+const resolves = (target, spec) =>
+	Boolean(gitRead(["rev-parse", "--verify", "-q", spec], target));
+
+/**
+ * @param {string} target
+ * @param {import("./lib/orphaned-worktree-refusals.js").Entry[]} present
+ * @returns {string[]|null}
+ */
+function hashFiles(target, present) {
+	if (present.length === 0) return [];
+	const ids = gitRead(
+		["hash-object", "--stdin-paths"],
+		target,
+		undefined,
+		`${present.map((e) => e.rel).join("\n")}\n`,
 	);
-	if (kept.length > 0)
-		why.push(
-			`deleted here but still on ${LANDED_REF}: ${nameSome(kept.sort())}`,
-		);
-	const present = status.tracked.filter((e) => !e.gone);
-	const ids =
-		present.length > 0
-			? gitRead(
-					["hash-object", "--stdin-paths"],
-					target,
-					undefined,
-					`${present.map((e) => e.rel).join("\n")}\n`,
-				)
-			: "";
-	if (ids === null) return [...why, "git would not hash its working files"];
-	const blobs = ids.split("\n");
-	const files = present.map((e, i) => ({ ...e, blob: blobs[i] ?? "" }));
-	const staged = files.filter((f) => f.index !== f.head && f.index !== f.blob);
-	if (staged.length > 0)
-		why.push(
-			`staged content that is neither HEAD's nor the working copy's: ${nameSome(staged.map((f) => f.rel))}`,
-		);
-	const judged = files.filter((f) => f.blob !== f.head);
-	const landed = await readLanded(target, judged, LANDED_REF);
-	const unlanded = judged.filter((_, i) => !landed[i]).map((f) => f.rel);
-	if (unlanded.length > 0)
-		why.push(
-			`changed and not on ${LANDED_REF}'s history: ${nameSome(unlanded)}`,
-		);
-	if (status.untracked.length > 0)
-		why.push(`untracked file(s) not gitignored: ${nameSome(status.untracked)}`);
-	return why;
+	return ids === null ? null : ids.split("\n");
 }
 
-/**
- * @param {string} target
- * @returns {string|null}
- */
-function whyProcessInside(target) {
-	let procs;
+/** @returns {import("./lib/orphaned-worktree-refusals.js").Processes} */
+function readProcessCwds() {
 	try {
-		procs = readProcesses(procRoot());
+		return readProcesses(procRoot()).map((p) => ({
+			pid: p.pid,
+			cwd: deref(p.cwd),
+		}));
 	} catch (e) {
-		return `the process table would not read (${caught(e).message}), so a process inside it cannot be ruled out`;
+		return { error: caught(e).message };
 	}
-	const inside = procs
-		.filter(
-			(p) =>
-				p.pid !== String(process.pid) &&
-				worktreeHolding(deref(p.cwd), [target]) !== null,
-		)
-		.map((p) => p.pid);
-	return inside.length > 0
-		? `process(es) ${nameSome(inside)} have their working directory inside it`
-		: null;
 }
 
 /**
  * @param {string} target
- * @returns {string|null}
+ * @returns {import("./lib/orphaned-worktree-refusals.js").Ownership}
  */
-function whyLiveOwner(target) {
+function readOwnership(target) {
 	const live = readOwnedByLive();
-	if (!live.owned)
-		return `${live.why}, so whether a live session owns it is unknown`;
-	const held = [...live.owned].filter(
-		(key) => deref(treeOfKey(key)) === target,
-	);
-	if (held.length > 0)
-		return `a live session claims, observed or wrote ${String(held.length)} path(s) in it`;
+	if (!live.owned) return { why: live.why };
 	const { owners, unread } = worktreeOwners([target], live.listed);
-	if (unread.length > 0)
-		return `job state ${nameSome(unread)} would not read, so its owner is unknown`;
-	const owner = owners.get(target);
-	if (
-		owner &&
-		isListedLive(owner.sessionId, live.listed.ids, live.listed.terminal)
-	)
-		return `live session ${owner.sessionId}${owner.name ? ` (${owner.name})` : ""} owns it`;
-	return null;
+	const found = owners.get(target);
+	return {
+		ownedTrees: [...live.owned].map((key) => deref(treeOfKey(key))),
+		unread,
+		owner: found
+			? {
+					sessionId: found.sessionId,
+					name: found.name,
+					live: isListedLive(
+						found.sessionId,
+						live.listed.ids,
+						live.listed.terminal,
+					),
+				}
+			: null,
+	};
+}
+
+/**
+ * @param {string} target
+ * @returns {Promise<import("./lib/orphaned-worktree-refusals.js").Contents>}
+ */
+async function readContents(target) {
+	const raw = readRawStatus(target);
+	const status = raw === null ? null : parseStatus(raw);
+	const blobs = status ? hashFiles(target, presentEntries(status)) : [];
+	const files =
+		status && blobs ? pairBlobs(presentEntries(status), blobs) : null;
+	const refResolves = resolves(target, LANDED_REF);
+	return {
+		target,
+		ref: LANDED_REF,
+		refResolves,
+		unlandedCommits: refResolves
+			? countUnlandedCommits(target, LANDED_REF)
+			: null,
+		status,
+		keptOnRef: status
+			? deletedPaths(status).filter((rel) =>
+					resolves(target, `${LANDED_REF}:${rel}`),
+				)
+			: [],
+		files,
+		landed: files
+			? (await readLanded(target, judgedFiles(files), LANDED_REF)).map(Boolean)
+			: [],
+		processes: readProcessCwds(),
+		selfPid: String(process.pid),
+		ownership: readOwnership(target),
+	};
 }
 
 /**
@@ -251,18 +165,14 @@ function whyLiveOwner(target) {
  * @returns {Promise<string[]>}
  */
 async function readRefusals(root, target) {
-	const unregistered = whyNotRegistered(root, target);
+	const unregistered = judgeRegistration({
+		root: deref(root),
+		target,
+		cwd: deref(process.cwd()),
+		linked: readLinkedWorktrees(root),
+	});
 	if (unregistered) return [unregistered];
-	const status = readStatus(target);
-	const why = [
-		whyCommitsOff(target),
-		...(status === null
-			? ["git status would not list its paths"]
-			: await whyDirtUnlanded(target, status)),
-		whyProcessInside(target),
-		whyLiveOwner(target),
-	];
-	return why.filter((w) => w !== null);
+	return judgeContents(await readContents(target));
 }
 
 /**
@@ -349,8 +259,10 @@ async function main() {
 	const refusals = await readRefusals(root, target);
 	if (refusals.length > 0)
 		io.fail(
-			`refused, nothing removed — ${target}:\n${refusals.map((r) => `  - ${r}`).join("\n")}\n` +
-				`Clear each, or read what it holds (git -C ${shellQuote(target)} status) and land it: ${buildWaysOut(target).land}`,
+			refusedMessage(target, refusals, {
+				status: `git -C ${shellQuote(target)} status`,
+				land: buildWaysOut(target).land,
+			}),
 			1,
 		);
 	const common = gitCommonDir(root, { timeout: GIT_TIMEOUT_MS });

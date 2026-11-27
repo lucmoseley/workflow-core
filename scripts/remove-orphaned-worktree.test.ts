@@ -195,11 +195,6 @@ describe("remove-orphaned-worktree", () => {
 		expect(fs.existsSync(stray)).toBe(true);
 	});
 
-	it("refuses the main checkout", async () => {
-		landOnOrigin();
-		expectRefused(await remove(sb.repo), "is the main checkout");
-	});
-
 	it("refuses the worktree its caller stands in", async () => {
 		landOnOrigin();
 		const wt = worktree();
@@ -254,28 +249,6 @@ describe("remove-orphaned-worktree", () => {
 		);
 	});
 
-	it("refuses staged content that is neither HEAD's nor the working copy's", async () => {
-		landOnOrigin({ "a.txt": "worktree edit\n" });
-		const wt = worktree();
-		fs.writeFileSync(path.join(wt, "a.txt"), "staged only\n");
-		git(wt, "add", "a.txt");
-		fs.writeFileSync(path.join(wt, "a.txt"), "worktree edit\n");
-
-		expectRefused(await remove(wt), "staged content that is neither HEAD's");
-	});
-
-	it("refuses an untracked file that is not gitignored", async () => {
-		landOnOrigin();
-		const wt = worktree();
-		fs.writeFileSync(path.join(wt, "new.txt"), "never added\n");
-
-		expectRefused(
-			await remove(wt),
-			"untracked file(s) not gitignored: new.txt",
-		);
-		expect(fs.existsSync(path.join(wt, "new.txt"))).toBe(true);
-	});
-
 	it("refuses untracked files in a node_modules that is no dependency link", async () => {
 		landOnOrigin();
 		const wt = worktree();
@@ -295,30 +268,6 @@ describe("remove-orphaned-worktree", () => {
 
 		expect((await remove(wt)).status).toBe(0);
 		expect(fs.existsSync(path.join(store, "dep.js"))).toBe(true);
-	});
-
-	it("refuses an unmerged path it cannot judge", async () => {
-		landOnOrigin();
-		const wt = worktree();
-		fs.writeFileSync(path.join(wt, "a.txt"), "ours\n");
-		git(wt, "commit", "-qam", "ours");
-		git(wt, "checkout", "-q", "-b", "theirs", "HEAD~1");
-		fs.writeFileSync(path.join(wt, "a.txt"), "theirs\n");
-		git(wt, "commit", "-qam", "theirs");
-		git(wt, "merge", "-q", "@{-1}");
-
-		expectRefused(await remove(wt), "unmerged or submodule path(s)");
-	});
-
-	it("refuses where which sessions are live will not read", async () => {
-		landOnOrigin();
-		const wt = worktree();
-		vi.stubEnv("WFC_CLAUDE_BIN", path.join(sb.dir, "bin", "absent"));
-
-		expectRefused(
-			await remove(wt),
-			"whether a live session owns it is unknown",
-		);
 	});
 
 	it("refuses while a live process has its working directory inside it", async () => {
@@ -374,17 +323,5 @@ describe("remove-orphaned-worktree", () => {
 
 		expect((await remove(wt)).status).toBe(0);
 		expect(registered(wt)).toBe(false);
-	});
-
-	it("names every failing condition at once", async () => {
-		landOnOrigin({ "c.txt": "other\n" });
-		const wt = worktree();
-		fs.writeFileSync(path.join(wt, "a.txt"), "never landed\n");
-		fs.writeFileSync(path.join(wt, "new.txt"), "never added\n");
-
-		const r = await remove(wt);
-
-		expectRefused(r, "changed and not on origin/main's history: a.txt");
-		expect(r.out).toContain("untracked file(s) not gitignored: new.txt");
 	});
 });
