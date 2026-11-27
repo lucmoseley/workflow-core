@@ -385,14 +385,27 @@ describe("check-comment-policy", () => {
 			expect(run("--against", "HEAD").status).toBe(0);
 		});
 
-		it("reads a nested requirements file the commit carries (#5792)", () => {
+		it("reads a nested requirements file the commit carries, and charges a dependency none lists (#5792)", () => {
 			write("plugin/requirements.txt", "playwright==1.48\n");
+			write(
+				"scripts/a.py",
+				"x = 1\n# `playwright` has no public getter\ny = 2\n# `Pillow` rejects it\nz = 3\n",
+			);
+			git("add", "-A");
+			const r = run("--against", "HEAD");
+			expect(r.out).not.toContain("scripts/a.py:2");
+			expect(r.out).toContain("scripts/a.py:4");
+			expect(r.status).toBe(1);
+		});
+
+		it("takes no untracked requirements file as a manifest (#5792)", () => {
 			write(
 				"scripts/a.py",
 				"x = 1\n# `playwright` has no public getter\ny = 2\n",
 			);
 			git("add", "-A");
-			expect(run("--against", "HEAD").status).toBe(0);
+			write("requirements.txt", "playwright==1.48\n");
+			expect(run("--against", "HEAD").out).toContain("scripts/a.py:2");
 		});
 
 		it("reads the commentMarkers of the config the commit carries, not the worktree's (#5709; pair: refuses each refused shape)", () => {

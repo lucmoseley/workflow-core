@@ -207,7 +207,7 @@ function readExcludedOrBroken(ctx, paths, read) {
 /**
  * @param {Ctx} ctx
  * @param {string} root
- * @returns {{ files: string[], read: import("./lib/git-attributes.js").AttributeRead | null }}
+ * @returns {{ files: string[], attributesFrom: import("./lib/git-attributes.js").AttributeRead | null }}
  */
 function readCandidateFiles(ctx, root) {
 	const walked = ctx.has("--root");
@@ -215,14 +215,14 @@ function readCandidateFiles(ctx, root) {
 	if (ctx.side)
 		return {
 			files,
-			read: ctx.sideRev ? { from: { rev: ctx.sideRev } } : null,
+			attributesFrom: ctx.sideRev ? { from: { rev: ctx.sideRev } } : null,
 		};
 	const env = walked ? withoutGitRedirects() : undefined;
-	if (!isInWorkTree(ctx, root, env)) return { files, read: null };
+	if (!isInWorkTree(ctx, root, env)) return { files, attributesFrom: null };
 	const tracked = walked ? new Set(readTrackedPaths(ctx, root, env)) : null;
 	return {
 		files: tracked ? files.filter((p) => tracked.has(p)) : files,
-		read: { from: walked ? "worktree" : "index", cwd: root, env },
+		attributesFrom: { from: walked ? "worktree" : "index", cwd: root, env },
 	};
 }
 
@@ -352,13 +352,16 @@ const SPEC = {
 		const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 		if (!fs.existsSync(root))
 			ctx.broken(`the root ${root} does not exist — nothing was read`);
-		const { files, read } = readCandidateFiles(ctx, root);
+		const { files, attributesFrom } = readCandidateFiles(ctx, root);
 		const tree = readTreeFacts(root, files);
 		for (const w of tree.configWarnings) ctx.say(`WARN ${w}`);
 		/** @type {Map<string, number>} */
 		const perFile = new Map();
 		let judged = 0;
-		for (const rel of read ? withoutExcluded(ctx, files, read) : files) {
+		const kept = attributesFrom
+			? withoutExcluded(ctx, files, attributesFrom)
+			: files;
+		for (const rel of kept) {
 			const text = readOr(root, rel);
 			const lang = text === null ? null : langOf(rel, text);
 			if (text === null || lang === null) continue;
