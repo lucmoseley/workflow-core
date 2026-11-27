@@ -82,10 +82,10 @@ const CASES: { key: Key; name: string; check: (a: Answer) => void }[] = [
 	},
 	{
 		key: "unread",
-		name: "a .writemem of an unreadable range exits 0 but writes short",
+		name: "a .writemem of an unreadable range exits 0, leaving an empty file",
 		check(a) {
 			expect(a.status).toBe(0);
-			expect(a.written).not.toBe(a.asked);
+			expect(a.written).toBe(0);
 		},
 	},
 	{
