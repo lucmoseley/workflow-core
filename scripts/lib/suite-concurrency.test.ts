@@ -3060,6 +3060,7 @@ describe("charges a part-suite no more than its repo's measured whole-run peak (
 		]) {
 			const { verdict, notes } = run({ tripwire });
 			expect(outcome(verdict)).toBe("deny");
+			expect(notes[0]).toMatchObject({ cause: tripwire.cause });
 			expect(notes[0]).not.toHaveProperty("capMb");
 		}
 	});

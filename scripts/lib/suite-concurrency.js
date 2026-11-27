@@ -640,7 +640,6 @@ function waitLeverOf(running) {
 function peakChargeOf(st, s) {
 	if (!s.partKind) return { cause: "untold" };
 	const bucket = s.files === null ? null : bucketOf(s.files);
-	if (s.files === null || bucket === null) return { cause: "unsized" };
 	const wire = st.ctx.tripwire();
 	if (wire) {
 		if (wire.cause !== "tripped")
@@ -648,8 +647,9 @@ function peakChargeOf(st, s) {
 				`${wire.cause === "journal-unread" ? "earlyoom's journal" : "the peak tripwire's state"} unreadable — a part-suite judged on the ladder (#5366)`,
 				wire.why,
 			);
-		return { cause: wire.cause, bucket };
+		return { cause: wire.cause, ...(bucket === null ? {} : { bucket }) };
 	}
+	if (s.files === null || bucket === null) return { cause: "unsized" };
 	const read = st.ctx.partPeak({ kind: s.partKind, files: s.files });
 	if ("why" in read) {
 		st.ctx.log(
@@ -665,18 +665,16 @@ function peakChargeOf(st, s) {
  * @param {St} st
  * @param {Subject} s
  * @param {number} busy
- * @param {{ ladder: boolean, peakRead: import("./part-suite-peak.js").PartPeak | null }} charge
+ * @param {{ unsized: boolean, peakRead: import("./part-suite-peak.js").PartPeak | null }} charge
  * @returns {{ rung: number, capMb: number | null }}
  */
-function rungOf(st, s, busy, { ladder, peakRead }) {
+function rungOf(st, s, busy, { unsized, peakRead }) {
 	if (peakRead) return { rung: rungMb(peakRead.p99Mb), capMb: null };
 	const rung = suiteRungMb(busy + s.workers);
 	const cap = st.ctx.partCapMb;
-	if (!ladder || cap === undefined || rungMb(cap) >= rung)
-		return { rung, capMb: null };
-	return st.ctx.tripwire()
-		? { rung, capMb: null }
-		: { rung: rungMb(cap), capMb: cap };
+	return unsized && cap !== undefined && rungMb(cap) < rung
+		? { rung: rungMb(cap), capMb: cap }
+		: { rung, capMb: null };
 }
 
 /**
@@ -690,7 +688,7 @@ function chargeOf(st, s, { busy, queued }) {
 	const charge = test && s.vitestPart ? peakChargeOf(st, s) : null;
 	const peakRead = charge && "p99Mb" in charge ? charge : null;
 	const { rung, capMb } = rungOf(st, s, busy, {
-		ladder: charge !== null && "cause" in charge,
+		unsized: charge !== null && "cause" in charge && charge.cause === "unsized",
 		peakRead,
 	});
 	const climbScope = test && !peakRead && capMb === null ? "off-rung" : "all";

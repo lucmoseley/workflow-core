@@ -1141,13 +1141,13 @@ function gateDenies(
 			...reads,
 		}),
 	weight = null,
-	{ climbMb = 0, ...asked } = {},
+	{ climbMb = 0, ...gateReads } = {},
 ) {
 	const command = ["npm run test", ...(words.length > 0 ? ["--"] : [])]
 		.concat(words.map(shellQuote))
 		.join(" ");
 	try {
-		return read(command, weight, climbMb, asked);
+		return read(command, weight, climbMb, gateReads);
 	} catch (err) {
 		ignoreFailure(() =>
 			require("./arbiter-core.js").logError(
