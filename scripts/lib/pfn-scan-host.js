@@ -7,7 +7,7 @@ const { curlBin } = require("./registry-call.js");
 const { runCommand } = require("./run-command.js");
 const scan = require("./pfn-scan.js");
 const { writeFd } = require("./write-fd.js");
-const { POWERSHELL, toWin } = require("./windows-host.js");
+const { powershellBin, toWin } = require("./windows-host.js");
 
 const diagDir = () => process.env.WFC_DIAG_DIR || "/mnt/c/diag/5743";
 const SYMBOL_SERVER = "https://msdl.microsoft.com/download/symbols";
@@ -23,24 +23,16 @@ const MAX_OUT = 64 * 1024 * 1024;
 function runCdb(dump, symbolDir, commands, work) {
 	const file = path.join(work, "commands.txt");
 	fs.writeFileSync(file, `${commands.join("\r\n")}\r\n`);
-	const z = toWin(dump);
-	const y = toWin(symbolDir);
-	const cf = toWin(file);
-	const fake = process.env.WFC_CDB;
-	const r = fake
-		? spawnSync(fake, ["-z", z, "-y", y, "-cf", cf], {
-				encoding: "utf8",
-				maxBuffer: MAX_OUT,
-			})
-		: spawnSync(
-				POWERSHELL,
-				[
-					"-NoProfile",
-					"-Command",
-					`& cdbARM64.exe -z '${z}' -y '${y}' -cf '${cf}'`,
-				],
-				{ encoding: "utf8", maxBuffer: MAX_OUT },
-			);
+	const cdb = process.env.WFC_CDB || "cdbARM64.exe";
+	const r = spawnSync(
+		powershellBin(),
+		[
+			"-NoProfile",
+			"-Command",
+			`& '${cdb}' -z '${toWin(dump)}' -y '${toWin(symbolDir)}' -cf '${toWin(file)}'`,
+		],
+		{ encoding: "utf8", maxBuffer: MAX_OUT },
+	);
 	if (r.error) throw new Error(`cdb: ${r.error.message}`);
 	if (r.status !== 0)
 		throw new Error(`cdb exited ${r.status}: ${(r.stderr ?? "").trim()}`);

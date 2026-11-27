@@ -4,7 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeFakeBin } from "./lib/fake-bin";
+import { writePowershell } from "./lib/powershell-fake";
 import { systemctlCalls, writeSystemctl } from "./lib/systemctl-fake";
+import { writeWslpath } from "./lib/wslpath-fake";
 
 const SCRIPT = path.resolve(__dirname, "install-combining-trial.sh");
 const PS1 = path.resolve(__dirname, "win-interop-watchdog/page-combining.ps1");
@@ -12,12 +15,6 @@ const PS1 = path.resolve(__dirname, "win-interop-watchdog/page-combining.ps1");
 let dir: string;
 const at = (...p: string[]) => path.join(dir, ...p);
 const unit = (name: string) => at("config/systemd/user", name);
-
-const writeBin = (name: string, body: string) => {
-	const bin = at("bin", name);
-	fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-	return bin;
-};
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "install-combining-trial-"));
@@ -31,8 +28,8 @@ beforeEach(() => {
 	fs.writeFileSync(at("repo/scripts/combining-trial.js"), "");
 	spawnSync("git", ["init", "-q", at("repo")]);
 	fs.writeFileSync(at("diag/on-bugcheck.ps1"), "");
-	writeBin("gh", "exit 0");
-	writeBin("curl", "exit 0");
+	writeFakeBin(at("bin"), "gh", "exit 0");
+	writeFakeBin(at("bin"), "curl", "exit 0");
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -47,10 +44,8 @@ const install = (...argv: string[]) => {
 				HOME: dir,
 				XDG_CONFIG_HOME: at("config"),
 				WFC_SYSTEMCTL: writeSystemctl(at("systemctl")),
-				WFC_POWERSHELL: writeBin(
-					"powershell.exe",
-					`echo "$*" >>"${at("ps-calls")}"\ncase "$*" in *-Check*) echo ok;; esac`,
-				),
+				WFC_POWERSHELL: writePowershell(at("bin")).bin,
+				WFC_WSLPATH: writeWslpath(at("bin")),
 				WFC_DIAG_DIR: at("diag"),
 			},
 		},
@@ -88,6 +83,9 @@ describe("install-combining-trial", () => {
 			`ExecStart=${process.execPath} ${fs.realpathSync(at("repo"))}/scripts/combining-trial.js morning`,
 		);
 		expect(fs.existsSync(at("diag/page-combining.ps1"))).toBe(true);
+		expect(fs.readFileSync(at("bin/powershell-calls"), "utf8")).toBe(
+			`-NoProfile -ExecutionPolicy Bypass -File ${at("diag")}\\page-combining.ps1 -Check\n`,
+		);
 		expect(r.systemctl.join("\n")).toContain(
 			"--user enable --now combining-trial-night.timer combining-trial-morning.timer",
 		);

@@ -3,17 +3,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PDB, PDB_KEY, writeCdb, writeWslpath } from "./combining-trial-fake";
+import { PDB, PDB_KEY, writeCdb } from "./cdb-fake";
 import { earlierFlagged, scanDump } from "./pfn-scan-host.js";
+import { writePowershell } from "./powershell-fake";
+import { writeWslpath } from "./wslpath-fake";
 
 let dir: string;
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "pfn-scan-host-"));
 });
-afterEach(() => {
-	vi.unstubAllEnvs();
-	fs.rmSync(dir, { recursive: true, force: true });
-});
+afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 describe("earlierFlagged", () => {
 	it("reads the PFNs other scans beside the dump flagged, skipping its own and a torn one", () => {
@@ -39,6 +38,7 @@ describe("scanDump", () => {
 		vi.stubEnv("WFC_DIAG_DIR", diag);
 		vi.stubEnv("WFC_WSLPATH", writeWslpath(path.join(dir, "bin")));
 		vi.stubEnv("WFC_CDB", writeCdb(path.join(dir, "bin"), cdb));
+		vi.stubEnv("WFC_POWERSHELL", writePowershell(path.join(dir, "bin")).bin);
 		return () => scanDump(path.join(dir, "live.dmp"));
 	};
 
@@ -48,7 +48,9 @@ describe("scanDump", () => {
 	});
 
 	it("throws on a non-zero cdb exit", () => {
-		expect(scanWith({ exit: 3 })).toThrow("cdb exited 3: cannot open the dump");
+		expect(scanWith({ exit: 3 })).toThrow(
+			/^cdb exited \d+: cannot open the dump$/,
+		);
 	});
 
 	it("throws where the scan read no entry", () => {

@@ -1,6 +1,5 @@
 /* #5805 */
-import fs from "node:fs";
-import path from "node:path";
+import { writeFakeBin } from "./fake-bin";
 import { shellQuote } from "./sh-quote.js";
 
 const GUID = "C88DB430-8AC3-0EFB-3914-4EB14B6C6330";
@@ -33,18 +32,11 @@ ffffc883\`1dab4610  00000000\`00000100 00000000\`00000010
 @@end
 `;
 
-const write = (dir: string, name: string, body: string) => {
-	fs.mkdirSync(dir, { recursive: true });
-	const bin = path.join(dir, name);
-	fs.writeFileSync(bin, `#!/bin/bash\n${body}\n`, { mode: 0o755 });
-	return bin;
-};
-
 export function writeCdb(
 	dir: string,
 	{ exit = 0, reads = true }: { exit?: number; reads?: boolean } = {},
 ): string {
-	return write(
+	return writeFakeBin(
 		dir,
 		"cdb",
 		`cf=""
@@ -58,30 +50,5 @@ else
     if [ "$cmd" = .writemem ]; then head -c $((16#\${len#L?0x})) /dev/zero >"$file"; fi
   done < <(tr -d '\\r' <"$cf")
 fi`,
-	);
-}
-
-export const writeWslpath = (dir: string) =>
-	write(dir, "wslpath", `printf '%s' "$2"`);
-
-export function writeSchtasks(
-	dir: string,
-	diag: string,
-	tasks: Record<string, { log: string; line: string }>,
-): string {
-	const arms = Object.entries(tasks)
-		.map(
-			([task, { log, line }]) =>
-				`  ${shellQuote(task)}) printf '%s\\r\\n' ${shellQuote(`2026-11-28T07:00:00 ${line}`)} >>${shellQuote(path.join(diag, log))};;`,
-		)
-		.join("\n");
-	return write(
-		dir,
-		"schtasks.exe",
-		`case "$3" in
-${arms}
-  *) echo "ERROR: The system cannot find the file specified." >&2; exit 1;;
-esac
-echo 'SUCCESS: Attempted to run the scheduled task.'`,
 	);
 }

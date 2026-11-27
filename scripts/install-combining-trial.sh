@@ -33,7 +33,7 @@ SRC_DIR="${BASH_SOURCE[0]%/*}"
 SRC_DIR="$(cd "$SRC_DIR" && pwd)"
 PS="${WFC_POWERSHELL:-/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe}"
 DIAG_WSL="${WFC_DIAG_DIR:-/mnt/c/diag/5743}"
-DIAG_WIN='C:\diag\5743'
+DIAG_WIN="$("${WFC_WSLPATH:-wslpath}" -w "$DIAG_WSL")"
 [[ -x "$PS" ]] || {
   echo "error: Windows PowerShell not reachable - is this WSL with interop enabled?" >&2
   exit 1

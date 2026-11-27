@@ -3,15 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	PDB,
-	PDB_KEY,
-	writeCdb,
-	writeSchtasks,
-	writeWslpath,
-} from "./lib/combining-trial-fake";
+import { PDB, PDB_KEY, writeCdb } from "./lib/cdb-fake";
+import { readText } from "./lib/file-read.js";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
+import { writePowershell } from "./lib/powershell-fake";
 import { runInProcess } from "./lib/run-in-process.js";
+import { writeSchtasks } from "./lib/schtasks-fake";
+import { writeWslpath } from "./lib/wslpath-fake";
 
 const TRIAL = path.join(__dirname, "combining-trial.js");
 const SCAN = path.join(__dirname, "pfn-scan.js");
@@ -24,8 +22,10 @@ let dir: string;
 let diag: string;
 let bin: string;
 let dump: string;
-const read = (file: string) =>
-	fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+const read = (file: string) => {
+	const r = readText(file);
+	return r.state === "read" ? r.data : "";
+};
 const ghCalls = () =>
 	read(path.join(dir, "gh.log")).split("\n").filter(Boolean);
 const ghBodies = () => read(path.join(dir, "gh.bodies"));
@@ -65,6 +65,7 @@ const envWith = ({
 		{ log: path.join(dir, "gh.log"), bodies: path.join(dir, "gh.bodies") },
 	).gh,
 	WFC_CDB: writeCdb(bin, cdb),
+	WFC_POWERSHELL: writePowershell(bin).bin,
 	WFC_SCHTASKS: writeSchtasks(bin, diag, tasks),
 });
 
