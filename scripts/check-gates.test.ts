@@ -266,21 +266,21 @@ describe("a marker that gates nothing", () => {
 });
 
 describe("what it never does", () => {
-	it("makes no gh call beyond reading the issues list", () => {
+	it("makes no gh call beyond reading the open and watch:closed lists", () => {
 		run(
 			[],
-			stubGh([
-				{ number: 7, body: gatedOn("echo 41") },
-				{ number: 8, body: gatedOn("false") },
-			]),
+			stubGh(
+				[
+					{ number: 7, body: gatedOn("echo 41") },
+					{ number: 8, body: gatedOn("false") },
+				],
+				{ closed: [{ number: 9, body: gatedOn("echo 9"), labels: WATCH }] },
+			),
 		);
 		const calls = fs.readFileSync(ghLog, "utf8").trim().split("\n");
-		expect(calls.length).toBeGreaterThan(0);
-		for (const call of calls) {
+		expect(calls).toHaveLength(2);
+		for (const call of calls)
 			expect(call).toMatch(/^api repos\/\{owner\}\/\{repo\}\/issues -X GET /);
-			for (const forbidden of ["issue edit", "issue close", "issue reopen"])
-				expect(call).not.toContain(forbidden);
-		}
 	});
 
 	it("ignores pull requests, which share the number space", () => {
@@ -393,6 +393,7 @@ describe("modes", () => {
 				body: gatedOn("echo eight"),
 			}),
 		);
+		expect(r.status).toBe(0);
 		expect(r.out).toContain("#8  [READING] (closed watch)");
 		expect(r.out).toContain("eight");
 	});
@@ -460,6 +461,7 @@ describe("a closed watch (#5801)", () => {
 				],
 			}),
 		);
+		expect(r.status).toBe(0);
 		const env = JSON.parse(r.out);
 		expect(
 			env.rows.map((x: { number: number; closed: boolean }) => [
@@ -482,6 +484,7 @@ describe("a closed watch (#5801)", () => {
 				closed: [{ number: 4093, body: gatedOn("false"), labels: WATCH }],
 			}),
 		);
+		expect(r.status).toBe(0);
 		expect(r.out).toContain("#4093  [DEAD] (closed watch)");
 	});
 
@@ -492,7 +495,10 @@ describe("a closed watch (#5801)", () => {
 				closed: [{ number: 3425, body: "No marker.", labels: WATCH }],
 			}),
 		);
+		expect(r.status).toBe(0);
 		expect(r.out).toContain("#3425  [GATES-NOTHING] (closed watch)");
-		expect(r.out).toContain("nothing can reopen it");
+		expect(r.out).toContain(
+			"nothing can reopen it: add one, or remove the label",
+		);
 	});
 });

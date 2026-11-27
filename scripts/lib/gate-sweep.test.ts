@@ -557,7 +557,7 @@ describe("the decision core launches a queued judgement", () => {
 				root: WFC,
 				issues: [3996],
 				prompt: expect.stringMatching(
-					/^\/triage 3996 .*met, reopen it \(gh issue reopen 3996\), remove its watch:closed label/,
+					/^\/triage 3996 .*judge it unclaimed.*met, reopen it \(gh issue reopen 3996\), claim it, remove its watch:closed label/,
 				),
 				gate: true,
 			}),
@@ -571,7 +571,7 @@ describe("a closed watch (#5801)", () => {
 			envelope([{ ...row(4093, "unmet: no leap"), closed: true }]),
 		);
 		expect(store.pending[0].prompt).toMatch(
-			/closed under watch:closed\. .*met, reopen it \(gh issue reopen 4093\), remove its watch:closed label, comment the evidence and strip the marker; unmet, leave the gate and end\./,
+			/closed under watch:closed, so judge it unclaimed: claim-issue\.js refuses a closed issue\. .*met, reopen it \(gh issue reopen 4093\), claim it, remove its watch:closed label, comment the evidence and strip the marker; unmet, leave the gate and end\./,
 		);
 	});
 
@@ -580,7 +580,7 @@ describe("a closed watch (#5801)", () => {
 			envelope([{ ...row(4093, "", "DEAD"), closed: true }]),
 		);
 		expect(store.pending[0].prompt).toMatch(
-			/^\/triage 4093 — its Gated on: check reads DEAD, the issue closed under watch:closed\. .*met, reopen it .*; unmet, rewrite the check:/,
+			/^\/triage 4093 — its Gated on: check reads DEAD, the issue closed under watch:closed, so judge it unclaimed.*met, reopen it .*; unmet, rewrite the check:/,
 		);
 	});
 

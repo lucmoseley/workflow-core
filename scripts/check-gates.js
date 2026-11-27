@@ -17,7 +17,7 @@ const {
 	runCheckCommand,
 	unwrap,
 } = require("./lib/gate-check.js");
-const { WATCH_CLOSED_LABEL, isClosedWatch } = require("./lib/watch-label.js");
+const { WATCH_CLOSED_LABEL } = require("./lib/watch-label.js");
 
 // guess, lucmoseley/mantahostels#2656
 const ROW_LINES = 3;
@@ -25,6 +25,12 @@ const ROW_LINES = 3;
 const ROW_WIDTH = 160;
 
 const REPO_ROOT = worktreeRoot();
+
+/** @param {{labels?: ({name: string}|string)[]}} iss */
+const carriesWatchLabel = (iss) =>
+	(iss.labels ?? []).some(
+		(l) => (typeof l === "string" ? l : l.name) === WATCH_CLOSED_LABEL,
+	);
 
 /** @param {string} reading */
 function buildRowLines(reading) {
@@ -68,7 +74,7 @@ function gateRow(iss, timeoutMs) {
 		return {
 			...base,
 			state: "GATES-NOTHING",
-			reading: `carries \`${WATCH_CLOSED_LABEL}\` but no \`**Gated on:**\` line, so nothing can reopen it`,
+			reading: `carries \`${WATCH_CLOSED_LABEL}\` but no \`**Gated on:**\` line, so nothing can reopen it: add one, or remove the label`,
 		};
 	}
 
@@ -188,7 +194,7 @@ function readIssues(only) {
 		if (/HTTP (404|410)/.test(parseErrLine(e))) return [];
 		throw e;
 	}
-	return iss.state === "open" || isClosedWatch(iss) ? [iss] : [];
+	return iss.state === "open" || carriesWatchLabel(iss) ? [iss] : [];
 }
 
 runCheck({

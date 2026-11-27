@@ -345,6 +345,20 @@ describe("a closed issue", () => {
 		expect(r.stderr).toContain("#530 is closed");
 		expect(readRecords()).toEqual([]);
 		expect(readGhCalls()).toEqual(["api repos/acme/widgets/issues/530"]);
+		expect(r.stderr).not.toContain("closed watch");
+	});
+
+	it("tells a closed watch's judge to judge it unclaimed and reopen before claiming (#5801)", () => {
+		serve(
+			"repos/acme/widgets/issues/530",
+			issue({ state: "closed", labels: [{ name: "watch:closed" }] }),
+		);
+		const r = run();
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			"It is a closed watch: judge its gate unclaimed, and on met reopen it (gh issue reopen 530) before claiming.",
+		);
+		expect(readRecords()).toEqual([]);
 	});
 });
 

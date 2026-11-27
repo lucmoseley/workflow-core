@@ -38,31 +38,31 @@ const RELEASE_DUE_TIMEOUT_MS = 2 * 60 * 1000;
 /** @param {string} root @param {number} n */
 const keyOf = (root, n) => `${root}#${n}`;
 
-/** @param {number} n @param {boolean} closed */
-const buildMetAct = (n, closed) =>
+/** @typedef {{number: number, closed: boolean}} PromptRow */
+
+/** @param {PromptRow} row */
+const buildMetAct = ({ number, closed }) =>
 	closed
-		? `reopen it (gh issue reopen ${n}), remove its ${WATCH_CLOSED_LABEL} label, comment the evidence and strip the marker`
+		? `reopen it (gh issue reopen ${number}), claim it, remove its ${WATCH_CLOSED_LABEL} label, comment the evidence and strip the marker`
 		: "comment the evidence and strip the marker";
 
-/** @param {boolean} closed */
-const buildWatchNote = (closed) =>
-	closed ? `, the issue closed under ${WATCH_CLOSED_LABEL}` : "";
+/** @param {PromptRow} row */
+const buildWatchNote = ({ closed }) =>
+	closed
+		? `, the issue closed under ${WATCH_CLOSED_LABEL}, so judge it unclaimed: claim-issue.js refuses a closed issue`
+		: "";
 
-/** @param {number} n @param {boolean} closed */
-const buildJudgementPrompt = (n, closed) =>
-	`/triage ${n} — its Gated on: reading changed${buildWatchNote(closed)}. Run check-gates.js --issue ${n} and judge the reading against the condition: met, ${buildMetAct(n, closed)}; unmet, leave the gate and end.`;
+/** @param {PromptRow} row */
+const buildJudgementPrompt = (row) =>
+	`/triage ${row.number} — its Gated on: reading changed${buildWatchNote(row)}. Run check-gates.js --issue ${row.number} and judge the reading against the condition: met, ${buildMetAct(row)}; unmet, leave the gate and end.`;
 
-/**
- * @param {number} n
- * @param {boolean} closed
- * @param {string} state
- */
-const buildRepairPrompt = (n, closed, state) =>
-	`/triage ${n} — its Gated on: check reads ${state}${buildWatchNote(closed)}. Judge the condition by hand: met, ${buildMetAct(n, closed)}; unmet, rewrite the check: so that it prints what it saw (for example ${PRINTING_FIX}), run check-gates.js --issue ${n} to see it print, and end.`;
+/** @param {PromptRow} row @param {string} state */
+const buildRepairPrompt = (row, state) =>
+	`/triage ${row.number} — its Gated on: check reads ${state}${buildWatchNote(row)}. Judge the condition by hand: met, ${buildMetAct(row)}; unmet, rewrite the check: so that it prints what it saw (for example ${PRINTING_FIX}), run check-gates.js --issue ${row.number} to see it print, and end.`;
 
-/** @param {number} n @param {boolean} closed */
-const buildUncheckedPrompt = (n, closed) =>
-	`/triage ${n} — its Gated on: line carries no check:${buildWatchNote(closed)}. Judge the condition by hand: met, ${buildMetAct(n, closed)}; unmet, leave the gate, and where one command could test the condition add it as the line's check: segment so that it prints what it saw (for example ${PRINTING_FIX}), run check-gates.js --issue ${n} to see it print, and end.`;
+/** @param {PromptRow} row */
+const buildUncheckedPrompt = (row) =>
+	`/triage ${row.number} — its Gated on: line carries no check:${buildWatchNote(row)}. Judge the condition by hand: met, ${buildMetAct(row)}; unmet, leave the gate, and where one command could test the condition add it as the line's check: segment so that it prints what it saw (for example ${PRINTING_FIX}), run check-gates.js --issue ${row.number} to see it print, and end.`;
 
 /** @param {string} state */
 const buildStateSeen = (state) => `[${state}]`;
@@ -130,9 +130,9 @@ function sweptRows(stdout) {
 	if (!Array.isArray(rows)) return null;
 	return rows.flatMap(
 		/** @returns {SweptRow[]} */ (r) => {
-			const { number, state, reading } = recordOf(r);
+			const { number, state, reading, closed: raw } = recordOf(r);
 			if (typeof number !== "number") return [];
-			const closed = recordOf(r).closed === true;
+			const closed = raw === true;
 			if (typeof state === "string" && REPAIR_STATES.has(state))
 				return [
 					{
@@ -164,11 +164,11 @@ function sweptRows(stdout) {
 function buildPrompt(row) {
 	switch (row.kind) {
 		case "reading":
-			return buildJudgementPrompt(row.number, row.closed);
+			return buildJudgementPrompt(row);
 		case "repair":
-			return buildRepairPrompt(row.number, row.closed, row.state);
+			return buildRepairPrompt(row, row.state);
 		case "unchecked":
-			return buildUncheckedPrompt(row.number, row.closed);
+			return buildUncheckedPrompt(row);
 	}
 }
 
