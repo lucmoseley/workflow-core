@@ -2,10 +2,7 @@
 # combining-on nights of #5743's Driver Verifier pass (#5804). Each act needs
 # an administrator, so each runs as an elevated task that
 # scripts/combining-trial.js, on the WSL side, starts unelevated with
-# `schtasks /Run`:
-#   'Verifier 5743 combining on'  -Action On
-#   'Verifier 5743 combining off' -Action Off
-#   'Verifier 5743 live dump'     -Action Dump
+# `schtasks /Run`; $tasks names them.
 # -Register registers the three and makes on-bugcheck.ps1 turn combining off
 # on the boot after a crash. It must be run elevated, which
 # scripts/install-combining-trial.sh asks for. -Check, unelevated, prints
@@ -149,7 +146,6 @@ switch ($Action) {
 			Write-Line $dumpsLog "ok path=$path bytes=$bytes"
 		}
 		catch {
-			# combining-trial.js waits on a dumps.log line; a throw must still write one.
 			Write-Line $dumpsLog "failed step=script error=$($_.Exception.Message -replace '\s+', '_')"
 			exit 1
 		}
