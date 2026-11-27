@@ -21,7 +21,7 @@ const { readLinkedWorktrees } = require("./lib/worktree-paths.js");
 const { readDistinctFromHint } = require("./lib/similar-titles.js");
 const {
 	readLanded,
-	readLandedCopy,
+	readLevelClear,
 	countUnlandedCommits,
 } = require("./lib/landed-edit.js");
 const {
@@ -617,7 +617,7 @@ function whyLandedUnfiled(f) {
 	return f.worktree === null &&
 		o?.landed === "blob" &&
 		isCutOver(f.tree) &&
-		readLandedCopy(f.tree, o.path, LANDED_REF) !== null
+		readLevelClear(f.tree, o.path, LANDED_REF) !== null
 		? `not filed: landed byte for byte on ${LANDED_REF}; clears at the next level`
 		: null;
 }
@@ -681,7 +681,7 @@ function fileUnderMarker(f, taken, { root, now }) {
  * @param {string} root
  * @returns {Promise<string|null>}
  */
-async function judgeInTime(f, root) {
+async function whyNotFiledNow(f, root) {
 	if (hasFilingTime()) await judgeLanded(f, root);
 	if (!hasFilingTime()) return "not filed yet: this run's time is spent";
 	return whyLandedUnfiled(f);
@@ -710,9 +710,9 @@ async function fileOrphans(filings, { root, now }) {
 			record(f, "not filed yet: this run's filing cap is spent");
 			continue;
 		}
-		const late = await judgeInTime(f, root);
-		if (late !== null) {
-			record(f, late);
+		const skip = await whyNotFiledNow(f, root);
+		if (skip !== null) {
+			record(f, skip);
 			continue;
 		}
 		const { taken, status } = takeFiling(dir, f);

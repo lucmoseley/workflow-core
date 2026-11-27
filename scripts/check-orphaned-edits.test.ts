@@ -954,6 +954,16 @@ describe("a cut-over main checkout's dirt", () => {
 		expect(readFilings()).toEqual([]);
 	});
 
+	it("files a landed edit on a path origin/main has since put back, which levelling never clears (#5808)", async () => {
+		landOnOrigin({ "a.txt": "landed\n" }, { "a.txt": "seed\n" });
+		dirty("a.txt", 0, "landed\n");
+
+		await cutOver();
+
+		const [filing] = readFilings();
+		expect(filing?.body).toContain("- On `origin/main`: yes, byte for byte");
+	});
+
 	it("files an edit origin/main never held, naming it unlanded (#5808)", async () => {
 		landOnOrigin({ "a.txt": "landed\n" });
 		dirty("a.txt", 0, "landed and more\n");

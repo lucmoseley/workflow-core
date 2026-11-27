@@ -14,7 +14,7 @@ const {
 	SHORT_SHA,
 } = require("./git.js");
 const { isCutOver, LANDING_REF } = require("./cutover.js");
-const { readLandedCopy } = require("./landed-edit.js");
+const { literal, readLevelClear } = require("./landed-edit.js");
 const { QUEUE_TRACKING_GLOB } = require("./landing-refs.js");
 const { pidLock } = require("./pid-lock.js");
 const { buildCheckoutEnv, startDetachedIn } = require("./refill-repos.js");
@@ -238,42 +238,55 @@ function installIfStale(root, work, install) {
  * @param {string} root
  * @param {string} rel
  * @param {boolean} inHead
- * @returns {boolean}
  */
-function tryDiscard(root, rel, inHead) {
-	try {
-		if (inHead)
-			git(
-				["restore", "--source=HEAD", "--staged", "--worktree", "--", rel],
-				root,
-			);
-		else {
-			git(["rm", "-q", "--cached", "--ignore-unmatch", "--", rel], root);
-			fs.rmSync(path.join(root, rel));
-		}
-		return true;
-	} catch {
-		return false;
+function discard(root, rel, inHead) {
+	if (inHead) {
+		git(
+			[
+				"restore",
+				"--source=HEAD",
+				"--staged",
+				"--worktree",
+				"--",
+				literal(rel),
+			],
+			root,
+		);
+		return;
 	}
+	fs.rmSync(path.join(root, rel));
+	git(["rm", "-q", "--cached", "--ignore-unmatch", "--", literal(rel)], root);
 }
 
 /**
  * @param {string} root
  * @param {string[]} edited
- * @returns {{ discarded: Discard[], kept: string[] }}
+ * @returns {{ discarded: Discard[], kept: string[], failed: string | null }}
  */
 function discardLanded(root, edited) {
+	const judged = edited.map((rel) => ({
+		rel,
+		clear: readLevelClear(root, rel, UPSTREAM),
+	}));
+	const kept = judged.filter((j) => j.clear === null).map((j) => j.rel);
+	if (kept.length > 0) return { discarded: [], kept, failed: null };
 	/** @type {Discard[]} */
 	const discarded = [];
-	/** @type {string[]} */
-	const kept = [];
-	for (const rel of edited) {
-		const copy = readLandedCopy(root, rel, UPSTREAM);
-		if (copy && tryDiscard(root, rel, readHeadBlob(root, rel) !== null))
-			discarded.push(copy);
-		else kept.push(rel);
+	for (const { clear } of judged) {
+		if (clear === null) continue;
+		const { inHead, ...copy } = clear;
+		try {
+			discard(root, copy.path, inHead);
+		} catch (err) {
+			return {
+				discarded,
+				kept,
+				failed: `discarding ${copy.path}, which ${UPSTREAM} holds byte for byte, failed: ${(caught(err).stderr || caught(err).message).trim()}`,
+			};
+		}
+		discarded.push(copy);
 	}
-	return { discarded, kept };
+	return { discarded, kept, failed: null };
 }
 
 /**
@@ -340,6 +353,8 @@ function advance(root, { now, lastWriter, work, listSessions }, discarded) {
 		[...readEditedPaths(root)].filter((p) => clashes(p, changed)).sort(),
 	);
 	discarded.push(...cleared.discarded);
+	if (cleared.failed !== null)
+		return { status: "refused", from, to, why: cleared.failed };
 	const blockers = cleared.kept.map((p) =>
 		readBlocker(root, p, now, lastWriter),
 	);

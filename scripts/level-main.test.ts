@@ -277,7 +277,7 @@ it("discards an edit already landed byte for byte on origin/main, then fast-forw
 	);
 });
 
-it("keeps refusing over an edit origin/main never held, discarding only the landed one beside it (#5808)", () => {
+it("keeps refusing over an edit origin/main never held, discarding not even the landed one beside it (#5808)", () => {
 	const before = git(main, "rev-parse", "HEAD");
 	landOnMain({ "hook.js": "v2\n", "staged.js": "y\n" });
 	fs.writeFileSync(path.join(main, "hook.js"), "v2-and-more\n");
@@ -289,12 +289,27 @@ it("keeps refusing over an edit origin/main never held, discarding only the land
 		status: "blocked",
 		blockers: [{ path: "hook.js" }],
 	});
-	expect(o.discarded.map((d) => d.path)).toEqual(["staged.js"]);
+	expect(o.discarded).toEqual([]);
 	expect(git(main, "rev-parse", "HEAD")).toBe(before);
 	expect(fs.readFileSync(path.join(main, "hook.js"), "utf8")).toBe(
 		"v2-and-more\n",
 	);
-	expect(git(main, "status", "--porcelain", "-uall")).toBe("M hook.js");
+	expect(git(main, "status", "--porcelain", "-uall")).toBe(
+		"M hook.js\n M staged.js",
+	);
+});
+
+it("discards a landed path named like a glob, and no path the glob would match (#5808)", () => {
+	const green = landOnMain({ "h*.js": "star\n", "hook.js": "v2\n" });
+	fs.writeFileSync(path.join(main, "h*.js"), "star\n");
+	git(main, "add", "h*.js");
+
+	const o = pass();
+
+	expect(o).toMatchObject({ status: "forwarded", head: green });
+	expect(o.discarded.map((d) => d.path)).toEqual(["h*.js"]);
+	expect(git(main, "status", "--porcelain", "-uall")).toBe("");
+	expect(fs.readFileSync(path.join(main, "hook.js"), "utf8")).toBe("v2\n");
 });
 
 it("keeps refusing where the index holds a version of its own beside a landed working copy (#5808)", () => {
