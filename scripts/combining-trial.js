@@ -11,13 +11,12 @@ const {
 	runMorning,
 	runNight,
 } = require("./lib/combining-trial.js");
-const { gh } = require("./lib/gh.js");
 const { setLaunchHold } = require("./lib/launch-hold.js");
 const { DIAG } = require("./lib/pfn-scan-host.js");
+const { postComment, scanAndReport } = require("./pfn-scan.js");
 const { readText } = require("./lib/file-read.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
-const { requireKey } = require("./lib/workflow-core-config.js");
 const { runTask, toWsl } = require("./lib/windows-host.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -48,24 +47,9 @@ const ports = {
 	release: () => setLaunchHold(HOLDER, "release"),
 	scan: (dump, combining) =>
 		attempt(() => {
-			const { scanAndReport } = require("./pfn-scan.js");
 			scanAndReport(toWsl(dump), { combining, post: REPORT_ISSUE });
 		}),
-	post: (body) =>
-		attempt(() =>
-			gh(
-				[
-					"issue",
-					"comment",
-					String(REPORT_ISSUE),
-					"--repo",
-					requireKey("tracker"),
-					"--body-file",
-					"-",
-				],
-				{ input: body },
-			),
-		),
+	post: (body) => attempt(() => postComment(REPORT_ISSUE, body)),
 	say: (line) => writeFd(2, `${new Date(now()).toISOString()} ${line}\n`),
 };
 
