@@ -12,6 +12,7 @@ const { scriptPath } = require("./lib/script-path.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 const { parseErrLine } = require("./lib/gh.js");
 const { PARKED_LABEL, setParked } = require("./lib/parked.js");
+const { WATCH_CLOSED_LABEL } = require("./lib/watch-label.js");
 
 /** @type {import("./lib/tracker-ops.js").ScriptIo} */
 const io = scriptIo("claim-issue");
@@ -66,7 +67,14 @@ function readOpenIssue(repo, n) {
 	}
 	if (issue.isPullRequest) io.fail(`#${n} is a pull request, not an issue.`, 2);
 	if (issue.state !== "open")
-		io.fail(`#${n} is ${issue.state} — nothing to claim. Nothing written.`, 2);
+		io.fail(
+			`#${n} is ${issue.state} — nothing to claim. Nothing written.${
+				issue.labels.includes(WATCH_CLOSED_LABEL)
+					? ` It is a closed watch: judge its gate unclaimed, and on met reopen it (gh issue reopen ${n}) before claiming.`
+					: ""
+			}`,
+			2,
+		);
 	return issue;
 }
 

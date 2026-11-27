@@ -148,6 +148,12 @@ A spec whose tickets are all *closed* is not a container either — nothing open
 
 **Producer: whoever closes the issue onto a card** — `retire-to-roadmap`'s loop, a gated-issue close per the table above, or a hand close a session judges belongs to a card. **Consumer: the session taking that card**, via `gh issue list --state closed --label card:<id>`. Nothing checks that a card-relevant close actually applied the label; a close that forgets it loses the question silently, the same residual risk mantahostels#3291 named for the label route generally.
 
+## `watch:closed`
+
+**It marks a closed issue whose `**Gated on:**` line the gate sweep still runs** — a watch on a rare or outside event, closed so it holds no frontier seat (#5801). It sits alongside `takes:` and `kind:`, and goes on at close, never on an open issue.
+
+**Producer: the session that closes a watch** (`docs/agents/issue-tracker.md` §Gating an issue). **Consumer: `scripts/check-gates.js`**, which reads closed issues carrying it beside the open ones; a closed watch with no gate line warns as GATES-NOTHING.
+
 ## `urgent`
 
 <!-- rule:urgent-label:begin -->

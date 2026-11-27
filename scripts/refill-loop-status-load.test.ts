@@ -219,6 +219,7 @@ describe("refill-loop.js status's per-call cost (#4821)", () => {
 			"lib/trimmed.js",
 			"lib/unclosed-launch.js",
 			"lib/usage-cache.js",
+			"lib/watch-label.js",
 			"lib/windows-memory.js",
 			"lib/wita.js",
 			"lib/workflow-core-config.js",

@@ -547,6 +547,47 @@ describe("the decision core launches a queued judgement", () => {
 		const d = tick({ running: [{ root: WFC, issues: [2046] }] });
 		expect(d.launches).toEqual([]);
 	});
+
+	it("launches /triage on a closed watch's queued judgement, its issue in no open frontier (#5801)", async () => {
+		const closed = { ...row(3996, "met: the page changed"), closed: true };
+		const { store } = await sweepOnce(envelope([closed]));
+		const d = tick({ frontier: [], judgements: store.pending });
+		expect(d.launches).toEqual([
+			expect.objectContaining({
+				root: WFC,
+				issues: [3996],
+				prompt: expect.stringMatching(
+					/^\/triage 3996 .*judge it unclaimed.*met, reopen it \(gh issue reopen 3996\), claim it, remove its watch:closed label/,
+				),
+				gate: true,
+			}),
+		]);
+	});
+});
+
+describe("a closed watch (#5801)", () => {
+	it("asks a met judgement to reopen the issue and strip watch:closed, an unmet one to leave it", async () => {
+		const { store } = await sweepOnce(
+			envelope([{ ...row(4093, "unmet: no leap"), closed: true }]),
+		);
+		expect(store.pending[0].prompt).toMatch(
+			/closed under watch:closed, so judge it unclaimed: claim-issue\.js refuses a closed issue\. .*met, reopen it \(gh issue reopen 4093\), claim it, remove its watch:closed label, comment the evidence and strip the marker; unmet, leave the gate and end\./,
+		);
+	});
+
+	it("queues a repair judge for a closed watch's broken check", async () => {
+		const { store } = await sweepOnce(
+			envelope([{ ...row(4093, "", "DEAD"), closed: true }]),
+		);
+		expect(store.pending[0].prompt).toMatch(
+			/^\/triage 4093 — its Gated on: check reads DEAD, the issue closed under watch:closed, so judge it unclaimed.*met, reopen it .*; unmet, rewrite the check:/,
+		);
+	});
+
+	it("words an open issue's prompt without a reopen", async () => {
+		const { store } = await sweepOnce(envelope([row(7, "met: done")]));
+		expect(store.pending[0].prompt).not.toMatch(/reopen|watch:closed/);
+	});
 });
 
 describe("a judgement refused on admission stays queued (#5125)", () => {

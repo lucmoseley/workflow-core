@@ -908,9 +908,9 @@ describe("the settings keys", () => {
 });
 
 describe("the label plan", () => {
-	it("is the core's twenty and one origin label per class with no module on", () => {
+	it("is the core's twenty-one and one origin label per class with no module on", () => {
 		const plan = labelPlan({ modules: [], categories: {}, ciWorkflow: false });
-		expect(plan).toHaveLength(20 + ORIGINS.length);
+		expect(plan).toHaveLength(21 + ORIGINS.length);
 		expect(plan.map((l) => l.name)).toEqual(
 			expect.arrayContaining(ORIGINS.map((o: string) => `origin:${o}`)),
 		);
@@ -933,7 +933,7 @@ describe("the label plan", () => {
 				(l) => l.name,
 			);
 		expect(names(["governance"])).toContain("manual-finding");
-		expect(names(["roadmap"])).toHaveLength(20 + ORIGINS.length);
+		expect(names(["roadmap"])).toHaveLength(21 + ORIGINS.length);
 	});
 
 	it("adds the bare ci-red label only with the shipped CI workflow, whatever modules holds (#5383)", () => {
@@ -955,7 +955,7 @@ describe("the label plan", () => {
 		expect(plan.map((l) => l.name)).toEqual(
 			expect.arrayContaining(["tech", "ops"]),
 		);
-		expect(plan).toHaveLength(22 + ORIGINS.length);
+		expect(plan).toHaveLength(23 + ORIGINS.length);
 	});
 
 	it("has a description and a colour on every label", () => {
