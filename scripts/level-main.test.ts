@@ -254,6 +254,61 @@ it("refuses a fast-forward over edits, naming each blocking file with its age an
 	]);
 });
 
+it("discards an edit already landed byte for byte on origin/main, then fast-forwards, naming the commit that holds it (#5808)", () => {
+	const holds = landOnMain({ "hook.js": "v2\n", "fresh.js": "new\n" });
+	const green = landOnMain({ "hook.js": "v3\n" });
+	fs.writeFileSync(path.join(main, "hook.js"), "v2\n");
+	git(main, "add", "hook.js");
+	fs.writeFileSync(path.join(main, "fresh.js"), "new\n");
+	const blob = git(main, "hash-object", "hook.js");
+	const freshBlob = git(main, "hash-object", "fresh.js");
+
+	const o = pass();
+
+	expect(o).toMatchObject({ status: "forwarded", head: green });
+	expect(o.discarded).toEqual([
+		{ path: "fresh.js", blob: freshBlob, commit: holds },
+		{ path: "hook.js", blob, commit: holds },
+	]);
+	expect(git(main, "status", "--porcelain", "-uall")).toBe("");
+	expect(fs.readFileSync(path.join(main, "hook.js"), "utf8")).toBe("v3\n");
+	expect(renderOutcome(o, Date.now())).toContain(
+		`discarded hook.js from the main checkout: its blob ${blob.slice(0, 9)} is the file at ${holds.slice(0, 9)} on origin/main, so nothing was lost`,
+	);
+});
+
+it("keeps refusing over an edit origin/main never held, discarding only the landed one beside it (#5808)", () => {
+	const before = git(main, "rev-parse", "HEAD");
+	landOnMain({ "hook.js": "v2\n", "staged.js": "y\n" });
+	fs.writeFileSync(path.join(main, "hook.js"), "v2-and-more\n");
+	fs.writeFileSync(path.join(main, "staged.js"), "y\n");
+
+	const o = pass();
+
+	expect(o).toMatchObject({
+		status: "blocked",
+		blockers: [{ path: "hook.js" }],
+	});
+	expect(o.discarded.map((d) => d.path)).toEqual(["staged.js"]);
+	expect(git(main, "rev-parse", "HEAD")).toBe(before);
+	expect(fs.readFileSync(path.join(main, "hook.js"), "utf8")).toBe(
+		"v2-and-more\n",
+	);
+	expect(git(main, "status", "--porcelain", "-uall")).toBe("M hook.js");
+});
+
+it("keeps refusing where the index holds a version of its own beside a landed working copy (#5808)", () => {
+	landOnMain({ "hook.js": "v2\n" });
+	fs.writeFileSync(path.join(main, "hook.js"), "staged only\n");
+	git(main, "add", "hook.js");
+	fs.writeFileSync(path.join(main, "hook.js"), "v2\n");
+
+	const o = pass();
+
+	expect(o).toMatchObject({ status: "blocked", discarded: [] });
+	expect(git(main, "show", ":hook.js")).toBe("staged only");
+});
+
 it("fast-forwards past edits on paths origin/main does not change", () => {
 	const green = landOnMain({ "hook.js": "v2\n" });
 	fs.writeFileSync(path.join(main, "package.json"), '{"edited":true}\n');
