@@ -111,7 +111,8 @@ switch ($Action) {
 			# NtSystemDebugControl(SysDbgGetLiveKernelDump = 37) with a version-1
 			# SYSDBG_LIVEDUMP_CONTROL, layout from System Informer's phnt
 			# (ntexapi.h). No selective control, so a full kernel dump without user
-			# pages; flag bit 3 is AbortIfMemoryPressure, Task Manager's default.
+			# pages. No flags: AbortIfMemoryPressure (bit 3, Task Manager's default)
+			# refuses every dump on this machine, whose WSL VM holds near 10 GB (#5804).
 			Add-Type -TypeDefinition @'
 	using System;
 	using System.Runtime.InteropServices;
@@ -141,7 +142,7 @@ switch ($Action) {
 				# LIVE_SYSTEM_DUMP, the code Task Manager's dumps carry.
 				$ctl.BugCheckCode = 0x161
 				$ctl.DumpFileHandle = $file.SafeFileHandle.DangerousGetHandle()
-				$ctl.Flags = 0x8
+				$ctl.Flags = 0
 				$ret = 0
 				$status = [Wfc5804LiveDump]::NtSystemDebugControl(37, [ref]$ctl, [Runtime.InteropServices.Marshal]::SizeOf($ctl), [IntPtr]::Zero, 0, [ref]$ret)
 			}
