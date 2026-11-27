@@ -75,6 +75,16 @@ describe("judgeRegistration", () => {
 		expect(judgeRegistration(reg)).toBeNull();
 		expect(judgeRegistration({ ...reg, cwd: `${WT}-other` })).toBeNull();
 	});
+
+	it("names the root as given and judges the main checkout by its resolved path", () => {
+		const linkedRoot = { ...reg, root: "/link" };
+		expect(judgeRegistration({ ...linkedRoot, target: "/repo" })).toBe(
+			"/repo is the main checkout, not a linked worktree",
+		);
+		expect(judgeRegistration({ ...linkedRoot, linked: null })).toContain(
+			"worktrees of /link,",
+		);
+	});
 });
 
 describe("judgeContents", () => {
