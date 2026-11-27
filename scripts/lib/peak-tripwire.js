@@ -83,6 +83,11 @@ function readTripwire({ file } = {}) {
 const writeTripwire = (file, t) =>
 	writeFileAtomic(file, `${JSON.stringify(t, null, "\t")}\n`, { mkdir: true });
 
+/** @param {ReturnType<RunReader>["runs"][number]} r */
+const underCharged = (r) =>
+	r.mode === "peak" ||
+	(r.admission?.mode === "ladder" && r.admission.capMb !== undefined);
+
 /**
  * @param {ReturnType<RunReader>["runs"]} runs
  * @param {number} atMs
@@ -91,7 +96,7 @@ const writeTripwire = (file, t) =>
 const liveAt = (runs, atMs) =>
 	runs
 		.filter((r) => {
-			if (r.mode !== "peak") return false;
+			if (!underCharged(r)) return false;
 			const until = heldUntil(r, r.pids.wrapper)?.until;
 			return (
 				until !== undefined &&
@@ -232,7 +237,7 @@ function describeTrip(t) {
 	if (t.trip === null) return "no tripping kill recorded";
 	const { trip } = t;
 	const run = trip.testRun;
-	return `earlyoom killed pid ${trip.pid} (${trip.name}, VmRSS ${trip.rssMiB} MiB) at ${trip.at}, the ${run.role} of a ${run.kind} run in ${run.repo}, while ${t.liveRuns.length} peak-charged ${t.liveRuns.length === 1 ? "run was" : "runs were"} live`;
+	return `earlyoom killed pid ${trip.pid} (${trip.name}, VmRSS ${trip.rssMiB} MiB) at ${trip.at}, the ${run.role} of a ${run.kind} run in ${run.repo}, while ${t.liveRuns.length} under-charged ${t.liveRuns.length === 1 ? "run was" : "runs were"} live`;
 }
 
 /**

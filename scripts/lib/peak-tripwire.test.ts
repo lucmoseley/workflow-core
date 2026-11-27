@@ -126,6 +126,32 @@ describe("the peak tripwire", () => {
 		expect(log).toHaveBeenCalled();
 	});
 
+	it("trips on a test-run kill while a run capped at its repo's whole-run peak is live (#5812)", () => {
+		wire.armTripwire({ session: "s0", now: T0 - 60_000, file });
+		const capped = {
+			...runFile("ladder", T0 - 30_000, T0 + 5000),
+			session: "s-capped",
+			admission: {
+				mode: "ladder",
+				cause: "unsized",
+				rungMb: 3400,
+				climbMb: 0,
+				capMb: 2340,
+			},
+		};
+		expect(
+			wire.gateTripwire({
+				file,
+				now: T0 + 10_000,
+				readIncidents: incidents(kill(T0)),
+				readRunFiles: () => ({ runs: [capped], why: null }),
+			}),
+		).toMatchObject({ cause: "tripped" });
+		expect(wire.readTripwire({ file }).tripwire.liveRuns).toEqual([
+			expect.objectContaining({ session: "s-capped" }),
+		]);
+	});
+
 	it("counts a peak run live only from its start to its last sample plus the store's slack", () => {
 		wire.armTripwire({ session: "s0", now: T0 - 600_000, file });
 		const at = (from: number, to: number) => {

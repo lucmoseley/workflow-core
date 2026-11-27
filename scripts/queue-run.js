@@ -210,6 +210,7 @@ const suiteRefusedWith = (why) => (words) => {
  *   tscPeakMb?: number,
  *   gateChargeMb?: number,
  *   gateLog?: string | null,
+ *   runStore?: string,
  *   ticket?: number | null,
  *   treeSample?: (pid: number) => { kb: number, pids: number[] },
  *   gatePidsDir?: string,
@@ -416,6 +417,8 @@ function buildOtherWait(options, words) {
 	const charged = chargeMb === undefined ? options : { ...options, chargeMb };
 	const part = isNamedFilesRun(words);
 	const capMb = part ? readWholeRunPeak(options) : null;
+	/** @type {import("./lib/part-suite-peak.js").PartAdmission | undefined} */
+	let admission;
 	return {
 		queue: options,
 		join: part ? { ...charged, weight: NAMED_FILES_WEIGHT } : charged,
@@ -425,13 +428,57 @@ function buildOtherWait(options, words) {
 						gateWeight: NAMED_FILES_WEIGHT,
 						part: true,
 						...(capMb === null ? {} : { gateCapMb: capMb }),
+						onAdmission: (
+							/** @type {import("./lib/part-suite-peak.js").PartAdmission} */ a,
+						) => {
+							admission = a;
+						},
 					}
 				: {},
 		),
 		refused: refusedRun,
 		sayPlace: sayNoPlace,
-		start: handing(null),
+		start: (startWords, launch) =>
+			admission?.mode === "ladder" && admission.capMb !== undefined
+				? startCapped(startWords, launch, admission)
+				: spawnCommand(startWords, { handed: null, ...launch }),
 	};
+}
+
+/**
+ * @param {string[]} words
+ * @param {Launch} launch
+ * @param {import("./lib/part-suite-peak.js").PartAdmission} admission
+ */
+function startCapped(words, launch, admission) {
+	const { startSampler } = require("./lib/run-memory.js");
+	const { runStore } = launch.options;
+	const memory = startSampler(
+		{
+			session:
+				launch.options.sessionId === undefined
+					? idSeam.fromEnv()
+					: launch.options.sessionId,
+			kind: "capped",
+			argv: words,
+			files: [],
+			fileCount: 0,
+			repo: gateRepoName() ?? path.basename(hostRoot()),
+			mode: admission.mode,
+			admission,
+		},
+		runStore === undefined ? {} : { dir: runStore },
+	);
+	const child = spawnCommand(words, {
+		handed: null,
+		...launch,
+		finish: (code) => {
+			memory.stop();
+			launch.finish(code);
+		},
+	});
+	memory.setMain(child.pid ?? null);
+	return child;
 }
 
 /**

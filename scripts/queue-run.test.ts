@@ -26,6 +26,8 @@ const tscRung = rungMb(TSC_PEAK_MB);
 const { main } = require("./queue-run.js");
 const { gateRepoName, readGatePids } = require("./lib/gate-seat.js");
 const { readStartTimeOf } = require("./lib/suite-queue.js");
+const { readRunFiles } = require("./lib/run-memory.js");
+const { armTripwire, gateTripwire } = require("./lib/peak-tripwire.js");
 const PROGRAM = path.resolve(__dirname, "queue-run.js");
 
 const dirs: string[] = [];
@@ -480,6 +482,105 @@ describe("queue-run.js", () => {
 			);
 			await tick();
 			expect(caps).toEqual([2340, undefined]);
+		});
+
+		it("records a capped run in the test run store, so a kill beside it trips the peak tripwire (#5812)", async () => {
+			const f = fixture();
+			const gateLog = path.join(f.dir, "gate-runs.jsonl");
+			fs.writeFileSync(
+				gateLog,
+				[2340, 2340, 2340, 2340, 2340]
+					.map(
+						(peakTreeMb) =>
+							`${JSON.stringify({ repo: gateRepoName(), command: "bash test/all.sh", outcome: "pass", runS: 300, peakTreeMb })}\n`,
+					)
+					.join(""),
+			);
+			const runStore = path.join(f.dir, "runs");
+			const admitted =
+				(capMb?: number) =>
+				(
+					_c: string,
+					_w: unknown,
+					_m: number,
+					reads: { onAdmission?: (a: object) => void },
+				) => {
+					reads.onAdmission?.({
+						mode: "ladder",
+						cause: "unsized",
+						rungMb: 3400,
+						climbMb: 0,
+						...(capMb === undefined ? {} : { capMb }),
+					});
+					return null;
+				};
+			const done = main(
+				["--", "pytest", "tests/test_a.py"],
+				f.options({
+					gate: undefined,
+					gateRead: admitted(2340),
+					gateLog,
+					runStore,
+				}),
+			);
+			await tick();
+			const child = f.spawned[0].child;
+			child.emit("spawn");
+			const runs = () => readRunFiles(runStore).runs;
+			expect(runs()).toEqual([
+				expect.objectContaining({
+					session: "s1",
+					argv: ["pytest", "tests/test_a.py"],
+					mode: "ladder",
+					admission: expect.objectContaining({ capMb: 2340 }),
+				}),
+			]);
+			const [run] = runs();
+			const killAt = Date.parse(run.at) + 500;
+			const tripFile = path.join(f.dir, "peak-tripwire.json");
+			armTripwire({ session: "s0", now: killAt - 60_000, file: tripFile });
+			expect(
+				gateTripwire({
+					file: tripFile,
+					now: killAt + 1000,
+					readIncidents: () => ({
+						incidents: [
+							{
+								kills: [
+									{
+										at: new Date(killAt).toISOString(),
+										pid: 4242,
+										name: "python",
+										kind: "test run",
+										testRun: { role: "worker", kind: "named", repo: "r" },
+										rssMiB: 900,
+									},
+								],
+							},
+						],
+						why: null,
+					}),
+					readRunFiles: () => readRunFiles(runStore),
+				}),
+			).toMatchObject({ cause: "tripped" });
+			child.emit("exit", 0, null);
+			expect(await done).toBe(0);
+			expect(runs()[0].endedAt).toEqual(expect.any(String));
+
+			const uncapped = path.join(f.dir, "uncapped");
+			const plain = main(
+				["--", "pytest", "tests/test_a.py"],
+				f.options({
+					gate: undefined,
+					gateRead: admitted(),
+					gateLog,
+					runStore: uncapped,
+				}),
+			);
+			await tick();
+			f.spawned[1].child.emit("exit", 0, null);
+			expect(await plain).toBe(0);
+			expect(readRunFiles(uncapped).runs).toEqual([]);
 		});
 
 		it("charges it uncapped where no gate command has 5 measured runs", async () => {
