@@ -63,6 +63,7 @@ const {
 	sectionAMatcher,
 	BINARY_CLASS,
 	coverageMatchers,
+	readPluginFiles,
 	readTrackedFiles,
 	unresolvedSectionRefs,
 	readUntrackedFiles,
@@ -313,7 +314,7 @@ function walkTree(ctx, root) {
 	let resolvable = allTracked;
 	if (!isCoreRepo())
 		try {
-			resolvable = [...allTracked, ...readTrackedFiles(coreRoot())];
+			resolvable = [...allTracked, ...readPluginFiles(coreRoot())];
 		} catch (e) {
 			ctx.broken(`could not walk the plugin root — ${caught(e).message}`);
 		}

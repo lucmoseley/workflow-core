@@ -12,6 +12,7 @@ const { byCodeUnit } = require("./by-code-unit.js");
 const { caught, orFallback } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
 const { execGit, gitOrNull } = require("./git.js");
+const { scrubbedGitEnv } = require("./hook-entry.js");
 const { parseIndexEntries } = require("./git-objects.js");
 const { readMergeHeadLines } = require("./merge-heads.js");
 const { readCommitOrBroken } = require("./commit-sha.js");
@@ -1312,6 +1313,22 @@ function readIndexEntries({ quiet }) {
 function readTrackedFiles(root) {
 	if (root) return walkTracked(root);
 	return [...new Set(readIndexEntries({ quiet: false }).map((e) => e.path))];
+}
+
+/**
+ * @param {string} root
+ * @returns {string[]}
+ */
+function readPluginFiles(root) {
+	if (!fs.existsSync(path.join(root, ".git"))) return walkTracked(root);
+	// #5818
+	return execGit(["ls-files", "-z"], {
+		cwd: root,
+		env: scrubbedGitEnv(process.env),
+		encoding: "utf8",
+	})
+		.split("\0")
+		.filter(Boolean);
 }
 
 function readUntrackedFiles() {
@@ -3199,6 +3216,7 @@ module.exports = {
 	pairingHalfAgeMs,
 	repoRelative,
 	readTrackedFiles,
+	readPluginFiles,
 	readUntrackedFiles,
 	readConflictedPaths,
 	isDirty,

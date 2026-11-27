@@ -85,6 +85,7 @@ const {
 	grownExemptEntries,
 	droppedExemptionMarkers,
 	readTrackedFiles,
+	readPluginFiles,
 	PAIRING_GRACE_MS,
 	buildFileAgeReader,
 	pairingHalfAgeMs,
@@ -3867,5 +3868,52 @@ describe("unresolvedSectionRefs (#805)", () => {
 		expect(refs("docs/doc-map.md §Nope\ndocs/doc-map.md §Nope")).toEqual([
 			"§Nope",
 		]);
+	});
+});
+
+describe("readPluginFiles (#5818)", () => {
+	const roots: string[] = [];
+	afterEach(() => {
+		for (const r of roots.splice(0))
+			fs.rmSync(r, { recursive: true, force: true });
+	});
+
+	const plant = (root: string, files: string[]) => {
+		for (const f of files) {
+			fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true });
+			fs.writeFileSync(path.join(root, f), "x\n");
+		}
+	};
+
+	const checkout = () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-files-"));
+		roots.push(root);
+		const git = (...args: string[]) =>
+			execFileSync("git", args, { cwd: root, stdio: "ignore" });
+		git("init", "-q", ".");
+		plant(root, ["package.json", "scripts/a.js"]);
+		git("add", "--", "package.json", "scripts/a.js");
+		plant(root, [".claude/tmp/git-fixture/other-run/x.txt"]);
+		return root;
+	};
+
+	it("lists a checkout's index, never the untracked scratch beside it", () => {
+		expect(readPluginFiles(checkout())).toEqual([
+			"package.json",
+			"scripts/a.js",
+		]);
+	});
+
+	it("reads the checkout's own index under a hook's GIT_INDEX_FILE", () => {
+		const root = checkout();
+		vi.stubEnv("GIT_INDEX_FILE", path.join(root, "no-such-index"));
+		expect(readPluginFiles(root)).toEqual(["package.json", "scripts/a.js"]);
+	});
+
+	it("walks an installed copy, which no repository's index holds", () => {
+		const outer = checkout();
+		const copy = path.join(outer, "cache", "plugin");
+		plant(copy, ["package.json", "scripts/b.js"]);
+		expect(readPluginFiles(copy)).toEqual(["package.json", "scripts/b.js"]);
 	});
 });
