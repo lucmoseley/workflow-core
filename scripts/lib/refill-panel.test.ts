@@ -1512,10 +1512,13 @@ describe("the pending word", () => {
 
 describe("the Burn mode switch", () => {
 	const Plan = ".claude2/settings.json";
+	const NoRestart =
+		"The dispatch routing applies from the next Agent call; no session needs a restart.";
 	const Stuck = {
 		code: 1,
-		stdout: `burn mode: on\n  ${Plan} claude-opus-5-5 effort=high\n`,
-		stderr: `error: still on the burn effort after off:\n  ${Plan}\n`,
+		stdout: `burn mode: off\n  ${Plan} claude-opus-5-5 effort=high\n`,
+		stderr:
+			"error: a plan above departs from the routing file's settings — rerun once it is writable\n",
 	};
 	const running = (burnMode: object) => ({ ...RUNNING, burnMode });
 	const burnSection = (rows: Row[]) => {
@@ -1624,16 +1627,13 @@ describe("the Burn mode switch", () => {
 		expect(panel.view.presses.burn.pending).toBeNull();
 	});
 
-	it("shows the observed state and the skill's restart line after a clean flip", async () => {
+	it("shows the observed state alone after a clean flip", async () => {
 		const { panel, setStatus } = await panelFlipping(RUNNING, {
 			stdout: "burn mode: on\n",
 		});
 		setStatus(running(BURN_ON));
 		await panel.click(BURN_ROW);
-		expect(summary(burnRows(panel))).toEqual([
-			["Burn mode  [on]", "name"],
-			["Running sessions keep their effort until restarted", "secondary"],
-		]);
+		expect(summary(burnRows(panel))).toEqual([["Burn mode  [on]", "name"]]);
 	});
 
 	it("shows a failed flip's exit and output, not a done state, whatever the status reads", async () => {
@@ -1654,7 +1654,7 @@ describe("the Burn mode switch", () => {
 	});
 
 	it("shows a half-flip's exit and output, and the plan it left", async () => {
-		const stuck = running({ on: true, disagreeing: [Plan], error: null });
+		const stuck = running({ on: false, disagreeing: [Plan], error: null });
 		const { panel, setStatus } = await panelFlipping(running(BURN_ON), Stuck);
 		setStatus(stuck);
 		await panel.click(BURN_ROW);
@@ -1663,16 +1663,15 @@ describe("the Burn mode switch", () => {
 			"Burn mode  [!]",
 			`Off the routing file's settings: ${Plan}`,
 			"burn-mode.sh off: exit 1",
-			"error: still on the burn effort after off:",
-			`  ${Plan}`,
-			"burn mode: on",
+			"error: a plan above departs from the routing file's settings — rerun once it is writable",
+			"burn mode: off",
 			`  ${Plan} claude-opus-5-5 effort=high`,
 			"Click runs burn-mode.sh off",
 		]);
 		expect(rows[0].control?.state).toBe("failed");
 	});
 
-	it("reads a plan off the routing file's settings as no done state, with no flip of its own", () => {
+	it("reads a plan off the routing file's settings as no done state, its click rerunning the standing mode", () => {
 		const rows = burnRowsOf({
 			status: running({ on: false, disagreeing: [Plan], error: null }),
 		});
@@ -1681,7 +1680,7 @@ describe("the Burn mode switch", () => {
 			text: `Off the routing file's settings: ${Plan}`,
 			role: "value",
 		});
-		expect(rows[2].text).toBe("Click runs burn-mode.sh on");
+		expect(rows[2].text).toBe("Click runs burn-mode.sh off");
 	});
 
 	it("holds a failed flip's report across reads that still show it", async () => {
@@ -1701,20 +1700,22 @@ describe("the Burn mode switch", () => {
 
 	it.each([
 		[
-			"a half-flip reading on",
+			"a departing plan with the marker on",
 			running({ on: true, disagreeing: [Plan], error: null }),
+			"on",
+		],
+		[
+			"a departing plan with the marker off",
+			running({ on: false, disagreeing: [Plan], error: null }),
 			"off",
 		],
 		["a failed on that moved nothing", RUNNING, "on"],
-	])(
-		"runs the opposite of the marker after %s",
-		async (_name, status, verb) => {
-			const { flips, panel } = await panelFlipping(status, { code: 1 });
-			await panel.click(BURN_ROW);
-			await panel.click(BURN_ROW);
-			expect(flips).toEqual([[verb], [verb]]);
-		},
-	);
+	])("runs the mode that repairs %s", async (_name, status, verb) => {
+		const { flips, panel } = await panelFlipping(status, { code: 1 });
+		await panel.click(BURN_ROW);
+		await panel.click(BURN_ROW);
+		expect(flips).toEqual([[verb], [verb]]);
+	});
 
 	it("clears the report on the next clean flip", async () => {
 		const { panel, setStatus } = await panelFlipping(
@@ -1725,34 +1726,25 @@ describe("the Burn mode switch", () => {
 		await panel.click(BURN_ROW);
 		setStatus(RUNNING);
 		await panel.click(BURN_ROW);
-		expect(burnRows(panel)[0].control?.state).toBe("off");
-		expect(burnRows(panel)[1].text).toBe(
-			"Running sessions keep their effort until restarted",
-		);
+		expect(burnRows(panel).map((r) => r.text)).toEqual(["Burn mode  [off]"]);
 	});
 
-	it("shows no progress output on exit 0, only the restart note, past the read (#5578)", async () => {
-		const resume =
-			"  4f1c resumes on its launch model as burn mode stands: --model claude-fable-5-2[1m] --name a -> --model claude-opus-5-5[1m] --name a";
+	it("shows no progress output on exit 0, past the read (#5578)", async () => {
 		const { panel, setStatus } = await panelFlipping(running(BURN_ON), {
-			stdout: "burn mode: off\n",
-			stderr: `${resume}\n${resume}\n`,
+			stdout: `burn mode: off\n${NoRestart}\n`,
 		});
 		setStatus(RUNNING);
 		await panel.click(BURN_ROW);
 		await panel.refreshStatus();
-		expect(burnRows(panel).map((r) => r.text)).toEqual([
-			"Burn mode  [off]",
-			"Running sessions keep their effort until restarted",
-		]);
+		expect(burnRows(panel).map((r) => r.text)).toEqual(["Burn mode  [off]"]);
 	});
 
 	it("shows a warning on exit 0 beside the observed state, and holds it past the read", async () => {
 		const warning =
 			"warning: skipping .claude2/settings.json — it resolves to nothing";
 		const { panel, setStatus } = await panelFlipping(RUNNING, {
-			stdout: "burn mode: on\n",
-			stderr: `${warning}\n  4f1c resumes on its launch model\n`,
+			stdout: `burn mode: on\n${NoRestart}\n`,
+			stderr: `${warning}\n`,
 		});
 		setStatus(running(BURN_ON));
 		await panel.click(BURN_ROW);

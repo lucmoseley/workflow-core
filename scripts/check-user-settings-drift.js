@@ -13,7 +13,7 @@ const {
 	USER_SETTINGS_SNAPSHOT_DEFAULT,
 } = require("./lib/workflow-core-config");
 const { caught } = require("./lib/caught.js");
-const { planSettings } = require("./lib/model-table.js");
+const { buildPlanSettings } = require("./lib/model-table.js");
 const { copyBlockPattern } = require("./lib/settings-copy");
 const { trimEndRun } = require("./lib/trim-run.js");
 
@@ -406,7 +406,7 @@ const SPEC = {
 		const [liveRest, liveRouted] = splitRouted(liveJson);
 		let routedDiffs;
 		try {
-			routedDiffs = diff(planSettings(), liveRouted, "", {
+			routedDiffs = diff(buildPlanSettings(), liveRouted, "", {
 				side: "routing file",
 				lines: [],
 			});

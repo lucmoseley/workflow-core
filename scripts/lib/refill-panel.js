@@ -36,8 +36,6 @@ const NOTE_SHOW_MS = 10_000;
 // guess, #3875
 const RESUME_SHOW_MS = 30_000;
 
-const BURN_RESTART_NOTE = "Running sessions keep their effort until restarted";
-
 const AWAY_OFF_WORD = "normal";
 
 const NO_CONTROL_TEXT = "No loop settings to change: run `start`";
@@ -634,8 +632,7 @@ function buildBurnMachineRows(burnMode) {
  * @returns {Row[]}
  */
 function buildBurnReportRows({ on, code, lines }) {
-	if (code === 0 && lines.length === 0)
-		return [{ text: BURN_RESTART_NOTE, role: "secondary" }];
+	if (code === 0 && lines.length === 0) return [];
 	return [
 		{
 			text: `burn-mode.sh ${on ? "on" : "off"}: exit ${code}`,
@@ -987,7 +984,8 @@ function buildAwayPress({ status, presses }) {
 function buildBurnPress({ status, presses }) {
 	if (presses.burn.pending || !status || status.burnMode.on === null)
 		return null;
-	return { on: !status.burnMode.on };
+	const { on, disagreeing } = status.burnMode;
+	return { on: disagreeing.length > 0 ? on : !on };
 }
 
 /**

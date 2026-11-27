@@ -20,7 +20,7 @@ There are four axes, and they answer different questions. **Model** and **effort
 - **Every `scripts/dispatch-sessions.js` launch and every loop resume, in either mode, takes the standard rows.** A spelling launches as its row's model id with `[1m]`, with an advisor only where the launched model takes one; a spelling the routing file does not know launches as written, and the launcher names each remap per member. A loop resume moves a saved `--model` whose standard row routes it away. An overflow seat admits Opus only and launches on the Opus id named outright, never the plans' settings `model` (#4919).
 - **The settings.** The script writes the routing file's `model` and `modelSettings` into every plan's `settings.json` — `~/.claude`, `~/.claude2` and `~/.claude3` are one machine — merging the efforts over what the plan holds, under every name a model is read as. A launch's effort is each model's `modelSettings` (§Effort). A plan whose `settings.json` is a symlink to another's is one file, written once (#187). It then checks every plan and **exits 1 naming any still departing** (#126). The flip changes neither, so no session needs a restart. `scripts/check-user-settings-drift.js` compares `model` and `modelSettings` against the routing file, not the settings snapshot.
 
-**A session on a model its standard row routes away** — Fable, reached only by a hand `/model` or `--model` — has its dispatches held off that model in either mode: one that would inherit it is pinned to the standard row's model, and a fork, whose model no field moves, is refused (`rule:dispatch-fable-fork`, #4992).
+**A Fable session** — reached only by a hand `/model` or `--model`, since the standard rows route Fable away — has its dispatches held off that model in either mode: one that would inherit it is pinned to the standard row's model, and a fork, whose model no field moves, is refused (`rule:dispatch-fable-fork`, #4992).
 
 **What it does not reach:** a `claude --model …` or `--effort …` typed by hand or launched from the agents view, `CLAUDE_CODE_EFFORT_LEVEL`, which outranks settings — each keeps what it was given.
 
@@ -28,7 +28,7 @@ There are four axes, and they answer different questions. **Model** and **effort
 
 ## Routing
 
-What each alias runs on, rendered from `scripts/lib/model-routing.json`: the one session model and settings efforts, then each mode's `Agent`-dispatch rows. Launches and resumes take the standard rows in both modes. To change it, edit that file, run `node scripts/generate-effort-guide-routing.js`, then run `scripts/burn-mode.sh` for the current mode to write the settings into the plans. "Also read as" lists the older ids and names a spelling matches, `[1m]` or not; "as asked" keeps the call's or the agent definition's effort.
+What each alias runs on, rendered from `scripts/lib/model-routing.json`: the one session model and settings efforts, then each mode's `Agent`-dispatch rows. Launches and resumes take the standard rows in both modes. To change it, edit that file, run `node scripts/generate-effort-guide-routing.js`, then run `scripts/burn-mode.sh on` or `off`, whichever mode stands, to write the settings into the plans. "Also read as" lists the older ids and names a spelling matches, `[1m]` or not; "as asked" keeps the call's or the agent definition's effort.
 
 <!-- routing:begin — rendered from scripts/lib/model-routing.json by scripts/generate-effort-guide-routing.js; edit the file and re-run it, never this block -->
 

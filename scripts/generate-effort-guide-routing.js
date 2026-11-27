@@ -7,7 +7,7 @@ const { scriptPath } = require("./lib/script-path.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const {
 	loadRouting,
-	planSettings,
+	buildPlanSettings,
 	modelId,
 	routingPath,
 } = require("./lib/model-table.js");
@@ -40,7 +40,7 @@ function renderBlock() {
 		.join(", ");
 	lines.push(
 		"",
-		`**Both modes.** Session model ${code(planSettings().model)}; settings efforts ${efforts}; every launch and resume takes the standard rows.`,
+		`**Both modes.** Session model ${code(buildPlanSettings().model)}; settings efforts ${efforts}; every launch and resume takes the standard rows.`,
 	);
 	for (const [mode, m] of Object.entries(modes)) {
 		const title = `${mode[0]?.toUpperCase()}${mode.slice(1)} mode`;

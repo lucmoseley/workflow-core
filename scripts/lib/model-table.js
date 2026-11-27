@@ -298,7 +298,7 @@ function mapSessionModel(model) {
 /**
  * @returns {{model: string, modelSettings: Record<string, {effortLevel: string}>}}
  */
-function planSettings() {
+function buildPlanSettings() {
 	const routing = loadRouting();
 	/** @type {Record<string, {effortLevel: string}>} */
 	const modelSettings = {};
@@ -434,7 +434,7 @@ module.exports = {
 	loadRouting,
 	parseModelFlag,
 	modelId,
-	planSettings,
+	buildPlanSettings,
 	OVERFLOW_PREFIX,
 	OVERFLOW_SESSION_VAR,
 	overflowModel,
@@ -478,7 +478,7 @@ const CLI = {
 	settings: {
 		arity: 0,
 		run: (_args, say) => {
-			say(JSON.stringify(planSettings()));
+			say(JSON.stringify(buildPlanSettings()));
 			return 0;
 		},
 	},

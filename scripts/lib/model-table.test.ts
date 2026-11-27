@@ -13,10 +13,10 @@ import {
 	vi,
 } from "vitest";
 import {
+	buildPlanSettings,
 	isOverflowSession,
 	isRoutedAway,
 	loadRouting,
-	planSettings,
 	relaunchFlags,
 	remapModel,
 } from "./model-table";
@@ -234,9 +234,9 @@ describe("relaunchFlags — a saved routed-away launch resumed on its standard r
 	});
 });
 
-describe("planSettings — what the switch writes into every plan", () => {
+describe("buildPlanSettings — what the switch writes into every plan", () => {
 	it("names the session's launch spelling, and each effort under the id and every other name", () => {
-		expect(planSettings()).toEqual({
+		expect(buildPlanSettings()).toEqual({
 			model: "test-haiku-1[1m]",
 			modelSettings: {
 				"test-haiku-1": { effortLevel: "low" },
@@ -305,7 +305,7 @@ describe("the CLI half", () => {
 	});
 
 	it("refuses any flag", () => {
-		expect(cli(["launch", "haiku", "--burn"]).status).toBe(2);
+		expect(cli(["launch", "haiku", "--x"]).status).toBe(2);
 	});
 });
 

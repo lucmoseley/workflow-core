@@ -3,7 +3,7 @@ const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
 const { machineMarkerPath } = require("./machine-marker.js");
-const { planSettings } = require("./model-table.js");
+const { buildPlanSettings } = require("./model-table.js");
 const { readPlanDirs } = require("./plan-dirs.js");
 const { trimmed } = require("./trimmed.js");
 const { writeFd } = require("./write-fd.js");
@@ -16,18 +16,6 @@ const MARKER = ".burn-mode";
  */
 function markerPath(env = process.env) {
 	return env.WFC_BURN_MARKER || machineMarkerPath(MARKER, env);
-}
-
-/**
- * @param {Record<string, string | undefined>} env
- * @returns {boolean}
- */
-function isBurnMarkerOn(env) {
-	try {
-		return fs.existsSync(markerPath(env));
-	} catch {
-		return false;
-	}
 }
 
 /**
@@ -67,7 +55,7 @@ function isPresent(file) {
  * @returns {{model: string, faults: string[]}}
  */
 function readPlanFaults(file) {
-	const want = planSettings();
+	const want = buildPlanSettings();
 	let settings;
 	try {
 		settings = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -106,7 +94,6 @@ function readBurnState(env = process.env) {
 }
 
 module.exports = {
-	isBurnMarkerOn,
 	markerPath,
 	readBurnState,
 };
