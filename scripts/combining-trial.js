@@ -12,7 +12,7 @@ const {
 	runNight,
 } = require("./lib/combining-trial.js");
 const { setLaunchHold } = require("./lib/launch-hold.js");
-const { DIAG } = require("./lib/pfn-scan-host.js");
+const { diagDir } = require("./lib/pfn-scan-host.js");
 const { postComment, scanAndReport } = require("./pfn-scan.js");
 const { readText } = require("./lib/file-read.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -35,9 +35,9 @@ function attempt(fn) {
 /** @type {import("./lib/combining-trial.js").Ports} */
 const ports = {
 	now: () => now(),
-	ended: () => fs.existsSync(path.join(DIAG, "ended.txt")),
+	ended: () => fs.existsSync(path.join(diagDir(), "ended.txt")),
 	readLog: (name) => {
-		const r = readText(path.join(DIAG, name));
+		const r = readText(path.join(diagDir(), name));
 		if (r.state === "unreadable") throw new Error(`${name}: ${r.message}`);
 		return r.state === "read" ? r.data : "";
 	},

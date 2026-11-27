@@ -275,6 +275,11 @@ a doc.**
   pre-emptive on the first call**: the hook runs before the tool, but the model
   reads the text only on that call's result (mantahostels#3421). A first breach that cannot
   be undone needs a denial from the same hook.
+- **`PreToolUse` `updatedInput`** is applied only beside `permissionDecision`
+  `allow` or `ask` (Claude Code 2.1.332, #5800), and the dispatcher pairs it with `allow`. A rewrite therefore
+  auto-approves the call, which the founder's auto-mode rules do not cover for
+  a call the hook did not already allow; on a Bash call, refuse and name the
+  corrected command instead.
 - **A `Stop` block's `reason`** reaches the model, as `message.content` on a
   `type:"user"` record reading `Stop hook feedback:\n<reason>`. 3,631 firings of
   five guards, 2026-08-03 – 2026-09-01, no positional variation (mantahostels#2335). **Put
