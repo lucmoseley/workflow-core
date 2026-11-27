@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { isListedLive } = require("./lib/agent-liveness");
 const { caught } = require("./lib/caught.js");
@@ -12,12 +11,15 @@ const { gitCommonDir, GIT_TIMEOUT_MS, spawnGitSync } = require("./lib/git.js");
 const { adoptHostRoot } = require("./lib/host-root.js");
 const { countUnlandedCommits, readLanded } = require("./lib/landed-edit.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
-const { readProcCwd } = require("./lib/claude-sessions.js");
+const { readProcesses } = require("./lib/checkout-repo.js");
+const { isDepLink, unlinkDepLink } = require("./lib/dep-store.js");
+const { requiredGroup } = require("./lib/regex-group.js");
 const {
+	buildWaysOut,
 	dropWorktreeFilings,
-	readWorktreeFiling,
+	readWorktreeRefs,
 } = require("./lib/orphan-filings.js");
-const { readOwnedByLive } = require("./lib/orphan-owners.js");
+const { readOwnedByLive, treeOfKey } = require("./lib/orphan-owners.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { recordOwnAct } = require("./lib/own-acts.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -31,6 +33,7 @@ const { readLinkedWorktrees } = require("./lib/worktree-paths.js");
 
 const LANDED_REF = VERIFIED_REF;
 const USAGE = `usage: node ${scriptPath("remove-orphaned-worktree.js")} <dir>`;
+// guess: enough to recognise a worktree by, #5806
 const NAMED_MAX = 5;
 
 /** @type {import("./lib/tracker-ops.js").ScriptIo} */
@@ -78,35 +81,9 @@ function whyCommitsOff(target) {
  *   odd: string[]}} Status
  */
 
-/**
- * @param {Status} s
- * @param {string} f
- * @param {string[]} rest
- */
-function addRecord(s, f, rest) {
-	if (f.startsWith("? ")) {
-		s.untracked.push(f.slice(2));
-		return;
-	}
-	const kind = f[0];
-	if (kind !== "1" && kind !== "2") {
-		s.odd.push(f.split(" ").pop() ?? f);
-		return;
-	}
-	const parts = f.split(" ");
-	const rel = parts.slice(kind === "1" ? 8 : 9).join(" ");
-	if (kind === "2") s.deleted.push(rest.shift() ?? "");
-	if (parts[2]?.startsWith("S")) {
-		s.odd.push(rel);
-		return;
-	}
-	s.tracked.push({
-		rel,
-		head: parts[6] ?? "",
-		index: parts[7] ?? "",
-		gone: (parts[1] ?? "").includes("D"),
-	});
-}
+// https://git-scm.com/docs/git-status#_porcelain_format_version_2
+const CHANGED =
+	/^[12] (\S\S) (\S{4}) \S+ \S+ \S+ ([0-9a-f]+) ([0-9a-f]+) (?:[RC]\d+ )?(.+)$/;
 
 /**
  * @param {string} out
@@ -114,11 +91,35 @@ function addRecord(s, f, rest) {
  */
 function parseStatus(out) {
 	/** @type {Status} */
-	const s = { tracked: [], deleted: [], untracked: [], odd: [] };
+	const acc = { tracked: [], deleted: [], untracked: [], odd: [] };
 	const fields = out.split("\0").filter(Boolean);
-	for (let f = fields.shift(); f !== undefined; f = fields.shift())
-		addRecord(s, f, fields);
-	return s;
+	for (let i = 0; i < fields.length; i++) {
+		const f = /** @type {string} */ (fields[i]);
+		if (f.startsWith("? ")) {
+			acc.untracked.push(f.slice(2));
+			continue;
+		}
+		const m = CHANGED.exec(f);
+		if (!m || requiredGroup(m, 2, CHANGED).startsWith("S")) {
+			acc.odd.push(f);
+			continue;
+		}
+		if (f.startsWith("2 ")) {
+			const from = fields[++i];
+			if (from === undefined) {
+				acc.odd.push(f);
+				continue;
+			}
+			acc.deleted.push(from);
+		}
+		acc.tracked.push({
+			rel: requiredGroup(m, 5, CHANGED),
+			head: requiredGroup(m, 3, CHANGED),
+			index: requiredGroup(m, 4, CHANGED),
+			gone: requiredGroup(m, 1, CHANGED).includes("D"),
+		});
+	}
+	return acc;
 }
 
 /**
@@ -135,7 +136,7 @@ function readStatus(target) {
 			"--untracked-files=all",
 			"--",
 			".",
-			":(top,exclude)node_modules",
+			...(isDepLink(target) ? [":(top,exclude)node_modules"] : []),
 		],
 		target,
 	);
@@ -200,21 +201,19 @@ async function whyDirtUnlanded(target, status) {
  * @returns {string|null}
  */
 function whyProcessInside(target) {
-	let pids;
+	let procs;
 	try {
-		pids = fs.readdirSync(procRoot()).filter((p) => /^\d+$/.test(p));
+		procs = readProcesses(procRoot());
 	} catch (e) {
 		return `the process table would not read (${caught(e).message}), so a process inside it cannot be ruled out`;
 	}
-	const inside = pids.filter((pid) => {
-		if (pid === String(process.pid)) return false;
-		const cwd = readProcCwd(pid);
-		return (
-			cwd !== null &&
-			worktreeHolding(deref(cwd.replace(/ \(deleted\)$/, "")), [target]) !==
-				null
-		);
-	});
+	const inside = procs
+		.filter(
+			(p) =>
+				p.pid !== String(process.pid) &&
+				worktreeHolding(deref(p.cwd), [target]) !== null,
+		)
+		.map((p) => p.pid);
 	return inside.length > 0
 		? `process(es) ${nameSome(inside)} have their working directory inside it`
 		: null;
@@ -229,7 +228,7 @@ function whyLiveOwner(target) {
 	if (!live.owned)
 		return `${live.why}, so whether a live session owns it is unknown`;
 	const held = [...live.owned].filter(
-		(key) => deref(key.split("\0")[0] ?? "") === target,
+		(key) => deref(treeOfKey(key)) === target,
 	);
 	if (held.length > 0)
 		return `a live session claims, observed or wrote ${String(held.length)} path(s) in it`;
@@ -270,9 +269,7 @@ async function readRefusals(root, target) {
  * @param {string} target
  */
 function removeWorktree(root, target) {
-	const link = path.join(target, "node_modules");
-	if (fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink())
-		fs.unlinkSync(link);
+	unlinkDepLink(target);
 	const r = spawnGitSync(["worktree", "remove", "--force", target], {
 		cwd: root,
 		encoding: "utf8",
@@ -299,7 +296,8 @@ function closeFiling(ref, target) {
 		);
 		return 1;
 	}
-	const [, repo = "", n = ""] = m;
+	const repo = requiredGroup(m, 1, ISSUE_URL);
+	const n = requiredGroup(m, 2, ISSUE_URL);
 	const comment = `Removed \`${target}\` with \`${scriptPath("remove-orphaned-worktree.js")}\`: its \`HEAD\` and every change in it were on \`${LANDED_REF}\`, nothing untracked stood in it, and no live process or session held it.`;
 	try {
 		gh([
@@ -344,16 +342,19 @@ async function main() {
 		max: 1,
 	});
 	const root = adoptHostRoot();
-	const target = deref(path.resolve(positionals[0] ?? ""));
+	const [given] = positionals;
+	if (given === undefined) return io.fail(USAGE, 2);
+	const target = deref(path.resolve(given));
 	const refusals = await readRefusals(root, target);
 	if (refusals.length > 0)
 		io.fail(
-			`refused, nothing removed — ${target}:\n${refusals.map((r) => `  - ${r}`).join("\n")}`,
+			`refused, nothing removed — ${target}:\n${refusals.map((r) => `  - ${r}`).join("\n")}\n` +
+				`Clear each, or read what it holds (git -C ${target} status) and land it: ${buildWaysOut(target).land}`,
 			1,
 		);
 	const common = gitCommonDir(root, { timeout: GIT_TIMEOUT_MS });
 	const label = worktreeLabel(root, target);
-	const filed = common ? readWorktreeFiling(common, label) : null;
+	const filed = common ? readWorktreeRefs(common, label) : [];
 	try {
 		removeWorktree(root, target);
 	} catch (e) {
@@ -361,11 +362,11 @@ async function main() {
 	}
 	io.out(`${target}: removed.\n`);
 	if (common) dropWorktreeFilings(common, label);
-	if (filed === null) {
+	if (filed.length === 0) {
 		io.out("No orphaned-edit filing names it, so no issue was closed.\n");
 		return;
 	}
-	process.exitCode = closeFiling(filed, target);
+	process.exitCode = Math.max(...filed.map((ref) => closeFiling(ref, target)));
 }
 
 module.exports = { main };

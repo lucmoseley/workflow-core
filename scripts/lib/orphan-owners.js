@@ -75,4 +75,7 @@ function readLiveSessionPaths(listed) {
 	return { paths };
 }
 
-module.exports = { ownedKey, readOwnedByLive };
+/** @param {string} key */
+const treeOfKey = (key) => key.slice(0, Math.max(0, key.indexOf("\0")));
+
+module.exports = { ownedKey, readOwnedByLive, treeOfKey };

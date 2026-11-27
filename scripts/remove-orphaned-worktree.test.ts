@@ -13,6 +13,7 @@ import {
 	putLock,
 } from "./lib/arbiter-testkit";
 import { writeClaudeStub } from "./lib/claude-stub";
+import { stubGhScript } from "./lib/gh-stub";
 import { markerName } from "./lib/orphan-filings.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
@@ -43,19 +44,20 @@ function fakeClaude(...sessionIds: string[]) {
 const ghLog = () => path.join(sb.dir, "gh-calls");
 
 function fakeGh() {
-	const bin = path.join(sb.dir, "bin", "gh");
-	fs.writeFileSync(
-		bin,
+	const { env } = stubGhScript(
+		sb.dir,
 		`#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(ghLog())}\ncase "$*" in *view*) echo CLOSED;; esac\n`,
-		{ mode: 0o755 },
 	);
-	vi.stubEnv("WFC_GH", bin);
+	vi.stubEnv("WFC_GH", env.WFC_GH);
 }
 
-const ghCalls = () =>
-	fs.existsSync(ghLog())
-		? fs.readFileSync(ghLog(), "utf8").split("\n").filter(Boolean)
-		: [];
+function ghCalls() {
+	try {
+		return fs.readFileSync(ghLog(), "utf8").split("\n").filter(Boolean);
+	} catch {
+		return [];
+	}
+}
 
 const git = (cwd: string, ...args: string[]) =>
 	spawnSync("git", args, { cwd, encoding: "utf8" });
@@ -93,12 +95,12 @@ function ownJob(sessionId: string, wt: string) {
 	);
 }
 
-function fileFor(wt: string, ref: string) {
+function fileFor(wt: string, ref: string, state = "s") {
 	const dir = path.join(sb.repo, ".git", "orphaned-edits-filed");
 	fs.mkdirSync(dir, { recursive: true });
 	const marker = path.join(
 		dir,
-		markerName({ worktree: ".claude/worktrees/w1", state: "s" }),
+		markerName({ worktree: ".claude/worktrees/w1", state }),
 	);
 	fs.writeFileSync(
 		marker,
@@ -132,6 +134,7 @@ const expectRefused = (
 ) => {
 	expect(r.out).toContain("refused, nothing removed");
 	expect(r.out).toContain(why);
+	expect(r.out).toContain("session-checkout.js land");
 	expect(r.status).toBe(1);
 };
 
@@ -156,6 +159,19 @@ describe("remove-orphaned-worktree", () => {
 		expect(r.out).toContain(
 			"https://github.com/o/r/issues/7: closed as completed",
 		);
+	});
+
+	it("closes every filing its worktree carries, a superseded one included", async () => {
+		landOnOrigin();
+		const wt = worktree();
+		fileFor(wt, "https://github.com/o/r/issues/7", "old");
+		fileFor(wt, "https://github.com/o/r/issues/9", "new");
+
+		const r = await remove(wt);
+
+		expect(r.status).toBe(0);
+		const closed = ghCalls().filter((c) => c.startsWith("issue close"));
+		expect(closed.map((c) => c.split(" ")[2]).sort()).toEqual(["7", "9"]);
 	});
 
 	it("judges a change against the landed ref's history, not its tip (#560)", async () => {
@@ -258,6 +274,51 @@ describe("remove-orphaned-worktree", () => {
 			"untracked file(s) not gitignored: new.txt",
 		);
 		expect(fs.existsSync(path.join(wt, "new.txt"))).toBe(true);
+	});
+
+	it("refuses untracked files in a node_modules that is no dependency link", async () => {
+		landOnOrigin();
+		const wt = worktree();
+		fs.mkdirSync(path.join(wt, "node_modules"));
+		fs.writeFileSync(path.join(wt, "node_modules", "x.js"), "local\n");
+
+		expectRefused(await remove(wt), "node_modules/x.js");
+	});
+
+	it("passes over a node_modules dependency link and removes only the link", async () => {
+		landOnOrigin();
+		const wt = worktree();
+		const store = path.join(sb.dir, "store");
+		fs.mkdirSync(store);
+		fs.writeFileSync(path.join(store, "dep.js"), "shared\n");
+		fs.symlinkSync(store, path.join(wt, "node_modules"));
+
+		expect((await remove(wt)).status).toBe(0);
+		expect(fs.existsSync(path.join(store, "dep.js"))).toBe(true);
+	});
+
+	it("refuses an unmerged path it cannot judge", async () => {
+		landOnOrigin();
+		const wt = worktree();
+		fs.writeFileSync(path.join(wt, "a.txt"), "ours\n");
+		git(wt, "commit", "-qam", "ours");
+		git(wt, "checkout", "-q", "-b", "theirs", "HEAD~1");
+		fs.writeFileSync(path.join(wt, "a.txt"), "theirs\n");
+		git(wt, "commit", "-qam", "theirs");
+		git(wt, "merge", "-q", "@{-1}");
+
+		expectRefused(await remove(wt), "unmerged or submodule path(s)");
+	});
+
+	it("refuses where which sessions are live will not read", async () => {
+		landOnOrigin();
+		const wt = worktree();
+		vi.stubEnv("WFC_CLAUDE_BIN", path.join(sb.dir, "bin", "absent"));
+
+		expectRefused(
+			await remove(wt),
+			"whether a live session owns it is unknown",
+		);
 	});
 
 	it("refuses while a live process has its working directory inside it", async () => {

@@ -104,6 +104,30 @@ function readWorktreeFiling(commonDir, label, dirt) {
 /**
  * @param {string} commonDir
  * @param {string} label
+ * @returns {string[]}
+ */
+function readWorktreeRefs(commonDir, label) {
+	const dir = path.join(commonDir, FILED_DIR);
+	const prefix = worktreePrefix(label);
+	const names = orFallback(
+		() => fs.readdirSync(dir),
+		/** @type {string[]} */ ([]),
+	);
+	const refs = names
+		.filter((n) => n.startsWith(prefix))
+		.map((n) =>
+			orFallback(
+				() => JSON.parse(fs.readFileSync(path.join(dir, n), "utf8")).ref,
+				null,
+			),
+		)
+		.filter((ref) => typeof ref === "string" && ref !== "");
+	return [...new Set(refs)];
+}
+
+/**
+ * @param {string} commonDir
+ * @param {string} label
  */
 function dropWorktreeFilings(commonDir, label) {
 	const dir = path.join(commonDir, FILED_DIR);
@@ -135,5 +159,6 @@ module.exports = {
 	markerName,
 	readWorktreeEdits,
 	readWorktreeFiling,
+	readWorktreeRefs,
 	stateTag,
 };

@@ -79,12 +79,12 @@ function adminDirOf(dir) {
 }
 
 /** @returns {{ pid: string, cwd: string }[]} */
-function readProcesses() {
+function readProcesses(proc = REAL_PROC) {
 	/** @type {{ pid: string, cwd: string }[]} */
 	const out = [];
-	for (const pid of fs.readdirSync(REAL_PROC))
+	for (const pid of fs.readdirSync(proc))
 		if (/^\d+$/.test(pid)) {
-			const cwd = readProcCwd(pid, REAL_PROC);
+			const cwd = readProcCwd(pid, proc);
 			if (cwd) out.push({ pid, cwd: cwd.replace(/ \(deleted\)$/, "") });
 		}
 	return out;

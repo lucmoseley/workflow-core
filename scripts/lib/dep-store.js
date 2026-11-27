@@ -416,6 +416,23 @@ function reapStores(root, standing, now, out) {
 	sweepBuildFailures(storesDir, kept);
 }
 
+/**
+ * @param {string} dir
+ * @returns {boolean}
+ */
+function isDepLink(dir) {
+	return (
+		fs
+			.lstatSync(path.join(dir, "node_modules"), { throwIfNoEntry: false })
+			?.isSymbolicLink() ?? false
+	);
+}
+
+/** @param {string} dir */
+function unlinkDepLink(dir) {
+	if (isDepLink(dir)) fs.unlinkSync(path.join(dir, "node_modules"));
+}
+
 module.exports = {
 	ageOf,
 	attach,
@@ -423,5 +440,7 @@ module.exports = {
 	relink,
 	removeTree,
 	warm,
+	isDepLink,
+	unlinkDepLink,
 	YOUNG_MS,
 };

@@ -16,7 +16,13 @@ const {
 	readWorktreesOrThrow,
 	rootOf,
 } = require("./checkout-repo.js");
-const { ageOf, reapStores, removeTree, YOUNG_MS } = require("./dep-store.js");
+const {
+	ageOf,
+	reapStores,
+	removeTree,
+	unlinkDepLink,
+	YOUNG_MS,
+} = require("./dep-store.js");
 const { deref } = require("./deref.js");
 const { readText } = require("./file-read.js");
 const {
@@ -246,9 +252,7 @@ function removeWorktree(root, dir, pass, jobs) {
 		dir,
 		jobs.filter((j) => worktreeHolding(j.cwd, [dir])),
 	);
-	const link = path.join(dir, "node_modules");
-	if (fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink())
-		fs.unlinkSync(link);
+	unlinkDepLink(dir);
 	git(["worktree", "remove", dir], root);
 }
 
