@@ -29,7 +29,6 @@ const { parseModelFlag, relaunchFlags } = require("./model-table.js");
  * @typedef {{
  *   log: (line: string) => void,
  *   env: () => NodeJS.ProcessEnv,
- *   burnOn: () => boolean,
  *   authRefusal: (launch: {env: NodeJS.ProcessEnv, cwd: string}) =>
  *     string|null,
  *   settingsLockout: (cwd: string) => string|null,
@@ -439,7 +438,7 @@ function resumeSteps(io) {
 		const rec = io.readJobRecord(seat, shortJobId(sessionId));
 		const saved = rec?.sessionId === sessionId ? savedFlagsOf(rec) : null;
 		if (!saved) return [];
-		const moved = relaunchFlags(saved, io.burnOn());
+		const moved = relaunchFlags(saved);
 		if (moved === saved) return [];
 		const found = parseModelFlag(moved);
 		if (!found) throw new Error("relaunchFlags moved a --model it then lost");
@@ -465,10 +464,10 @@ function resumeSteps(io) {
 		});
 		if (refusal) return { failed: refusal };
 		const asSaved = ids.flags ?? resumeFlagsOf(l, ids);
-		const flags = relaunchFlags(asSaved, io.burnOn());
+		const flags = relaunchFlags(asSaved);
 		if (flags !== asSaved)
 			log(
-				`${ids.sessionId} resumes on its launch model as burn mode stands: ${asSaved.join(" ")} -> ${flags.join(" ")}`,
+				`${ids.sessionId} resumes on its standard-routed launch model: ${asSaved.join(" ")} -> ${flags.join(" ")}`,
 			);
 		const carried = io.carryJobFiles(
 			l.seat,

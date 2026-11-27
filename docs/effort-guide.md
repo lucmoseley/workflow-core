@@ -6,29 +6,29 @@ v2.33 · 12 November 2026 · **Sole authority on model and effort** (mantahostel
 
 ## The standing default
 
-**The routing file's standard mode**, and it needs no per-session action: `scripts/burn-mode.sh off` writes its session model and per-model efforts into every plan's `~/.claude/settings.json`, and §Routing renders them. The effort is set per model because these models ignore a top-level `effortLevel` (§Effort). The session model is written as the full id, not an alias, so that the next alias move is an edit to the routing file rather than a silent change (#353). The standing session effort is the measured default (mantahostels#828); an unclassified session must get the safe model, not the cheap one (mantahostels#1088). Departures are named — a launch flag, a card code, a subagent pin — and everything unnamed runs the default.
+**The routing file's session model and per-model efforts**, and they need no per-session action: `scripts/burn-mode.sh`, `on` or `off` alike, writes them into every plan's `~/.claude/settings.json`, and §Routing renders them. The effort is set per model because these models ignore a top-level `effortLevel` (§Effort). The session model is written as the full id, not an alias, so that the next alias move is an edit to the routing file rather than a silent change (#353). The standing session effort is the measured default (mantahostels#828); an unclassified session must get the safe model, not the cheap one (mantahostels#1088). Departures are named — a launch flag, a card code, a subagent pin — and everything unnamed runs the default.
 
 There are four axes, and they answer different questions. **Model** and **effort** are fixed when a session launches, before it has read a word of the ticket. **Surface** (Code / Chat's Research toggle / Cowork / Design) is chosen per piece of work. **Ultrareview** is a spending decision the founder makes when a session asks.
 
 ## Burn mode — one switch
 
-**`scripts/burn-mode.sh on`** spends allowance on purpose: dispatches, launches and the session model move to the routing file's burn rows (#4919, #5004). `off` restores the standard rows; `status` reports the mode and any plan departing from it. The `burn-mode` skill wraps the script.
+**`scripts/burn-mode.sh on`** spends allowance on purpose, and only on the two carve-outs off Haiku: every `Agent` dispatch naming `opus` — the code reviewer's and legal and regulatory research's (§Which model each subagent dispatch runs on) — runs on Fable 5.2 at `low` (#5809, #5004). Everything else runs as it does with burn mode off: the session model, the settings efforts, every launch and resume, and every other dispatch. `off` restores the standard rows; `status` reports the mode and any plan departing from the routing file's settings. The `burn-mode` skill wraps the script.
 
-**One routing file, two modes** (`scripts/lib/model-routing.json`, read by `scripts/lib/model-table.js`; burn mode's marker, `scripts/lib/burn-mode.js`). Each mode holds a complete row per alias — the model it runs on and the effort, or none to keep the one asked for — plus the session model and the per-model settings efforts; §Routing renders both. The standard rows apply while the marker is absent, the burn rows while it exists. **A model only burn mode uses runs nowhere while burn mode is off** (#4992): its dispatches and launch spellings take their standard row. The rows apply at different moments:
+**One routing file, two sets of dispatch rows** (`scripts/lib/model-routing.json`, read by `scripts/lib/model-table.js`; burn mode's marker, `scripts/lib/burn-mode.js`). The file holds one session model and one set of per-model settings efforts, and each mode a complete `Agent`-dispatch row per alias — the model it runs on and the effort, or none to keep the one asked for; §Routing renders them. The standard rows apply while the marker is absent, the burn rows while it exists.
 
-- **Every `Agent` dispatch, at once.** `scripts/lib/dispatch-rewrite.js` rewrites the call's `model` and `effort` fields and says so in the session's context. A call's `effort` replaces its agent definition's `effort:` (§Effort), so the code reviewer's pinned `high` runs at the burn row's effort under burn; a call naming no model for an agent definition the plugin ships is translated from the definition's `model:`.
-- **Every `scripts/dispatch-sessions.js` launch, at once.** A spelling launches as its row's model id with `[1m]`, with an advisor only where the launched model takes one. A spelling the routing file does not know launches as written, and the launcher names each remap per member. **An overflow seat never runs burn mode**: it takes the standard rows alone, admits Opus only and launches on the Opus id named outright, never the plans' settings `model` (#4919).
-- **The session model, at the next session start.** The script writes the mode's `model` and `modelSettings` into every plan's `settings.json` — `~/.claude`, `~/.claude2` and `~/.claude3` are one machine — merging the efforts over what the plan holds, under every name a model is read as. A launch's effort is each model's `modelSettings` (§Effort). A plan whose `settings.json` is a symlink to another's is one file, written once (#187). `off` writes the standard settings and then checks every plan: it **exits 1 naming any plan still departing from them** (#126) and keeps the marker, so a second `off` retries (#3877); the marker holds no record. Claude Code reads `model` only at startup, so a running session keeps its model, and its no-model and fork dispatches inherit it, until a restart — bar one on a model only burn mode uses, which `off` moves (below). The warm-spare hazard in §Which model to launch each session on applies unchanged. `scripts/check-user-settings-drift.js` compares `model` and `modelSettings` against the routing file's current mode, not the settings snapshot.
+- **Every `Agent` dispatch, at once.** `scripts/lib/dispatch-rewrite.js` rewrites the call's `model` and `effort` fields and says so in the session's context. A call's `effort` replaces its agent definition's `effort:` (§Effort), so the code reviewer's pinned `high` runs at the burn row's effort under burn; a call naming no model for an agent definition the plugin ships is translated from the definition's `model:`. The rewrite keys on the alias a call names, so under burn *any* `opus`-named dispatch reaches Fable — naming `opus` outside the carve-outs is a departure in either mode. **An overflow seat never runs burn mode** (#4919).
+- **Every `scripts/dispatch-sessions.js` launch and every loop resume, in either mode, takes the standard rows.** A spelling launches as its row's model id with `[1m]`, with an advisor only where the launched model takes one; a spelling the routing file does not know launches as written, and the launcher names each remap per member. A loop resume moves a saved `--model` whose standard row routes it away. An overflow seat admits Opus only and launches on the Opus id named outright, never the plans' settings `model` (#4919).
+- **The settings.** The script writes the routing file's `model` and `modelSettings` into every plan's `settings.json` — `~/.claude`, `~/.claude2` and `~/.claude3` are one machine — merging the efforts over what the plan holds, under every name a model is read as. A launch's effort is each model's `modelSettings` (§Effort). A plan whose `settings.json` is a symlink to another's is one file, written once (#187). It then checks every plan and **exits 1 naming any still departing** (#126). The flip changes neither, so no session needs a restart. `scripts/check-user-settings-drift.js` compares `model` and `modelSettings` against the routing file, not the settings snapshot.
 
-**`off` reaches running sessions too** (#4992). Each live background session still on a model only burn mode uses, judged by the model its transcript last answered on, is resumed on its standard row's model under its own id by `scripts/burn-off-sessions.js`, which `off` runs, through the refill loop's own resume. The session running `off` cannot resume itself and is named instead. Until it ends, such a session's dispatches are held off that model: one that would inherit it is pinned to the standard row's model, and a fork, whose model no field moves, is refused (`rule:dispatch-fable-fork`). A loop resume of any job moves its saved `--model` through the routing file as burn mode stands then.
+**A session on a model its standard row routes away** — Fable, reached only by a hand `/model` or `--model` — has its dispatches held off that model in either mode: one that would inherit it is pinned to the standard row's model, and a fork, whose model no field moves, is refused (`rule:dispatch-fable-fork`, #4992).
 
-**What it does not reach:** a running interactive session's own model, a `claude --model …` or `--effort …` typed by hand or launched from the agents view, `CLAUDE_CODE_EFFORT_LEVEL`, which outranks settings, and a spare pre-booted before the switch — each keeps what it was given.
+**What it does not reach:** a `claude --model …` or `--effort …` typed by hand or launched from the agents view, `CLAUDE_CODE_EFFORT_LEVEL`, which outranks settings — each keeps what it was given.
 
-**The state is a marker, `~/.claude/.burn-mode` — one per machine, and the same scope as the `settings.json` half it gates, so an `off` run in any checkout ends burn mode everywhere (#127).**
+**The state is a marker, `~/.claude/.burn-mode` — one per machine, so an `off` run in any checkout ends burn mode everywhere (#127).**
 
 ## Routing
 
-What each alias runs on in each mode, rendered from `scripts/lib/model-routing.json`. To change it, edit that file, run `node scripts/generate-effort-guide-routing.js`, then run `scripts/burn-mode.sh` for the current mode to write it into the plans' settings. "Also read as" lists the older ids and names a spelling matches, `[1m]` or not; "as asked" keeps the call's or the agent definition's effort.
+What each alias runs on, rendered from `scripts/lib/model-routing.json`: the one session model and settings efforts, then each mode's `Agent`-dispatch rows. Launches and resumes take the standard rows in both modes. To change it, edit that file, run `node scripts/generate-effort-guide-routing.js`, then run `scripts/burn-mode.sh` for the current mode to write the settings into the plans. "Also read as" lists the older ids and names a spelling matches, `[1m]` or not; "as asked" keeps the call's or the agent definition's effort.
 
 <!-- routing:begin — rendered from scripts/lib/model-routing.json by scripts/generate-effort-guide-routing.js; edit the file and re-run it, never this block -->
 
@@ -39,7 +39,9 @@ What each alias runs on in each mode, rendered from `scripts/lib/model-routing.j
 | `opus` | `claude-opus-5-5` | `claude-opus-5` |
 | `fable` | `claude-fable-5-2` | `claude-fable-5`, `claude-fable-5-1` |
 
-**Standard mode.** Session model `claude-opus-5-5[1m]`; settings efforts `claude-haiku-5-5` `xhigh`, `claude-opus-5-5` `medium`, `claude-fable-5-2` `medium`.
+**Both modes.** Session model `claude-opus-5-5[1m]`; settings efforts `claude-haiku-5-5` `xhigh`, `claude-opus-5-5` `medium`, `claude-fable-5-2` `medium`; every launch and resume takes the standard rows.
+
+**Standard mode, `Agent` dispatches.**
 
 | Asked for | Runs on | At effort |
 |---|---|---|
@@ -48,14 +50,14 @@ What each alias runs on in each mode, rendered from `scripts/lib/model-routing.j
 | `opus` | `opus` · `claude-opus-5-5` | as asked |
 | `fable` | `opus` · `claude-opus-5-5` | as asked |
 
-**Burn mode.** Session model `claude-fable-5-2[1m]`; settings efforts `claude-haiku-5-5` `xhigh`, `claude-opus-5-5` `medium`, `claude-fable-5-2` `low`.
+**Burn mode, `Agent` dispatches.**
 
 | Asked for | Runs on | At effort |
 |---|---|---|
 | `haiku` | `haiku` · `claude-haiku-5-5` | `xhigh` |
 | `sonnet` | `haiku` · `claude-haiku-5-5` | `xhigh` |
 | `opus` | `fable` · `claude-fable-5-2` | `low` |
-| `fable` | `fable` · `claude-fable-5-2` | as asked |
+| `fable` | `opus` · `claude-opus-5-5` | as asked |
 
 <!-- routing:end -->
 

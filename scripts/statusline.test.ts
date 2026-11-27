@@ -36,8 +36,7 @@ beforeAll(() => {
 	script = path.join(dir, "statusline.sh");
 	fs.writeFileSync(script, `${found[1]}\n`, { mode: 0o755 });
 	repo = path.join(dir, "repo");
-	fs.mkdirSync(path.join(repo, "scripts"), { recursive: true });
-	fs.writeFileSync(path.join(repo, "scripts", "burn-mode.sh"), "");
+	fs.mkdirSync(repo);
 	shims = path.join(dir, "shims");
 	spawned = path.join(dir, "spawned");
 	fs.mkdirSync(shims);
@@ -76,43 +75,9 @@ const render = (projectDir = repo) => {
 };
 
 const CONTEXT = " Ctx: 0/200,000 tok (0.0%)";
-const setBurn = (on: boolean) => {
-	const marker = path.join(home, ".claude", ".burn-mode");
-	if (on) fs.writeFileSync(marker, "{}");
-	else fs.rmSync(marker, { force: true });
-};
-
 describe("the status line", () => {
-	it.each([false, true])(
-		"shows only context usage while burn mode stays as booted, on: %s",
-		(on) => {
-			setBurn(on);
-			expect(render()).toBe(CONTEXT);
-			expect(render()).toBe(CONTEXT);
-		},
-	);
-
-	it("warns of a restart once burn mode turns on after boot, until it is back", () => {
-		render();
-		setBurn(true);
-		expect(render()).toBe(`${CONTEXT}  burn: on (restart: model)`);
-		setBurn(false);
+	it("shows context usage", () => {
 		expect(render()).toBe(CONTEXT);
-	});
-
-	it("warns of a restart once burn mode turns off after boot", () => {
-		setBurn(true);
-		render();
-		setBurn(false);
-		expect(render()).toBe(`${CONTEXT}  burn: off (restart: model)`);
-	});
-
-	it("shows no burn warning outside workflow-core's world", () => {
-		const elsewhere = path.join(dir, "elsewhere");
-		fs.mkdirSync(elsewhere, { recursive: true });
-		render(elsewhere);
-		setBurn(true);
-		expect(render(elsewhere)).toBe(CONTEXT);
 	});
 
 	it("spawns no node and no claude on a render", () => {

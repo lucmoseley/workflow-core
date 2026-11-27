@@ -7,7 +7,7 @@ const { scriptPath } = require("./lib/script-path.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const {
 	loadRouting,
-	modeSettings,
+	planSettings,
 	modelId,
 	routingPath,
 } = require("./lib/model-table.js");
@@ -24,7 +24,7 @@ const code = (/** @type {string} */ s) => `\`${s}\``;
 
 /** @returns {string} */
 function renderBlock() {
-	const { models, modes } = loadRouting();
+	const { models, modelSettings, modes } = loadRouting();
 	const lines = [
 		BEGIN,
 		"",
@@ -35,14 +35,18 @@ function renderBlock() {
 				`| ${code(alias)} | ${code(m.id)} | ${m.also.length > 0 ? m.also.map(code).join(", ") : "—"} |`,
 		),
 	];
+	const efforts = Object.entries(modelSettings)
+		.map(([alias, level]) => `${code(modelId(alias))} ${code(level)}`)
+		.join(", ");
+	lines.push(
+		"",
+		`**Both modes.** Session model ${code(planSettings().model)}; settings efforts ${efforts}; every launch and resume takes the standard rows.`,
+	);
 	for (const [mode, m] of Object.entries(modes)) {
 		const title = `${mode[0]?.toUpperCase()}${mode.slice(1)} mode`;
-		const efforts = Object.entries(m.modelSettings)
-			.map(([alias, level]) => `${code(modelId(alias))} ${code(level)}`)
-			.join(", ");
 		lines.push(
 			"",
-			`**${title}.** Session model ${code(modeSettings(mode === "burn").model)}; settings efforts ${efforts}.`,
+			`**${title}, \`Agent\` dispatches.**`,
 			"",
 			"| Asked for | Runs on | At effort |",
 			"|---|---|---|",
