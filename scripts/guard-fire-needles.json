@@ -976,6 +976,12 @@
 					"text": "This command sets a git-hook escape"
 				},
 				{
+					"id": "test-timeout",
+					"core": "guard-test-timeout",
+					"kind": "deny",
+					"text": "This test run reads a launch snapshot of your tree"
+				},
+				{
 					"id": "chrome-merge",
 					"core": "guard-chrome-merge",
 					"kind": "deny",

@@ -23,8 +23,6 @@ const repo = defineTemplate((root) => {
 
 let dir: string;
 
-const SHIPPED_BG_RUN = path.resolve(__dirname, "..", "bg-run.sh");
-
 const run = (
 	toolInput: Record<string, unknown>,
 	{ env = {}, agent }: { env?: Record<string, string>; agent?: string } = {},
@@ -41,8 +39,12 @@ const run = (
 		{ root: dir, env },
 	).output;
 
-const rewritten = (command: string, timeout: unknown = 600_000) =>
-	run({ command, timeout, description: "d" })?.updatedInput;
+const refusal = (command: string, timeout: unknown = 600_000) => {
+	const out = run({ command, timeout });
+	return out?.permissionDecision === "deny"
+		? (out.permissionDecisionReason ?? "")
+		: null;
+};
 
 beforeEach(() => {
 	dir = repo.instantiate(mkScratchDir("test-timeout-"));
@@ -50,52 +52,41 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-describe("a session's own snapshot test run", () => {
+describe("a session's own snapshot test run over 30 s", () => {
 	it.each([
 		["a touched run", "npm run test"],
 		["a named run", "npm run test -- scripts/a.test.ts scripts/b.test.ts"],
 		["a changed run", "npm run test:changed"],
 		["the wrapper itself", "node scripts/run-vitest.js scripts/a.test.ts"],
 		["a run inside bg-run.sh", "scripts/bg-run.sh run t npm run test"],
-		[
-			"a run inside the shipped bg-run.sh",
-			`${SHIPPED_BG_RUN} run t npm run test -- scripts/a.test.ts`,
-		],
 		["a run piped to tail", "npm run test 2>&1 | tail -40"],
 		[
-			"a run filtered by a quoted pattern",
-			"npm run test -- scripts/a.test.ts 2>&1 | grep -E 'FAIL|✓' | head -n 20",
+			"a run under a heap cap",
+			"NODE_OPTIONS=--max-old-space-size=2048 npm run test",
 		],
-		["a name filter", 'npm run test -- scripts/a.test.ts -t "keeps it"'],
-	])("is moved to the 30 s timeout: %s", (_, command) => {
-		expect(rewritten(command)).toEqual({
-			command,
-			timeout: 30_000,
-			description: "d",
-		});
+		["a run followed by a second command", "npm run test; echo done"],
+		["a run after a cd", "cd sub && npm run test -- a.test.ts"],
+		["a run in a shell timeout", "timeout 580 npm run test -- a.test.ts"],
+	])("is refused, naming the 30 s timeout: %s", (_, command) => {
+		const reason = refusal(command);
+		expect(reason).toContain("Re-send the same command with `timeout: 30000`.");
+		expect(reason).toContain("not `timeout: 600000`");
 	});
 
-	it("gets the 30 s timeout where it set none", () => {
-		expect(run({ command: "npm run test" })?.updatedInput).toEqual({
-			command: "npm run test",
-			timeout: 30_000,
-		});
-	});
-
-	it("is allowed, since the harness applies a rewrite only with allow", () => {
-		expect(run({ command: "npm run test", timeout: 600_000 })).toMatchObject({
-			permissionDecision: "allow",
-		});
+	it("is refused where it set no timeout, the harness's default being longer", () => {
+		expect(
+			run({ command: "npm run test" })?.permissionDecisionReason,
+		).toContain("not no `timeout`");
 	});
 
 	it.each([
 		["already at 30 s", 30_000],
 		["shorter than 30 s", 10_000],
-	])("is left alone %s", (_, timeout) => {
-		expect(rewritten("npm run test", timeout)).toBeUndefined();
+	])("is let through %s", (_, timeout) => {
+		expect(refusal("npm run test", timeout)).toBeNull();
 	});
 
-	it("is left alone when run in the background", () => {
+	it("is let through when run in the background", () => {
 		expect(
 			run({
 				command: "npm run test",
@@ -103,6 +94,10 @@ describe("a session's own snapshot test run", () => {
 				run_in_background: true,
 			}),
 		).toBeNull();
+	});
+
+	it("is let through under the escape", () => {
+		expect(refusal("WFC_TEST_TIMEOUT=1 npm run test")).toBeNull();
 	});
 });
 
@@ -123,60 +118,39 @@ describe("a run the snapshot does not cover keeps its timeout", () => {
 		["an --isolated run", "npm run test -- --isolated"],
 		["a pytest run", "npm run test:py"],
 		["another npm script", "npm run lint"],
-	])("%s", (_, command) => {
-		expect(run({ command, timeout: 600_000 })).toBeNull();
+		[
+			"a command holding a --full run beside a touched one",
+			"npm run test; npm run test -- --full=release",
+		],
+	])("is let through: %s", (_, command) => {
+		expect(refusal(command)).toBeNull();
 	});
 
-	it("leaves a test script that is not the wrapper alone", () => {
+	it("is let through where the test script is not the wrapper", () => {
 		fs.writeFileSync(
 			path.join(dir, "package.json"),
 			JSON.stringify({ scripts: { test: "vitest run" } }),
 		);
-		expect(run({ command: "npm run test", timeout: 600_000 })).toBeNull();
+		expect(refusal("npm run test")).toBeNull();
 	});
 });
 
-describe("a command the rewrite would auto-approve beyond the run", () => {
-	it.each([
-		["a second command", "npm run test; rm -rf x"],
-		["an and-list", "npm run test && git push"],
-		["a command substitution", "npm run test -- $(cat list)"],
-		["a backtick", "npm run test -- `cat list`"],
-		["a variable in double quotes", 'npm run test -- "$X"'],
-		["a write redirect", "npm run test > out.txt"],
-		["a pipe into another program", "npm run test | sh"],
-		["a leading assignment", "NODE_OPTIONS=--require=x npm run test"],
-		["an npm config flag", "npm run test --prefix=/tmp/x"],
-		["an npm flag before run", "npm --prefix /tmp/x run test"],
-		["a foreign npm", "/tmp/x/npm run test"],
-		["a foreign run-vitest.js", "node /tmp/x/run-vitest.js"],
-		["a foreign bg-run.sh", "/tmp/x/bg-run.sh run t npm run test"],
-		["a second line", "npm run test\nrm -rf x"],
-		["an unclosed quote", "npm run test -- 'a"],
-		["a cd first", "cd sub && npm run test"],
-	])("is left alone: %s", (_, command) => {
-		expect(run({ command, timeout: 600_000 })).toBeNull();
-	});
-});
-
-describe("the note on a rewrite", () => {
-	const note = (opts: { env?: Record<string, string>; agent?: string }) =>
+describe("what the refusal says to do once the run moves", () => {
+	const reason = (opts: { env?: Record<string, string>; agent?: string }) =>
 		run({ command: "npm run test", timeout: 600_000 }, opts)
-			?.additionalContext ?? "";
+			?.permissionDecisionReason ?? "";
 
 	it("tells an interactive session to keep working, then end the turn", () => {
-		const text = note({});
-		expect(text).toContain("set to 30000 (#5800)");
-		expect(text).toContain("end the turn with NO tool call");
+		expect(reason({})).toContain("end the turn with NO tool call");
 	});
 
 	it("tells a background job to hold the turn on the in-flight wait", () => {
-		expect(note({ env: { CLAUDE_JOB_DIR: dir } })).toContain(
+		expect(reason({ env: { CLAUDE_JOB_DIR: dir } })).toContain(
 			"hold the turn on `node scripts/in-flight-runs.js wait`",
 		);
 	});
 
 	it("tells a subagent to wait inside its turn", () => {
-		expect(note({ agent: "a1" })).toContain("You are a subagent");
+		expect(reason({ agent: "a1" })).toContain("You are a subagent");
 	});
 });
