@@ -13,7 +13,7 @@ import {
 	live,
 } from "./arbiter-testkit";
 import { checkInProcess } from "./check";
-import { scrubbedGitEnv } from "./hook-entry.js";
+import { scrubbedGitEnv } from "./git.js";
 import { keptSpawn } from "./kept-spawn.js";
 
 const ROOT = path.resolve(__dirname, "..", "..");

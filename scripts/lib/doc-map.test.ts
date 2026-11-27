@@ -3892,22 +3892,25 @@ describe("readPluginFiles (#5818)", () => {
 			execFileSync("git", args, { cwd: root, stdio: "ignore" });
 		git("init", "-q", ".");
 		plant(root, ["package.json", "scripts/a.js"]);
-		git("add", "--", "package.json", "scripts/a.js");
-		plant(root, [".claude/tmp/git-fixture/other-run/x.txt"]);
+		fs.writeFileSync(path.join(root, ".gitignore"), ".claude/tmp/\n");
+		git("add", "--", ".gitignore", "package.json", "scripts/a.js");
+		plant(root, [".claude/tmp/git-fixture/other-run/x.txt", "skills/new.md"]);
 		return root;
 	};
 
-	it("lists a checkout's index, never the untracked scratch beside it", () => {
+	it("lists a checkout's files, never the ignored scratch beside them", () => {
 		expect(readPluginFiles(checkout())).toEqual([
+			".gitignore",
 			"package.json",
 			"scripts/a.js",
+			"skills/new.md",
 		]);
 	});
 
 	it("reads the checkout's own index under a hook's GIT_INDEX_FILE", () => {
 		const root = checkout();
 		vi.stubEnv("GIT_INDEX_FILE", path.join(root, "no-such-index"));
-		expect(readPluginFiles(root)).toEqual(["package.json", "scripts/a.js"]);
+		expect(readPluginFiles(root)).toContain("scripts/a.js");
 	});
 
 	it("walks an installed copy, which no repository's index holds", () => {

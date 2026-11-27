@@ -11,7 +11,7 @@ import {
 	gitRepo,
 	live,
 } from "./lib/arbiter-testkit";
-import { scrubbedGitEnv } from "./lib/hook-entry.js";
+import { scrubbedGitEnv } from "./lib/git.js";
 import { buildRunIo, releaseClaimsRow } from "./lib/post-commit-steps.js";
 import {
 	echoArgv,

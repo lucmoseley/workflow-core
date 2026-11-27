@@ -30,18 +30,6 @@ function readHookGitDir(cwd, env = process.env) {
 	return r.status === 0 && !r.error ? String(r.stdout).trim() : "";
 }
 
-const GIT_REDIRECTS = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"];
-
-/**
- * @param {NodeJS.ProcessEnv} env
- * @returns {NodeJS.ProcessEnv}
- */
-function scrubbedGitEnv(env) {
-	const out = { ...env };
-	for (const key of GIT_REDIRECTS) delete out[key];
-	return out;
-}
-
 /** @typedef {{ hook: string, said: "threw" | "did not run", exit: number }} Crash */
 
 // #5207
@@ -93,5 +81,4 @@ module.exports = {
 	catchSignals,
 	exitWhenSettled,
 	readHookGitDir,
-	scrubbedGitEnv,
 };

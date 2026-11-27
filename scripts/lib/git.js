@@ -26,6 +26,18 @@ function stdoutOrThrow(r, argv) {
 	return r.stdout;
 }
 
+const GIT_REDIRECTS = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"];
+
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {NodeJS.ProcessEnv}
+ */
+function scrubbedGitEnv(env) {
+	const out = { ...env };
+	for (const key of GIT_REDIRECTS) delete out[key];
+	return out;
+}
+
 const gitBinary = () => process.env.WFC_GIT || "git";
 
 /**
@@ -295,6 +307,7 @@ async function execGitAsync(args, opts = {}) {
 }
 
 module.exports = {
+	scrubbedGitEnv,
 	SHORT_SHA,
 	WIDE_SHA,
 	gitBinary,

@@ -1,6 +1,5 @@
 const path = require("node:path");
-const { gitCommonDir, spawnGitSync } = require("./git.js");
-const { scrubbedGitEnv } = require("./hook-entry.js");
+const { gitCommonDir, scrubbedGitEnv, spawnGitSync } = require("./git.js");
 const { readTopLevel: readTreeTopLevel } = require("./git-tree.js");
 const { inProgramScope } = require("./program-scope.js");
 const { trimEndRun } = require("./trim-run.js");

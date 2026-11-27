@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, type Mock, vi } from "vitest";
-import { scrubbedGitEnv } from "./hook-entry.js";
+import { scrubbedGitEnv } from "./git.js";
 import { ROWS, runPostCommit as runDispatcher } from "./post-commit-rows.js";
 import type { Programs } from "./post-commit-steps.js";
 

@@ -11,8 +11,7 @@ const { cutAt } = require("./cut-at.js");
 const { byCodeUnit } = require("./by-code-unit.js");
 const { caught, orFallback } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
-const { execGit, gitOrNull } = require("./git.js");
-const { scrubbedGitEnv } = require("./hook-entry.js");
+const { execGit, gitOrNull, scrubbedGitEnv } = require("./git.js");
 const { parseIndexEntries } = require("./git-objects.js");
 const { readMergeHeadLines } = require("./merge-heads.js");
 const { readCommitOrBroken } = require("./commit-sha.js");
@@ -1322,13 +1321,17 @@ function readTrackedFiles(root) {
 function readPluginFiles(root) {
 	if (!fs.existsSync(path.join(root, ".git"))) return walkTracked(root);
 	// #5818
-	return execGit(["ls-files", "-z"], {
-		cwd: root,
-		env: scrubbedGitEnv(process.env),
-		encoding: "utf8",
-	})
+	return execGit(
+		["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+		{
+			cwd: root,
+			env: scrubbedGitEnv(process.env),
+			encoding: "utf8",
+		},
+	)
 		.split("\0")
-		.filter(Boolean);
+		.filter(Boolean)
+		.sort();
 }
 
 function readUntrackedFiles() {
