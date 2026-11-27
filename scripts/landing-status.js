@@ -1,0 +1,174 @@
+#!/usr/bin/env node
+const { caught, parseErrorText } = require("./lib/caught.js");
+const { now } = require("./lib/check.js");
+const arbiterLedger = require("./lib/arbiter-ledger.js");
+const { flagValue, parseOrCode } = require("./lib/cli-args.js");
+const { readTopLevel } = require("./lib/git-tree.js");
+const {
+	commitStates,
+	fetchedGit,
+	buildStateLine,
+} = require("./lib/landing-status.js");
+const { ownQueueRef } = require("./lib/landing-refs.js");
+const {
+	buildHeldLine,
+	buildUnreadLine,
+	readHeldExit,
+} = require("./lib/landing-stall.js");
+const { buildQueueLine, queueGaugeOf } = require("./lib/queue-gauge.js");
+const { queueGit } = require("./lib/queue-lander-adapters.js");
+const { queueLogFile, readQueueRows } = require("./lib/queue-log.js");
+const {
+	buildQueueRefLine,
+	readQueueRefStates,
+} = require("./lib/queue-ref-status.js");
+const { scriptPath } = require("./lib/script-path.js");
+const { repoRoot } = require("./lib/test-pass-marker.js");
+const { writeFd } = require("./lib/write-fd.js");
+const { isNetworkFault } = require("./lib/network-fault.js");
+const { sleepSync } = require("./lib/sleep-sync.js");
+const {
+	WAIT_BOUND_MS,
+	WAIT_POLL_MS,
+	buildWaitLine,
+	shaState,
+	waitForLanding,
+} = require("./lib/landing-wait.js");
+
+/**
+ * @typedef {import("./lib/landing-wait.js").Reading} Reading
+ * @typedef {import("./lib/landing-wait.js").ShaState} ShaState
+ */
+
+const USAGE = `usage: node ${scriptPath("landing-status.js")} [--session <id>] [--wait]
+  the session defaults to CLAUDE_CODE_SESSION_ID
+  --wait  re-read every ${WAIT_POLL_MS / 1000} s until nothing of the session's is queued, or
+          ${WAIT_BOUND_MS / 60_000} min; run it with run_in_background to be told when it lands; a
+          background job whose next step needs the commits on main runs it in
+          the foreground under \`timeout 540\`, re-run, and otherwise ends on
+          result: naming them queued`;
+
+/** @type {import("./lib/cli-args.js").CliSpec} */
+const CLI = {
+	usage: USAGE,
+	flags: { "--session": "value", "--wait": "boolean" },
+};
+
+/** @param {string} line */
+const say = (line) => writeFd(1, `${line}\n`);
+
+/** @param {string} line */
+const fail = (line) => writeFd(2, `landing-status: ${line}\n`);
+
+/** @param {string[]} [argv] @returns {number} */
+function main(argv = process.argv.slice(2)) {
+	const parsed = parseOrCode(argv, CLI);
+	if (typeof parsed === "number") return parsed;
+	const root = repoRoot();
+	if (root === null) {
+		fail("not in a git checkout");
+		return 1;
+	}
+	const sessionId =
+		flagValue(parsed.flags, "--session") || process.env.CLAUDE_CODE_SESSION_ID;
+	if (!sessionId) {
+		fail(
+			`no session id: pass --session <id> or run inside a session\n${USAGE}`,
+		);
+		return 2;
+	}
+	const read = () => readLanding(root, sessionId);
+	if (parsed.flags["--wait"] === undefined) {
+		const r = read();
+		if ("fault" in r) return r.fault;
+		for (const line of r.lines) say(line);
+		return 0;
+	}
+	// workflow-core#4617
+	const t0 = Date.now();
+	const o = waitForLanding(read, {
+		sleep: sleepSync,
+		elapsed: () => Date.now() - t0,
+	});
+	if (o.kind === "fault") return o.code;
+	for (const line of o.reading.lines) say(line);
+	say(buildWaitLine(o));
+	return 0;
+}
+
+/**
+ * @param {string} root
+ * @param {string} sessionId
+ * @returns {Reading|import("./lib/landing-wait.js").Fault}
+ */
+function readLanding(root, sessionId) {
+	const ledgerRoot = arbiterLedger.ledgerRoot();
+	const commits = ledgerRoot
+		? arbiterLedger.readCommitsBy(sessionId, ledgerRoot)
+		: null;
+	if (!commits) {
+		fail(
+			`the commit ledger of session ${sessionId} would not read; no state claimed`,
+		);
+		return { fault: 1, network: false };
+	}
+	/** @type {string[]} */
+	const lines = [];
+	/** @type {Map<string, import("./lib/landing-status.js").CommitState["kind"]>} */
+	const commitKinds = new Map();
+	/** @type {Map<string, import("./lib/queue-ref-status.js").RefState["state"]>} */
+	const refKinds = new Map();
+	if (commits.length === 0)
+		lines.push(`Session ${sessionId} made no commit here.`);
+	else
+		try {
+			const tree = readTopLevel(process.cwd()) ?? root;
+			const queue = ownQueueRef(tree, root);
+			const git = fetchedGit(root, tree);
+			for (const entry of commitStates(commits, git)) {
+				lines.push(buildStateLine(entry, git.subjectOf(entry.sha), queue));
+				commitKinds.set(entry.sha, entry.state.kind);
+			}
+		} catch (err) {
+			const e = caught(err);
+			fail(
+				`could not read origin's main and queue refs: ${String(e.stderr || e.message).trim()}\nNo state claimed. Check \`git fetch origin\` works.`,
+			);
+			return { fault: 1, network: isNetworkFault(err) };
+		}
+	pushQueueLines(root, lines, refKinds);
+	/** @type {Map<string, ShaState>} */
+	const states = new Map();
+	for (const sha of new Set([...commitKinds.keys(), ...refKinds.keys()])) {
+		const s = shaState(commitKinds.get(sha), refKinds.get(sha));
+		if (s) states.set(sha, s);
+	}
+	return { lines, states };
+}
+
+/**
+ * @param {string} root
+ * @param {string[]} lines
+ * @param {Map<string, import("./lib/queue-ref-status.js").RefState["state"]>} refKinds
+ */
+function pushQueueLines(root, lines, refKinds) {
+	try {
+		const refs = queueGit(root).refs();
+		const rows = readQueueRows(queueLogFile(root));
+		const tree = readTopLevel(process.cwd());
+		for (const s of readQueueRefStates(root, tree, refs, rows)) {
+			lines.push(buildQueueRefLine(s));
+			refKinds.set(s.sha, s.state);
+		}
+		const held = readHeldExit(root, now());
+		if (held.kind === "held") lines.push(`held: ${buildHeldLine(held)}`);
+		if (held.kind === "unread") fail(buildUnreadLine(held));
+		lines.push(buildQueueLine(queueGaugeOf(refs.queue, rows, now())));
+	} catch (err) {
+		fail(`could not read the landing queue: ${parseErrorText(err)}`);
+	}
+}
+
+if (require.main === module) process.exit(main());
+
+module.exports = { main };

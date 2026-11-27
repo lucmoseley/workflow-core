@@ -1,0 +1,19 @@
+A BACKGROUND JOB NEVER ENDS ITS TURN ON `waiting:` (#5395). Claude Code lists
+a job whose turn has ended as completed, whatever it ends on. Hold
+the turn until what you launched reports, then end on `result:` or
+`needs input:`.
+
+Tool calls hold the turn, so while work remains independent of what you
+launched, run each wait with `run_in_background` (its exit wakes you) and
+keep working (#5554). Once none remains, run it in the foreground
+with `timeout: 600000`, or it moves at 120 s. Re-run a wait until it
+reports:
+
+- a subagent: `timeout 540 node scripts/watch-artefact.js <its artefact> 120 530
+  --log <output_file>`, the launch result's `output_file`, until it exits
+  `DONE`; with no artefact, `--no-artefact` in its place. One per agent.
+- a long Bash job: `scripts/bg-run.sh run <name> <command>` with
+  `run_in_background`, then `scripts/bg-run.sh wait <name> 540`.
+- a moved test run: `node scripts/in-flight-runs.js wait`.
+- queued commits: no wait; end on `result:`, naming them queued for the
+  lander, not on `main` (#5501).

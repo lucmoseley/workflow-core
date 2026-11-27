@@ -1,0 +1,9 @@
+A RED SUITE MAY BE A FILE SAVED MID-RUN, NOT A BREAKAGE (mantahostels#273).
+
+Vitest's `globalSetup` (`vitest-tree-watch.ts`), where attached, names at the
+end of the run the tracked files that changed WHILE the suite ran — yours or a
+subagent's in your worktree. When it speaks, re-run before believing the
+result.
+
+Its silence is not evidence: a half-finished file saved before the run began
+leaves no drift to find.

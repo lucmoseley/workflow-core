@@ -1,0 +1,6 @@
+RETIRING A REPO-MACHINERY FIGURE OBLIGES YOU TO WRITE ITS NEEDLES INTO
+`docs/machinery-superseded.json` THAT SESSION — the percent spelling AND the
+decimal one, because a stale figure is quoted both ways.
+
+`scripts/check-machinery-superseded.js` is WARN-only in the daily repo-checks run, so
+nothing will stop this commit; the omission simply survives.

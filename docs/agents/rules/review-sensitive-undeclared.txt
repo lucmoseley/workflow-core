@@ -1,0 +1,1 @@
+NO SENSITIVE PATHS ARE DECLARED, SO NO REVIEW HERE CAN ESCALATE. Declare them as `sensitivePaths` in `.claude/workflow-core.json`, or write `"sensitivePaths": []` for none. Any value, `[]` included, silences this line for good.

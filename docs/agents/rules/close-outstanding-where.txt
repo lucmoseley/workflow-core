@@ -1,0 +1,1 @@
+the close's own `--comment` or else the issue's newest comment

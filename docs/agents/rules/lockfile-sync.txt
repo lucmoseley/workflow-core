@@ -1,0 +1,11 @@
+ALWAYS COMMIT THE LOCKFILE, in the same commit as the `package.json` change
+that moves it: a dependency added, removed or re-ranged lands with the lockfile
+npm wrote for it.
+
+Bring the lockfile back in step with the manifest, which installs nothing and
+runs no package script:
+
+  npm install --package-lock-only
+
+then commit both by pathspec:
+`node scripts/commit-paths.js -m "…" -- package.json package-lock.json <other paths>`.
