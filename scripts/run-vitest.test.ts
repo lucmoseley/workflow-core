@@ -2563,7 +2563,7 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 							command: string,
 							weight: unknown,
 							climb: number,
-							hear?: (a: unknown) => void,
+							reads: { onAdmission?: (a: unknown) => void },
 					  ) => null)
 					| undefined,
 				root = repo(),
@@ -2685,7 +2685,7 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 				"npm run test -- a.test.ts -t 'two words'",
 				{ resolvedFiles: 1, wholeSlot: false },
 				0,
-				expect.any(Function),
+				{ onAdmission: expect.any(Function) },
 			);
 			expect(got.args).toContain("a.test.ts");
 		});
@@ -2714,9 +2714,9 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 						_command: string,
 						_weight: unknown,
 						_climb: number,
-						hear?: (a: unknown) => void,
+						reads: { onAdmission?: (a: unknown) => void },
 					) => {
-						hear?.(admission);
+						reads.onAdmission?.(admission);
 						return null;
 					},
 				});

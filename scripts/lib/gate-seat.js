@@ -112,6 +112,22 @@ function measuredGatePeak(runs, { repo, command }) {
 }
 
 /**
+ * #5802
+ * @param {GateRun[]} runs
+ * @param {string | null} repo
+ * @returns {number | null}
+ */
+function wholeRunPeakMb(runs, repo) {
+	const whole = runs.filter(
+		(r) => r.repo === repo && r.selection === undefined,
+	);
+	const peaks = [...new Set(whole.map((r) => r.command))].flatMap(
+		(command) => measuredGatePeak(whole, { repo, command })?.peakMb ?? [],
+	);
+	return peaks.length > 0 ? Math.max(...peaks) : null;
+}
+
+/**
  * @param {string} file
  * @returns {string | null}
  */
@@ -301,4 +317,5 @@ module.exports = {
 	readGateRunsAt,
 	readGateSelection,
 	startGatePids,
+	wholeRunPeakMb,
 };

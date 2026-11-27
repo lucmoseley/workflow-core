@@ -12,6 +12,7 @@ const {
 	gateSeatChargeMb,
 	readGatePids,
 	startGatePids,
+	wholeRunPeakMb,
 } = require("./gate-seat.js");
 const {
 	readGateSeats,
@@ -49,6 +50,43 @@ describe("the gate seat's charge", () => {
 		expect(gateSeatChargeMb({ gateSeatMb: 2400 })).toBe(2400);
 		expect(gateSeatChargeMb({})).toBe(GATE_SEAT_DEFAULT_MB);
 		expect(gateSeatChargeMb(null)).toBe(3350);
+	});
+});
+
+describe("a repo's measured whole-run peak (#5802)", () => {
+	const run = (command: string, peakTreeMb: number, extra: object = {}) => ({
+		repo: "design-vault",
+		command,
+		outcome: "pass",
+		runS: 300,
+		peakTreeMb,
+		...extra,
+	});
+	const five = (command: string, peaks: number[]) =>
+		peaks.map((mb) => run(command, mb));
+
+	it("is the highest of each gate command's last 5 measured peaks", () => {
+		const runs = [
+			...five("bash test/all.sh", [1201, 2340, 565, 577, 900]),
+			...five("bash test/fast.sh", [300, 310, 320, 330, 340]),
+		];
+		expect(wholeRunPeakMb(runs, "design-vault")).toBe(2340);
+	});
+
+	it("reads no run of another repo, a selected subset, or a command short of 5 runs", () => {
+		const runs = [
+			...five("bash test/all.sh", [600, 610, 620, 630, 640]),
+			run("bash test/all.sh", 9000, { selection: "test/a.sh" }),
+			run("bash test/all.sh", 9000, { repo: "other" }),
+			run("bash test/huge.sh", 9000),
+		];
+		expect(wholeRunPeakMb(runs, "design-vault")).toBe(640);
+	});
+
+	it("is null with no command measured 5 times", () => {
+		expect(wholeRunPeakMb([run("bash test/all.sh", 600)], "design-vault")).toBe(
+			null,
+		);
 	});
 });
 

@@ -61,6 +61,7 @@ const {
 	readGateRunsAt,
 	readGateSelection,
 	startGatePids,
+	wholeRunPeakMb,
 } = require("./lib/gate-seat.js");
 const { withMergeParents } = require("./lib/merge-heads.js");
 const {
@@ -414,14 +415,38 @@ function buildOtherWait(options, words) {
 	const chargeMb = charges.length > 0 ? Math.max(...charges) : undefined;
 	const charged = chargeMb === undefined ? options : { ...options, chargeMb };
 	const part = isNamedFilesRun(words);
+	const capMb = part ? readWholeRunPeak(options) : null;
 	return {
 		queue: options,
 		join: part ? { ...charged, weight: NAMED_FILES_WEIGHT } : charged,
-		wait: waitOn(part ? { gateWeight: NAMED_FILES_WEIGHT, part: true } : {}),
+		wait: waitOn(
+			part
+				? {
+						gateWeight: NAMED_FILES_WEIGHT,
+						part: true,
+						...(capMb === null ? {} : { gateCapMb: capMb }),
+					}
+				: {},
+		),
 		refused: refusedRun,
 		sayPlace: sayNoPlace,
 		start: handing(null),
 	};
+}
+
+/**
+ * @param {Options} options
+ * @returns {number | null}
+ */
+function readWholeRunPeak(options) {
+	const file =
+		options.gateLog === undefined ? gateRunLogPath() : options.gateLog;
+	const runs = readGateRunsAt(file);
+	if (runs !== null) return wholeRunPeakMb(runs, gateRepoName());
+	logger(LABEL)(
+		`the gate-run record ${file} would not read — a part-suite charged the ladder's rung uncapped (#5802)`,
+	);
+	return null;
 }
 
 /**

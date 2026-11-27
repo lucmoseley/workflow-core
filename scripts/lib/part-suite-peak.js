@@ -59,7 +59,7 @@ function nearestRank(values, p) {
 
 /**
  * @typedef {{ mode: "peak", kind: PartKind, bucket: string, p99Mb: number, rungMb: number, climbMb: number, samples: number }
- *   | { mode: "ladder", cause: LadderCause, kind?: PartKind, bucket?: string, rungMb: number, climbMb: number }} PartAdmission
+ *   | { mode: "ladder", cause: LadderCause, kind?: PartKind, bucket?: string, rungMb: number, climbMb: number, capMb?: number }} PartAdmission
  */
 
 /** @typedef {Pick<Extract<PartAdmission, { mode: "peak" }>, "kind" | "bucket" | "p99Mb" | "samples">} PeakCharge */
