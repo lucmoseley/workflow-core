@@ -194,29 +194,21 @@ describe("the model table (lib/model-table.js, #4919), on the fixture routing fi
 		const r = await runCore(["sonnet", "/implement 341"], ROUTING);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("model table: sonnet -> test-opus-2[1m]");
-		expect(r.stderr).not.toContain("burn mode");
 		expect(launchArgv()).toContain("--model test-opus-2[1m]");
 	});
 
-	it("launches a member by the burn row under burn mode", async () => {
-		stubClaude({});
-		burnOn();
-		const r = await runCore(["haiku", "/implement 341"], ROUTING);
-		expect(r.code).toBe(0);
-		expect(r.stderr).toContain("burn mode: haiku -> test-fable-1[1m]");
-		const launch = launchArgv();
-		expect(launch).toContain("--model test-fable-1[1m]");
-		expect(launch).not.toContain("--advisor");
-	});
-
-	it.each(["opus", "opus[1m]"])(
-		"moves %s under burn mode",
-		async (spelling) => {
+	it.each([
+		["opus[1m]", "opus[1m]"],
+		["sonnet", "test-opus-2[1m]"],
+	])(
+		"launches %s by the standard row with burn mode on",
+		async (spelling, to) => {
 			stubClaude({});
 			burnOn();
 			const r = await runCore([spelling, "/wayfinder 341"], ROUTING);
-			expect(r.stderr).toContain(`burn mode: ${spelling} -> test-sonnet-1[1m]`);
-			expect(launchArgv()).toContain("--model test-sonnet-1[1m]");
+			expect(r.code).toBe(0);
+			expect(r.stderr).not.toContain("burn mode");
+			expect(launchArgv()).toContain(`--model ${to}`);
 		},
 	);
 
@@ -231,7 +223,6 @@ describe("the model table (lib/model-table.js, #4919), on the fixture routing fi
 	it("launches a spelling its row keeps on its own alias as written", async () => {
 		stubClaude({});
 		const r = await runCore(["opus[1m]", "/wayfinder 341"], ROUTING);
-		expect(r.stderr).not.toContain("burn mode");
 		expect(r.stderr).not.toContain("model table");
 		expect(launchArgv()).toContain("--model opus[1m]");
 	});

@@ -215,8 +215,7 @@ one, so each entry wires its guard in all three config dirs.
 
 **The status line has a second half.** `statusLine` delegates to
 `~/.claude/statusline.sh`, which renders context usage *and* the design-mode
-state and burn mode's restart warning (`docs/doc-map.md` §A,
-`.claude/skills/design-mode/SKILL.md`, `.claude/skills/burn-mode/SKILL.md`).
+state (`docs/doc-map.md` §A, `.claude/skills/design-mode/SKILL.md`).
 Restoring means writing both: the JSON block above, and the script block below
 (then `chmod +x`).
 
@@ -227,8 +226,7 @@ Verbatim copy of `~/.claude/statusline.sh`, mode `755`.
 <!-- BEGIN statusline.sh -->
 ```bash
 #!/usr/bin/env bash
-# Claude Code status line: context usage, design mode, and burn mode's restart
-# warning.
+# Claude Code status line: context usage and design mode.
 #
 # User-level (~/.claude/settings.json → statusLine), so it applies in every
 # repo and there is only ever one copy. The design segment self-suppresses
@@ -332,49 +330,7 @@ if [[ -f "$settings" ]]; then
   fi
 fi
 
-# --- workflow-core gate ---------------------------------------------------
-# The burn segment shows only in workflow-core's world. Two
-# gates, OR'd: scripts/burn-mode.sh existing (this repo's own checkout),
-# or the workflow-core plugin reading enabled in the project's settings.json
-# (an adopter install, mirroring the design segment above) — the script alone
-# is never distributed to an adopter (#198).
-show_wfc=false
-if [[ -f "${dir:--}/scripts/burn-mode.sh" ]]; then
-  show_wfc=true
-elif [[ -f "$settings" ]]; then
-  wc_enabled="$(jq -r '
-    if .enabledPlugins | has("workflow-core@workflow-core")
-    then (.enabledPlugins["workflow-core@workflow-core"] | tostring)
-    else empty end' "$settings" 2>/dev/null)"
-  [[ "$wc_enabled" == "true" ]] && show_wfc=true
-fi
-
-# --- burn-mode segment -----------------------------------------------------
-# The repo's scripts/burn-mode.sh keeps a `.burn-mode` marker at
-# ~/.claude/.burn-mode — ONE PER MACHINE, matching the settings.json half the
-# toggle also writes, so an off run in any checkout ends burn mode everywhere
-# (workflow-core#127). The marker is read from $HOME and never from the
-# workspace. Reading the git common dir here left this badge stuck on off in
-# every checkout once #127 moved the marker out of it (workflow-core#131).
-#
-# The marker is read live and the flip is HALF live: scripts/lib/dispatch-rewrite.js
-# moves the next `opus` Agent dispatch to `fable` at once, while the `model`
-# key the toggle also writes is read at startup, so this session keeps the
-# model it booted on. Hence `(restart: model)` and not the design segment's
-# bare `(restart)`: the badge names the half that is still waiting. Only this
-# session's boot state tells, so the refill panel's Burn mode row cannot say it,
-# and that row carries the plain on and off.
-burn=""
-if [[ "$show_wfc" == true ]]; then
-  if [[ -f "$HOME/.claude/.burn-mode" ]]; then now_burn=true; else now_burn=false; fi
-  boot_burn="$(latch_boot .burn "$now_burn")"
-  if [[ "$boot_burn" != "$now_burn" ]]; then
-    label="burn: ${now_burn/true/on}"; label="${label/false/off}"
-    burn="$(printf "  \033[38;5;208m%s \033[3m(restart: model)\033[0m" "$label")"
-  fi
-fi
-
-printf '%s%s%s\n' "$ctx" "$design" "$burn"
+printf '%s%s\n' "$ctx" "$design"
 ```
 <!-- END statusline.sh -->
 

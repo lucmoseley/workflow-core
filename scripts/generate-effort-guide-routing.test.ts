@@ -43,10 +43,11 @@ describe("generate-effort-guide-routing", () => {
 		);
 		expect(text).toContain("| `fable` | `test-fable-1` | — |");
 		expect(text).toContain(
-			"**Standard mode.** Session model `test-haiku-1[1m]`; settings efforts `test-haiku-1` `low`, `test-opus-2` `high`.",
+			"**Both modes.** Session model `test-haiku-1[1m]`; settings efforts `test-haiku-1` `low`, `test-opus-2` `high`; every launch and resume takes the standard rows.",
 		);
 		expect(text).toContain("| `sonnet` | `opus` · `test-opus-2` | as asked |");
-		expect(text).toContain("**Burn mode.** Session model `test-sonnet-1[1m]`");
+		expect(text).toContain("**Standard mode, `Agent` dispatches.**");
+		expect(text).toContain("**Burn mode, `Agent` dispatches.**");
 		expect(text).toContain("| `haiku` | `fable` · `test-fable-1` | `high` |");
 	});
 

@@ -11,14 +11,10 @@
 			"also": ["claude-fable-5", "claude-fable-5-1"]
 		}
 	},
+	"session": "opus",
+	"modelSettings": { "haiku": "xhigh", "opus": "medium", "fable": "medium" },
 	"modes": {
 		"standard": {
-			"session": "opus",
-			"modelSettings": {
-				"haiku": "xhigh",
-				"opus": "medium",
-				"fable": "medium"
-			},
 			"route": {
 				"haiku": { "to": "haiku", "effort": "xhigh" },
 				"sonnet": { "to": "haiku", "effort": "xhigh" },
@@ -27,13 +23,11 @@
 			}
 		},
 		"burn": {
-			"session": "fable",
-			"modelSettings": { "haiku": "xhigh", "opus": "medium", "fable": "low" },
 			"route": {
 				"haiku": { "to": "haiku", "effort": "xhigh" },
 				"sonnet": { "to": "haiku", "effort": "xhigh" },
 				"opus": { "to": "fable", "effort": "low" },
-				"fable": { "to": "fable", "effort": null }
+				"fable": { "to": "opus", "effort": null }
 			}
 		}
 	}

@@ -14,9 +14,9 @@ const LONG_CONTEXT = "[1m]";
 
 /**
  * @typedef {{to: string, effort: string | null}} Row
- * @typedef {{session: string, modelSettings: Record<string, string>,
- *   route: Record<string, Row>}} Mode
+ * @typedef {{route: Record<string, Row>}} Mode
  * @typedef {{models: Record<string, {id: string, also: string[]}>,
+ *   session: string, modelSettings: Record<string, string>,
  *   modes: Record<"standard" | "burn", Mode>}} Routing
  */
 
@@ -78,17 +78,15 @@ function modelFault(alias, m, seen) {
 }
 
 /**
- * @param {string} at
  * @param {unknown} modelSettings
  * @param {string[]} aliases
  */
-function settingsFault(at, modelSettings, aliases) {
-	if (!isObject(modelSettings)) return `${at}.modelSettings is missing`;
+function settingsFault(modelSettings, aliases) {
+	if (!isObject(modelSettings)) return "`modelSettings` is missing";
 	for (const [alias, level] of Object.entries(modelSettings)) {
 		if (!aliases.includes(alias))
-			return `${at}.modelSettings.${alias} is not a known alias`;
-		if (!isLevel(level))
-			return `${at}.modelSettings.${alias} is not an effort level`;
+			return `modelSettings.${alias} is not a known alias`;
+		if (!isLevel(level)) return `modelSettings.${alias} is not an effort level`;
 	}
 	return "";
 }
@@ -122,14 +120,7 @@ function routeFault(at, route, aliases) {
 function modeFault(name, mode, aliases) {
 	const at = `modes.${name}`;
 	if (!isObject(mode)) return `${at} is missing`;
-	return firstOf([
-		() =>
-			isAlias(mode.session, aliases)
-				? ""
-				: `${at}.session is not a known alias`,
-		() => settingsFault(at, mode.modelSettings, aliases),
-		() => routeFault(at, mode.route, aliases),
-	]);
+	return routeFault(at, mode.route, aliases);
 }
 
 /**
@@ -145,6 +136,8 @@ function firstFault(r) {
 	const seen = new Map();
 	return firstOf([
 		...aliases.map((alias) => () => modelFault(alias, models[alias], seen)),
+		() => (isAlias(r.session, aliases) ? "" : "`session` is not a known alias"),
+		() => settingsFault(r.modelSettings, aliases),
 		() => (isObject(modes) ? "" : "no `modes` object"),
 		...MODES.map(
 			(name) => () =>
@@ -251,11 +244,7 @@ function isRoutedAway(spelling) {
 	const alias = aliasOf(spelling);
 	if (!alias) return false;
 	if (rowOf(false, alias).to === alias) return false;
-	const burn = modeOf(true);
-	return (
-		burn.session === alias ||
-		Object.values(burn.route).some((row) => row.to === alias)
-	);
+	return Object.values(modeOf(true).route).some((row) => row.to === alias);
 }
 
 // #4919
@@ -288,51 +277,46 @@ function isOverflowSession(env, session) {
 
 /**
  * @param {string} model
- * @param {boolean} burn
  * @returns {string}
  */
-function mapLaunch(model, burn) {
+function mapLaunch(model) {
 	const alias = aliasOf(model);
 	if (!alias) return model;
-	const { to } = rowOf(burn, alias);
+	const { to } = rowOf(false, alias);
 	return to === alias ? model : launchSpelling(to);
 }
 
 /**
  * @param {string | undefined} model
- * @param {boolean} burn
  * @returns {string}
  */
-function mapSessionModel(model, burn) {
-	if (!model) return launchSpelling(modeOf(burn).session);
-	return mapLaunch(model, burn);
+function mapSessionModel(model) {
+	if (!model) return launchSpelling(loadRouting().session);
+	return mapLaunch(model);
 }
 
 /**
- * @param {boolean} burn
  * @returns {{model: string, modelSettings: Record<string, {effortLevel: string}>}}
  */
-function modeSettings(burn) {
-	const mode = modeOf(burn);
+function planSettings() {
+	const routing = loadRouting();
 	/** @type {Record<string, {effortLevel: string}>} */
 	const modelSettings = {};
-	for (const [alias, effortLevel] of Object.entries(mode.modelSettings)) {
+	for (const [alias, effortLevel] of Object.entries(routing.modelSettings)) {
 		const m = modelOf(alias);
 		for (const id of [m.id, ...m.also]) modelSettings[id] = { effortLevel };
 	}
-	return { model: launchSpelling(mode.session), modelSettings };
+	return { model: launchSpelling(routing.session), modelSettings };
 }
 
 /**
  * @param {string[]} flags
- * @param {boolean} burn
  * @returns {string[]}
  */
-function relaunchFlags(flags, burn) {
-	if (burn) return flags;
+function relaunchFlags(flags) {
 	const found = parseModelFlag(flags);
 	if (!found || !isRoutedAway(found.model)) return flags;
-	const to = mapLaunch(found.model, false);
+	const to = mapLaunch(found.model);
 	const moved = found.width === 1 ? [`--model=${to}`] : ["--model", to];
 	return [
 		...flags.slice(0, found.at),
@@ -398,9 +382,7 @@ function remapModel(input, burn, inherited = "") {
 	if (input === null || typeof input !== "object") return null;
 	const call = /** @type {Record<string, unknown>} */ (input);
 	const from = dispatchedModel(call);
-	return from
-		? routeNamed(call, from, burn)
-		: pinInherited(call, burn, inherited);
+	return from ? routeNamed(call, from, burn) : pinInherited(call, inherited);
 }
 
 /** @param {string} effort */
@@ -408,17 +390,16 @@ const atEffort = (effort) => (effort ? ` at \`${effort}\`` : "");
 
 /**
  * @param {Record<string, unknown>} call
- * @param {boolean} burn
  * @param {string} inherited
  */
-function pinInherited(call, burn, inherited) {
-	if (burn || trimmed(call.subagent_type) === "fork") return null;
+function pinInherited(call, inherited) {
+	if (trimmed(call.subagent_type) === "fork") return null;
 	if (!isRoutedAway(inherited)) return null;
 	const row = rowOf(false, aliasOf(inherited));
 	const effort = row.effort ?? trimmed(call.effort);
 	return {
 		input: { ...call, model: row.to, ...(effort ? { effort } : {}) },
-		note: `Burn mode is off, so this dispatch, which would have inherited this session's \`${inherited}\`, runs on \`${row.to}\`${atEffort(effort)} (#4992).`,
+		note: `This dispatch, which would have inherited this session's \`${inherited}\`, runs on \`${row.to}\`${atEffort(effort)}: the standing model table routes \`${inherited}\` work there (#4992).`,
 	};
 }
 
@@ -453,7 +434,7 @@ module.exports = {
 	loadRouting,
 	parseModelFlag,
 	modelId,
-	modeSettings,
+	planSettings,
 	OVERFLOW_PREFIX,
 	OVERFLOW_SESSION_VAR,
 	overflowModel,
@@ -464,45 +445,40 @@ module.exports = {
 };
 
 /**
- * @type {Record<string, {arity: number, burn: boolean,
- *   run: (args: string[], burn: boolean, say: (s: string) => void) => number}>}
+ * @type {Record<string, {arity: number,
+ *   run: (args: string[], say: (s: string) => void) => number}>}
  */
 const CLI = {
 	launch: {
 		arity: 1,
-		burn: true,
-		run: ([spelling = ""], burn, say) => {
+		run: ([spelling = ""], say) => {
 			if (!spelling) return 2;
-			say(mapLaunch(spelling, burn));
+			say(mapLaunch(spelling));
 			return 0;
 		},
 	},
 	session: {
 		arity: 1,
-		burn: true,
-		run: ([model = ""], burn, say) => {
-			say(mapSessionModel(model, burn));
+		run: ([model = ""], say) => {
+			say(mapSessionModel(model));
 			return 0;
 		},
 	},
 	alias: {
 		arity: 1,
-		burn: false,
-		run: ([spelling = ""], _burn, say) => {
+		run: ([spelling = ""], say) => {
 			say(aliasOf(spelling));
 			return 0;
 		},
 	},
 	admits: {
 		arity: 1,
-		burn: false,
 		run: ([spelling = ""]) => (isOverflowAdmitted(spelling) ? 0 : 1),
 	},
 	settings: {
 		arity: 0,
-		burn: true,
-		run: (_args, burn, say) => {
-			say(JSON.stringify(modeSettings(burn)));
+		run: (_args, say) => {
+			say(JSON.stringify(planSettings()));
 			return 0;
 		},
 	},
@@ -513,18 +489,16 @@ const CLI = {
  * @returns {number}
  */
 function runCli(argv) {
-	const { values, positionals } = parseArgs({
+	const { positionals } = parseArgs({
 		args: argv,
 		allowPositionals: true,
 		strict: true,
-		options: { burn: { type: "boolean" } },
 	});
 	const [mode = "", ...args] = positionals;
-	const burn = values.burn === true;
 	const spec = Object.hasOwn(CLI, mode) ? CLI[mode] : undefined;
-	if (!spec || args.length !== spec.arity || (burn && !spec.burn)) return 2;
+	if (!spec || args.length !== spec.arity) return 2;
 	loadRouting();
-	return spec.run(args, burn, (line) => writeFd(1, `${line}\n`));
+	return spec.run(args, (line) => writeFd(1, `${line}\n`));
 }
 
 if (require.main === module) {

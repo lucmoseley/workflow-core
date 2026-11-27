@@ -27,7 +27,6 @@ afterEach(() => {
 
 const file = () => path.join(home, ".claude", "refill-seats");
 const seats = (text: string) => fs.writeFileSync(file(), text);
-const marker = () => path.join(home, "burn-mode");
 const seat = () => path.join(home, ".claude2");
 const gates = (identity: string[], extra: Record<string, string> = {}) =>
 	runInProcess(SCRIPT, ["--", ...identity], {
@@ -36,7 +35,6 @@ const gates = (identity: string[], extra: Record<string, string> = {}) =>
 			HOME: home,
 			...(identity[0] ? { CLAUDE_CONFIG_DIR: identity[0] } : {}),
 			WFC_CLAUDE_BIN: bin,
-			WFC_BURN_MARKER: marker(),
 			WFC_SECRETS_FILE: secrets,
 			...extra,
 		},
@@ -45,8 +43,7 @@ const gates = (identity: string[], extra: Record<string, string> = {}) =>
 const ROOTS = "WFC_REPO_ROOT CLAUDE_PROJECT_DIR WFC_DISPATCH_ROOT";
 const overflowLines = () =>
 	`${ROOTS} ANTHROPIC_API_KEY K CLAUDE_CODE_SESSION_ID\n${seat()} key=K\n`;
-const planLines = (burn = "off", dir = seat()) =>
-	`plan ${burn}\n${ROOTS}\n${dir}\n`;
+const planLines = (dir = seat()) => `plan\n${ROOTS}\n${dir}\n`;
 const homeClaude = () => path.join(home, ".claude");
 
 describe("the seat kind", () => {
@@ -61,7 +58,7 @@ describe("the seat kind", () => {
 		seats("~/.claude2\n~/.claude2 api key=K grant=200 cycle-day=20\n");
 		const overflow = gates([`${seat()}/`, "K"]);
 		expect(overflow.status).toBe(0);
-		expect(overflow.stdout).toBe(`overflow off\n${overflowLines()}`);
+		expect(overflow.stdout).toBe(`overflow\n${overflowLines()}`);
 		const plan = gates([seat()]);
 		expect(plan.status).toBe(0);
 		expect(plan.stdout).toBe(planLines());
@@ -71,7 +68,7 @@ describe("the seat kind", () => {
 		seats("~/.claude2\n~/.claude2 api key=K grant=200 cycle-day=20\n");
 		const r = gates([homeClaude()]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toBe(planLines("off", homeClaude()));
+		expect(r.stdout).toBe(planLines(homeClaude()));
 	});
 
 	it("refuses a malformed seat file, naming the line", () => {
@@ -106,7 +103,7 @@ describe("the seat kind", () => {
 			expect(plan.stdout).toBe(planLines());
 			const overflow = gates([seat(), "K"]);
 			expect(overflow.status).toBe(0);
-			expect(overflow.stdout).toBe(`overflow off\n${overflowLines()}`);
+			expect(overflow.stdout).toBe(`overflow\n${overflowLines()}`);
 		});
 
 		it("refuses a key no line declares, or one on another dir", () => {
@@ -167,7 +164,7 @@ describe("launch auth (#2236)", () => {
 				K: "sk-fake-in-env",
 			});
 			expect(r.status).toBe(0);
-			expect(r.stdout).toBe(`overflow off\n${overflowLines()}`);
+			expect(r.stdout).toBe(`overflow\n${overflowLines()}`);
 		});
 
 		it("admits a dir with no login of its own, through the key's helper", () => {
@@ -191,27 +188,5 @@ describe("launch auth (#2236)", () => {
 			expect(r.status).toBe(2);
 			expect(r.stderr).toContain("CLAUDE_CODE_USE_BEDROCK is set");
 		});
-	});
-});
-
-describe("burn mode", () => {
-	it("reads on while its marker exists", () => {
-		fs.writeFileSync(marker(), "");
-		expect(gates([homeClaude()]).stdout).toBe(planLines("on", homeClaude()));
-	});
-
-	it("reads off where the marker is not a regular file", () => {
-		fs.mkdirSync(marker());
-		expect(gates([homeClaude()]).stdout).toBe(planLines("off", homeClaude()));
-	});
-
-	it("reads off, warning, where the marker's path will not resolve", () => {
-		const r = gates([homeClaude()], {
-			WFC_BURN_MARKER: "",
-			HOME: "not-absolute",
-		});
-		expect(r.status).toBe(0);
-		expect(r.stdout).toBe(planLines("off", homeClaude()));
-		expect(r.stderr).toContain("WARNING: burn-mode marker path unresolved");
 	});
 });

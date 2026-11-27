@@ -80,7 +80,7 @@ beforeEach(() => {
 
 describe("resumeStopped", () => {
 	const argvs = (calls: unknown[][]) => calls.map(([argv]) => argv);
-	it("names the standard model on the wake of a job saved on a routed-away one, burn mode off", () => {
+	it("names the standard model on the wake of a job saved on a routed-away one", () => {
 		const { steps, callsTo, lines } = fakeIo({
 			readJobRecord: "savedRoutedAway",
 		});
@@ -96,20 +96,15 @@ describe("resumeStopped", () => {
 		expect(lines.join("\n")).toContain("wakes on test-opus-2[1m]");
 	});
 
-	it("names no model on the wake where burn mode is on, or the saved model is not routed away", () => {
-		for (const picks of [
-			{ readJobRecord: "savedRoutedAway", burnOn: "on" },
-			{ readJobRecord: "saved" },
-		] as const) {
-			const { steps, callsTo } = fakeIo(picks);
-			steps.resumeStopped(LAUNCH, PROMPT, IDS);
-			expect(argvs(callsTo("runClaude")).at(-1)).toEqual([
-				"--bg",
-				"--resume",
-				SESSION,
-				PROMPT,
-			]);
-		}
+	it("names no model on the wake where the saved model is not routed away", () => {
+		const { steps, callsTo } = fakeIo({ readJobRecord: "saved" });
+		steps.resumeStopped(LAUNCH, PROMPT, IDS);
+		expect(argvs(callsTo("runClaude")).at(-1)).toEqual([
+			"--bg",
+			"--resume",
+			SESSION,
+			PROMPT,
+		]);
 	});
 
 	it("refuses the resume where its worktree's own settings would lock the session out, launching nothing (#4752)", () => {
@@ -361,7 +356,7 @@ describe("resumeOwnId (#4098)", () => {
 		expect(lines.join("\n")).not.toContain("no saved launch flags");
 	});
 
-	it("resumes a routed-away launch on the standard row's model once burn mode is off", () => {
+	it("resumes a routed-away launch on the standard row's model", () => {
 		const flags = ["--model", "test-sonnet-0", "--name", "n"];
 		const { steps, callsTo, lines } = fakeIo({
 			readJobRecord: "working",
@@ -378,24 +373,9 @@ describe("resumeOwnId (#4098)", () => {
 			"n",
 			PROMPT,
 		]);
-		expect(lines.join("\n")).toContain("resumes on its launch model");
-	});
-
-	it("keeps a routed-away launch as saved while burn mode is on", () => {
-		const flags = ["--model", "test-sonnet-1[1m]"];
-		const { steps, callsTo } = fakeIo({
-			readJobRecord: "working",
-			runClaude: "ownId",
-			burnOn: "on",
-		});
-		steps.resumeOwnId(LAUNCH, PROMPT, { ...IDS, flags });
-		expect(argvs(callsTo("runClaude")).at(-1)).toEqual([
-			"--bg",
-			"--resume",
-			SESSION,
-			...flags,
-			PROMPT,
-		]);
+		expect(lines.join("\n")).toContain(
+			"resumes on its standard-routed launch model",
+		);
 	});
 
 	it("stops what a failed resume may still be starting under its id", () => {

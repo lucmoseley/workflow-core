@@ -5,10 +5,10 @@
 		"opus": { "id": "test-opus-2", "also": ["test-opus-1", "opusish"] },
 		"fable": { "id": "test-fable-1", "also": [] }
 	},
+	"session": "haiku",
+	"modelSettings": { "haiku": "low", "opus": "high" },
 	"modes": {
 		"standard": {
-			"session": "haiku",
-			"modelSettings": { "haiku": "low", "opus": "high" },
 			"route": {
 				"haiku": { "to": "haiku", "effort": "low" },
 				"sonnet": { "to": "opus", "effort": null },
@@ -17,8 +17,6 @@
 			}
 		},
 		"burn": {
-			"session": "sonnet",
-			"modelSettings": { "haiku": "max", "opus": "medium", "fable": "xhigh" },
 			"route": {
 				"haiku": { "to": "fable", "effort": "high" },
 				"sonnet": { "to": "sonnet", "effort": "max" },

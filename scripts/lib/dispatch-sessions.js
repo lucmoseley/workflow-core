@@ -200,7 +200,6 @@ class Dispatch {
 		this.seatDir = e.CLAUDE_CONFIG_DIR || `${e.HOME || ""}/.claude`;
 		this.seatLabel = "";
 		this.overflow = false;
-		this.burn = false;
 		/** @type {string[]} */
 		this.launchEnv = ["env"];
 
@@ -413,7 +412,7 @@ class Dispatch {
 		if (gates.status !== 0) throw exitAt(2);
 		const [kindLine = "", unsetLine = "", labelLine = ""] =
 			gates.text.split("\n");
-		const [seatKind = "", burnState = ""] = readFields(kindLine, 2);
+		const [seatKind = ""] = readFields(kindLine, 1);
 		[this.seatLabel = ""] = readFields(labelLine, 1);
 		this.overflow = seatKind === "overflow";
 		if (!this.overflow && seatKind !== "plan")
@@ -421,7 +420,6 @@ class Dispatch {
 				2,
 				`REFUSED: the seat ${this.seatDir} read as ${shellQuote(seatKind)}, neither plan nor overflow.\n`,
 			);
-		this.burn = burnState === "on" && !this.overflow;
 		const unset = unsetLine.split(/[ \t]+/).filter(Boolean);
 		this.launchEnv = ["env", ...unset.flatMap((v) => ["-u", v])];
 	}
@@ -437,14 +435,8 @@ class Dispatch {
 
 	/** @param {string} m */
 	async launchModel(m) {
-		const standing = await this.tableLaunch(["launch", m]);
-		const to = this.burn
-			? await this.tableLaunch(["launch", m, "--burn"])
-			: standing;
-		if (to !== m)
-			this.err(
-				`${to === standing ? "model table" : "burn mode"}: ${m} -> ${to}\n`,
-			);
+		const to = await this.tableLaunch(["launch", m]);
+		if (to !== m) this.err(`model table: ${m} -> ${to}\n`);
 		return to;
 	}
 

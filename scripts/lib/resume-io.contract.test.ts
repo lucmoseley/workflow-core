@@ -213,7 +213,6 @@ const SHAPES: Record<string, (v: unknown) => unknown> = {
 		return r && { jobId: typeof r.jobId, sessionId: r.sessionId === SESSION };
 	},
 	authRefusal: (v) => (v === null ? null : typeof v),
-	burnOn: (v) => v,
 	settingsLockout: (v) =>
 		v === null
 			? null
@@ -316,18 +315,6 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 				launchedAt: 2000,
 			});
 			return io().findHeadlessRun(SESSION, 1000);
-		},
-	},
-	burnOn: {
-		off: () => {
-			vi.stubEnv("WFC_BURN_MARKER", path.join(dir, "no-burn-marker"));
-			return io().burnOn();
-		},
-		on: () => {
-			const marker = path.join(dir, "burn-marker");
-			fs.writeFileSync(marker, "{}");
-			vi.stubEnv("WFC_BURN_MARKER", marker);
-			return io().burnOn();
 		},
 	},
 	settingsLockout: {

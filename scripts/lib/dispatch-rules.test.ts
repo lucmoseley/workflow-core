@@ -16,7 +16,7 @@ describe("tierDeparture", () => {
 			{ model: "opus", subagent_type: "workflow-core:code-reviewer" },
 		],
 	])("is null for %s", (_n, call) => {
-		expect(tierDeparture(call, false)).toBeNull();
+		expect(tierDeparture(call)).toBeNull();
 	});
 
 	it.each([
@@ -34,16 +34,7 @@ describe("tierDeparture", () => {
 			"on a fork",
 		],
 	])("names %s", (_n, call, said) => {
-		expect(tierDeparture(call, false)).toContain(said);
-	});
-
-	it("leaves opus alone under burn mode, which spends on purpose", () => {
-		expect(tierDeparture({ model: "opus" }, true)).toBeNull();
-		expect(tierDeparture({ model: "haiku" }, true)).toBeNull();
-		expect(
-			tierDeparture({ model: "sonnet", subagent_type: "code-reviewer" }, true),
-		).not.toBeNull();
-		expect(tierDeparture({ model: "sonnet" }, true)).not.toBeNull();
+		expect(tierDeparture(call)).toContain(said);
 	});
 });
 
