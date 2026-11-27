@@ -68,7 +68,7 @@ const { treeOrHost } = require("./tree-or.js");
  * @property {(pid: number | null) => import("./suite-handoff.js").CarriedWeight | null} carriedOf
  * @property {() => import("./suite-ladder.js").GateSeats} gateSeats
  * @property {import("./suite-handoff.js").CarriedWeight | null} [launchWeight]
- * @property {number} [partCapMb] the repo's measured whole-run peak, the most a part-suite on the ladder is charged (#5802)
+ * @property {number} [partCapMb] - #5802
  * @property {(run: { kind: import("./part-suite-peak.js").PartKind, files: number }) => { peak: import("./part-suite-peak.js").PartPeak | null } | { why: string }} partPeak
  * @property {() => import("./peak-tripwire.js").Fallback | null} tripwire
  * @property {(admission: PartAdmission) => void} [noteAdmission]
@@ -665,17 +665,18 @@ function peakChargeOf(st, s) {
  * @param {St} st
  * @param {Subject} s
  * @param {number} busy
- * @param {ReturnType<typeof peakChargeOf> | null} charge
+ * @param {{ ladder: boolean, peakRead: import("./part-suite-peak.js").PartPeak | null }} charge
  * @returns {{ rung: number, capMb: number | null }}
  */
-function rungOf(st, s, busy, charge) {
-	if (charge && "p99Mb" in charge)
-		return { rung: rungMb(charge.p99Mb), capMb: null };
-	const ladder = suiteRungMb(busy + s.workers);
+function rungOf(st, s, busy, { ladder, peakRead }) {
+	if (peakRead) return { rung: rungMb(peakRead.p99Mb), capMb: null };
+	const rung = suiteRungMb(busy + s.workers);
 	const cap = st.ctx.partCapMb;
-	return charge && cap !== undefined && rungMb(cap) < ladder
-		? { rung: rungMb(cap), capMb: cap }
-		: { rung: ladder, capMb: null };
+	if (!ladder || cap === undefined || rungMb(cap) >= rung)
+		return { rung, capMb: null };
+	return st.ctx.tripwire()
+		? { rung, capMb: null }
+		: { rung: rungMb(cap), capMb: cap };
 }
 
 /**
@@ -688,7 +689,10 @@ function chargeOf(st, s, { busy, queued }) {
 	const test = s.kind === "test";
 	const charge = test && s.vitestPart ? peakChargeOf(st, s) : null;
 	const peakRead = charge && "p99Mb" in charge ? charge : null;
-	const { rung, capMb } = rungOf(st, s, busy, charge);
+	const { rung, capMb } = rungOf(st, s, busy, {
+		ladder: charge !== null && "cause" in charge,
+		peakRead,
+	});
 	const climbScope = test && !peakRead && capMb === null ? "off-rung" : "all";
 	const climbMb = queued ? 0 : st.readClimb(climbScope);
 	const reach = reachableRung(rung, st.ctx.totalMb());

@@ -120,7 +120,7 @@ function readGate(
 		climbMb: (scope) => (scope === "all" ? allClimbMb() : climbMb),
 		gateSeats,
 		launchWeight: weight,
-		...(capMb === undefined ? {} : { partCapMb: capMb }),
+		partCapMb: capMb,
 		...(onAdmission ? { noteAdmission: onAdmission } : {}),
 		tree: () =>
 			treePorts(root ?? require("./host-root.js").sessionTree({}) ?? host),

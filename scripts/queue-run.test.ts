@@ -505,6 +505,31 @@ describe("queue-run.js", () => {
 			expect(caps).toEqual([undefined]);
 		});
 
+		it("charges it uncapped where the gate-run record will not read", async () => {
+			const f = fixture();
+			const gateLog = path.join(f.dir, "unreadable-gate-runs");
+			fs.mkdirSync(gateLog);
+			const caps: unknown[] = [];
+			main(
+				["--", "pytest", "tests/test_a.py"],
+				f.options({
+					gate: undefined,
+					gateLog,
+					gateRead: (
+						_c: string,
+						_w: unknown,
+						_m: number,
+						reads: { capMb?: number },
+					) => {
+						caps.push(reads.capMb);
+						return null;
+					},
+				}),
+			);
+			await tick();
+			expect(caps).toEqual([undefined]);
+		});
+
 		it("still joins a run naming no file whole", async () => {
 			const { weights, marker } = await joinOf(["pytest"]);
 			expect(weights).toEqual([null]);

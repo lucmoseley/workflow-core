@@ -3053,6 +3053,17 @@ describe("charges a part-suite no more than its repo's measured whole-run peak (
 		);
 	});
 
+	it("keeps the ladder's rung while the peak tripwire is tripped or blind", () => {
+		for (const tripwire of [
+			{ cause: "tripped" as const },
+			{ cause: "journal-unread" as const, why: "journalctl: exit 1" },
+		]) {
+			const { verdict, notes } = run({ tripwire });
+			expect(outcome(verdict)).toBe("deny");
+			expect(notes[0]).not.toHaveProperty("capMb");
+		}
+	});
+
 	it("keeps the ladder's rung where it is the lower", () => {
 		const { verdict, notes } = run({ ps: psWith(0), mb: 1000 });
 		expect(verdict?.gate).toMatchObject({

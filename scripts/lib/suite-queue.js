@@ -1132,22 +1132,22 @@ const QUEUE_SIGNALS = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 };
  */
 function gateDenies(
 	words = [],
-	read = (command, carried, climb, asked) =>
+	read = (command, carried, climb, reads) =>
 		require("./suite-concurrency-host.js").readGate(command, undefined, {
 			weight: carried,
 			climbMb: climb,
 			allClimbMb: () => readQueuesClimbMb("all"),
 			gateSeats: () => readGateSeats(),
-			...asked,
+			...reads,
 		}),
 	weight = null,
-	{ climbMb = 0, ...reads } = {},
+	{ climbMb = 0, ...asked } = {},
 ) {
 	const command = ["npm run test", ...(words.length > 0 ? ["--"] : [])]
 		.concat(words.map(shellQuote))
 		.join(" ");
 	try {
-		return read(command, weight, climbMb, reads);
+		return read(command, weight, climbMb, asked);
 	} catch (err) {
 		ignoreFailure(() =>
 			require("./arbiter-core.js").logError(
@@ -1283,7 +1283,7 @@ function queueSeat({
 						gateDenies(gateWords, gateRead, gateWeight, {
 							climbMb: charged,
 							onAdmission,
-							...(gateCapMb === undefined ? {} : { capMb: gateCapMb }),
+							capMb: gateCapMb,
 						})),
 				turn: passing ? passing.turn : turn,
 				...(passing ? { turnHold: passing.turnHold } : {}),
