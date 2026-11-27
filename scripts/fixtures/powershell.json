@@ -1,0 +1,38 @@
+{
+	"recordedBy": "node scripts/record-windows-tools.js powershell",
+	"responses": {
+		"command": {
+			"argv": [
+				"-NoProfile",
+				"-Command",
+				"& 'cmd.exe' /c 'echo @@probe'"
+			],
+			"status": 0,
+			"stdout": "@@probe\r\n",
+			"stderr": ""
+		},
+		"failing": {
+			"argv": [
+				"-NoProfile",
+				"-Command",
+				"& 'cmd.exe' /c 'exit 3'"
+			],
+			"status": 1,
+			"stdout": "",
+			"stderr": ""
+		},
+		"check": {
+			"argv": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"C:\\diag\\5743\\page-combining.ps1",
+				"-Check"
+			],
+			"status": 0,
+			"stdout": "ok\r\n",
+			"stderr": ""
+		}
+	}
+}

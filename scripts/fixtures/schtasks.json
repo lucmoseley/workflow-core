@@ -1,0 +1,25 @@
+{
+	"recordedBy": "node scripts/record-windows-tools.js schtasks",
+	"responses": {
+		"run": {
+			"argv": [
+				"/Run",
+				"/TN",
+				"workflow-core contract probe"
+			],
+			"status": 0,
+			"stdout": "SUCCESS: Attempted to run the scheduled task \"workflow-core contract probe\".\r\n",
+			"stderr": ""
+		},
+		"missing": {
+			"argv": [
+				"/Run",
+				"/TN",
+				"workflow-core contract probe absent"
+			],
+			"status": 1,
+			"stdout": "",
+			"stderr": "ERROR: The system cannot find the file specified.\r\r\n"
+		}
+	}
+}

@@ -10,6 +10,7 @@ const IDENTITY = `1: kd> !lmi nt
 @@end
 `;
 export const PDB = "ntkrnlmp.pdb";
+export const UNOPENED = "The system cannot find the file specified.";
 export const PDB_KEY = `${GUID.replace(/-/g, "")}1`;
 
 const LAYOUT = `@@db
@@ -32,6 +33,9 @@ ffffc883\`1dab4610  00000000\`00000100 00000000\`00000010
 @@end
 `;
 
+const READ = `head -c $((16#\${len#L?0x})) /dev/zero >"$file"`;
+const UNREAD = `: >"$file"`;
+
 export function writeCdb(
 	dir: string,
 	{ exit = 0, reads = true }: { exit?: number; reads?: boolean } = {},
@@ -39,15 +43,14 @@ export function writeCdb(
 	return writeFakeBin(
 		dir,
 		"cdb",
-		`cf=""
-while [ $# -gt 0 ]; do [ "$1" = -cf ] && cf="$2"; shift; done
-[ ${exit} = 0 ] || { echo 'cannot open the dump' >&2; exit ${exit}; }
+		`cf="" z=""
+while [ $# -gt 0 ]; do case "$1" in -cf) cf="$2";; -z) z="$2";; esac; shift; done
+[ ${exit} = 0 ] || { printf 'Could not open dump file [%s], Win32 error 0n2\\n%s\\n' "$z" ${shellQuote(UNOPENED)}; exit ${exit}; }
 if grep -q '!lmi' "$cf"; then printf '%s' ${shellQuote(IDENTITY)}
 elif grep -q '@@db' "$cf"; then printf '%s' ${shellQuote(LAYOUT)}
 else
-  ${reads ? "" : "exit 0"}
   while read -r cmd file _ len; do
-    if [ "$cmd" = .writemem ]; then head -c $((16#\${len#L?0x})) /dev/zero >"$file"; fi
+    if [ "$cmd" = .writemem ]; then ${reads ? READ : UNREAD}; fi
   done < <(tr -d '\\r' <"$cf")
 fi`,
 	);

@@ -20,7 +20,7 @@ const MAX_OUT = 64 * 1024 * 1024;
  * @param {string[]} commands
  * @param {string} work
  */
-function runCdb(dump, symbolDir, commands, work) {
+function spawnCdb(dump, symbolDir, commands, work) {
 	const file = path.join(work, "commands.txt");
 	fs.writeFileSync(file, `${commands.join("\r\n")}\r\n`);
 	const cdb = process.env.WFC_CDB || "cdbARM64.exe";
@@ -34,9 +34,26 @@ function runCdb(dump, symbolDir, commands, work) {
 		{ encoding: "utf8", maxBuffer: MAX_OUT },
 	);
 	if (r.error) throw new Error(`cdb: ${r.error.message}`);
-	if (r.status !== 0)
-		throw new Error(`cdb exited ${r.status}: ${(r.stderr ?? "").trim()}`);
-	return (r.stdout ?? "").replace(/\r/g, "");
+	return {
+		status: r.status,
+		stdout: (r.stdout ?? "").replace(/\r/g, ""),
+		stderr: (r.stderr ?? "").replace(/\r/g, ""),
+	};
+}
+
+/**
+ * @param {string} dump
+ * @param {string} symbolDir
+ * @param {string[]} commands
+ * @param {string} work
+ */
+function runCdb(dump, symbolDir, commands, work) {
+	const r = spawnCdb(dump, symbolDir, commands, work);
+	if (r.status !== 0) {
+		const why = r.stderr.trim() || r.stdout.trim().split("\n").at(-1);
+		throw new Error(`cdb exited ${r.status}: ${why}`);
+	}
+	return r.stdout;
 }
 
 /**
@@ -136,4 +153,4 @@ function earlierFlagged(dump) {
 	return seen;
 }
 
-module.exports = { diagDir, earlierFlagged, scanDump };
+module.exports = { diagDir, earlierFlagged, fetchSymbols, scanDump, spawnCdb };

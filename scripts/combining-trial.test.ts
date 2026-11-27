@@ -155,7 +155,9 @@ describe("pfn-scan", () => {
 			env: envWith({ cdb: { exit: 3 } }),
 		});
 		expect(r.status).toBe(1);
-		expect(r.stderr).toBe("pfn-scan: cdb exited 3: cannot open the dump\n");
+		expect(r.stderr).toBe(
+			"pfn-scan: cdb exited 3: The system cannot find the file specified.\n",
+		);
 		expect(ghCalls()).toEqual([]);
 	});
 });

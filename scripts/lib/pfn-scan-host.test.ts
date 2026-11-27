@@ -49,7 +49,7 @@ describe("scanDump", () => {
 
 	it("throws on a non-zero cdb exit", () => {
 		expect(scanWith({ exit: 3 })).toThrow(
-			/^cdb exited \d+: cannot open the dump$/,
+			/^cdb exited \d+: The system cannot find the file specified\.$/,
 		);
 	});
 

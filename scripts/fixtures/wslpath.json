@@ -1,0 +1,25 @@
+{
+	"recordedBy": "node scripts/record-windows-tools.js wslpath",
+	"responses": {
+		"roundTrip": [
+			{
+				"argv": [
+					"-w",
+					"/mnt/c/diag/5743/dumps/live.dmp"
+				],
+				"status": 0,
+				"stdout": "C:\\diag\\5743\\dumps\\live.dmp\n",
+				"stderr": ""
+			},
+			{
+				"argv": [
+					"-u",
+					"C:\\diag\\5743\\dumps\\live.dmp"
+				],
+				"status": 0,
+				"stdout": "/mnt/c/diag/5743/dumps/live.dmp\n",
+				"stderr": ""
+			}
+		]
+	}
+}
