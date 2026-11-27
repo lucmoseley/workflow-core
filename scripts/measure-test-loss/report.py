@@ -2,7 +2,6 @@ import argparse
 import csv
 import os
 import statistics
-import subprocess
 import sys
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
@@ -17,32 +16,29 @@ import blocked
 import corpus
 import queue_wait
 from corpus import epoch
-from host_root import host_root
 
 
-def default_queue_log():
-    common = subprocess.run(
-        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        cwd=host_root(),
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    return os.path.join(
-        os.path.dirname(common), ".claude", "tmp", "markers", ".suite-queue-exits.jsonl"
-    )
+def default_queue_logs(repos):
+    checkouts = corpus.adopter_checkouts()
+    return [
+        os.path.join(
+            checkouts[r], ".claude", "tmp", "markers", ".suite-queue-exits.jsonl"
+        )
+        for r in repos
+        if r in checkouts
+    ]
 
 
 def day_of_hour(h):
     return datetime.fromtimestamp(h * 3600, UTC).strftime("%Y-%m-%d")
 
 
-def daily(roots, start, end, repo, *, tally):
+def daily(roots, start, end, repos, *, tally):
     fg_rows = []
     blocked_s = defaultdict(float)
     active_s = defaultdict(float)
     for r, p in corpus.transcripts(roots, epoch(start), tally, subagents=False):
-        if r != repo:
+        if r not in repos:
             continue
         fg_rows += blocked.scan_file(p, r, start, end, tally=tally)
         for row in bg_idle.scan_file(p, r, start, end, tally=tally):
@@ -69,18 +65,24 @@ def main():
     ap.add_argument(
         "--end", required=True, help="UTC ISO window end, e.g. 2026-10-20T00:00:00Z"
     )
-    ap.add_argument("--repo", choices=("wfc", "mh"), default="wfc")
+    ap.add_argument(
+        "--repo",
+        action="append",
+        help="a checkout name to pool, repeatable (default: workflow-core)",
+    )
     ap.add_argument(
         "--queue-log",
-        help="the .suite-queue-exits.jsonl to read (default: the canonical checkout's)",
+        action="append",
+        help="a .suite-queue-exits.jsonl to read, repeatable (default: each repo's checkout's)",
     )
     ap.add_argument("--csv", help="write the daily rows here")
     a = ap.parse_args()
     os.nice(19)
 
+    repos = a.repo or ["workflow-core"]
     tally = Counter()
     blocked_s, active_s = daily(
-        a.roots or corpus.default_roots(), a.start, a.end, a.repo, tally=tally
+        a.roots or corpus.default_roots(), a.start, a.end, set(repos), tally=tally
     )
     days = sorted(set(blocked_s) | set(active_s))
     rows = []
@@ -89,7 +91,7 @@ def main():
         rows.append((d, b, act, b / act if act else None))
     shares = [s for *_, s in rows if s is not None]
 
-    print(f"{a.repo} main sessions, {a.start} to {a.end}")
+    print(f"{' + '.join(repos)} main sessions, {a.start} to {a.end}")
     print("  day         blocked h  active h  share")
     for d, b, act, share in rows:
         print(f"  {d}  {b:9.2f}  {act:8.2f}  {pct_or_dash(share)}")
@@ -103,14 +105,16 @@ def main():
         else "median daily blocked share: no active days"
     )
 
-    log = a.queue_log or default_queue_log()
-    if os.path.exists(log):
-        w = [r["waitS"] for r in queue_wait.exits(log, a.start, a.end, tally)]
+    logs = [g for g in a.queue_log or default_queue_logs(repos) if os.path.exists(g)]
+    if logs:
+        w = [
+            r["waitS"] for g in logs for r in queue_wait.exits(g, a.start, a.end, tally)
+        ]
         print(
-            f"per-run queue wait p95: {queue_wait.pct(w, 0.95):.0f} s over {len(w)} exits ({log})"
+            f"per-run queue wait p95: {queue_wait.pct(w, 0.95):.0f} s over {len(w)} exits ({', '.join(logs)})"
         )
     else:
-        print(f"per-run queue wait p95: no queue log at {log}")
+        print("per-run queue wait p95: no queue log found")
     print("skipped:", corpus.counts_line(tally), file=sys.stderr)
 
     if a.csv:

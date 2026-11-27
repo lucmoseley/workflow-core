@@ -1,6 +1,7 @@
 import json
 import re
 import sys
+from collections import defaultdict
 from datetime import datetime
 
 
@@ -24,10 +25,11 @@ def ov(xs, a, b):
     return sum(max(0, min(b, y) - max(a, x)) for x, y in xs)
 
 
-idle = queue = vitest = rest = 0.0
-n = 0
+tot = defaultdict(
+    lambda: {"n": 0, "idle": 0.0, "queue": 0.0, "vitest": 0.0, "rest": 0.0}
+)
 for r in map(json.loads, open(bi)):
-    if r["repo"] != "wfc" or r["sub"] or r["at"] < start:
+    if r["sub"] or r["at"] < start:
         continue
     m = re.search(r"([0-9a-f-]{36})\.jsonl$", r["file"])
     if not m:
@@ -40,11 +42,13 @@ for r in map(json.loads, open(bi)):
     w = min(ov(qs.get(sid, []), a, b), b - a)
     v = min(ov(runs.get(sid, []), a, b), b - a - w)
     f = r["idle_s"]
-    n += 1
-    idle += f
-    queue += f * w / (b - a)
-    vitest += f * v / (b - a)
-    rest += f * (b - a - w - v) / (b - a)
-print(
-    f"main-session bg idle rows {n}: idle {idle / 3600:.2f} h = queue {queue / 3600:.2f} h + vitest {vitest / 3600:.2f} h + rest {rest / 3600:.2f} h"
-)
+    t = tot[r["repo"]]
+    t["n"] += 1
+    t["idle"] += f
+    t["queue"] += f * w / (b - a)
+    t["vitest"] += f * v / (b - a)
+    t["rest"] += f * (b - a - w - v) / (b - a)
+for repo, t in sorted(tot.items()):
+    print(
+        f"{repo} main-session bg idle rows {t['n']}: idle {t['idle'] / 3600:.2f} h = queue {t['queue'] / 3600:.2f} h + vitest {t['vitest'] / 3600:.2f} h + rest {t['rest'] / 3600:.2f} h"
+    )

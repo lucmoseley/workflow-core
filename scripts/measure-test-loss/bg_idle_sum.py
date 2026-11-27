@@ -8,7 +8,7 @@ def q(x, p):
     return x[int((len(x) - 1) * p)] if x else 0
 
 
-for repo in ("wfc", "mh"):
+for repo in sorted({r["repo"] for r in rows}):
     for how in ("bg", "autobg"):
         R = [r for r in rows if r["repo"] == repo and r["how"] == how]
         if not R:
