@@ -987,9 +987,19 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 
 			it("lists no zeroed record whose later neighbour predates the window, and still lists one that does not (#5795)", async () => {
 				seed([previousReview()]);
-				appendDecision(wfc(), "2026-10-09T10:00:00.000Z", 1, "Wfc: old");
+				appendDecision(
+					wfc(),
+					"2026-10-09T10:00:00.000Z",
+					1,
+					"Wfc: before window",
+				);
 				fs.appendFileSync(ledger(), "\0".repeat(64));
-				appendDecision(wfc(), "2026-10-09T12:00:00.000Z", 2, "Wfc: older");
+				appendDecision(
+					wfc(),
+					"2026-10-09T12:00:00.000Z",
+					2,
+					"Wfc: window edge",
+				);
 				fs.appendFileSync(ledger(), "\0".repeat(64));
 				appendDecision(wfc(), "2026-10-10T12:00:00.000Z", 3, "Wfc: inside");
 				stubCloses();
@@ -997,6 +1007,24 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 
 				expect(bodies()[0]).toContain(
 					"- acme/wfc: `1 ledger record(s) zeroed by a crash, written between 2026-10-09T12:00:00.000Z and 2026-10-10T12:00:00.000Z`",
+				);
+			});
+
+			it("lists a zeroed record whose later neighbour is undated, even after a row dated before the window (#5795)", async () => {
+				seed([previousReview()]);
+				appendDecision(
+					wfc(),
+					"2026-10-09T10:00:00.000Z",
+					1,
+					"Wfc: before window",
+				);
+				fs.appendFileSync(ledger(), "\0".repeat(64));
+				fs.appendFileSync(ledger(), '{"note":"undated"}\n');
+				stubCloses();
+				await reviewAt(dayTwo);
+
+				expect(bodies()[0]).toContain(
+					"- acme/wfc: `1 ledger record(s) zeroed by a crash, written between 2026-10-09T10:00:00.000Z and an undated row`",
 				);
 			});
 

@@ -136,17 +136,17 @@ function readRepo(ctx, root, windowSince, reviews) {
  */
 function readDecisions(root, repo, since) {
 	try {
-		const { lines, torn, zeroed: all } = readLedger(root);
-		const zeroed = all.filter(({ after }) => !isBefore(after, since));
+		const { lines, torn, zeroed } = readLedger(root);
+		const inWindow = zeroed.filter(({ after }) => !isBefore(after, since));
 		return {
 			entries: lines,
 			unread: [
 				...(torn === 0
 					? []
 					: [{ repo, why: `${torn} torn ledger line(s) skipped` }]),
-				...(zeroed.length === 0
+				...(inWindow.length === 0
 					? []
-					: [{ repo, why: buildZeroedText(zeroed) }]),
+					: [{ repo, why: buildZeroedText(inWindow) }]),
 			],
 		};
 	} catch (e) {
@@ -158,7 +158,6 @@ function readDecisions(root, repo, since) {
 }
 
 /**
- * #5795
  * @param {string | null} after
  * @param {string} since
  */
