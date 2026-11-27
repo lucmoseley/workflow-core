@@ -1,4 +1,4 @@
-const { QUOTED, carriesVar, literal } = require("./shell-words.js");
+const { QUOTED, carriesVar, literal, typedWord } = require("./shell-words.js");
 const {
 	BASH_SPACE,
 	asWritten,
@@ -9,6 +9,7 @@ const {
 	afterSlash,
 	suiteLaunchKind,
 	buildIsWrapperScript,
+	isSnapshotLaunch,
 } = require("./suite-launch.js");
 const { launchTestFileCount } = require("./suite-bounded.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
@@ -149,19 +150,6 @@ function keptWrappers(wrappers) {
 const fixOpener = (snapshot) =>
 	`Run instead, in the foreground with the Bash tool's \`timeout: ${snapshot ? SNAPSHOT_RUN_TIMEOUT_MS : 600_000}\`: `;
 
-/**
- * @param {import("./suite-launch.js").Launch} launch
- * @param {string[]} words
- */
-const isSnapshotRun = (launch, words) => {
-	const { QUEUE_FLAG, isSnapshotArgv } = require("./launch-route.js");
-	return (
-		(launch.kind === "wrapper" || launch.kind === "npm-vitest") &&
-		!words.includes(QUEUE_FLAG) &&
-		isSnapshotArgv(words)
-	);
-};
-
 const DETACHED_TEXT = `This suite is DETACHED INSIDE THE SHELL — \`&\`, \`nohup\`, \`setsid\` or \`disown\` — so the call registers no job for the run and nothing will ever tell you it ended. \`run_in_background\` with a detachment does not help: the job is then the wrapper shell, which exits at once. An overrun is moved to the background and notifies: then ${WAIT_SLOT} A \`--full=<cause>\` or \`--queue\` run may overrun, so wrap it in \`scripts/bg-run.sh run <name>\` in the same call: a \`killed\` notification often lies, so before relaunching read \`scripts/bg-run.sh check <name>\`, which tells KILLED from DONE. If guard-suite-concurrency refuses the re-issue, no job exists: take its corrected command rather than reporting \`waiting:\`. Genuinely need the detachment? Prefix the command with \`WFC_SUITE_DETACH=1\`.`;
 
 const PARENT_OVERRUN = {
@@ -183,11 +171,7 @@ function decide(command, ctx) {
 	const parsed = parseCommand(command);
 	const { spans } = parsed;
 	/** @param {string} w */
-	const typed = (w) => {
-		if (!w.includes(QUOTED)) return w;
-		const lit = literal(w, spans);
-		return lit.known ? lit.text : w;
-	};
+	const typed = (w) => typedWord(w, spans);
 	/** @type {import("./suite-launch.js").LaunchPorts} */
 	const launchPorts = {
 		runners: ctx.runners,
@@ -206,7 +190,7 @@ function decide(command, ctx) {
 		const launch = suiteLaunchKind(words.map(typed), launchPorts);
 		if (!launch) return null;
 		if (carriesVar("WFC_SUITE_DETACH", leading, wrapperWords)) escaped = true;
-		if (!isSnapshotRun(launch, words.map(typed))) snapshot = false;
+		if (!isSnapshotLaunch(launch, words.map(typed))) snapshot = false;
 		foundSuite = true;
 		return launch;
 	};

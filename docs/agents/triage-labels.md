@@ -152,7 +152,7 @@ A spec whose tickets are all *closed* is not a container either — nothing open
 
 **It marks a closed issue whose `**Gated on:**` line the gate sweep still runs** — a watch on a rare or outside event, closed so it holds no frontier seat (#5801). It sits alongside `takes:` and `kind:`, and goes on at close, never on an open issue.
 
-**Producer: the session that closes a watch** (`docs/agents/issue-tracker.md` §Gating an issue). **Consumer: `scripts/check-gates.js`**, which reads closed issues carrying it beside the open ones, so the refill loop's sweep queues `/triage` on a changed reading or a broken `check:` as for an open gate. On met, the judge reopens the issue, removes the label and strips the marker; a closed watch with no gate line warns as GATES-NOTHING.
+**Producer: the session that closes a watch** (`docs/agents/issue-tracker.md` §Gating an issue). **Consumer: `scripts/check-gates.js`**, which reads closed issues carrying it beside the open ones; a closed watch with no gate line warns as GATES-NOTHING.
 
 ## `urgent`
 

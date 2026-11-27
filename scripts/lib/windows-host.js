@@ -1,6 +1,7 @@
 const { runCommand } = require("./run-command.js");
 
-const POWERSHELL =
+const powershellBin = () =>
+	process.env.WFC_POWERSHELL ||
 	"/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe";
 
 const schtasksBin = () =>
@@ -29,4 +30,4 @@ const toWin = (p) => wslpath("-w", p);
 /** @param {string} p */
 const toWsl = (p) => wslpath("-u", p);
 
-module.exports = { POWERSHELL, runTask, toWin, toWsl };
+module.exports = { powershellBin, runTask, toWin, toWsl };

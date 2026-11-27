@@ -907,6 +907,7 @@ describe("the manifest", () => {
 			["guard-self-match", "Bash", "closed", "function"],
 			["guard-wait-loop", "Bash", "closed", "function"],
 			["guard-suite-background", "Bash", "closed", "function"],
+			["guard-test-timeout", "Bash", "open", "function"],
 			["guard-sweep-fire", "Bash", "closed", "function"],
 			["guard-claimed-bash-write", "Bash", "open", "function"],
 			["guard-file-claim", "Write|Edit|NotebookEdit", "closed", "function"],
@@ -1000,6 +1001,7 @@ describe("the manifest", () => {
 			"guard-issue-create-label": ["Bash(*gh *)"],
 			"guard-issue-phase-scope": ["Bash(*gh *)"],
 			"guard-headroom-read": ["Bash(*free *)", "Bash(*/proc/meminfo*)"],
+			"guard-test-timeout": ["Bash(*npm *)", "Bash(*run-vitest.js*)"],
 			"guard-hook-escape": ["Bash(*WFC_ALLOW_*)"],
 			"guard-chrome-merge": ["Bash(*claude-child*)"],
 			"guard-suite-concurrency": [

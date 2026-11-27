@@ -1,6 +1,6 @@
 const { ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, unmask, walkCommands } = require("./shell-parse.js");
-const { QUOTED, literal } = require("./shell-words.js");
+const { literal, typedWord } = require("./shell-words.js");
 const { suiteLaunchKind } = require("./suite-launch.js");
 const { caught } = require("./caught.js");
 
@@ -25,11 +25,7 @@ function bareSegment(command, ports) {
 	const parsed = parseCommand(command);
 	const { spans } = parsed;
 	/** @param {string} w */
-	const typed = (w) => {
-		if (!w.includes(QUOTED)) return w;
-		const lit = literal(w, spans);
-		return lit.known ? lit.text : w;
-	};
+	const typed = (w) => typedWord(w, spans);
 	/** @type {{ segment: string, cwd: string } | null} */
 	let found = null;
 	walkCommands(
