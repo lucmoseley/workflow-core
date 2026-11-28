@@ -294,7 +294,7 @@
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-plugin-gap.js --notify || true",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-plugin-gap.js --notify || true",
 						"timeout": 10
 					},
 					{

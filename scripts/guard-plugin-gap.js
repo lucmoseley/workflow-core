@@ -23,7 +23,7 @@ const {
 	refConflictExplanation,
 } = require("./lib/materialise-plugin.js");
 
-const USAGE = `usage: node ${scriptPath("check-plugin-gap.js")} --notify`;
+const USAGE = `usage: node ${scriptPath("guard-plugin-gap.js")} --notify`;
 
 /** @type {import("./lib/cli-args").CliSpec} */
 const CLI = { usage: USAGE, flags: { "--notify": "boolean" } };
@@ -354,7 +354,10 @@ function main(argv) {
 			`${JSON.stringify(envelope("SessionStart", { additionalContext: text }))}\n`,
 		);
 		return 0;
-	} catch {
+	} catch (err) {
+		ignoreFailure(() =>
+			require("./lib/arbiter-core.js").logError("guard-plugin-gap", err),
+		);
 		return 0;
 	}
 }

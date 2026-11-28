@@ -15,7 +15,7 @@ const OUTPUT =
 	/\b(?:console\s*\.\s*\w+|process\.std(?:out|err)\.write)\s*\(|\bconsole\s*[.[]|\bprocess\.std(?:out|err)\.write\b/g;
 
 const FIX =
-	"write through writeFd in scripts/lib/write-fd.js, as scripts/check-plugin-gap.js does, or, on a path only a human runs at a terminal, through writeTerminal from the same file (§N6).";
+	"write through writeFd in scripts/lib/write-fd.js, as scripts/guard-plugin-gap.js does, or, on a path only a human runs at a terminal, through writeTerminal from the same file (§N6).";
 
 /** @param {string} rel */
 const include = (rel) =>

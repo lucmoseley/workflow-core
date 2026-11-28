@@ -199,7 +199,7 @@ describe("an install off its pin", () => {
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
-			"INSTALL-OFF-PIN — Install not at pin, pin / installed: absent v1.0.0 / not installed, old v1.0.0 / v0.9.0. The pinned release is not what runs there; each checkout's own session start names the commands that install it (scripts/check-plugin-gap.js).",
+			"INSTALL-OFF-PIN — Install not at pin, pin / installed: absent v1.0.0 / not installed, old v1.0.0 / v0.9.0. The pinned release is not what runs there; each checkout's own session start names the commands that install it (scripts/guard-plugin-gap.js).",
 		);
 		expect(r.stdout).toContain(
 			"Adopters, pin / installed: absent v1.0.0 / not installed, level v1.0.0 / v1.0.0, old v1.0.0 / v0.9.0.",

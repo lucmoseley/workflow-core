@@ -71,7 +71,7 @@
 		"PreCompact scripts/inject-compaction-count.js": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/inject-compaction-count.js || true",
 		"SessionStart scripts/inject-compaction-count.js": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/inject-compaction-count.js || true",
 		"SessionStart scripts/replay-notify-reports.js": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/replay-notify-reports.js --notify || true",
-		"SessionStart scripts/check-plugin-gap.js": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/check-plugin-gap.js --notify || true",
+		"SessionStart scripts/guard-plugin-gap.js": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/guard-plugin-gap.js --notify || true",
 		"SessionStart scripts/concision-backstop.sh": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/concision-backstop.sh start",
 		"SessionStart scripts/name-issue-session.sh": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/name-issue-session.sh",
 		"SessionStart scripts/inject-tracker-docs.js": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/inject-tracker-docs.js",

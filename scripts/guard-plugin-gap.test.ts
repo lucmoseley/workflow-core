@@ -3,15 +3,17 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { decline, setPendingConsent } from "./lib/adopter-consent.js";
 import { renderHookShim } from "./lib/adopter-skeleton.js";
+import { errorLog } from "./lib/arbiter-core.js";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { adopterFixtures, writeJson } from "./lib/plugin-state-testkit.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { appendStepsOwed, declineStepOwed } from "./lib/steps-owed.js";
 
-const SCRIPT = path.join(__dirname, "check-plugin-gap.js");
-const fixture = adopterFixtures("wfc-check-plugin-gap-");
+const SCRIPT = path.join(__dirname, "guard-plugin-gap.js");
+const fixture = adopterFixtures("wfc-guard-plugin-gap-");
 
 function report({
 	root,
@@ -40,7 +42,7 @@ function report({
 	return JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
 }
 
-describe("check-plugin-gap.js's report (#243)", () => {
+describe("guard-plugin-gap.js's report (#243)", () => {
 	it("prints nothing where both gaps are closed", () => {
 		const { root, pluginRoot, configDir } = fixture({
 			pinRef: "v1.1.8",
@@ -127,9 +129,42 @@ describe("check-plugin-gap.js's report (#243)", () => {
 		expect(r.stdout).toBe("");
 		expect(r.status).toBe(0);
 	});
+
+	it("fails open on a fault: exit 0, no envelope, the fault logged for check:guard-errors (#5868)", () => {
+		const { root, pluginRoot, configDir } = fixture({
+			pinRef: "v1.1.11",
+			installedVersion: "1.1.8",
+			supplyBranch: "main",
+		});
+		const preload = path.join(root, "throw-plugin-state.js");
+		fs.writeFileSync(
+			preload,
+			`require(${JSON.stringify(path.join(__dirname, "lib", "plugin-state.js"))}).readPluginState = () => { throw new Error("planted plugin-state fault"); };\n`,
+		);
+		const r = keptSpawn("boundary").spawnSync(
+			process.execPath,
+			["--require", preload, SCRIPT, "--notify"],
+			{
+				encoding: "utf8",
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: root,
+					CLAUDE_PLUGIN_ROOT: pluginRoot,
+					CLAUDE_CONFIG_DIR: configDir,
+				},
+			},
+		);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toBe("");
+		vi.stubEnv("CLAUDE_CONFIG_DIR", configDir);
+		vi.stubEnv("CLAUDE_PROJECT_DIR", root);
+		expect(fs.readFileSync(errorLog(), "utf8")).toMatch(
+			/\tguard-plugin-gap\t.*planted plugin-state fault/,
+		);
+	});
 });
 
-describe("check-plugin-gap.js's corrected reporting (#251)", () => {
+describe("guard-plugin-gap.js's corrected reporting (#251)", () => {
 	it("names the running version, not the supply's ref, as what install behind supply is behind", () => {
 		const { root, pluginRoot, configDir } = fixture({
 			pinRef: "v1.1.11",
@@ -202,13 +237,13 @@ describe("check-plugin-gap.js's corrected reporting (#251)", () => {
 		const r = runInProcess(SCRIPT, []);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(
-			"usage: node scripts/check-plugin-gap.js --notify",
+			"usage: node scripts/guard-plugin-gap.js --notify",
 		);
 		expect(r.stdout).toBe("");
 	});
 });
 
-describe("check-plugin-gap.js leaves an install at its pin alone (#747)", () => {
+describe("guard-plugin-gap.js leaves an install at its pin alone (#747)", () => {
 	it("prints nothing over a supply on another adopter's older tag", () => {
 		const { root, pluginRoot, configDir } = fixture({
 			pinRef: "v1.3.2",
@@ -232,7 +267,7 @@ describe("check-plugin-gap.js leaves an install at its pin alone (#747)", () => 
 	});
 });
 
-describe("check-plugin-gap.js predicts the #258 ref conflict (#318)", () => {
+describe("guard-plugin-gap.js predicts the #258 ref conflict (#318)", () => {
 	function declareUserScope(
 		configDir: string,
 		marketplace: string,
@@ -337,7 +372,7 @@ describe("check-plugin-gap.js predicts the #258 ref conflict (#318)", () => {
 	});
 });
 
-describe("check-plugin-gap.js surfaces stepsOwed (#248)", () => {
+describe("guard-plugin-gap.js surfaces stepsOwed (#248)", () => {
 	it("names an owed step and its clear command even with both gaps closed", () => {
 		const { root, pluginRoot, configDir } = fixture({
 			pinRef: "v1.1.8",
@@ -455,7 +490,7 @@ const closed = {
 	supplyTag: "v1.1.8",
 };
 
-describe("check-plugin-gap.js checks each pre-#1839 hook's WFC_PLUGIN_ROOT (#1168)", () => {
+describe("guard-plugin-gap.js checks each pre-#1839 hook's WFC_PLUGIN_ROOT (#1168)", () => {
 	const installHooks = (root: string, at: string, hooks: string[]) => {
 		fs.mkdirSync(path.join(root, ".husky"), { recursive: true });
 		for (const hook of hooks)
@@ -554,7 +589,7 @@ describe("check-plugin-gap.js checks each pre-#1839 hook's WFC_PLUGIN_ROOT (#116
 	});
 });
 
-describe("check-plugin-gap.js checks that the hook shims resolve a core (#1839)", () => {
+describe("guard-plugin-gap.js checks that the hook shims resolve a core (#1839)", () => {
 	const installShims = (root: string, hooks: string[]) => {
 		fs.mkdirSync(path.join(root, ".husky"), { recursive: true });
 		for (const hook of hooks)
