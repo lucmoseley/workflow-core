@@ -45,7 +45,8 @@ function abortBudget() {
 const ABORT_RETRIES = 1;
 
 const QUESTION_KEY = "puts_choice";
-// #200
+const LEAVES_KEY = "leaves_problem";
+// #200, #5833
 const QUESTIONS = {
 	[QUESTION_KEY]: {
 		type: "boolean",
@@ -57,7 +58,20 @@ const QUESTIONS = {
 				"the message reports, records a decision already taken, lists findings, or asks a question with no alternatives offered",
 		},
 	},
+	[LEAVES_KEY]: {
+		type: "boolean",
+		instructions:
+			"This is the last message an assistant sent at the end of its turn. Does it name a concrete defect (something broken or wrong in code, docs, tests, CI, config or a ticket, which the message itself treats as real) and leave it open: it says neither that the defect was fixed or reverted, nor that it sits on a numbered issue (filed as #N, commented on #N, put to the founder on #N, or owned by #N)?",
+		criteria: {
+			true: "at least one defect the message accepts as real is left with no fix and no issue number tied to it",
+			false:
+				"no defect is named; or each defect named is fixed, reverted, or tied to an issue number; or what is named is not a defect the message accepts: a constraint, a design choice or question put to the founder, or a review finding declined as wrong",
+		},
+	},
 };
+
+// guess, #5833: the lowest threshold its plan judges at
+const KEEP_LEAVES_TEXT_AT = 0.5;
 
 // guess, #175
 const LOG_CAP_BYTES = 2_097_152;
@@ -158,47 +172,60 @@ function preflight({ message, sessionId, root }) {
 
 /**
  * @typedef {{outcome: Outcome, why?: string, confidence?: number,
- *   latencyMs?: number, retries?: number, served?: Served}} LineFields
+ *   fixOrFileConfidence?: number, latencyMs?: number, retries?: number,
+ *   served?: Served}} LineFields
  */
+
+/**
+ * @param {Record<string, unknown>} fields
+ * @returns {Record<string, unknown>}
+ */
+const defined = (fields) =>
+	Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+
+/**
+ * @param {LineFields} fields
+ * @returns {boolean}
+ */
+const keepsText = ({ outcome, fixOrFileConfidence = 0 }) =>
+	outcome === "flagged" || fixOrFileConfidence >= KEEP_LEAVES_TEXT_AT;
+
+/**
+ * @param {{sessionId: string, message: string} & LineFields} spec
+ * @returns {Record<string, unknown>}
+ */
+function lineFor({ sessionId, message, served, ...fields }) {
+	return defined({
+		at: new Date().toISOString(),
+		session: sessionId,
+		outcome: fields.outcome,
+		why: fields.why || undefined,
+		confidence: fields.confidence,
+		fixOrFileConfidence: fields.fixOrFileConfidence,
+		latencyMs: fields.latencyMs,
+		retries: fields.retries || undefined,
+		...served,
+		questionHash: VENDOR_OUTCOMES.has(fields.outcome)
+			? QUESTION_HASH
+			: undefined,
+		messageLen: message.length,
+		messageHash: digest(message),
+		messageText: keepsText(fields) ? message.slice(0, TEXT_CAP) : undefined,
+	});
+}
 
 /**
  * @param {{root: string, sessionId: string, message: string} & LineFields} spec
  * @returns {void}
  */
-function logGate({
-	root,
-	sessionId,
-	outcome,
-	why,
-	message,
-	confidence,
-	latencyMs,
-	retries,
-	served,
-}) {
-	if (!OUTCOMES.includes(outcome)) return;
+function logGate({ root, ...spec }) {
+	if (!OUTCOMES.includes(spec.outcome)) return;
 	const file = jevLog.logPath(root);
 	ignoreFailure(() => {
 		const size = orFallback(() => fs.statSync(file).size, 0);
 		if (size >= LOG_CAP_BYTES)
 			fs.renameSync(file, jevLog.previousLogPath(root));
-		const line = {
-			at: new Date().toISOString(),
-			session: sessionId,
-			outcome,
-			...(why ? { why } : {}),
-			...(confidence === undefined ? {} : { confidence }),
-			...(latencyMs === undefined ? {} : { latencyMs }),
-			...(retries ? { retries } : {}),
-			...served,
-			...(VENDOR_OUTCOMES.has(outcome) ? { questionHash: QUESTION_HASH } : {}),
-			messageLen: message.length,
-			messageHash: digest(message),
-			...(outcome === "flagged"
-				? { messageText: message.slice(0, TEXT_CAP) }
-				: {}),
-		};
-		fs.appendFileSync(file, `${JSON.stringify(line)}\n`);
+		fs.appendFileSync(file, `${JSON.stringify(lineFor(spec))}\n`);
 	});
 }
 
@@ -262,7 +289,8 @@ function failOutage({ log, sessionId, latencyMs, retries }) {
 /**
  * @param {{key: string, message: string, abortMs: number, sessionId: string,
  *   log: (rest: LineFields) => void, started: number}} ctx
- * @returns {Promise<{probability: number, served: Served, retries: number}|null>}
+ * @returns {Promise<{probabilities: Record<string, number>, served: Served,
+ *   retries: number}|null>}
  */
 async function askWithRetries({
 	key,
@@ -276,14 +304,14 @@ async function askWithRetries({
 	for (;;) {
 		const attemptAt = Date.now();
 		try {
-			const { probability, served } = await gateway.askJev({
+			const { probabilities, served } = await gateway.askJev({
 				key,
 				message,
 				questions: QUESTIONS,
 				questionKey: QUESTION_KEY,
 				abortMs,
 			});
-			return { probability, served, retries };
+			return { probabilities, served, retries };
 		} catch (e) {
 			const latencyMs = Date.now() - started;
 			if (gateway.isMalformedReply(e)) {
@@ -328,7 +356,9 @@ async function review({ sessionId, message, root }) {
 		started,
 	});
 	if (!answer) return;
-	const { probability, served, retries } = answer;
+	const { probabilities, served, retries } = answer;
+	const probability = probabilities[QUESTION_KEY] ?? 0;
+	const leaves = probabilities[LEAVES_KEY] ?? 0;
 
 	const latencyMs = Date.now() - started;
 	// #171
@@ -336,6 +366,7 @@ async function review({ sessionId, message, root }) {
 	log({
 		outcome: flagged ? "flagged" : "clear",
 		confidence: Number(probability.toFixed(2)),
+		fixOrFileConfidence: Number(leaves.toFixed(2)),
 		latencyMs,
 		retries,
 		served,
@@ -352,6 +383,10 @@ async function main() {
 	await stopGuard.onMessageAsync({ review });
 }
 
-module.exports = { main };
+module.exports = {
+	main,
+	LEAVES_QUESTION: QUESTIONS[LEAVES_KEY],
+	LEAVES_KEY,
+};
 
 if (require.main === module) main().catch(noop);

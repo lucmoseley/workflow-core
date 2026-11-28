@@ -4,7 +4,8 @@ const { readJsonl } = require("./jsonl.js");
 const THRESHOLDS = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
 
 /**
- * @typedef {{id: string, repo: string, label: boolean|null, kind: string, text?: string, p?: number}} Row
+ * @typedef {{id: string, repo: string, label: boolean|null, kind: string,
+ *   text?: string, transcript?: string, textHash?: string, p?: number}} Row
  * @typedef {{id: string, label: boolean|null, kind: string, p: number}} Scored
  */
 
@@ -14,7 +15,7 @@ const THRESHOLDS = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
  * @returns {Row}
  */
 function parseLabelRow(row, where) {
-	const { id, repo, label, kind, text, p } = row;
+	const { id, repo, label, kind, text, transcript, textHash, p } = row;
 	if (typeof id !== "string") throw new Error(`${where}: no string id`);
 	if (typeof repo !== "string") throw new Error(`${where}: no string repo`);
 	if (label !== null && typeof label !== "boolean")
@@ -22,9 +23,13 @@ function parseLabelRow(row, where) {
 	if (typeof kind !== "string") throw new Error(`${where}: no string kind`);
 	if (text !== undefined && typeof text !== "string")
 		throw new Error(`${where}: text is not a string`);
+	if (transcript !== undefined && typeof transcript !== "string")
+		throw new Error(`${where}: transcript is not a string`);
+	if (textHash !== undefined && typeof textHash !== "string")
+		throw new Error(`${where}: textHash is not a string`);
 	if (p !== undefined && typeof p !== "number")
 		throw new Error(`${where}: p is not a number`);
-	return { id, repo, label, kind, text, p };
+	return { id, repo, label, kind, text, transcript, textHash, p };
 }
 
 /**

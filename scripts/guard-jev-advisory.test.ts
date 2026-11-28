@@ -45,6 +45,7 @@ interface LogLine {
 	outcome: string;
 	why?: string;
 	confidence?: number;
+	fixOrFileConfidence?: number;
 	latencyMs?: number;
 	retries?: number;
 	model?: string;
@@ -100,23 +101,29 @@ async function stub(
 	return `http://127.0.0.1:${addr.port}`;
 }
 
-function answerWith(res: ServerResponse, probability: number) {
-	res.writeHead(200, { "content-type": "application/json" });
-	res.end(
-		JSON.stringify({
-			answers: { puts_choice: { type: "boolean", probability } },
-		}),
-	);
+function both(probability: number, leaves = 0) {
+	return {
+		puts_choice: { type: "boolean", probability },
+		leaves_problem: { type: "boolean", probability: leaves },
+	};
 }
 
-async function answering(probability: number): Promise<{
+function answerWith(res: ServerResponse, probability: number, leaves = 0) {
+	res.writeHead(200, { "content-type": "application/json" });
+	res.end(JSON.stringify({ answers: both(probability, leaves) }));
+}
+
+async function answering(
+	probability: number,
+	leaves = 0,
+): Promise<{
 	base: string;
 	asks: Seen[];
 }> {
 	const asks: Seen[] = [];
 	const base = await stub((body, res, req) => {
 		asks.push({ url: req.url ?? "", method: req.method ?? "", body });
-		answerWith(res, probability);
+		answerWith(res, probability, leaves);
 	});
 	return { base, asks };
 }
@@ -171,8 +178,8 @@ function callable(base: string, extra: NodeJS.ProcessEnv = {}) {
 const HAS_GITLEAKS =
 	spawnSync("gitleaks", ["version"], { stdio: "ignore" }).status === 0;
 
-async function ask(text: string, probability: number, extra = {}) {
-	const { base, asks } = await answering(probability);
+async function ask(text: string, probability: number, extra = {}, leaves = 0) {
+	const { base, asks } = await answering(probability, leaves);
 	const res = await run(text, callable(base, extra));
 	return { res, asks };
 }
@@ -513,14 +520,14 @@ describe("what the vendor is asked", () => {
 		expect(asks[0].body.state).toBe(PLAIN);
 	});
 
-	it("asks one boolean question with both criteria spelled out", async () => {
+	it("asks the choice question as one boolean with both criteria spelled out", async () => {
 		const { asks } = await ask(PLAIN, 0.9);
 		const questions = asks[0].body.questions as Record<
 			string,
 			{ type: string; instructions: string; criteria: object }
 		>;
 		const q = questions.puts_choice;
-		expect(Object.keys(questions)).toEqual(["puts_choice"]);
+		expect(Object.keys(questions)).toEqual(["puts_choice", "leaves_problem"]);
 		expect(q.type).toBe("boolean");
 		expect(q.instructions).toContain(
 			"two or more alternative courses of action offered for the founder to pick between",
@@ -545,7 +552,7 @@ describe("what answered (#702)", () => {
 			res.writeHead(200, { "content-type": "application/json" });
 			res.end(
 				JSON.stringify({
-					answers: { puts_choice: { type: "boolean", probability: 0.2 } },
+					answers: both(0.2),
 					model,
 					providerMetadata: {
 						gateway: { routing: { finalProvider: provider } },
@@ -748,7 +755,7 @@ describe("a turn the abort killed", () => {
 			res.writeHead(200, { "content-type": "application/json" });
 			res.end(
 				JSON.stringify({
-					answers: { puts_choice: { type: "boolean", probability } },
+					answers: both(probability),
 				}),
 			);
 		});
@@ -817,7 +824,7 @@ describe("the abort budget's override (#1024)", () => {
 				res.writeHead(200, { "content-type": "application/json" });
 				res.end(
 					JSON.stringify({
-						answers: { puts_choice: { type: "boolean", probability: 0.1 } },
+						answers: both(0.1),
 					}),
 				);
 			}, afterMs);
@@ -934,6 +941,10 @@ describe("a malformed reply", () => {
 			{ answers: { puts_choice: { type: "boolean", probability: "0.9" } } },
 		],
 		["a body with no answers at all", { wat: 1 }],
+		[
+			"an answer to the choice question alone",
+			{ answers: { puts_choice: { type: "boolean", probability: 0.9 } } },
+		],
 	])("is its own outcome on %s", async (_name, body) => {
 		await run(PLAIN, callable(await malformedStub(body)));
 		expect(readLogLines()[0].outcome).toBe("malformed");
@@ -1060,5 +1071,41 @@ describe("what the guard emits", () => {
 		expect(res.status).toBe(0);
 		expect(res.stdout).toBe("");
 		expect(readLogLines()).toEqual([]);
+	});
+});
+
+describe("the fix-or-file shadow question (#5833)", () => {
+	it("rides the choice question's one call", async () => {
+		const { asks } = await ask(PLAIN, 0.1, {}, 0.8);
+		expect(asks).toHaveLength(1);
+		const questions = asks[0].body.questions as Record<
+			string,
+			{ type: string; criteria: object }
+		>;
+		expect(questions.leaves_problem.type).toBe("boolean");
+		expect(Object.keys(questions.leaves_problem.criteria).sort()).toEqual([
+			"false",
+			"true",
+		]);
+	});
+
+	it("logs its score and keeps the text from 0.5 up", async () => {
+		await ask(PLAIN, 0.1, {}, 0.5);
+		const [line] = readLogLines();
+		expect(line.outcome).toBe("clear");
+		expect(line.fixOrFileConfidence).toBe(0.5);
+		expect(line.messageText).toBe(PLAIN);
+	});
+
+	it("keeps no text below 0.5", async () => {
+		await ask(PLAIN, 0.1, {}, 0.49);
+		const [line] = readLogLines();
+		expect(line.fixOrFileConfidence).toBe(0.49);
+		expect(line).not.toHaveProperty("messageText");
+	});
+
+	it("says nothing to the screen or the session, however high it scores", async () => {
+		const { res } = await ask(PLAIN, 0.1, {}, 0.99);
+		expect(res.stdout).toBe("");
 	});
 });

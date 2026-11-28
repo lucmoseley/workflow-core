@@ -1732,7 +1732,7 @@
 		"section": "Evidence & data",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "#5827's labelled set for the fix-or-file classifier: 48 replies that name a problem and leave it unfixed and unrecorded, 48 that do not, from #5814's look-back. Rows from private repos keep their label, transcript and text hash but no text. `p` is the measuring run's score; `node scripts/score-fix-or-file.js --recorded` reports from it, and without the flag the script re-scores the rows that carry text.",
+		"role": "#5827's labelled set for the fix-or-file classifier: 48 replies that name a problem and leave it unfixed and unrecorded, 48 that do not, from #5814's look-back. Rows from private repos keep their label, transcript and text hash but no text. `p` is the measuring run's score; `node scripts/score-fix-or-file.js --recorded` reports from it; without the flag the script re-scores every row, filling a private row's text in memory from the local transcript its hash matches.",
 		"route": null,
 		"consumes": null
 	},

@@ -136,7 +136,8 @@ function sweepRefusal({ message }) {
 /**
  * @param {{key: string, message: string, questions: Record<string, unknown>,
  *   questionKey: string, abortMs: number}} spec
- * @returns {Promise<{probability: number, served: Served}>}
+ * @returns {Promise<{probability: number, probabilities: Record<string, number>,
+ *   served: Served}>}
  */
 async function askJev({ key, message, questions, questionKey, abortMs }) {
 	const { createGateway } = require(GATEWAY_MODULE);
@@ -155,10 +156,21 @@ async function askJev({ key, message, questions, questionKey, abortMs }) {
 		abortSignal: AbortSignal.timeout(abortMs),
 	});
 	const served = servedBy(result);
-	const probability = result?.answers?.[questionKey]?.probability;
-	if (typeof probability !== "number" || !Number.isFinite(probability))
+	/** @type {Record<string, number>} */
+	const probabilities = {};
+	for (const k of Object.keys(questions)) {
+		const p = result?.answers?.[k]?.probability;
+		if (typeof p !== "number" || !Number.isFinite(p))
+			throw new MalformedReply(
+				`no ${k} probability in the gateway's answer`,
+				served,
+			);
+		probabilities[k] = p;
+	}
+	const probability = probabilities[questionKey];
+	if (probability === undefined)
 		throw new MalformedReply("no probability in the gateway's answer", served);
-	return { probability, served };
+	return { probability, probabilities, served };
 }
 
 /**
