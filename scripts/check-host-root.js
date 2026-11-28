@@ -119,7 +119,7 @@ const ALLOWED = {
 		reason:
 			"names a CORE script for a session to run, so it must answer the plugin install the core runs from, never the host, which has none of the core's scripts (#343)",
 	},
-	"scripts/check-plugin-gap.js": {
+	"scripts/guard-plugin-gap.js": {
 		tags: ["HOST-ROOTED-CORE"],
 		reason:
 			"buildHookRootBlock reads the adopter's own .husky/ hooks at `root` to check the plugin root they name (#1168) — the host's hooks are the subject, not a core file read through the host",

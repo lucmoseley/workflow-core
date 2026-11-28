@@ -1220,9 +1220,9 @@ describe("the stall watchdog", () => {
 
 	it("does not fire while the in-flight record keeps being touched", () =>
 		onFakeClock(async () => {
-			const beatFor = 12 * StallMs;
-			const { child, run, done } = beating(StallMs, beatFor);
-			await vi.advanceTimersByTimeAsync(beatFor);
+			const sampleAt = 12 * StallMs;
+			const { child, run, done } = beating(StallMs, sampleAt + StallMs);
+			await vi.advanceTimersByTimeAsync(sampleAt);
 			const midway = [...child.signals];
 			child.stdout.end();
 			child.stderr.end();

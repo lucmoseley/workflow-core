@@ -20,7 +20,7 @@ const {
 } = require("./kit-context.js");
 
 /**
- * @typedef {"PreToolUse" | (typeof AFTER_EVENTS)[number] | "UserPromptSubmit"} HookEvent
+ * @typedef {"PreToolUse" | (typeof AFTER_EVENTS)[number] | "UserPromptSubmit" | "SessionStart"} HookEvent
  * @typedef {object} Injection
  * @property {string[]} injectRules
  * @property {string[]} [skip]
