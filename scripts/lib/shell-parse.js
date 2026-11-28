@@ -2740,7 +2740,7 @@ function stripRun(run, { spans, judged, pending }) {
 function stripWrappers(st, spans) {
 	for (let first = st.ws[0]; first !== undefined; first = st.ws[0]) {
 		const onTyped = st.onTyped;
-		st.wrapperAt = st.ws;
+		st.wordsBeforeStep = st.ws;
 		const step = stripOne(st, first, spans);
 		if (onTyped && st.onTyped) noteWrapper(st);
 		if (step === "cut") st.ws = [];
@@ -2750,16 +2750,16 @@ function stripWrappers(st, spans) {
 
 /** @param {Strip} st */
 function noteWrapper(st) {
-	const from = st.wrapperAt;
-	const n = from.length - st.ws.length;
-	const tail = n >= 0 && st.ws.every((w, i) => w === from[n + i]);
+	const before = st.wordsBeforeStep;
+	const n = before.length - st.ws.length;
+	const tail = n >= 0 && st.ws.every((w, i) => w === before[n + i]);
 	if (!tail) closeTyped(st);
-	else if (n > 0) st.typedWrappers = [...st.typedWrappers, from.slice(0, n)];
+	else if (n > 0) st.typedWrappers = [...st.typedWrappers, before.slice(0, n)];
 }
 
 /** @param {Strip} st */
 function closeTyped(st) {
-	if (st.onTyped) st.typedWrappers = [...st.typedWrappers, st.wrapperAt];
+	if (st.onTyped) st.typedWrappers = [...st.typedWrappers, st.wordsBeforeStep];
 	st.onTyped = false;
 }
 
@@ -2813,7 +2813,7 @@ const buildStrip = (run, judged, pending) => ({
 	script: null,
 	wrapperWords: [...run.wrapperWords],
 	typedWrappers: run.typedWrappers,
-	wrapperAt: run.words,
+	wordsBeforeStep: run.words,
 	onTyped: !run.scripted,
 	chdirs: [...run.chdirs],
 	unread: [...run.unread],
@@ -2838,7 +2838,7 @@ const resetsEnv = (w, flags) =>
  * @property {boolean} envReset
  * @property {string[]} wrapperWords
  * @property {string[][]} typedWrappers
- * @property {string[]} wrapperAt
+ * @property {string[]} wordsBeforeStep
  * @property {boolean} onTyped
  * @property {Chdir[]} chdirs
  * @property {string[]} unread
