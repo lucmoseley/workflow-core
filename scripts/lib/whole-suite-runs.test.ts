@@ -1,7 +1,6 @@
 // @vitest-environment node
 
 import { expect, it } from "vitest";
-import type { Scope } from "./test-pass-marker.js";
 import { latestLoneSuite } from "./whole-suite-runs.js";
 
 const scope = {
@@ -51,7 +50,7 @@ it("takes a ceiling kill of a lone whole suite after the green", () => {
 		sha: "k",
 		at: "2026-11-02",
 		ceilingKill: true,
-		scope: { full: "flag" } as Scope,
+		scope: { full: "flag" as const },
 		durationMs: 840_000,
 		argv: ["--full=other"],
 	};

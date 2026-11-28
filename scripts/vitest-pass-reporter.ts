@@ -15,7 +15,7 @@ const {
 	CLOSURE_ROOTS,
 } = require("./lib/test-pass-marker.js");
 const {
-	launchScope,
+	buildLaunchScope,
 	readLaunch,
 	fillRunReport,
 } = require("./lib/suite-handoff.js");
@@ -378,7 +378,7 @@ export default class TestPassReporter {
 			fileFilters: [...(this.vitest?.filenamePattern ?? [])],
 			changed: this.vitest?.config?.changed ?? null,
 			...(shard ? { shard: { index: shard.index, count: shard.count } } : {}),
-			...launchScope(launch),
+			...buildLaunchScope(launch),
 			...(failures.size > 0
 				? {
 						failures: [...failures].map(([file, names]) => ({

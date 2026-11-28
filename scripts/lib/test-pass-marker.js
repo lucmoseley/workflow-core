@@ -43,7 +43,6 @@ const { readTreeIds, isSameContent } = require("./content-ids.js");
  *   stalled?: boolean, stallMs?: number,
  *   ceilingKill?: boolean, ceilingMs?: number, neverStarted?: string[]|null,
  *   touchedBase?: TouchedBase,
- *   full?: string|null,
  *   inflight?: {module: string, stage: string}[], finished?: string[],
  *   testsInFlight?: {nodeid: string, stage: string}[]|null,
  *   testsNeverStarted?: number|null, testsFinished?: number|null,
@@ -118,7 +117,7 @@ const SUITES = [
 
 const DEFAULT_SUITE = "vitest";
 
-/** @param {Marker} m */
+/** @param {RunRow} m */
 const suiteOf = (m) => m.suite || DEFAULT_SUITE;
 
 /**

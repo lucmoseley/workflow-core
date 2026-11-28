@@ -1283,7 +1283,11 @@ describe("the stall watchdog", () => {
 			inflight: [{ module: slow, stage: "running its tests" }],
 			finished: [done],
 		});
-		expect(reds[0].scope?.modulesRun).toBeUndefined();
+		expect(reds[0].scope).toEqual({
+			full: "flag",
+			fullCause: "coverage",
+			resolvedFiles: 0,
+		});
 	});
 
 	it("is disabled by a zero ceiling", async () => {
@@ -1498,7 +1502,11 @@ describe("the suite ceiling", () => {
 			neverStarted: [left],
 		});
 		expect(reds[0].stalled).toBeUndefined();
-		expect(reds[0].scope?.modulesRun).toBeUndefined();
+		expect(reds[0].scope).toEqual({
+			full: "flag",
+			fullCause: "coverage",
+			resolvedFiles: 0,
+		});
 		expect(typeof reds[0].startedAt).toBe("string");
 		expect(typeof reds[0].durationMs).toBe("number");
 		expect(reds[0].argv).toEqual(expect.any(Array));
@@ -6895,35 +6903,77 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 		]);
 	});
 
-	it.each([
-		["ceiling", { stall: 60_000, ceiling: 50 }],
-		["stall", { stall: 50, ceiling: 60_000 }],
-	])(
-		"logs a queued touched run killed at the %s as touched, with its session and files (#5875)",
-		async (why, timers) => {
+	describe("a queued touched run killed on the fake clock (#5875)", () => {
+		const KillMs = 50;
+		// guess: 1000x the kill window, so the other never comes due first (#5875)
+		const NeverMs = 1000 * KillMs;
+
+		async function killedLedger(
+			timers: { stall: number; ceiling: number },
+			extra: Record<string, unknown> = {},
+		) {
 			const dir = touchedRepo();
 			fs.appendFileSync(path.join(dir, "lib/a.js"), "// edit\n");
-			await launch(dir, () => ({}), ["--queue"], {
-				gate: () => null,
-				queueDir: qdir(),
-				queueLog: path.join(qdir(), "exits.jsonl"),
-				session: "killed-touched-5875",
-				spawnFn: () => parkedChild(),
-				...timers,
-			});
-			const ledger = path.join(dir, ".claude/tmp/markers/.test-runs.jsonl");
-			expect(readJsonl(ledger)).toMatchObject([
-				{
-					kind: "touched",
-					verdict: why === "ceiling" ? "killed" : "stalled",
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+			const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+			const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+			try {
+				let spawned: () => void = noop;
+				const up = new Promise<void>((resolve) => {
+					spawned = resolve;
+				});
+				const done = launch(dir, () => ({}), ["--queue"], {
+					gate: () => null,
+					queueDir: qdir(),
+					queueLog: path.join(qdir(), "exits.jsonl"),
+					spawnFn: () => {
+						spawned();
+						return parkedChild();
+					},
+					...timers,
+					...extra,
+				});
+				await up;
+				await vi.advanceTimersByTimeAsync(2 * KillMs);
+				await done;
+			} finally {
+				vi.useRealTimers();
+				stderr.mockRestore();
+				stdout.mockRestore();
+			}
+			return readJsonl(path.join(dir, ".claude/tmp/markers/.test-runs.jsonl"));
+		}
+
+		it.each([
+			["ceiling", "killed", { stall: NeverMs, ceiling: KillMs }],
+			["stall", "stalled", { stall: KillMs, ceiling: NeverMs }],
+		])(
+			"logs one killed at the %s as touched, not bare, with its session and files",
+			async (_why, verdict, timers) => {
+				const ledger = await killedLedger(timers, {
 					session: "killed-touched-5875",
-					resolvedFiles: 1,
-					touchedBase: "merge-base",
-					wholeSlot: false,
-				},
+				});
+				expect(ledger).toMatchObject([
+					{
+						kind: "touched",
+						verdict,
+						session: "killed-touched-5875",
+						resolvedFiles: 1,
+						touchedBase: "merge-base",
+						wholeSlot: false,
+					},
+				]);
+			},
+		);
+
+		it("takes the killed run's session from the environment, as a finished marker does", async () => {
+			vi.stubEnv("CLAUDE_CODE_SESSION_ID", "env-touched-5875");
+			const ledger = await killedLedger({ stall: NeverMs, ceiling: KillMs });
+			expect(ledger).toMatchObject([
+				{ kind: "touched", session: "env-touched-5875" },
 			]);
-		},
-	);
+		});
+	});
 
 	it("carries no whole slot for a 200-file named run (#2935)", async () => {
 		const dir = touchedRepo();

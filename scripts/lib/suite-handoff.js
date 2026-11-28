@@ -73,11 +73,10 @@ function readLaunch(env = process.env) {
 }
 
 /**
- * #5875
  * @param {Launch} launch
- * @returns {Partial<import("./test-pass-marker.js").Scope>}
+ * @returns {Partial<Scope>}
  */
-const launchScope = (launch) => ({
+const buildLaunchScope = (launch) => ({
 	...(launch.admissible ? { admissible: true } : {}),
 	...(launch.viaChanged ? { viaChanged: true } : {}),
 	...(launch.touched ? { touched: true } : {}),
@@ -162,7 +161,7 @@ function takeRunReport() {
 
 module.exports = {
 	launchEnv,
-	launchScope,
+	buildLaunchScope,
 	readLaunch,
 	readCarriedWeight,
 	fillRunReport,

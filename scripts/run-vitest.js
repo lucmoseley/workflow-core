@@ -22,7 +22,7 @@ const {
 } = require("./lib/test-pass-marker.js");
 const {
 	launchEnv,
-	launchScope,
+	buildLaunchScope,
 	readLaunch,
 } = require("./lib/suite-handoff.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
@@ -717,7 +717,7 @@ function runOnce(
 			inflight: record.open,
 			finished: record.finished,
 			argv: launch.argv ?? [],
-			scope: launchScope(readLaunch(env)),
+			scope: buildLaunchScope(readLaunch(env)),
 			...(session ? { sessionId: session } : {}),
 			memory: memory.current(),
 			...markerAdmission(admission),
