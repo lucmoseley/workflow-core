@@ -388,7 +388,7 @@ function judgeCheck(run, segment, text) {
 		deny(
 			run.ctx,
 			segment,
-			`This files a gate whose check no sweep can read: @CMD@
+			`This files a gate its \`check:\` refuses: @CMD@
 
 Nothing filed: ${refusals.join(" ")}`,
 		);

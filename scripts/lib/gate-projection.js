@@ -1,6 +1,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+const { writeFileAtomic } = require("./atomic-write.js");
+const { caught } = require("./caught.js");
+const { now: clockNow } = require("./clock.js");
+const { readJsonl } = require("./jsonl.js");
 const { refillPath } = require("./refill-dir.js");
 
 // #5687
@@ -12,8 +16,10 @@ const RATE_WINDOW_DAYS = 7;
 // guess, #5852
 const MIN_PROJECT_DAYS = 1;
 
+const MIN_REFUSE_DAYS = RATE_WINDOW_DAYS;
+
 // guess, #5852
-const MIN_REFUSE_DAYS = 7;
+const UNCHANGED_ROW_DAYS = 1;
 
 // guess, #5852
 const PRUNE_DAYS = 14;
@@ -23,10 +29,10 @@ const DAY_MS = 864e5;
 const HISTORY_FILE = ".gate-history.jsonl";
 
 /**
+ * @typedef {{repo: string, issue: number|null, command: string}} GateId
  * @typedef {{a: number, b: number}} Count
  * @typedef {Count & {since: number}} RowCount
- * @typedef {{repo: string, issue: number|null, command: string, at: number,
- *   counts: RowCount[]}} HistoryRow
+ * @typedef {GateId & {at: number, counts: RowCount[]}} HistoryRow
  * @typedef {{verdict: "met"} | {verdict: "no-history", spanDays: number}
  *   | {verdict: "on-track" | "unreachable", metAt: number|null,
  *   ratePerDay: number, remaining: number, unmovedDays: number,
@@ -46,7 +52,7 @@ const historyPath = () =>
 /** @param {string} repo */
 const repoKey = (repo) => repo.toLowerCase();
 
-/** @param {{repo: string, issue: number|null, command: string}} r */
+/** @param {GateId} r */
 const gateKey = (r) => `${r.repo}\0${r.issue ?? ""}\0${r.command}`;
 
 /** @param {unknown} c @returns {c is RowCount} */
@@ -57,47 +63,25 @@ const isRowCount = (c) =>
 		(k) => typeof (/** @type {Record<string, unknown>} */ (c)[k]) === "number",
 	);
 
-/** @param {string} line @returns {HistoryRow|null} */
-function parseRow(line) {
-	let r;
-	try {
-		r = JSON.parse(line);
-	} catch {
-		return null;
-	}
-	const ok =
-		typeof r === "object" &&
-		r !== null &&
-		typeof r.repo === "string" &&
-		(r.issue === null || Number.isInteger(r.issue)) &&
-		typeof r.command === "string" &&
-		typeof r.at === "number" &&
-		Array.isArray(r.counts) &&
-		r.counts.length > 0 &&
-		r.counts.every(isRowCount);
-	return ok ? r : null;
-}
+/** @param {Record<string, unknown>} r @returns {r is HistoryRow} */
+const isHistoryRow = (r) =>
+	typeof r.repo === "string" &&
+	(r.issue === null || Number.isInteger(r.issue)) &&
+	typeof r.command === "string" &&
+	typeof r.at === "number" &&
+	Array.isArray(r.counts) &&
+	r.counts.length > 0 &&
+	r.counts.every(isRowCount);
 
 /** @param {string} file @returns {HistoryRow[]} */
-function readAll(file) {
-	let text;
-	try {
-		text = fs.readFileSync(file, "utf8");
-	} catch {
-		return [];
-	}
-	return text
-		.split("\n")
-		.map(parseRow)
-		.filter((r) => r !== null);
-}
+const readAll = (file) => (readJsonl(file)?.rows ?? []).filter(isHistoryRow);
 
 /**
  * @param {HistoryRow[]} rows
- * @param {number} now
+ * @param {number} at
  */
-function prunedRows(rows, now) {
-	const cut = now - PRUNE_DAYS * DAY_MS;
+function prunedRows(rows, at) {
+	const cut = at - PRUNE_DAYS * DAY_MS;
 	/** @type {Map<string, HistoryRow>} */
 	const newest = new Map();
 	for (const r of rows) {
@@ -109,14 +93,18 @@ function prunedRows(rows, now) {
 }
 
 /**
- * @param {string} file
  * @param {HistoryRow[]} rows
+ * @param {GateId} gate
+ * @returns {HistoryRow|null}
  */
-function rewrite(file, rows) {
-	const tmp = `${file}.${process.pid}.tmp`;
-	fs.writeFileSync(tmp, rows.map((r) => `${JSON.stringify(r)}\n`).join(""));
-	fs.renameSync(tmp, file);
-}
+const newestOf = (rows, gate) =>
+	rows
+		.filter((r) => gateKey(r) === gateKey(gate))
+		.reduce(
+			(/** @type {HistoryRow|null} */ best, r) =>
+				best && best.at > r.at ? best : r,
+			null,
+		);
 
 /**
  * #5861
@@ -129,27 +117,21 @@ function appendReading({
 	issue = null,
 	command,
 	reading,
-	at = Date.now(),
+	at = clockNow(),
 	file = historyPath(),
 }) {
 	const counts = readCounts(reading);
 	if (counts.length === 0) return null;
 	const rows = readAll(file);
 	const gate = { repo: repoKey(repo), issue, command };
-	const newest = rows
-		.filter((r) => gateKey(r) === gateKey(gate))
-		.reduce(
-			(/** @type {HistoryRow|null} */ best, r) =>
-				best && best.at > r.at ? best : r,
-			null,
-		);
+	const newest = newestOf(rows, gate);
 	const unchanged =
 		newest !== null &&
 		newest.counts.length === counts.length &&
 		counts.every(
 			(c, i) => newest.counts[i]?.a === c.a && newest.counts[i]?.b === c.b,
 		);
-	if (unchanged && at - newest.at < DAY_MS) return null;
+	if (unchanged && at - newest.at < UNCHANGED_ROW_DAYS * DAY_MS) return null;
 	/** @type {HistoryRow} */
 	const row = {
 		...gate,
@@ -160,14 +142,28 @@ function appendReading({
 		}),
 	};
 	fs.mkdirSync(path.dirname(file), { recursive: true });
-	const oldest = rows.reduce(
-		(t, r) => Math.min(t, r.at),
-		Number.POSITIVE_INFINITY,
-	);
-	if (oldest < at - PRUNE_DAYS * DAY_MS)
-		rewrite(file, [...prunedRows(rows, at), row]);
+	const kept = prunedRows(rows, at);
+	if (kept.length < rows.length)
+		writeFileAtomic(
+			file,
+			[...kept, row].map((r) => `${JSON.stringify(r)}\n`).join(""),
+		);
 	else fs.appendFileSync(file, `${JSON.stringify(row)}\n`);
 	return row;
+}
+
+/**
+ * #5861
+ * @param {Parameters<typeof appendReading>[0]} reading
+ * @returns {string|null}
+ */
+function recordReading(reading) {
+	try {
+		appendReading(reading);
+		return null;
+	} catch (e) {
+		return `the reading of \`${reading.command}\` was not added to the gate history (${caught(e).message.split("\n")[0]})`;
+	}
 }
 
 /**
@@ -205,6 +201,31 @@ function measureRate(points, a, now) {
 }
 
 /**
+ * @param {HistoryRow[]} rows
+ * @param {Count} c
+ * @param {number} i
+ * @param {number} now
+ */
+function judgeCount(rows, c, i, now) {
+	const points = rows.flatMap((r) => {
+		const p = r.counts[i];
+		return p ? [{ at: r.at, a: p.a, since: p.since }] : [];
+	});
+	const { ratePerDay, spanDays } = measureRate(points, c.a, now);
+	const remaining = c.b - c.a;
+	const last = points.at(-1);
+	const since = last && last.a === c.a ? last.since : now;
+	return {
+		a: c.a,
+		ratePerDay,
+		spanDays,
+		remaining,
+		unmovedDays: (now - since) / DAY_MS,
+		metAt: ratePerDay > 0 ? now + (remaining / ratePerDay) * DAY_MS : null,
+	};
+}
+
+/**
  * #5861
  * @param {HistoryRow[]} rows
  * @param {Count[]} counts
@@ -213,31 +234,11 @@ function measureRate(points, a, now) {
  */
 function project(rows, counts, now) {
 	if (counts.every((c) => c.a >= c.b)) return { verdict: "met" };
-	const oldest = rows[0];
-	const historyDays = oldest ? (now - oldest.at) / DAY_MS : 0;
-	if (historyDays < MIN_PROJECT_DAYS)
-		return { verdict: "no-history", spanDays: historyDays };
-	const judged = counts.flatMap((c, i) => {
-		if (c.a >= c.b) return [];
-		const points = rows.flatMap((r) => {
-			const p = r.counts[i];
-			return p ? [{ at: r.at, a: p.a, since: p.since }] : [];
-		});
-		const { ratePerDay, spanDays } = measureRate(points, c.a, now);
-		const remaining = c.b - c.a;
-		const last = points.at(-1);
-		const since = last && last.a === c.a ? last.since : now;
-		return [
-			{
-				a: c.a,
-				ratePerDay,
-				spanDays,
-				remaining,
-				unmovedDays: (now - since) / DAY_MS,
-				metAt: ratePerDay > 0 ? now + (remaining / ratePerDay) * DAY_MS : null,
-			},
-		];
-	});
+	const judged = counts.flatMap((c, i) =>
+		c.a >= c.b ? [] : [judgeCount(rows, c, i, now)],
+	);
+	const spanDays = Math.min(...judged.map((j) => j.spanDays));
+	if (spanDays < MIN_PROJECT_DAYS) return { verdict: "no-history", spanDays };
 	const slowest = judged.reduce((x, y) =>
 		y.metAt === null || (x.metAt !== null && y.metAt > x.metAt) ? y : x,
 	);
@@ -257,12 +258,11 @@ const reachableFloor = (a, ratePerDay) =>
 
 module.exports = {
 	BOUND_DAYS,
-	DAY_MS,
 	MIN_REFUSE_DAYS,
 	appendReading,
-	historyPath,
 	project,
 	readCounts,
 	readHistory,
 	reachableFloor,
+	recordReading,
 };

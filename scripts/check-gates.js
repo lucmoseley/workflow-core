@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-const { caught } = require("./lib/caught.js");
 const { runCheck } = require("./lib/check");
 const {
 	parseErrLine,
@@ -18,7 +17,7 @@ const {
 	runCheckCommand,
 	unwrap,
 } = require("./lib/gate-check.js");
-const { appendReading } = require("./lib/gate-projection.js");
+const { recordReading } = require("./lib/gate-projection.js");
 const { readHostTracker } = require("./lib/refill-repos.js");
 const { WATCH_CLOSED_LABEL } = require("./lib/watch-label.js");
 
@@ -209,18 +208,13 @@ function recordReadings(ctx, rows) {
 	const repo = readHostTracker(REPO_ROOT) ?? "";
 	for (const r of rows) {
 		if (r.state !== "READING" || r.command === null) continue;
-		try {
-			appendReading({
-				repo,
-				issue: r.number,
-				command: r.command,
-				reading: r.reading,
-			});
-		} catch (e) {
-			ctx.say(
-				`  #${r.number}: reading not added to the gate history (${caught(e).message.split("\n")[0]})`,
-			);
-		}
+		const fault = recordReading({
+			repo,
+			issue: r.number,
+			command: r.command,
+			reading: r.reading,
+		});
+		if (fault) ctx.say(`  #${r.number}: ${fault}`);
 	}
 }
 

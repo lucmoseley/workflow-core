@@ -9,15 +9,16 @@ const {
 	isRunnerFailure,
 } = require("./run-budgeted.js");
 const { caught } = require("./caught.js");
+const { now: clockNow } = require("./clock.js");
 const { docPath, isCoreRepo, scriptPath } = require("./script-path");
 const {
 	BOUND_DAYS,
 	MIN_REFUSE_DAYS,
-	appendReading,
 	project,
 	readCounts,
 	readHistory,
 	reachableFloor,
+	recordReading,
 } = require("./gate-projection.js");
 const { basisOf, gateOnOf, parseAddedGateLines } = require("./issue-gate.js");
 const { hostRoot } = require("./host-root.js");
@@ -536,7 +537,7 @@ function readCheckTree(repo) {
 function addedCheckVerdict(
 	before,
 	after,
-	{ run, repo, issue, timeoutMs = DEFAULT_TIMEOUT_S * 1000, now = Date.now() },
+	{ run, repo, issue, timeoutMs = DEFAULT_TIMEOUT_S * 1000, now = clockNow() },
 ) {
 	/** @type {string[]} */
 	const refusals = [];
@@ -557,7 +558,7 @@ function addedCheckVerdict(
 			refusals.push(buildUnfetchedRefusal(u.command, unfetched));
 			continue;
 		}
-		const gate = historyGate(line, after, u.command, { repo, issue, now });
+		const gate = buildHistoryGate(line, after, u.command, { repo, issue, now });
 		if (!run) {
 			projectGate(gate, null, { refusals, warnings });
 			warnings.push(
@@ -593,7 +594,7 @@ const STATED_TIME_RES = [
  * @param {string} basis
  * @returns {number|null}
  */
-function statedDays(basis) {
+function parseStatedDays(basis) {
 	const pass = PASS_CLAUSE_RE.exec(basis)?.[1] ?? "";
 	const days = STATED_TIME_RES.flatMap((re) =>
 		[...pass.matchAll(re)].map(
@@ -627,7 +628,7 @@ const BOUND_CITE = `the ${BOUND_DAYS}-day bound (#5687 Q1: "Nothing should need 
  * @param {{repo?: string, issue?: number, now: number}} opts
  * @returns {HistoryGate}
  */
-const historyGate = (line, after, command, { repo, issue, now }) => ({
+const buildHistoryGate = (line, after, command, { repo, issue, now }) => ({
 	repo: repo ?? readHostTracker(hostRoot()) ?? "",
 	issue: issue ?? null,
 	command,
@@ -639,19 +640,11 @@ const historyGate = (line, after, command, { repo, issue, now }) => ({
  * #5861
  * @param {HistoryGate} gate
  * @param {string|null} reading
- * @param {string[]} warnings
+ * @returns {{rows: import("./gate-projection.js").HistoryRow[],
+ *   counts: {a: number, b: number}[], shown: string}}
  */
-function readGateHistory(gate, reading, warnings) {
-	const { repo, issue, command, now } = gate;
-	if (reading !== null)
-		try {
-			appendReading({ repo, issue, command, reading, at: now });
-		} catch (e) {
-			warnings.push(
-				`The reading of \`${command}\` was not added to the gate history (${caught(e).message.split("\n")[0]}).`,
-			);
-		}
-	const rows = readHistory({ repo, issue, command });
+function readGateHistory(gate, reading) {
+	const rows = readHistory(gate);
 	const latest = (rows.at(-1)?.counts ?? []).map(({ a, b }) => ({ a, b }));
 	const counts = reading === null ? latest : readCounts(reading);
 	const shown = reading ?? counts.map(({ a, b }) => `${a} of ${b}`).join(", ");
@@ -665,7 +658,20 @@ function readGateHistory(gate, reading, warnings) {
  * @param {{refusals: string[], warnings: string[]}} verdict
  */
 function projectGate(gate, reading, { refusals, warnings }) {
-	const { rows, counts, shown } = readGateHistory(gate, reading, warnings);
+	let history;
+	try {
+		history = readGateHistory(gate, reading);
+	} catch (e) {
+		warnings.push(
+			`The gate history could not be read (${caught(e).message.split("\n")[0]}), so the count gate \`${gate.command}\` was not projected.`,
+		);
+		return;
+	}
+	if (reading !== null) {
+		const fault = recordReading({ ...gate, reading, at: gate.now });
+		if (fault) warnings.push(`${fault[0]?.toUpperCase()}${fault.slice(1)}.`);
+	}
+	const { rows, counts, shown } = history;
 	if (counts.length === 0 || FOUNDER_ROUND_RE.test(gate.basis)) return;
 	const p = project(rows, counts, gate.now);
 	if (p.verdict === "met") return;
@@ -674,7 +680,7 @@ function projectGate(gate, reading, { refusals, warnings }) {
 			refusals.push(buildUnreachableRefusal(gate.command, shown, p));
 		return;
 	}
-	const stated = statedDays(gate.basis);
+	const stated = parseStatedDays(gate.basis);
 	if (stated === null)
 		warnings.push(
 			`The count gate \`${gate.command}\` has under ${MIN_REFUSE_DAYS} days of reading history and its basis states no expected time, so nothing projects its met date yet; the daily stale-ticket run projects it once it has a day of readings (#5861).`,

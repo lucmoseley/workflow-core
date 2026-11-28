@@ -5,8 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+const DAY_MS = 864e5;
 const {
-	DAY_MS,
 	appendReading,
 	project,
 	readHistory,
@@ -122,6 +122,20 @@ describe("project", () => {
 		expect(p.ratePerDay).toBe(2);
 		expect(p.spanDays).toBe(2);
 		expect(p.verdict).toBe("on-track");
+	});
+});
+
+describe("a count whose series reset under a day ago", () => {
+	it("reads no-history, whether it fell at now or rose since", () => {
+		const fellAtNow = project(rowsOf([[7, 40]]), [{ a: 0, b: 15 }], NOW);
+		expect(fellAtNow.verdict).toBe("no-history");
+		const rows = rowsOf([[7, 40]]);
+		rows.push({
+			...rows[0],
+			at: NOW - DAY_MS / 12,
+			counts: [{ a: 0, b: 15, since: NOW - DAY_MS / 12 }],
+		});
+		expect(project(rows, [{ a: 1, b: 15 }], NOW).verdict).toBe("no-history");
 	});
 });
 

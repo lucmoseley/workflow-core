@@ -312,11 +312,8 @@ describe("a check the write does not add", () => {
 });
 
 describe("a count gate projected from its reading history (#5861)", () => {
-	const {
-		DAY_MS,
-		appendReading,
-		readHistory,
-	} = require("./gate-projection.js");
+	const DayMs = 864e5;
+	const { appendReading, readHistory } = require("./gate-projection.js");
 	const { readHostTracker } = require("./refill-repos.js");
 	const { hostRoot } = require("./host-root.js");
 	const repo = readHostTracker(hostRoot()) ?? "";
@@ -336,7 +333,7 @@ describe("a count gate projected from its reading history (#5861)", () => {
 			issue,
 			command: Command,
 			reading,
-			at: Now - days * DAY_MS,
+			at: Now - days * DayMs,
 		});
 	const body = (basis: string) =>
 		`**Gated on:** 15 commits — check: \`${Command}\` — abandon if: it is dropped\n**Gate basis:** ${basis}\n`;
@@ -399,6 +396,20 @@ describe("a count gate projected from its reading history (#5861)", () => {
 		expect(refusals).toHaveLength(1);
 		expect(refusals[0]).toContain("1 of 15");
 		expect(readHistory({ repo, command: Command })).toHaveLength(2);
+	});
+
+	it("judges an issue with no rows of its own on its command's history, before adding its own reading", () => {
+		seed(9, "0 of 15 commits", 5);
+		const { refusals } = judge("15 commits, #5687", true, 2);
+		expect(refusals).toHaveLength(1);
+		expect(readHistory({ repo, issue: 2 })).toHaveLength(1);
+	});
+
+	it("warns, never throws, where the history cannot be read", () => {
+		fs.mkdirSync(path.join(dir, "h.jsonl"));
+		const { refusals, warnings } = judge("15 commits, #5687");
+		expect(refusals).toEqual([]);
+		expect(warnings.join(" ")).toContain("The gate history could not be read");
 	});
 
 	it("adds its own run's reading to the issue's history", () => {
