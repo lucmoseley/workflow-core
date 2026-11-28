@@ -117,6 +117,13 @@ function maskText(lx, text) {
 	return lx.masked();
 }
 
+/** @param {string} text */
+function maskQuotes(text) {
+	/** @type {string[]} */
+	const spans = [];
+	return { masked: maskText(new Lexer(spans), text), spans };
+}
+
 /** @param {string} text @param {boolean} [mark] @param {boolean} [ops] */
 function flatten(text, mark = false, ops = false) {
 	let inBackticks = false;
@@ -466,7 +473,7 @@ function liftSubstitutions(segment, spans) {
 	readSentinels(segment, (_lit, idx) => {
 		const span = idx === null ? undefined : spans[idx];
 		if (span === undefined) return { text: "", stepPast: true };
-		for (const inner of quotedSubstitutions(span)) {
+		for (const { text: inner } of quotedSubstitutions(span)) {
 			const { masked } = maskSubject(inner, spans);
 			lifted.push(SCOPE_OPEN);
 			for (const seg of flatSegments(masked))
@@ -478,15 +485,22 @@ function liftSubstitutions(segment, spans) {
 	return lifted;
 }
 
-/** @param {string} span */
+/**
+ * @typedef {object} Substitution
+ * @property {string} text
+ * @property {number} from
+ * @property {number} to
+ */
+
+/** @param {string} span @returns {Substitution[]} */
 function quotedSubstitutions(span) {
-	/** @type {string[]} */
+	/** @type {Substitution[]} */
 	const found = [];
 	if (!span.startsWith('"')) return found;
 	let i = 1;
 	while (i > 0 && i < span.length) {
-		const { next, text } = scanSubstitution(span, i);
-		if (text !== null) found.push(text);
+		const { next, sub } = scanSubstitution(span, i);
+		if (sub !== null) found.push(sub);
 		i = next;
 	}
 	return found;
@@ -495,22 +509,23 @@ function quotedSubstitutions(span) {
 /**
  * @param {string} span
  * @param {number} i
- * @returns {{ next: number, text: string | null }}
+ * @returns {{ next: number, sub: Substitution | null }}
  */
 function scanSubstitution(span, i) {
 	const c = span.charAt(i);
-	if (c === "\\") return { next: i + 2, text: null };
+	if (c === "\\") return { next: i + 2, sub: null };
 	if (c === "`") {
 		const end = backtickEnd(span, i + 1);
-		if (end < 0) return { next: -1, text: null };
+		if (end < 0) return { next: -1, sub: null };
 		const text = span.slice(i + 1, end).replace(/\\([$`\\"])/g, "$1");
-		return { next: end + 1, text };
+		return { next: end + 1, sub: { text, from: i + 1, to: end } };
 	}
-	if (!span.startsWith("$(", i)) return { next: i + 1, text: null };
+	if (!span.startsWith("$(", i)) return { next: i + 1, sub: null };
 	const end = Lexer.substitutionEnd(span, i + 2);
-	if (end < 0) return { next: -1, text: null };
-	const isArith = span.charAt(i + 2) === "(";
-	return { next: end, text: isArith ? null : span.slice(i + 2, end - 1) };
+	if (end < 0) return { next: -1, sub: null };
+	if (span.charAt(i + 2) === "(") return { next: end, sub: null };
+	const text = span.slice(i + 2, end - 1);
+	return { next: end, sub: { text, from: i + 2, to: end - 1 } };
 }
 
 /** @param {string} text @param {number} from */
@@ -2989,6 +3004,8 @@ module.exports = {
 	ghWords,
 	commitPathsArgs,
 	parseCommand,
+	maskQuotes,
+	quotedSubstitutions,
 	escapeShield,
 	walkCommands,
 	TEXT_ONLY_PORTS,
