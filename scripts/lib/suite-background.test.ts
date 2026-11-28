@@ -293,6 +293,10 @@ describe("lib/suite-background.js", () => {
 		for (const [command, fix] of [
 			['echo "$(npm run test &)"', 'echo "$(npm run test)"'],
 			['echo "x `npm run test &` y"', 'echo "x `npm run test` y"'],
+			[
+				'echo "x `npm run test \\"a\\" &` y"',
+				'echo "x `npm run test \\"a\\"` y"',
+			],
 		])
 			expect(readDenyReason(command).split("\n")[0], command).toBe(
 				`${SNAPSHOT_OPENER}${fix}`,
@@ -300,7 +304,12 @@ describe("lib/suite-background.js", () => {
 	});
 
 	it("reads the script a wrapper runs as commands, quotes and all (#5822)", () => {
-		expect(verdict(`flock /l -c "echo 'a & b'; npm run test"`)).toBe("allow");
+		for (const command of [
+			`flock /l -c "echo 'a & b'; npm run test"`,
+			'flock "/tmp/a & b.lock" -c "npm run test"',
+			'flock /l -c "npm run test" "a & b"',
+		])
+			expect(verdict(command), command).toBe("allow");
 		expect(
 			readDenyReason('flock /l -c "cd scripts && nohup npm run test &"').split(
 				"\n",
