@@ -1,5 +1,6 @@
 const {
 	carriesVar,
+	isBareSpan,
 	literal,
 	readSentinels,
 	typedWord,
@@ -246,24 +247,26 @@ const PARENT_SNAPSHOT_OVERRUN = `keep working on independent work; with none lef
 const TIMED_TEXT = `This suite is WRAPPED IN A SHELL \`timeout\`, which kills it with no result and no pass/fail marker when the clock runs out — and the clock counts time spent waiting in the \`--queue\` too. The Bash tool's own timeout does not kill it: an overrun is moved to the background and notifies, and you ${WAIT_SLOT} If guard-suite-concurrency refuses the re-issue, take its corrected command. A run naming its own test files is not refused. Genuinely need the shell timeout? Prefix the command with \`WFC_SUITE_TIMEOUT=1\`.`;
 
 /**
- * @param {string} command
- * @param {Ctx} ctx
- * @returns {import("./guard-entry.js").Decision}
+ * @typedef {object} Timed
+ * @property {string} from
+ * @property {string} to
+ * @property {number[]} dropped
+ * @property {Map<number, string>} respanned
  */
-function decide(command, ctx) {
-	const parsed = parseCommand(command);
+
+/**
+ * @param {import("./shell-parse.js").Parsed} parsed
+ * @param {Ctx} ctx
+ * @param {import("./suite-launch.js").LaunchPorts} launchPorts
+ */
+function readLaunches(parsed, ctx, launchPorts) {
 	const { spans } = parsed;
 	/** @param {string} w */
 	const typed = (w) => typedWord(w, spans);
-	/** @type {import("./suite-launch.js").LaunchPorts} */
-	const launchPorts = {
-		runners: ctx.runners,
-		isWrapperScript: buildIsWrapperScript(ctx.tree, ctx.log),
-	};
 	let foundSuite = false;
 	let escaped = false;
 	let snapshot = true;
-	/** @type {{ from: string, to: string, dropped: number[] }[]} */
+	/** @type {Timed[]} */
 	const timed = [];
 	/** @type {ScriptSource[]} */
 	const scripts = [];
@@ -303,7 +306,31 @@ function decide(command, ctx) {
 			from: asWritten(cmd.segment, spans),
 			to: asWritten(stripped, spans),
 			dropped,
+			respanned: new Map(),
 		});
+	};
+	/**
+	 * @param {import("./shell-parse.js").Command} cmd
+	 * @param {number[]} wordIndices
+	 * @param {import("./shell-words.js").Unwrapped} run
+	 */
+	const noteScriptTimed = (cmd, wordIndices, { wrapperWords }) => {
+		if (carriesVar("WFC_SUITE_TIMEOUT", cmd.leading, wrapperWords)) return;
+		const words = wordIndices.flatMap((i) => cmd.words.slice(i, i + 1));
+		const body = words.map((w) => literal(w, spans).text).join(" ");
+		const inner = readLaunches(parseCommand(body), ctx, launchPorts).timed;
+		if (inner.length === 0) return;
+		const at = words.length === 1 ? soleSpan(words[0] ?? "", spans) : null;
+		const span = at === null ? undefined : spans[at];
+		/** @type {Map<number, string>} */
+		const respanned = new Map();
+		if (at !== null && span !== undefined && span.slice(1) === body)
+			respanned.set(at, span.charAt(0) + applyTimed(body, inner));
+		else
+			ctx.log(
+				"the script's timeout sits in quoting the re-issue cannot rewrite — the deny re-issues the script as typed",
+			);
+		timed.push({ from: "", to: "", dropped: [], respanned });
 	};
 	walkCommands(
 		parsed,
@@ -313,34 +340,106 @@ function decide(command, ctx) {
 			const launch =
 				first.words.length === 0 ? null : noteLaunch(cmd.leading, first);
 			if (launch) launched.push(first);
-			/** @type {Map<string, number[]>} */
-			const scriptWordLists = new Map();
-			for (const { scriptWords } of launched)
-				if (scriptWords)
-					scriptWordLists.set(scriptWords.join(" "), scriptWords);
-			for (const wordIndices of scriptWordLists.values())
+			const scriptRuns = distinctScripts(launched);
+			for (const { wordIndices } of scriptRuns)
 				scripts.push(buildScriptSource(cmd.words, wordIndices, spans));
 			if (launch) noteTimed(cmd, first, launch);
+			for (const { run, wordIndices } of scriptRuns)
+				noteScriptTimed(cmd, wordIndices, run);
 		},
 		ctx,
+	);
+	return { foundSuite, escaped, snapshot, timed, scripts };
+}
+
+/** @param {import("./shell-words.js").Unwrapped[]} runs */
+function distinctScripts(runs) {
+	/** @type {Map<string, { run: import("./shell-words.js").Unwrapped, wordIndices: number[] }>} */
+	const byWords = new Map();
+	for (const run of runs) {
+		const key = run.scriptWords?.join(" ");
+		if (run.scriptWords && key !== undefined && !byWords.has(key))
+			byWords.set(key, { run, wordIndices: run.scriptWords });
+	}
+	return [...byWords.values()];
+}
+
+/**
+ * @param {string} word
+ * @param {string[]} spans
+ * @returns {number | null}
+ */
+function soleSpan(word, spans) {
+	let bare = "";
+	/** @type {number[]} */
+	const found = [];
+	const { rest } = readSentinels(word, (lit, idx) => {
+		bare += lit;
+		if (idx !== null && !isBareSpan(spans[idx] ?? "")) found.push(idx);
+		return { text: "", stepPast: true };
+	});
+	return bare === "" && rest === "" && found.length === 1
+		? (found[0] ?? null)
+		: null;
+}
+
+/** @param {Timed[]} timed */
+function spanShift(timed) {
+	const dropped = timed.flatMap((t) => t.dropped);
+	/** @param {number} i */
+	const after = (i) => i - dropped.filter((d) => d < i).length;
+	/** @type {Map<number, string>} */
+	const respanned = new Map();
+	for (const t of timed)
+		for (const [i, span] of t.respanned) respanned.set(after(i), span);
+	return { after, respanned };
+}
+
+/** @param {string} text @param {Timed[]} timed */
+function applyTimed(text, timed) {
+	let fix = text;
+	for (const { from, to } of timed)
+		if (from !== "") fix = fix.split(from).join(to);
+	const { respanned } = spanShift(timed);
+	if (respanned.size === 0) return fix;
+	const { masked, spans } = maskQuotes(fix);
+	return asWritten(
+		masked,
+		spans.map((span, i) => respanned.get(i) ?? span),
+	);
+}
+
+/**
+ * @param {string} command
+ * @param {Ctx} ctx
+ * @returns {import("./guard-entry.js").Decision}
+ */
+function decide(command, ctx) {
+	const parsed = parseCommand(command);
+	const { spans } = parsed;
+	const { foundSuite, escaped, snapshot, timed, scripts } = readLaunches(
+		parsed,
+		ctx,
+		{
+			runners: ctx.runners,
+			isWrapperScript: buildIsWrapperScript(ctx.tree, ctx.log),
+		},
 	);
 	const hold = holdHeredocs(command, parsed.heredocLines);
 	const detached = foundSuite && !escaped && hasDetachedRun(hold.text, scripts);
 	if (!detached && timed.length === 0) return null;
 
-	let fix = hold.text;
-	for (const { from, to } of timed)
-		if (from !== "") fix = fix.split(from).join(to);
-	const dropped = timed.flatMap((t) => t.dropped);
-	/** @param {number} i */
-	const afterTimed = (i) => i - dropped.filter((d) => d < i).length;
+	let fix = applyTimed(hold.text, timed);
+	const { after, respanned } = spanShift(timed);
 	if (detached)
 		fix = stripDetachment(
 			fix,
 			new Map(
 				scripts.flatMap((s) =>
 					s.spanIndices.flatMap((i) =>
-						spans.slice(i, i + 1).map((span) => [afterTimed(i), span]),
+						spans
+							.slice(i, i + 1)
+							.map((span) => [after(i), respanned.get(after(i)) ?? span]),
 					),
 				),
 			),

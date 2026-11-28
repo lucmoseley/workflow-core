@@ -563,6 +563,47 @@ describe("lib/suite-background.js", () => {
 			).toBe(fix);
 	});
 
+	it("strips a timeout from inside a wrapper's script string (#5874)", () => {
+		for (const [command, fix] of [
+			['flock /l -c "timeout 590 npm run test"', 'flock /l -c "npm run test"'],
+			[
+				'timeout 5 flock /l -c "timeout 590 npm run test"',
+				'flock /l -c "npm run test"',
+			],
+			["watch 'timeout 590 npm run test'", "watch 'npm run test'"],
+			[
+				'timeout -s "KILL" 5 flock /l -c "timeout 590 npm run test &"',
+				'flock /l -c "npm run test"',
+			],
+			[
+				'flock /l -c "cd scripts && timeout 590 npm run test"',
+				'flock /l -c "cd scripts && npm run test"',
+			],
+			[
+				`flock /l -c "flock /m -c 'timeout 590 npm run test'"`,
+				`flock /l -c "flock /m -c 'npm run test'"`,
+			],
+			[
+				'timeout 5 flock /l -c "timeout 590 npm run test &"',
+				'flock /l -c "npm run test"',
+			],
+			[
+				'flock /l -c "timeout 590 npm run test -- -t \\"a b\\""',
+				'flock /l -c "timeout 590 npm run test -- -t \\"a b\\""',
+			],
+		])
+			expect(
+				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
+				command,
+			).toBe(fix);
+		for (const command of [
+			'WFC_SUITE_TIMEOUT=1 flock /l -c "timeout 590 npm run test"',
+			'flock /l -c "WFC_SUITE_TIMEOUT=1 timeout 590 npm run test"',
+			'flock /l -c "timeout 60 pytest"',
+		])
+			expect(verdict(command), command).toBe("allow");
+	});
+
 	it("says why the shell timeout is refused and names its escape", () => {
 		const reason = readDenyReason("timeout 590 npm run test");
 		expect(reason).toContain("This suite is WRAPPED IN A SHELL `timeout`");
