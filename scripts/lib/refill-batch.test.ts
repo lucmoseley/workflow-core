@@ -15,8 +15,10 @@ import {
 	adoptLaunching,
 	batchesOf,
 	dispatchCall,
+	isTrustHold,
 	launchBatch,
 	launchOrResume,
+	untrustedRefusals,
 } from "./refill-batch.js";
 
 type LoopLaunch = import("./refill-loop.js").LoopLaunch;
@@ -163,6 +165,16 @@ describe("a refused member's reason (#2500)", () => {
 			}),
 		});
 		expect(r.tried).toEqual([launch]);
+	});
+
+	it("carries the launcher's own line when it exited non-zero (#5918)", () => {
+		const said =
+			"Workspace not trusted. Run `claude` in /home/u/design-vault once and accept the trust prompt, then retry.";
+		expect(
+			reasonFor(
+				`opus  ${said}\n${memberRefused(launch.prompt)}\n  ${said}\n  (claude exited 1; not recorded as launched.)`,
+			),
+		).toEqual([said]);
 	});
 
 	it("keys on the dropped member line dispatch-sessions.js prints", () => {
@@ -812,5 +824,27 @@ describe("the members of a batch a kill cut off (#4180)", () => {
 		expect(lines).toEqual([
 			"whether parked design-vault /implement 1's resume started a job is unread: EACCES",
 		]);
+	});
+});
+
+describe("a batch held on an untrusted workspace (#5918)", () => {
+	it("refuses every member, naming the seat, the repo and the founder's act", () => {
+		const batch = [launch, { ...launch, issues: [43], prompt: "/triage 43" }];
+		const asked: string[][] = [];
+		const held = untrustedRefusals(batch, (seat, root) => {
+			asked.push([seat, root]);
+			return true;
+		});
+		expect(asked).toEqual([["/home/u/.claude3", "/home/u/design-vault"]]);
+		expect(held.map((h) => h.launch)).toEqual(batch);
+		const [first] = held;
+		expect(first?.reason).toContain(
+			"run `CLAUDE_CONFIG_DIR=/home/u/.claude3 claude` in /home/u/design-vault once and accept the trust prompt",
+		);
+		expect(isTrustHold(first?.reason ?? "")).toBe(true);
+	});
+
+	it("holds nothing on a trusted seat", () => {
+		expect(untrustedRefusals([launch], () => false)).toEqual([]);
 	});
 });

@@ -7,6 +7,7 @@ const { isLimitHeld, launchName } = require("./refill-block-core.js");
 const limits = require("./refill-limits.js");
 const { stepBreakers } = require("./refill-breaker.js");
 const { parkOverBudget } = require("./refill-budget.js");
+const { isTrustHold } = require("./refill-batch.js");
 const { retireOriginals } = require("./refill-retire.js");
 const { declaresOverflowSeat } = require("./refill-seats.js");
 const {
@@ -565,7 +566,10 @@ function settleRoom(
  * @param {string[]} warmed
  */
 function warmRefusedRoots(io, refused, warmed) {
-	for (const root of new Set(refused.map((r) => r.launch.root)))
+	const roots = refused
+		.filter((r) => !isTrustHold(r.reason))
+		.map((r) => r.launch.root);
+	for (const root of new Set(roots))
 		if (!warmed.includes(root) && io.hasConfig(root)) io.startWarmPass(root);
 }
 

@@ -281,7 +281,7 @@ describe("a launch killed from outside (#5145)", () => {
 		);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain(
-			"(claude exited 137; not recorded as launched.)",
+			"REFUSED: /implement 341 — not launching this member.\n  (claude exited 137; not recorded as launched.)",
 		);
 		expect(r.stderr).not.toContain("did not return within");
 		expect(launchArgv()).toContain("/wayfinder 1114");

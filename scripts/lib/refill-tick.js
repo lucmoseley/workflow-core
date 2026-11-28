@@ -108,6 +108,7 @@ const {
 	updateState,
 } = require("./refill-state.js");
 const refillBatch = require("./refill-batch.js");
+const { isUntrusted } = require("./workspace-trust.js");
 const { iso, launchName } = require("./refill-block-core.js");
 const blocks = require("./refill-blocks.js");
 const {
@@ -298,6 +299,8 @@ function probeDueSeats(seats, triedAt) {
 
 /** @param {import("./refill-decide.js").Launch[]} batch */
 function launchBatch(batch) {
+	const held = refillBatch.untrustedRefusals(batch, isUntrusted);
+	if (held.length > 0) return { launched: [], refused: held };
 	const r = refillBatch.launchBatch(batch, {
 		dispatcher: DISPATCHER,
 		env: process.env,

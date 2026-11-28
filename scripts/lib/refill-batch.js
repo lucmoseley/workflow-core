@@ -6,7 +6,7 @@ const {
 } = require("./refill-block-core.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { carriedOnto, parkedCarryOf } = require("./refill-carry.js");
-const { seatIdOf } = require("./refill-seats.js");
+const { buildSeatName, seatIdOf } = require("./refill-seats.js");
 const {
 	DEFAULT_STAGGER_SECONDS,
 	MEMBER_REFUSED_TAIL,
@@ -128,6 +128,22 @@ function parseRefusalReason(out, prompt, failed) {
 	if (failed)
 		return lines.findLast(isSetHeader)?.trim() ?? `dispatcher ${failed}`;
 	return "no ledger entry written for it";
+}
+
+const UNTRUSTED = "workspace untrusted on ";
+/** @param {string} reason */
+const isTrustHold = (reason) => reason.startsWith(UNTRUSTED);
+
+/**
+ * @param {import("./refill-decide.js").Launch[]} batch
+ * @param {(seat: string, root: string) => boolean} isUntrusted
+ * @returns {Refusal[]}
+ */
+function untrustedRefusals(batch, isUntrusted) {
+	const [first] = batch;
+	if (!first || !isUntrusted(first.seat, first.root)) return [];
+	const reason = `${UNTRUSTED}${buildSeatName(first.seat)}: run \`CLAUDE_CONFIG_DIR=${first.seat} claude\` in ${first.root} once and accept the trust prompt`;
+	return batch.map((l) => ({ launch: l, reason }));
 }
 
 /** @param {import("./refill-decide.js").Launch} l */
@@ -371,7 +387,9 @@ module.exports = {
 	batchesOf,
 	buildWouldRunLine,
 	dispatchCall,
+	isTrustHold,
 	launchBatch,
 	launchOrResume,
 	readStaggerMs,
+	untrustedRefusals,
 };
