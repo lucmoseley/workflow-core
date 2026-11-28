@@ -1197,21 +1197,7 @@ describe("the stall watchdog", () => {
 		return { child, run, done };
 	}
 
-	it("does not fire while the in-flight record keeps being touched", async () => {
-		const { child, run, done } = beating(400, 1200);
-		await new Promise((r) => setTimeout(r, 1200));
-		const midway = [...child.signals];
-		child.stdout.end();
-		child.stderr.end();
-		child.emit("close", 0);
-		const code = await run;
-		done();
-
-		expect(midway).toEqual([]);
-		expect(code).toBe(0);
-	});
-
-	it("still fires once the beats stop", async () => {
+	const beatTimers = () =>
 		vi.useFakeTimers({
 			toFake: [
 				"setTimeout",
@@ -1221,6 +1207,28 @@ describe("the stall watchdog", () => {
 				"Date",
 			],
 		});
+
+	it("does not fire while the in-flight record keeps being touched", async () => {
+		beatTimers();
+		try {
+			const { child, run, done } = beating(100, 1200);
+			await vi.advanceTimersByTimeAsync(1200);
+			const midway = [...child.signals];
+			child.stdout.end();
+			child.stderr.end();
+			child.emit("close", 0);
+			const code = await run;
+			done();
+
+			expect(midway).toEqual([]);
+			expect(code).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("still fires once the beats stop", async () => {
+		beatTimers();
 		try {
 			const { child, run, done } = beating(100, 300);
 			await vi.advanceTimersByTimeAsync(299);
