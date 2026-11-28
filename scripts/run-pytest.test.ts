@@ -319,7 +319,7 @@ describe("a bare run", () => {
 			});
 		});
 
-		it("records `head` and the file count on a gate run's ceiling kill and its ledger line (#5900)", async () => {
+		it("records `head` and the file count on a gate run's ceiling kill and its ledger line, as a finished run's certificate names it (#5900)", async () => {
 			const root = branch();
 			const [python] = fakePytest({ passed: true, scope: scope() }, 0, {});
 			await wrap(python, root, [], {
