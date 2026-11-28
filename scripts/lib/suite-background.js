@@ -255,22 +255,25 @@ function stripBare(masked, reread) {
 /** @param {string} s */
 const trimStart = (s) => s.replace(/^[ \t\n\v\f\r]+/, "");
 
+const HELD_LINE_MARK_BASE = 0xe1_00;
+
 /** @param {string} raw */
-function freeMark(raw) {
-	let code = 0xe0_00;
+function markAbsentFrom(raw) {
+	let code = HELD_LINE_MARK_BASE;
 	while (raw.includes(String.fromCharCode(code))) code++;
 	return String.fromCharCode(code);
 }
 
 /** @param {string} raw @param {number[]} heredocLines */
 function holdHeredocs(raw, heredocLines) {
-	const mark = freeMark(raw);
+	const mark = markAbsentFrom(raw);
 	const lines = raw.split("\n");
 	/** @type {Map<string, string>} */
 	const kept = new Map();
 	for (const n of heredocLines) {
-		kept.set(`${mark}${n}${mark}`, lines[n] ?? "");
-		lines[n] = `${mark}${n}${mark}`;
+		const token = `${mark}${n}${mark}`;
+		kept.set(token, lines[n] ?? "");
+		lines[n] = token;
 	}
 	return { text: lines.join("\n"), kept };
 }
@@ -278,9 +281,9 @@ function holdHeredocs(raw, heredocLines) {
 /** @param {string} s @param {Map<string, string>} kept */
 function putBackHeredocs(s, kept) {
 	let out = s;
-	for (const [marker, line] of kept) {
-		const at = out.indexOf(marker);
-		if (at >= 0) out = out.slice(0, at) + line + out.slice(at + marker.length);
+	for (const [token, line] of kept) {
+		const at = out.indexOf(token);
+		if (at >= 0) out = out.slice(0, at) + line + out.slice(at + token.length);
 	}
 	return trimEndRun(out, "\n");
 }

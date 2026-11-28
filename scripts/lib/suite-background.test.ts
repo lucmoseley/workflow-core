@@ -488,17 +488,19 @@ describe("lib/suite-background.js", () => {
 		}
 	});
 
-	it("re-issues a typed BEL-digit-BEL as typed beside a heredoc", () => {
-		const write = [
-			"echo '\x071\x07' > /tmp/y; cat > /tmp/x.sh <<'EOF'",
-			"body line",
-			"EOF",
-		].join("\n");
-		const command = `${write}\nnpm run test &`;
-		const fix = `${write}\nnpm run test`;
-		expect(readDenyReason(command).split("\nThis suite is ")[0]).toBe(
-			`${SNAPSHOT_OPENER}${fix}`,
-		);
+	it("re-issues a typed mark-digit-mark as typed beside a heredoc, as the heredoc case above (#5898)", () => {
+		for (const mark of ["\x07", "\ue100"]) {
+			const write = [
+				`echo '${mark}1${mark}' > /tmp/y; cat > /tmp/x.sh <<'EOF'`,
+				"body line",
+				"EOF",
+			].join("\n");
+			const command = `${write}\nnpm run test &`;
+			expect(
+				readDenyReason(command).split("\nThis suite is ")[0],
+				JSON.stringify(mark),
+			).toBe(`${SNAPSHOT_OPENER}${write}\nnpm run test`);
+		}
 	});
 
 	it("keeps the escape, the no-tool-call ending and the check before a relaunch", () => {
