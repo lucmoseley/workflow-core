@@ -14,7 +14,11 @@ const {
 	fullAttestationOf,
 	CLOSURE_ROOTS,
 } = require("./lib/test-pass-marker.js");
-const { readLaunch, fillRunReport } = require("./lib/suite-handoff.js");
+const {
+	buildLaunchScope,
+	readLaunch,
+	fillRunReport,
+} = require("./lib/suite-handoff.js");
 const { sample: sampleCpu } = require("./lib/cpu-sample.js");
 const { relativeUnder } = require("./lib/is-under.js");
 const { ignoreFailure } = require("./lib/caught.js");
@@ -114,14 +118,6 @@ function countTests(testModules: TestModuleLike[]) {
 		}
 	}
 	return { tests, passed, skipped, failed, failures };
-}
-
-function fullRunFields(launch: import("./lib/suite-handoff.js").Launch) {
-	if (launch.full === null) return {};
-	return {
-		full: launch.full,
-		fullCause: launch.fullCause,
-	};
 }
 
 function fileVerdicts(
@@ -382,16 +378,7 @@ export default class TestPassReporter {
 			fileFilters: [...(this.vitest?.filenamePattern ?? [])],
 			changed: this.vitest?.config?.changed ?? null,
 			...(shard ? { shard: { index: shard.index, count: shard.count } } : {}),
-			...(launch.admissible ? { admissible: true } : {}),
-			...(launch.viaChanged ? { viaChanged: true } : {}),
-			...(launch.touched ? { touched: true } : {}),
-			...(launch.resolvedFiles === null
-				? {}
-				: { resolvedFiles: launch.resolvedFiles }),
-			...(launch.wholeSlot ? { wholeSlot: true } : {}),
-			...(launch.leftOut ? { leftOut: launch.leftOut } : {}),
-			...(launch.touchedBase ? { touchedBase: launch.touchedBase } : {}),
-			...fullRunFields(launch),
+			...buildLaunchScope(launch),
 			...(failures.size > 0
 				? {
 						failures: [...failures].map(([file, names]) => ({

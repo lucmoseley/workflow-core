@@ -73,6 +73,18 @@ describe("the ledger beside the marker stores (#2824)", () => {
 		expect(lineFor({ scope }).leftOut).toBeNull();
 	});
 
+	it("carries a bounded touched run's pre-bound selection size, and no such field off an unbounded run (#5878)", () => {
+		const scope = { touched: true, resolvedFiles: 120, modulesRun: 120 };
+		expect(
+			lineFor({
+				scope: { ...scope, leftOut: ["lib/b.test.ts"], boundedFrom: 121 },
+			}),
+		).toMatchObject({ boundedFrom: 121, leftOut: ["lib/b.test.ts"] });
+		expect(lineFor({ scope: { ...scope, leftOut: [] } })).not.toHaveProperty(
+			"boundedFrom",
+		);
+	});
+
 	it("writes one line for a certificate and one for a red marker", () => {
 		const root = sandbox();
 		expect(record(marker(), { root })).toBe(true);

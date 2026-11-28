@@ -90,10 +90,10 @@ const ENVELOPES: Record<string, unknown> = {
 	"check-stale-claims.js": { stale: [] },
 };
 
-function seedChildren() {
+function seedChildren(over: Record<string, unknown>) {
 	const children = at("children");
 	fs.mkdirSync(children);
-	for (const [name, envelope] of Object.entries(ENVELOPES))
+	for (const [name, envelope] of Object.entries({ ...ENVELOPES, ...over }))
 		fs.writeFileSync(
 			path.join(children, name),
 			`process.stdout.write(${JSON.stringify(JSON.stringify(envelope))});\n`,
@@ -143,7 +143,17 @@ process.stdout.write(hit ? hit.out + "\\n" : argv.includes("--json") ? "[]\\n" :
 
 async function run(
 	args: string[],
-	{ real = false, routes = [] }: { real?: boolean; routes?: Route[] } = {},
+	{
+		real = false,
+		routes = [],
+		envelopes = {},
+		history = at("refill", ".gate-history.jsonl"),
+	}: {
+		real?: boolean;
+		routes?: Route[];
+		envelopes?: Record<string, unknown>;
+		history?: string;
+	} = {},
 ) {
 	const issueBody = fakeIssueBody(dir, GATED);
 	const core = at("home", "core");
@@ -151,7 +161,8 @@ async function run(
 		cwd: core,
 		env: {
 			...process.env,
-			...(real ? {} : { WFC_STALE_RUN_CHILDREN: seedChildren() }),
+			...(real ? {} : { WFC_STALE_RUN_CHILDREN: seedChildren(envelopes) }),
+			WFC_GATE_HISTORY: history,
 			WFC_NOW: NOW,
 			HOME: at("home"),
 			CLAUDE_PROJECT_DIR: core,
@@ -231,6 +242,49 @@ describe("stale-ticket-run", () => {
 		const row = JSON.parse(fs.readFileSync(record(), "utf8").trim());
 		expect(row.acts).toEqual([]);
 		expect(row.hub.number).toBe(77);
+	});
+
+	describe("a count gate's reading history", () => {
+		const Counted = {
+			"check-gates.js": {
+				rows: [
+					{
+						number: 4,
+						state: "READING",
+						reading: "3 of 50",
+						command: "true",
+						closed: false,
+					},
+				],
+			},
+		};
+
+		it("lists a count gate unmoved in the history as data not accruing", async () => {
+			const history = at("refill", ".gate-history.jsonl");
+			fs.mkdirSync(path.dirname(history), { recursive: true });
+			const since = Date.parse(ago(9));
+			fs.writeFileSync(
+				history,
+				`${JSON.stringify({ repo: "o/a", issue: 4, command: "true", at: since, counts: [{ a: 3, b: 50, since }] })}\n`,
+			);
+			const r = await run(["--dry-run"], { envelopes: Counted, history });
+			expect(r.status).toBe(0);
+			expect(r.stdout).toMatch(
+				/^C1 {2}o\/a#4 gate READING: 3 of 50; unmoved 9 d/m,
+			);
+			expect(r.stdout).toMatch(
+				/^C7 {2}o\/a#4 data not accruing \(3 of 50, 9 d\)/m,
+			);
+		});
+
+		it("warns when the history cannot be read, and still completes", async () => {
+			const history = at("refill", "unreadable");
+			fs.mkdirSync(history, { recursive: true });
+			const r = await run(["--dry-run"], { envelopes: Counted, history });
+			expect(r.status).toBe(0);
+			expect(r.stderr).toContain("o/a#4: gate history unread");
+			expect(r.stdout).toMatch(/^o\/a: /m);
+		});
 	});
 
 	it("exits 1 when the host checkout resolves no tracker", async () => {

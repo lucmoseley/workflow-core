@@ -20,6 +20,7 @@ import type { TouchedBase } from "./test-pass-marker.js";
 const require = createRequire(import.meta.url);
 const { selectTouched } = require("./touched-tests.js");
 const { MERGE_PARENTS_ENV } = require("./merge-heads.js");
+const { readUncovered } = require("./push-coverage.js");
 const QUEUE_RUN = path.join(
 	path.dirname(fileURLToPath(import.meta.url)),
 	"..",
@@ -940,5 +941,209 @@ process.stdout.write(JSON.stringify(r.changed));
 		expect(JSON.parse(r.stdout.trim().split("\n").at(-1) ?? "")).toEqual([
 			"lib/setup.js",
 		]);
+	});
+});
+
+describe("a touched selection over 120 collected files is bounded (#5878)", () => {
+	const pad = (i: number) => String(i).padStart(3, "0");
+	const R = (i: number) => `t/r${pad(i)}.test.ts`;
+	const S = (i: number) => `f/s${pad(i)}.test.ts`;
+	const P = (i: number) => `py/test_p${pad(i)}.py`;
+	const span = (n: number, from = 0, name = R) =>
+		Array.from({ length: n }, (_, i) => name(from + i));
+	const Sibling = "z/unit.test.ts";
+	const PySibling = "py/test_pbig.py";
+	const Checker = "scripts/lib/generated-rule-copies.test.ts";
+	const ByChecker = "x/bystander.test.ts";
+	const BoundFiles: Record<string, string> = {
+		"hub.md": "# hub\n",
+		"hub2.md": "# hub2\n",
+		"narrow.md": "# narrow\n",
+		"z/unit.js": "module.exports = 1;\n",
+		[Sibling]: "export {};\n",
+		"lib/big.js": "module.exports = 1;\n",
+		"py/pbig.py": "B = 1\n",
+		[PySibling]: "import pbig\n",
+		[MANIFEST]: "{}\n",
+		[Checker]: "export {};\n",
+		[ByChecker]: "export {};\n",
+		...Object.fromEntries(span(130).map((t) => [t, "export {};\n"])),
+		...Object.fromEntries(
+			span(130, 0, S).map((t) => [t, 'import "../lib/big.js";\n']),
+		),
+		...Object.fromEntries(span(130, 0, P).map((t) => [t, "import pbig\n"])),
+	};
+	const fixture = defineTemplate((dir) => seed(dir, BoundFiles));
+	let tree: string;
+	beforeAll(() => {
+		tree = mkScratchDir("touched-bound-");
+		fixture.instantiate(tree);
+	});
+	afterAll(() => fs.rmSync(tree, { recursive: true, force: true }));
+
+	const pick = (
+		changed: string[],
+		edges: Record<string, string[]>,
+		options: Options = {},
+	) =>
+		select(tree, changed, {
+			loadEdges: () => edges,
+			renderEdges: () => edges,
+			...options,
+		});
+	const boundLine = (banner: string) =>
+		banner
+			.split("\n")
+			.filter((l) => l.startsWith("LEFT TO THE LANDER — this work selects"));
+
+	it("runs a selection of exactly 120 unchanged, leaving nothing out", () => {
+		const r = pick(["hub.md"], { "hub.md": span(120) });
+		expect(r.files).toEqual(span(120));
+		expect(r.leftOut).toEqual([]);
+		expect(r.boundedFrom).toBeNull();
+		expect(r.banner).not.toContain("LEFT TO THE LANDER");
+	});
+
+	it("keeps 120 of 121, leaves 1 to the lander, returns the pre-bound count and names all three counts in the banner", () => {
+		const r = pick(["hub.md"], { "hub.md": span(121) });
+		expect(r.files).toEqual(span(120));
+		expect(r.leftOut).toEqual([R(120)]);
+		expect(r.boundedFrom).toBe(121);
+		expect(boundLine(r.banner)).toEqual([
+			"LEFT TO THE LANDER — this work selects 121 test files, over the touched run's bound of 120; the 120 nearest the change run, and the lander's full suite runs the other 1 (#5878):",
+		]);
+		expect(r.banner).toContain(`\n  ${R(120)}\n`);
+		expect(r.banner).toContain("TOUCHED TESTS ONLY — 120 test file(s)");
+	});
+
+	it("gives the same files for the same tree and diff whatever order the changed paths and their readers arrive in", () => {
+		const r = pick(["hub.md", "narrow.md"], {
+			"hub.md": span(130),
+			"narrow.md": [R(129), R(64)],
+		});
+		expect(
+			pick(["narrow.md", "hub.md"], {
+				"narrow.md": [R(64), R(129)],
+				"hub.md": span(130).reverse(),
+			}).files,
+		).toEqual(r.files);
+		expect(r.files).toEqual([...span(119), R(129)]);
+	});
+
+	it("always keeps a test the session edited, where ranking would drop it", () => {
+		const r = pick(["hub.md", R(129)], { "hub.md": span(130) });
+		expect(r.files).toEqual([...span(119), R(129)]);
+		expect(r.leftOut).toEqual(span(10, 119));
+	});
+
+	it("runs every edited test where they alone exceed 120, leaving every other selected file out, worded for that case", () => {
+		const r = pick(["hub.md", ...span(125)], { "hub.md": span(130) });
+		expect(r.files).toEqual(span(125));
+		expect(r.leftOut).toEqual(span(5, 125));
+		expect(r.boundedFrom).toBe(130);
+		expect(boundLine(r.banner)).toEqual([
+			"LEFT TO THE LANDER — this work selects 130 test files, over the touched run's bound of 120, and 125 of them are tests it edited, so all 125 of those run and the lander's full suite runs the other 5 (#5878):",
+		]);
+	});
+
+	it("ranks a changed path's same-stem sibling above a test that only reads a changed path", () => {
+		const r = pick(["hub.md", "z/unit.js"], {
+			"hub.md": [...span(121), Sibling],
+		});
+		expect(r.files).toContain(Sibling);
+		expect(r.leftOut).toEqual([R(119), R(120)]);
+	});
+
+	it("ranks a narrowly read path's reader above a hub's", () => {
+		const r = pick(["hub.md", "narrow.md"], {
+			"hub.md": span(130),
+			"narrow.md": [R(129)],
+		});
+		expect(r.files).toContain(R(129));
+		expect(r.leftOut).toEqual(span(10, 119));
+	});
+
+	it("breaks a specificity tie by the count of changed paths selecting a file, then by path", () => {
+		const r = pick(["hub.md", "hub2.md"], {
+			"hub.md": span(124),
+			"hub2.md": span(124, 6),
+		});
+		expect(r.files).toEqual([...span(2), ...span(118, 6)]);
+		expect(r.leftOut).toEqual([...span(4, 2), ...span(6, 124)]);
+	});
+
+	it("reports a checker-row cut and the bound as two lines, and unions both in leftOut", () => {
+		const r = pick([MANIFEST, "hub.md"], {
+			[MANIFEST]: [Checker, ByChecker],
+			"hub.md": span(130),
+		});
+		expect(r.files).toEqual([Checker, ...span(119)]);
+		expect(r.leftOut).toEqual([...span(11, 119), ByChecker]);
+		expect(r.banner).toContain(
+			`LEFT TO THE LANDER — 1 test file(s) that only ${MANIFEST} would select.`,
+		);
+		expect(boundLine(r.banner)).toHaveLength(1);
+		expect(boundLine(r.banner)[0]).toContain("runs the other 11 (#5878)");
+	});
+
+	it("bounds the same-stem-sibling fallback", () => {
+		const r = pick(
+			["lib/big.js"],
+			{},
+			{ loadEdges: failing, renderEdges: failing },
+		);
+		expect(r.banner).toContain("FELL BACK");
+		expect(r.files).toEqual(span(120, 0, S));
+		expect(r.leftOut).toEqual(span(10, 120, S));
+		expect(r.boundedFrom).toBe(130);
+	});
+
+	it("bounds and ranks a bare `npm run test:py` the same way, keeping its sibling-named test", () => {
+		const r = pick(["py/pbig.py"], {}, { suite: "pytest" });
+		expect(r.files).toEqual([...span(119, 0, P), PySibling]);
+		expect(r.leftOut).toEqual(span(11, 119, P));
+		expect(r.boundedFrom).toBe(131);
+		expect(boundLine(r.banner)).toHaveLength(1);
+	});
+
+	describe("under `head` (#5320) and a merge's own content (#5334)", () => {
+		let staged: string;
+		beforeAll(() => {
+			staged = mkScratchDir("touched-bound-");
+			fixture.instantiate(staged);
+			fs.appendFileSync(path.join(staged, "hub.md"), "more\n");
+			git(staged, "add", "hub.md");
+		});
+		afterAll(() => fs.rmSync(staged, { recursive: true, force: true }));
+		const at = (env: NodeJS.ProcessEnv) =>
+			selectTouched(staged, {
+				from: "head",
+				env,
+				loadEdges: () => ({ "hub.md": span(130) }),
+				renderEdges: () => ({ "hub.md": span(130) }),
+			});
+
+		it("bounds the commit's changes over HEAD", () => {
+			const { [MERGE_PARENTS_ENV]: _parents, ...env } = process.env;
+			const r = at(env);
+			expect(r.files).toEqual(span(120));
+			expect(r.boundedFrom).toBe(130);
+		});
+
+		it("bounds a merge's own content", () => {
+			const r = at({ [MERGE_PARENTS_ENV]: git(staged, "rev-parse", "HEAD") });
+			expect(r.banner).toContain("this merge's own content");
+			expect(r.files).toEqual(span(120));
+			expect(r.leftOut).toEqual(span(10, 120));
+		});
+	});
+
+	it("never lists a bounded-out file as uncovered on push", () => {
+		const coverage = readUncovered(tree, {
+			select: () => pick(["hub.md"], { "hub.md": span(130) }),
+			look: (files: string[]) => ({ run: files, refused: [], notice: null }),
+		});
+		expect(coverage).toMatchObject({ touched: 120 });
+		expect(coverage.files).not.toContain(R(125));
 	});
 });

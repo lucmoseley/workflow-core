@@ -275,6 +275,85 @@ describe("lib/suite-background.js", () => {
 			).toBe(fix);
 	});
 
+	it("reads a detacher word only where its strip removes it (#5893)", () => {
+		for (const command of [
+			"echo nohup; npm run test",
+			'flock /l -c "echo nohup; npm run test"',
+			"npm run test; echo setsid|cat",
+			"echo x=nohup; npm run test",
+			"npm run test; echo \\&nohup x",
+			"npm run test \\&nohup",
+			"npm run test; echo \\&disown",
+		])
+			expect(verdict(command), command).toBe("allow");
+		for (const [command, fix] of [
+			["nohup>log npm run test", ">log npm run test"],
+			["true &&nohup npm run test", "true &&npm run test"],
+			["npm run test & disown;", "npm run test ;"],
+			["npm run test & echo disowned", "npm run test ; echo disowned"],
+			["./nohup npm run test", "npm run test"],
+			["bin/setsid npm run test", "npm run test"],
+			["~/bin/nohup npm run test", "npm run test"],
+			["$HOME/bin/nohup npm run test", "npm run test"],
+			["\\nohup npm run test", "npm run test"],
+			["nohup \\\n npm run test", "npm run test"],
+			["nohup setsid npm run test", "npm run test"],
+			["nohup -p>log npm run test", ">log npm run test"],
+		]) {
+			const reissue = readDenyReason(command)
+				.split("\n")[0]
+				.replace(FIX_OPENER, "");
+			expect(reissue, command).toBe(fix);
+			expect(verdict(reissue), reissue).toBe("allow");
+		}
+	});
+
+	it("strips a detacher word only where it detaches, never an argument spelling it (#5896)", () => {
+		for (const command of [
+			"npm run test; echo nohup x",
+			"npm run test; echo setsid -f x",
+			"npm run test; echo a disown b",
+			"nohup sleep 1; npm run test",
+			"npm run test; echo \x1dnohup x",
+			"npm run test; echo \x1ddisown",
+		])
+			expect(verdict(command), command).toBe("allow");
+		for (const [command, fix] of [
+			[
+				"nohup timeout 590 npm run test; echo nohup timeout 590 npm run test",
+				"npm run test; echo nohup timeout 590 npm run test",
+			],
+			[
+				"npm run test & echo disown nohup; disown",
+				"npm run test ; echo disown nohup;",
+			],
+			[
+				'flock /l -c "nohup npm run test; echo nohup x"',
+				'flock /l -c "npm run test; echo nohup x"',
+			],
+			[
+				'echo "$(nohup npm run test; echo nohup x)"',
+				'echo "$(npm run test; echo nohup x)"',
+			],
+			["> nohup.out nohup npm run test", "> nohup.out npm run test"],
+			["2> nohup.log nohup npm run test", "2> nohup.log npm run test"],
+			["> nohup nohup npm run test", "> nohup npm run test"],
+			["watch nohup npm run test", "watch npm run test"],
+			[
+				"watch -n 5 setsid npm run test; echo setsid",
+				"watch -n 5 npm run test; echo setsid",
+			],
+			["npm run test & builtin disown", "npm run test ; builtin"],
+			["npm run test & command disown", "npm run test ; command"],
+			["npm run test & echo \x1dnohup x", "npm run test ; echo \x1dnohup x"],
+		]) {
+			const reissue = readDenyReason(command)
+				.split("\n")[0]
+				.replace(FIX_OPENER, "");
+			expect(reissue, command).toBe(fix);
+		}
+	});
+
 	it("reads no detachment inside a quoted string, and re-issues it as typed (#5822)", () => {
 		for (const command of [
 			"npm run test -- -t 'a & b'",
@@ -455,6 +534,74 @@ describe("lib/suite-background.js", () => {
 		}
 	});
 
+	it("re-issues a typed mark-digit-mark as typed beside a heredoc, as the heredoc case above (#5898)", () => {
+		for (const mark of ["\x07", "\ue100"]) {
+			const write = [
+				`echo '${mark}1${mark}' > /tmp/y; cat > /tmp/x.sh <<'EOF'`,
+				"body line",
+				"EOF",
+			].join("\n");
+			const command = `${write}\nnpm run test &`;
+			expect(
+				readDenyReason(command).split("\nThis suite is ")[0],
+				JSON.stringify(mark),
+			).toBe(`${SNAPSHOT_OPENER}${write}\nnpm run test`);
+		}
+	});
+
+	it("re-issues a typed byte from each held-text mark's set as typed (#5910)", () => {
+		const fixOf = (command: string) =>
+			run(command)?.permissionDecisionReason?.split("\nThis suite is ")[0];
+		const free = [0xe1_00, 0xe1_01];
+		const families = [
+			[
+				[0x02, 0x03, 0x04, 0x05, 0x06, 0x0f, 0x10],
+				(b: string) => {
+					const bare = `echo a${b}b && echo c \\& d >&2; npm run test`;
+					return [`${bare} &`, bare];
+				},
+			],
+			[
+				[0x11, 0x12],
+				(b: string) => {
+					const script = `echo \\$x \\\`a${b}b; npm run test`;
+					return [`flock /l -c "${script} &"`, `flock /l -c "${script}"`];
+				},
+			],
+			[
+				[0x0e],
+				(b: string) => {
+					const typed = `echo ${b}0${b}`;
+					return [
+						`${typed}; watch timeout 300 npm run test \\& true`,
+						`${typed}; watch 'npm run test ; true'`,
+					];
+				},
+			],
+			[
+				[],
+				(b: string) => {
+					const timed = "watch timeout 300 npm run test \\&";
+					const requoted = "watch 'npm run test ;";
+					const heredoc = "cat <<EOF\nbody & x\nEOF";
+					return [
+						`echo ${b}; ${timed} true; ${timed} false; ${heredoc}`,
+						`echo ${b}; ${requoted} true'; ${requoted} false'; ${heredoc}`,
+					];
+				},
+			],
+		] as const;
+		const wrong: string[] = [];
+		for (const [codes, shape] of families)
+			for (const code of [...codes, ...free]) {
+				const [command, fix] = shape(String.fromCharCode(code));
+				const got = fixOf(command);
+				if (got !== `${SNAPSHOT_OPENER}${fix}`)
+					wrong.push(`${JSON.stringify(command)} -> ${JSON.stringify(got)}`);
+			}
+		expect(wrong).toEqual([]);
+	});
+
 	it("keeps the escape, the no-tool-call ending and the check before a relaunch", () => {
 		const reason = readDenyReason("nohup npm run test");
 		expect(reason).toContain("WFC_SUITE_DETACH=1");
@@ -622,6 +769,49 @@ describe("lib/suite-background.js", () => {
 				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
 				command,
 			).toBe(fix);
+	});
+
+	it("keeps the words after a substitution as arguments of the command holding it (#5897)", () => {
+		for (const [command, fix] of [
+			[
+				"echo $((1+2)) timeout 590 npm run test; timeout 590 npm run test",
+				"echo $((1+2)) timeout 590 npm run test; npm run test",
+			],
+			[
+				"echo $(date) timeout 590 npm run test; timeout 590 npm run test",
+				"echo $(date) timeout 590 npm run test; npm run test",
+			],
+			[
+				"echo `date` timeout 590 npm run test; timeout 590 npm run test",
+				"echo `date` timeout 590 npm run test; npm run test",
+			],
+			[
+				"x=$(( (1+2)*3 )) timeout 590 npm run test",
+				"x=$(( (1+2)*3 )) npm run test",
+			],
+			["x=$(a) y=$(b) timeout 590 npm run test", "x=$(a) y=$(b) npm run test"],
+			["x=$(a)$(b) timeout 590 npm run test", "x=$(a)$(b) npm run test"],
+			["$(x) timeout 590 npm run test", "$(x) npm run test"],
+			[
+				"env $(cat flags) timeout 590 npm run test",
+				"env $(cat flags) npm run test",
+			],
+			["env FOO=$(x) timeout 590 npm run test", "env FOO=$(x) npm run test"],
+			[
+				"nice -n $(echo 5) timeout 590 npm run test",
+				"nice -n $(echo 5) npm run test",
+			],
+			[
+				"sudo -u $(whoami) timeout 590 npm run test",
+				"sudo -u $(whoami) npm run test",
+			],
+			["env $(cat .env) npm run test &", "env $(cat .env) npm run test"],
+		])
+			expect(
+				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
+				command,
+			).toBe(fix);
+		expect(run("echo $((1+2)) timeout 590 npm run test")).toBeNull();
 	});
 
 	it("strips a timeout whole when a flag value is quoted, and reads a script launch's wrappers from the walk (#5867)", () => {

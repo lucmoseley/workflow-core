@@ -1215,7 +1215,10 @@ describe("a paused tick (#3856)", () => {
 });
 
 describe("a launch hold through the tick (#4354)", () => {
-	const hold = (until: number) => ({ holder: "s1", until });
+	const hold = (until: number) => ({
+		holder: "0f6c2a9e-3b1d-4e57-9a28-7c4d1e5b6f30",
+		until,
+	});
 
 	it("keeps the housekeeping, launches nothing and logs the hold as its idle reason", async () => {
 		const gone = record({
@@ -1231,7 +1234,7 @@ describe("a launch hold through the tick (#4354)", () => {
 		const r = await tickOf(io, control({ launchHold: hold(NOW + 20 * MIN) }));
 
 		expect("launches" in r.decision && r.decision.idle?.reason).toBe(
-			"launches held by a manual /pick-next",
+			"launches held by",
 		);
 		expect(lines.join("\n")).toContain(
 			`idle: launches held by a manual /pick-next until ${new Date(NOW + 20 * MIN).toISOString()}`,
@@ -1240,8 +1243,48 @@ describe("a launch hold through the tick (#4354)", () => {
 			expect.arrayContaining(["reap", "tendHolds", "blockIo.release"]),
 		);
 		expect(disk().launches[0].finishedAt).not.toBeNull();
-		for (const port of ["readFreeSlots", "readFrontier", "launchBatch"])
+		for (const port of ["readFrontier", "launchBatch"])
 			expect(calls).not.toContain(port);
+	});
+
+	it("names a script's hold by the script, not a /pick-next (#5905)", async () => {
+		const { io, lines } = fakeIo(stateOf());
+		await tickOf(
+			io,
+			control({
+				launchHold: { holder: "page-combining-trial", until: NOW + 20 * MIN },
+			}),
+		);
+		expect(lines.join("\n")).toContain(
+			`idle: launches held by page-combining-trial until ${new Date(NOW + 20 * MIN).toISOString()}`,
+		);
+	});
+
+	it("records the live, ceiling and working counts while held, launching nothing (#5905)", async () => {
+		const records: object[] = [];
+		const agents = [{ sessionId: "s0", state: "working" }];
+		const { io, calls } = fakeIo(stateOf(), {
+			readListing: () => ({ agents, why: null }),
+			readFreeSlots: () => ({
+				slots: 3,
+				admission: { ...ADMISSION_VERDICT, slots: 3 } as never,
+			}),
+			appendTick: (tickRecord) => {
+				records.push(tickRecord);
+			},
+		});
+		const r = await tickOf(io, control({ launchHold: hold(NOW + 20 * MIN) }));
+		expect("launches" in r.decision && r.decision.launches).toEqual([]);
+		expect(calls).not.toContain("launchBatch");
+		const { count } = ADMISSION_VERDICT.memory.live;
+		expect(records).toEqual([
+			expect.objectContaining({
+				live: count,
+				ceiling: count + 3,
+				working: 1,
+				binding: expect.objectContaining({ limit: "launch hold" }),
+			}),
+		]);
 	});
 
 	it("ignores a hold past its expiry, as a /pick-next that died before its §8 release leaves one, launching as with none", async () => {
@@ -1408,6 +1451,54 @@ describe("the checkouts a live tick tends (#3284, #4247, #4248, #4318)", () => {
 			"run repair-sweep-slot.js",
 		]);
 		expect(holdRoots).toEqual([[WFC, gone]]);
+	});
+
+	it("warms a refused launch's root that no landing root covers, once, so its next launch meets a store (#5908)", async () => {
+		const outside = "/home/u/watch-digest";
+		const warmed: string[] = [];
+		const { io } = fakeIo(
+			stateOf(),
+			{
+				startWarmPass: (root) => warmed.push(root),
+				launchBatch: (batch) => ({
+					launched: [],
+					refused: batch.map((launch) => ({ launch, reason: "no store" })),
+				}),
+				readFreeSlots: () => ({ slots: 3, admission: null }),
+			},
+			{
+				frontier: [
+					{ ...row(1), root: outside },
+					{ ...row(2), root: outside },
+					row(3),
+				],
+			},
+		);
+		await tickOf(io);
+		expect(warmed).toEqual([WFC, outside]);
+	});
+
+	it("warms no root whose launch was held on an untrusted workspace (#5918)", async () => {
+		const outside = "/home/u/watch-digest";
+		const warmed: string[] = [];
+		const { io } = fakeIo(
+			stateOf(),
+			{
+				startWarmPass: (root) => warmed.push(root),
+				launchBatch: (batch) => ({
+					launched: [],
+					refused: batch.map((launch) => ({
+						launch,
+						reason: "workspace untrusted",
+						untrusted: true as const,
+					})),
+				}),
+				readFreeSlots: () => ({ slots: 3, admission: null }),
+			},
+			{ frontier: [{ ...row(1), root: outside }] },
+		);
+		await tickOf(io);
+		expect(warmed).toEqual([WFC]);
 	});
 });
 

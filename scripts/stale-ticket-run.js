@@ -12,6 +12,7 @@ const { caught, orFallback } = require("./lib/caught.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { now: clockNow } = require("./lib/clock.js");
 const { parseOrExit } = require("./lib/cli-args.js");
+const { readHistory } = require("./lib/gate-projection.js");
 const { recordJudged, runCheckGates } = require("./lib/gate-sweep.js");
 const { gh, ghApiSlurp, ghJson } = require("./lib/gh.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -288,11 +289,30 @@ async function readCycles(tracker, issues) {
 }
 
 /**
+ * @param {string} tracker
+ * @param {number} number
+ * @param {unknown} command
+ */
+function readGateHistory(tracker, number, command) {
+	try {
+		return readHistory({
+			repo: tracker,
+			issue: number,
+			command: typeof command === "string" ? command : null,
+		});
+	} catch (e) {
+		warn(`${tracker}#${number}: gate history unread (${caught(e).message})`);
+		return [];
+	}
+}
+
+/**
  * @param {string} root
+ * @param {string} tracker
  * @param {{stdout: string} | {error: string}} run
  * @returns {import("./lib/stale-run-plan.js").GateRow[]}
  */
-function readGateRows(root, run) {
+function readGateRows(root, tracker, run) {
 	const rows =
 		"error" in run
 			? undefined
@@ -311,6 +331,7 @@ function readGateRows(root, run) {
 							reading: g.reading,
 							closed: g.closed === true,
 							detail: typeof g.detail === "string" ? g.detail : null,
+							history: readGateHistory(tracker, g.number, g.command),
 						},
 					]
 				: [];
@@ -409,7 +430,7 @@ async function gatherTracked(root, tracker, now) {
 			],
 			root,
 		),
-		gates: readGateRows(root, gateRun),
+		gates: readGateRows(root, tracker, gateRun),
 		checkFindings: FINDING_CHECKS.flatMap((script) =>
 			findingsOf(script, runJson(script, ["--json"], root)),
 		),

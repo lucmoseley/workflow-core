@@ -20,7 +20,11 @@ const {
 	shortSha,
 	formatCachedClause,
 } = require("./lib/test-pass-marker.js");
-const { launchEnv } = require("./lib/suite-handoff.js");
+const {
+	launchEnv,
+	buildLaunchScope,
+	readLaunch,
+} = require("./lib/suite-handoff.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { markStart, START_MARK_ENV } = require("./lib/tree-drift.js");
 const {
@@ -33,6 +37,7 @@ const {
 	driftClause,
 	freshenManifest,
 	renderDrift,
+	renderFreshEdges,
 } = require("./lib/manifest-freshen.js");
 const {
 	dirPath,
@@ -101,12 +106,11 @@ const {
 	expandChanged,
 	isChangedOnlyArgv,
 	readDefaultChangedBase,
-	liveEdges,
 	selectionFlagClash,
 } = require("./lib/changed-selection.js");
 /** @typedef {import("./lib/dirty-tree.js").ExecFn} ExecFn */
 /** @typedef {{ write: (s: string) => unknown }} Writer */
-/** @typedef {NonNullable<ReturnType<typeof expandChanged>> & { leftOut?: string[] }} Plan */
+/** @typedef {NonNullable<ReturnType<typeof expandChanged>> & { leftOut?: string[], boundedFrom?: number|null }} Plan */
 /** @typedef {import("./lib/cached-plan.js").Looked<Plan>} LookedPlan */
 /** @typedef {import("./lib/test-inflight.js").InflightRecord} InflightRecord */
 /** @typedef {import("./lib/changed-selection.js").ExpandFs} ExpandFs */
@@ -342,6 +346,7 @@ function finishAllCached(looked, { root, launch, out, session, execFn }) {
 			...launch,
 			admissible: plan?.admissible === true,
 			leftOut: plan?.leftOut ?? null,
+			boundedFrom: plan?.boundedFrom ?? null,
 		},
 		changedPaths: plan ? (plan.changed ?? []) : null,
 		base: readRunBase(launch, plan, root, execFn),
@@ -383,6 +388,7 @@ function vitestEnv({
 			...launch,
 			admissible: plan?.admissible === true,
 			leftOut: plan?.leftOut ?? null,
+			boundedFrom: plan?.boundedFrom ?? null,
 			changedPaths: plan ? (plan.changed ?? []) : null,
 			base,
 		}),
@@ -634,23 +640,24 @@ function runOnce(
 		};
 		const memory = takeWrapperMemory() ?? runMemory.startSampler(runLaunch);
 		memory.setLaunch(runLaunch);
+		const env = vitestEnv({
+			inflightFile,
+			timingsFile,
+			plan,
+			launch: weighed,
+			base: readRunBase(weighed, plan, root, expandOptions.execFn),
+			cached,
+			startMark: markStart(root),
+			tmpRoot,
+			memoryFile: memory.file,
+		});
 		const child = spawnFn(
 			bin,
 			["run", ...touchedWorkers(weighed, runArgv), ...runArgv],
 			{
 				cwd: root,
 				stdio: ["inherit", "pipe", "pipe"],
-				env: vitestEnv({
-					inflightFile,
-					timingsFile,
-					plan,
-					launch: weighed,
-					base: readRunBase(weighed, plan, root, expandOptions.execFn),
-					cached,
-					startMark: markStart(root),
-					tmpRoot,
-					memoryFile: memory.file,
-				}),
+				env,
 				detached: true,
 			},
 		);
@@ -712,11 +719,11 @@ function runOnce(
 			inflight: record.open,
 			finished: record.finished,
 			argv: launch.argv ?? [],
+			scope: buildLaunchScope(readLaunch(env)),
+			...(session ? { sessionId: session } : {}),
 			memory: memory.current(),
 			...markerAdmission(admission),
 			...(idSeam.isLanderRun() ? { lander: true } : {}),
-			...(launch.touchedBase ? { touchedBase: launch.touchedBase } : {}),
-			...(weighed.full ? { full: weighed.full } : {}),
 		});
 		const killUnlessBeat = () => {
 			const beat = inflight.lastBeat(inflightFile);
@@ -1132,13 +1139,14 @@ function runTouched(route, options) {
  */
 function planTouched(rest, at, options) {
 	try {
-		const { base, changed, files, leftOut, banner } = selectTouched(at, {
-			...ownOptions(options),
-			from: options.launch?.touchedBase ?? "merge-base",
-			...(options.ownWork === undefined ? {} : { ownWork: options.ownWork }),
-			...(options.loadEdges ? { loadEdges: options.loadEdges } : {}),
-			...(options.renderEdges ? { renderEdges: options.renderEdges } : {}),
-		});
+		const { base, changed, files, leftOut, boundedFrom, banner } =
+			selectTouched(at, {
+				...ownOptions(options),
+				from: options.launch?.touchedBase ?? "merge-base",
+				...(options.ownWork === undefined ? {} : { ownWork: options.ownWork }),
+				...(options.loadEdges ? { loadEdges: options.loadEdges } : {}),
+				...(options.renderEdges ? { renderEdges: options.renderEdges } : {}),
+			});
 		return {
 			argv: [...rest, "--passWithNoTests", ...files],
 			files,
@@ -1150,6 +1158,7 @@ function planTouched(rest, at, options) {
 			base,
 			banner,
 			leftOut,
+			boundedFrom,
 		};
 	} catch (error) {
 		if (error instanceof SelectionFailed) throw error;
@@ -1483,13 +1492,21 @@ function namedList(paths) {
 /**
  * @param {string} dir
  * @param {string} home
- * @param {RouteOptions} options
+ * @param {RouteOptions & { ledger?: Ledger }} options
  */
 function freshenSnapshot(dir, home, options) {
-	freshenManifest(options.renderEdges ?? (() => liveEdges(dir)), {
+	const session = options.sessionId || idSeam.fromEnv();
+	const render =
+		options.renderEdges ??
+		(() =>
+			renderFreshEdges(dir, home, {
+				sessionId: session,
+				...(options.ledger ? { ledger: options.ledger } : {}),
+			}));
+	freshenManifest(render, {
 		root: dir,
 		home,
-		session: options.sessionId || idSeam.fromEnv(),
+		session,
 		claimFn: options.claimFn,
 		snapshot: options.renderSnapshot,
 		out: options.out ?? process.stdout,

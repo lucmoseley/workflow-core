@@ -23,6 +23,7 @@ const { gitRead, readUntrackedFiles } = require("./dirty-tree.js");
 const { readOwnWork } = require("./own-work.js");
 const { readMergeParents } = require("./merge-heads.js");
 const { caught } = require("./caught.js");
+const { byCodeUnit } = require("./by-code-unit.js");
 const { readGateSeats } = require("./suite-queue.js");
 const idSeam = require("./session-id.js");
 const { EDGES_FILE, shortSha } = require("./test-pass-marker.js");
@@ -190,10 +191,11 @@ const isOnDisk = (root, p) => {
  * @param {string} root
  * @param {string[]} changed
  * @param {(name: string, stem: string) => boolean} isSibling
- * @returns {string[]}
+ * @returns {Map<string, string[]>}
  */
 function readSiblingTests(root, changed, isSibling) {
-	const out = new Set();
+	/** @type {Map<string, string[]>} */
+	const out = new Map();
 	for (const p of changed) {
 		const dir = path.posix.dirname(p);
 		const stem = path.posix.parse(p).name;
@@ -204,10 +206,63 @@ function readSiblingTests(root, changed, isSibling) {
 		} catch {
 			continue;
 		}
-		for (const name of names)
-			if (isSibling(name, stem)) out.add(dir === "." ? name : `${dir}/${name}`);
+		out.set(
+			p,
+			names
+				.filter((name) => isSibling(name, stem))
+				.map((name) => (dir === "." ? name : `${dir}/${name}`)),
+		);
 	}
-	return [...out];
+	return out;
+}
+
+// guess, #5878
+const TOUCHED_BOUND = 120;
+
+/** @typedef {{ from: number, out: string[], ownCount: number }} Bounded */
+
+/**
+ * @param {string[]} files
+ * @param {{ own: Set<string>, selecting: Map<string, string[]>,
+ *  siblings: Set<string> }} near
+ * @returns {{ files: string[], bounded: Bounded|null }}
+ */
+function boundNearest(files, { own, selecting, siblings }) {
+	if (files.length <= TOUCHED_BOUND) return { files, bounded: null };
+	const inRun = new Set(files);
+	/** @type {Map<string, number>} */
+	const fewestReaders = new Map();
+	/** @type {Map<string, number>} */
+	const selectingPaths = new Map();
+	for (const tests of selecting.values()) {
+		const readers = [...new Set(tests)].filter((t) => inRun.has(t));
+		for (const t of readers) {
+			fewestReaders.set(
+				t,
+				Math.min(fewestReaders.get(t) ?? readers.length, readers.length),
+			);
+			selectingPaths.set(t, (selectingPaths.get(t) ?? 0) + 1);
+		}
+	}
+	const kept = files.filter((f) => own.has(f));
+	const ranked = files
+		.filter((f) => !own.has(f))
+		.sort(
+			(a, b) =>
+				Number(siblings.has(b)) - Number(siblings.has(a)) ||
+				(fewestReaders.get(a) ?? inRun.size) -
+					(fewestReaders.get(b) ?? inRun.size) ||
+				(selectingPaths.get(b) ?? 0) - (selectingPaths.get(a) ?? 0) ||
+				byCodeUnit(a, b),
+		);
+	const room = Math.max(0, TOUCHED_BOUND - kept.length);
+	const out = ranked.slice(room);
+	if (out.length === 0) return { files, bounded: null };
+	const left = new Set(out);
+	return {
+		files: files.filter((f) => !left.has(f)),
+		bounded: { from: files.length, out: out.sort(), ownCount: kept.length },
+	};
 }
 
 /**
@@ -234,7 +289,8 @@ function lexicalTests(tree, changed, { isTest, edges }) {
  *  loadEdges?: () => Record<string, string[]>,
  *  renderEdges?: () => Record<string, string[]> }} [options]
  * @returns {{ files: string[], uncollected: string[], leftOut: string[],
- *  leftBy: string[], fallback: unknown }}
+ *  cut: string[], leftBy: string[], bounded: Bounded|null,
+ *  fallback: unknown }}
  */
 function resolveTouched(
 	root,
@@ -247,8 +303,12 @@ function resolveTouched(
 	} = {},
 ) {
 	const { isTest, isSibling, collected } = ROUTES[suite];
-	/** @param {string[]} owed @param {[string, string[]][]} [cuts] */
-	const settle = (owed, cuts = []) => {
+	/**
+	 * @param {string[]} owed
+	 * @param {Map<string, string[]>} readersOf
+	 * @param {[string, string[]][]} [cuts]
+	 */
+	const settle = (owed, readersOf, cuts = []) => {
 		const collectedSet = new Set(
 			collected(root, sortedUnion(owed, ...cuts.map(([, t]) => t)), execFn),
 		);
@@ -258,16 +318,28 @@ function resolveTouched(
 				tests: tests.filter((t) => collectedSet.has(t)),
 			}))
 			.filter(({ tests }) => tests.length > 0);
+		const cut = sortedUnion(...left.map(({ tests }) => tests));
+		const { files, bounded } = boundNearest(
+			owed.filter((f) => collectedSet.has(f)),
+			{
+				own: new Set(edited),
+				selecting: readersOf,
+				siblings: new Set([...siblings.values()].flat()),
+			},
+		);
 		return {
-			files: owed.filter((f) => collectedSet.has(f)),
+			files,
 			uncollected: owed.filter((f) => !collectedSet.has(f)),
-			leftOut: sortedUnion(...left.map(({ tests }) => tests)),
+			leftOut: sortedUnion(cut, bounded?.out ?? []),
+			cut,
 			leftBy: left.map(({ p }) => p),
+			bounded,
 		};
 	};
 	const edited = changed.filter((p) => isTest(p) && isOnDisk(root, p));
 	const tree = readWorkingTree(root);
 	const lexical = lexicalTests(tree, changed, ROUTES[suite]);
+	const siblings = readSiblingTests(root, changed, isSibling);
 	/** @type {Record<string, string[]>} */
 	let graph;
 	try {
@@ -275,10 +347,15 @@ function resolveTouched(
 		for (const [p, readers] of Object.entries(renderEdges()))
 			graph[p] = [...new Set([...(graph[p] ?? []), ...readers])];
 	} catch (error) {
-		const siblings = readSiblingTests(root, changed, isSibling);
+		const selecting = new Map(
+			changed.map((p) => [
+				p,
+				[...(lexical.get(p) ?? []), ...(siblings.get(p) ?? [])],
+			]),
+		);
 		try {
 			return {
-				...settle(sortedUnion(edited, ...lexical.values(), siblings)),
+				...settle(sortedUnion(edited, ...selecting.values()), selecting),
 				fallback: error,
 			};
 		} catch (failed) {
@@ -299,14 +376,15 @@ function resolveTouched(
 		const tests = checkerTests(p, tree.tracked);
 		if (tests) checkers.set(p, tests.filter(isTest));
 	}
-	const touched = sortedUnion(
-		edited,
-		...changed.map((p) => checkers.get(p) ?? reach(p)),
+	const selecting = new Map(
+		changed.map((p) => [p, checkers.get(p) ?? reach(p)]),
 	);
+	const touched = sortedUnion(edited, ...selecting.values());
 	const selected = new Set(touched);
 	return {
 		...settle(
 			touched,
+			selecting,
 			[...checkers.keys()].map((p) => [
 				p,
 				reach(p).filter((t) => !selected.has(t)),
@@ -416,6 +494,7 @@ function selectTouched(
 		changed,
 		files: resolved.files,
 		leftOut: resolved.leftOut,
+		boundedFrom: resolved.bounded?.from ?? null,
 		banner: touchedBanner(resolved, scopeWording(base, from, merge, suite)),
 	};
 }
@@ -480,7 +559,7 @@ function scopeWording(base, from, merge, suite = "vitest") {
  * @param {ReturnType<typeof scopeWording>} wording
  */
 function touchedBanner(
-	{ files, uncollected, leftOut, leftBy, fallback },
+	{ files, uncollected, cut, leftBy, bounded, fallback },
 	{ ownWork, uncollectedWork, selected, coda },
 ) {
 	const lines = [];
@@ -493,15 +572,22 @@ function touchedBanner(
 			`NOT COLLECTED — ${uncollected.length} touched test file(s) the runner's own config does not collect, so they are not run by name either (#2952):`,
 			...uncollected.map((f) => `  ${f}`),
 		);
-	if (leftOut.length > 0)
+	if (cut.length > 0)
 		lines.push(
-			`LEFT TO THE LANDER — ${leftOut.length} test file(s) that only ${leftBy.join(", ")} would select. A file regenerated as a side effect of ordinary work selects its checker tests alone; the lander's full suite runs these (#4967).`,
+			`LEFT TO THE LANDER — ${cut.length} test file(s) that only ${leftBy.join(", ")} would select. A file regenerated as a side effect of ordinary work selects its checker tests alone; the lander's full suite runs these (#4967).`,
+		);
+	if (bounded)
+		lines.push(
+			bounded.ownCount > TOUCHED_BOUND
+				? `LEFT TO THE LANDER — this work selects ${bounded.from} test files, over the touched run's bound of ${TOUCHED_BOUND}, and ${bounded.ownCount} of them are tests it edited, so all ${bounded.ownCount} of those run and the lander's full suite runs the other ${bounded.out.length} (#5878):`
+				: `LEFT TO THE LANDER — this work selects ${bounded.from} test files, over the touched run's bound of ${TOUCHED_BOUND}; the ${files.length} nearest the change run, and the lander's full suite runs the other ${bounded.out.length} (#5878):`,
+			...bounded.out.map((f) => `  ${f}`),
 		);
 	if (files.length === 0 && uncollected.length > 0)
 		lines.push(
 			`NO TOUCHED TESTS — every test file ${uncollectedWork} is one the runner does not collect, so nothing ran. The lander runs the full suite (#2952).`,
 		);
-	else if (files.length === 0 && leftOut.length > 0)
+	else if (files.length === 0 && cut.length > 0)
 		lines.push(
 			`NO TOUCHED TESTS — every test file ${ownWork} touched is left to the lander above, so nothing ran (#4967).`,
 		);

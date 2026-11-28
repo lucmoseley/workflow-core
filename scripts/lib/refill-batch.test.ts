@@ -165,6 +165,16 @@ describe("a refused member's reason (#2500)", () => {
 		expect(r.tried).toEqual([launch]);
 	});
 
+	it("carries the launcher's own line when it exited non-zero (#5918)", () => {
+		const said =
+			"Workspace not trusted. Run `claude` in /home/u/design-vault once and accept the trust prompt, then retry.";
+		expect(
+			reasonFor(
+				`opus  ${said}\n${memberRefused(launch.prompt)}\n  ${said}\n  (claude exited 1; not recorded as launched.)`,
+			),
+		).toEqual([said]);
+	});
+
 	it("keys on the dropped member line dispatch-sessions.js prints", () => {
 		expect(
 			reasonFor(`DROPPING 1 issue(s)\n  ${memberDropped(launch.prompt)}`),
@@ -435,7 +445,10 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		batch: Launch[],
 		resume: Io["resume"],
 		written = true,
-		admit: Io["admitResume"] = () => null,
+		{
+			admitResume = () => null,
+			isUntrusted = () => false,
+		}: Partial<Pick<Io, "admitResume" | "isUntrusted">> = {},
 	) {
 		const lines: string[] = [];
 		const fresh: Launch[][] = [];
@@ -448,7 +461,8 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 				actsReadAfter.push(resumed.length);
 				return { file: 1 };
 			},
-			admitResume: admit,
+			admitResume,
+			isUntrusted,
 			stagger: () => staggers.push(resumed.length),
 			resume: (l, t) => {
 				resumed.push(t);
@@ -482,15 +496,42 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		copy: false,
 	});
 
+	it("holds a member whose seat does not trust its repo, naming the act, and launches the rest (#5918)", () => {
+		const asked: string[][] = [];
+		const parked = member(1, { parkedRoute: { resume: target } });
+		const r = run([parked, member(2)], ok, true, {
+			isUntrusted: (seat, root) => {
+				asked.push([seat, root]);
+				return seat === target.seat;
+			},
+		});
+		expect(asked).toEqual([
+			[target.seat, launch.root],
+			[launch.seat, launch.root],
+		]);
+		expect(r.resumed).toEqual([]);
+		expect(r.fresh).toEqual([[member(2)]]);
+		expect(r.out.refused).toEqual([
+			{
+				launch: parked,
+				reason:
+					"workspace untrusted on /home/u/.claude2: run `cd /home/u/design-vault && CLAUDE_CONFIG_DIR=/home/u/.claude2 claude` once and accept the trust prompt",
+				untrusted: true,
+			},
+		]);
+	});
+
 	it("re-reads admission in the resumed member's own checkout (#4962)", () => {
 		const readIn: string[] = [];
 		const parked = member(1, {
 			root: "/other-repo",
 			parkedRoute: { resume: target },
 		});
-		run([parked], ok, true, (root) => {
-			readIn.push(root);
-			return null;
+		run([parked], ok, true, {
+			admitResume: (root) => {
+				readIn.push(root);
+				return null;
+			},
 		});
 		expect(readIn).toEqual(["/other-repo"]);
 	});
@@ -576,7 +617,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 			[parked(1), parked(2), member(3)],
 			ok,
 			true,
-			() => (reads++ === 0 ? null : "no free slot"),
+			{ admitResume: () => (reads++ === 0 ? null : "no free slot") },
 		);
 		expect(reads).toBe(2);
 		expect(resumed).toHaveLength(1);
@@ -590,8 +631,10 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 
 	it("asks no re-read for a member routed afresh, which the dispatcher re-reads itself (#3872)", () => {
 		const afresh = member(1, { parkedRoute: { afresh: "no marker" } });
-		const { out, fresh } = run([afresh], ok, true, () => {
-			throw new Error("re-read asked");
+		const { out, fresh } = run([afresh], ok, true, {
+			admitResume: () => {
+				throw new Error("re-read asked");
+			},
 		});
 		expect(fresh).toEqual([[afresh]]);
 		expect(out.refused).toEqual([]);

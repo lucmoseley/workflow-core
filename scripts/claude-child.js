@@ -18,8 +18,8 @@ const {
 	chromeStandingLines,
 	createTabTally,
 } = require("./lib/chrome-child.js");
+const { UUID } = require("./lib/session-uuid.js");
 const {
-	UUID,
 	deleteRecord,
 	readRecord,
 	writeRecord,

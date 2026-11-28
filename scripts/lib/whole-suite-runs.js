@@ -11,11 +11,12 @@ const {
 } = require("./test-pass-marker.js");
 
 /** @typedef {import("./test-pass-marker.js").Marker} Marker */
-/** @typedef {Marker & {durationMs: number}} TimedMarker */
+/** @typedef {import("./test-pass-marker.js").RunRow} RunRow */
+/** @typedef {RunRow & {durationMs: number}} TimedRow */
 
 /**
  * @param {Marker} m
- * @returns {m is TimedMarker}
+ * @returns {m is Marker & {durationMs: number}}
  */
 const isGreenFull = (m) =>
 	suiteOf(m) === DEFAULT_SUITE &&
@@ -38,27 +39,27 @@ function parseArgvShard(argv = []) {
 	return k ? { index: Number(k[1]), count: Number(k[2]) } : null;
 }
 
-/** @param {Marker} m */
+/** @param {RunRow} m */
 const shardOf = (m) => m.scope?.shard ?? parseArgvShard(m.argv);
 
 /** @param {Marker} m */
 const isFullShard = (m) => Boolean(shardOf(m)) && isUnnarrowedScope(m.scope);
 
 /**
- * @param {Marker} m
- * @returns {m is TimedMarker}
+ * @param {RunRow} m
+ * @returns {m is TimedRow}
  */
 function isWholeKill(m) {
 	if (suiteOf(m) !== DEFAULT_SUITE || !m.ceilingKill) return false;
 	if (typeof m.durationMs !== "number") return false;
 	const argv = m.argv ?? [];
-	if (!m.full && fullFlagWord(argv) === null) return false;
+	if (!m.scope?.full && fullFlagWord(argv) === null) return false;
 	return isFullRunArgv(stripWrapperFlags(argv));
 }
 
 /**
- * @param {Marker} a
- * @param {Marker} b
+ * @param {RunRow} a
+ * @param {RunRow} b
  */
 function byAt(a, b) {
 	const [x, y] = [a.at ?? "", b.at ?? ""];
@@ -66,14 +67,14 @@ function byAt(a, b) {
 	return x < y ? -1 : 1;
 }
 
-/** @param {Marker} m */
+/** @param {RunRow} m */
 const isDefaultWorkers = (m) =>
 	!(m.argv ?? []).some((w) => /^--max-?workers/i.test(w));
 
 /**
  * @param {Marker[]} markers
- * @param {Marker[]} failures
- * @returns {TimedMarker|null}
+ * @param {RunRow[]} failures
+ * @returns {TimedRow|null}
  */
 function latestLoneSuite(markers, failures) {
 	const lone = [

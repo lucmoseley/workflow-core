@@ -650,7 +650,7 @@ function projectGate(gate, reading, { refusals, warnings }) {
 			);
 	}
 	const { rows, counts, shown } = history;
-	const bound = judgeBound(rows, counts, gate.basis, gate.now);
+	const bound = judgeBound(rows, counts, gate);
 	if (bound.verdict === "unreachable")
 		refusals.push(
 			buildUnreachableRefusal(gate.command, shown, bound.projection),

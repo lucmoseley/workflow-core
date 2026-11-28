@@ -352,6 +352,28 @@ it("names a failed warm build in each no-build refusal until a build succeeds, w
 	);
 });
 
+it("names a warm pass that failed before any build in each no-build refusal until a warm pass succeeds (#5908)", () => {
+	const url = git(main, "remote", "get-url", "origin");
+	git(main, "remote", "set-url", "origin", path.join(tmp, "no-such-origin"));
+	const failed = run(main, "warm");
+	git(main, "remote", "set-url", "origin", url);
+	const refused = run(main, "launch-dir", "--no-build", "/implement 5908");
+
+	expect(failed.status).toBe(1);
+	expect(refused.status).toBe(1);
+	expect(refused.stderr).toMatch(
+		new RegExp(
+			`^session checkout: no dependency store stands for this lockfile yet \\([0-9a-f]{16}\\), and this cut builds none; its last warm pass failed — [^\\n]*no-such-origin[^\\n]* — so no tick launches this member until a warm pass \\(\`node ${checkoutRe()} warm\`\\) builds it\n$`,
+		),
+	);
+
+	expect(run(main, "warm").status).toBe(0);
+	expect(run(main, "launch-dir", "--no-build", "/implement 5908").status).toBe(
+		0,
+	);
+	expect(fs.existsSync(path.join(stores(), ".warm.failed"))).toBe(false);
+});
+
 it("leaves a live builder of origin/main's store to finish when warming, running no install of its own", () => {
 	expect(run(main, "warm").status).toBe(0);
 	const key = String(fs.readdirSync(stores()).find((n) => !n.startsWith(".")));

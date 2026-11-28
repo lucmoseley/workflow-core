@@ -30,6 +30,7 @@ const STORE_KEY = new RegExp(`^[0-9a-f]{${KEY_HEX}}$`);
 const BUILD_LOCK = /^\.build-([0-9a-f]+)\.lock$/;
 const BUILD_STAGING = /^\.build-[0-9a-f]+-(\d+)$/;
 const BUILD_FAILED = /^\.build-([0-9a-f]+)\.failed$/;
+const WARM_FAILED = ".warm.failed";
 
 /** @typedef {import("./worktree-reaper.js").Reaped} Reaped */
 
@@ -167,10 +168,17 @@ const storeKeyOf = (lockfile) =>
  */
 function buildNoStoreRefusal(key, lock, failed) {
 	const head = `no dependency store stands for this lockfile yet (${key}), and this cut builds none`;
-	const failure = readBuildFailure(failed);
-	if (failure !== null)
+	const buildFailure = readBuildFailure(failed);
+	const warmFailure = readBuildFailure(
+		path.join(path.dirname(failed), WARM_FAILED),
+	);
+	const last =
+		buildFailure === null
+			? warmFailure !== null && `its last warm pass failed — ${warmFailure}`
+			: `its last build failed — ${buildFailure}`;
+	if (last)
 		return new CheckoutError(
-			`${head}; its last build failed — ${failure} — so no tick launches this member until a warm pass (\`node ${scriptPath("session-checkout.js")} warm\`) builds it`,
+			`${head}; ${last} — so no tick launches this member until a warm pass (\`node ${scriptPath("session-checkout.js")} warm\`) builds it`,
 		);
 	const holder = readLockHolder(lock);
 	return new CheckoutError(
@@ -311,7 +319,22 @@ function relink(cwd) {
  */
 function warm(cwd) {
 	const root = rootOf(cwd);
-	fetchShared(root);
+	const failed = path.join(root, STORES, WARM_FAILED);
+	try {
+		fetchShared(root);
+	} catch (err) {
+		const oneLine = caught(err)
+			.message.split("\n")
+			.map((line) => line.trim())
+			.filter(Boolean)
+			.join(" ");
+		ignoreFailure(() => {
+			fs.mkdirSync(path.dirname(failed), { recursive: true });
+			fs.writeFileSync(failed, `${oneLine}\n`);
+		});
+		throw err;
+	}
+	fs.rmSync(failed, { force: true });
 	return ensureStore(root, buildStartSource(root), { noWait: true });
 }
 
