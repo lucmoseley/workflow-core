@@ -1396,7 +1396,6 @@ module.exports = {
 	isMarkerStale,
 	readMarkers,
 	readLiveCharged,
-	readLiveRoleMarkers,
 	readTestsHeldOnWindows,
 	readTestsHeldOnMemory,
 	readQueuesClimbMb,
