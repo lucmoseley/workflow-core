@@ -952,6 +952,7 @@ describe("a touched selection over 120 collected files is bounded (#5878)", () =
 	const span = (n: number, from = 0, name = R) =>
 		Array.from({ length: n }, (_, i) => name(from + i));
 	const Sibling = "z/unit.test.ts";
+	const PySibling = "py/test_pbig.py";
 	const Checker = "scripts/lib/generated-rule-copies.test.ts";
 	const ByChecker = "x/bystander.test.ts";
 	const BoundFiles: Record<string, string> = {
@@ -962,6 +963,7 @@ describe("a touched selection over 120 collected files is bounded (#5878)", () =
 		[Sibling]: "export {};\n",
 		"lib/big.js": "module.exports = 1;\n",
 		"py/pbig.py": "B = 1\n",
+		[PySibling]: "import pbig\n",
 		[MANIFEST]: "{}\n",
 		[Checker]: "export {};\n",
 		[ByChecker]: "export {};\n",
@@ -1014,11 +1016,18 @@ describe("a touched selection over 120 collected files is bounded (#5878)", () =
 		expect(r.banner).toContain("TOUCHED TESTS ONLY — 120 test file(s)");
 	});
 
-	it("gives the same files for the same tree and diff twice", () => {
-		const edges = { "hub.md": span(130), "narrow.md": [R(129), R(64)] };
-		expect(pick(["hub.md", "narrow.md"], edges).files).toEqual(
-			pick(["hub.md", "narrow.md"], edges).files,
-		);
+	it("gives the same files for the same tree and diff whatever order the changed paths and their readers arrive in", () => {
+		const r = pick(["hub.md", "narrow.md"], {
+			"hub.md": span(130),
+			"narrow.md": [R(129), R(64)],
+		});
+		expect(
+			pick(["narrow.md", "hub.md"], {
+				"narrow.md": [R(64), R(129)],
+				"hub.md": span(130).reverse(),
+			}).files,
+		).toEqual(r.files);
+		expect(r.files).toEqual([...span(119), R(129)]);
 	});
 
 	it("always keeps a test the session edited, where ranking would drop it", () => {
@@ -1056,11 +1065,11 @@ describe("a touched selection over 120 collected files is bounded (#5878)", () =
 
 	it("breaks a specificity tie by the count of changed paths selecting a file, then by path", () => {
 		const r = pick(["hub.md", "hub2.md"], {
-			"hub.md": span(125),
-			"hub2.md": span(125, 5),
+			"hub.md": span(124),
+			"hub2.md": span(124, 6),
 		});
-		expect(r.files).toEqual(span(120, 5));
-		expect(r.leftOut).toEqual([...span(5), ...span(5, 125)]);
+		expect(r.files).toEqual([...span(2), ...span(118, 6)]);
+		expect(r.leftOut).toEqual([...span(4, 2), ...span(6, 124)]);
 	});
 
 	it("reports a checker-row cut and the bound as two lines, and unions both in leftOut", () => {
@@ -1089,10 +1098,11 @@ describe("a touched selection over 120 collected files is bounded (#5878)", () =
 		expect(r.boundedFrom).toBe(130);
 	});
 
-	it("bounds a bare `npm run test:py` the same way", () => {
+	it("bounds and ranks a bare `npm run test:py` the same way, keeping its sibling-named test", () => {
 		const r = pick(["py/pbig.py"], {}, { suite: "pytest" });
-		expect(r.files).toEqual(span(120, 0, P));
-		expect(r.leftOut).toEqual(span(10, 120, P));
+		expect(r.files).toEqual([...span(119, 0, P), PySibling]);
+		expect(r.leftOut).toEqual(span(11, 119, P));
+		expect(r.boundedFrom).toBe(131);
 		expect(boundLine(r.banner)).toHaveLength(1);
 	});
 
