@@ -93,7 +93,7 @@
 	"scripts/report-suite-queue-wait.js": "635ed5d9da79204e",
 	"scripts/review-hold-gate.js": "fe7a89dd02a08ccc",
 	"scripts/run-pinned-guards.js": "d74581fdea4804da",
-	"scripts/run-vitest.js": "c5e6d4be4db8f9c3",
+	"scripts/run-vitest.js": "ccb7d4adbda98f48",
 	"scripts/self-plugin-canary.sh": "a1dd2a66bf7eac68",
 	"scripts/session-arbiter.js": "5fb4ccc679b2a1f3",
 	"scripts/session-checkout.js": "ab36b480602f0685",

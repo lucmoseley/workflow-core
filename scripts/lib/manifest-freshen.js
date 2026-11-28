@@ -112,7 +112,7 @@ function writeShared(home, text, { given, session, claimFn, err }) {
  * @param {string} dir
  * @param {string} home
  * @param {{ sessionId: string|null,
- *   ledger?: { readWritesBy: (id: string, tree?: string) => string[]|null } }} by
+ *   ledger?: Pick<import("./own-selection.js").Ledger, "readWritesBy"> }} by
  * @returns {Record<string, string[]>}
  */
 function renderFreshEdges(dir, home, { sessionId, ledger = arbiterStore }) {
