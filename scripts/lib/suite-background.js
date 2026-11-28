@@ -600,25 +600,23 @@ function decide(command, ctx) {
 /**
  * @param {string} text
  * @param {import("./shell-parse.js").Place | null} place
- * @param {string} to
+ * @param {string} rewrite
  */
-function placedEdit(text, place, to) {
+function placedEdit(text, place, rewrite) {
 	if (place === null) return null;
-	if (place.backtick && !to.endsWith("$")) return null;
-	const put = place.backtick ? to.slice(0, -1) : to;
-	const was = text.slice(place.from, place.to);
+	if (place.backtick && !rewrite.endsWith("$")) return null;
+	const put = place.backtick ? rewrite.slice(0, -1) : rewrite;
+	const { textAt } = place;
+	const typed = textAt.map((at) => text.charAt(at)).join("");
+	const shorter = Math.min(typed.length, put.length);
 	let head = 0;
-	while (head < Math.min(was.length, put.length) && was[head] === put[head])
-		head++;
+	while (head < shorter && typed[head] === put[head]) head++;
 	let tail = 0;
-	while (
-		tail < Math.min(was.length, put.length) - head &&
-		was.at(-1 - tail) === put.at(-1 - tail)
-	)
+	while (tail < shorter - head && typed.at(-1 - tail) === put.at(-1 - tail))
 		tail++;
 	return {
-		from: place.from + head,
-		to: place.to - tail,
+		from: textAt[head] ?? place.to,
+		to: textAt[typed.length - tail] ?? place.to,
 		put: put.slice(head, put.length - tail),
 	};
 }

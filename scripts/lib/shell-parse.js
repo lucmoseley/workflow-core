@@ -486,8 +486,7 @@ function liftSubstitutions(segment, spans) {
 }
 
 /**
- * @typedef {{ from: number, to: number, backtick: boolean }} Place
- * @typedef {Place & { map: number[] }} Hit
+ * @typedef {{ from: number, to: number, backtick: boolean, textAt: number[] }} Place
  */
 
 /**
@@ -495,31 +494,44 @@ function liftSubstitutions(segment, spans) {
  * @param {string} [text]
  * @returns {(Place | null)[]}
  */
-function placeSegments(parsed, text = parsed.subject) {
+const placeSegments = (parsed, text = parsed.subject) =>
+	placeFrom(parsed, text, 0);
+
+/**
+ * @param {Parsed} parsed
+ * @param {string} text
+ * @param {number} start
+ * @returns {(Place | null)[]}
+ */
+function placeFrom(parsed, text, start) {
 	const { segments, lifted, spans } = parsed;
-	const skips = heredocSkips(text, parsed.heredocLines);
+	const firstLine = text.slice(0, start).split("\n").length - 1;
+	const skips = heredocSkips(
+		text,
+		parsed.heredocLines.map((n) => n + firstLine),
+	);
 	/** @type {(Place | null)[]} */
 	const places = [];
 	/** @type {number | null} */
-	let cursor = 0;
+	let cursor = start;
 	let liftedFrom = 0;
 	segments.forEach((segment, i) => {
 		if (lifted[i]) return;
-		const owned = i - liftedFrom;
+		const liftedCount = i - liftedFrom;
 		liftedFrom = i + 1;
 		if (segment === SCOPE_OPEN || segment === SCOPE_CLOSE) {
-			places.push(...new Array(owned + 1).fill(null));
+			places.push(...new Array(liftedCount + 1).fill(null));
 			return;
 		}
-		const hit =
+		const place =
 			cursor === null
 				? null
 				: seekSegment(asWritten(segment, spans), text, cursor, skips);
 		places.push(
-			...placeLifted(segment, { spans, text }, hit, owned),
-			hit && { from: hit.from, to: hit.to, backtick: hit.backtick },
+			...placeLifted(segment, { spans, text }, place, liftedCount),
+			place,
 		);
-		cursor = hit?.to ?? null;
+		cursor = place?.to ?? null;
 	});
 	return places;
 }
@@ -541,7 +553,7 @@ function heredocSkips(text, lines) {
  * @param {string} text
  * @param {number} from
  * @param {Map<number, number>} skips
- * @returns {Hit | null}
+ * @returns {Place | null}
  */
 function seekSegment(typed, text, from, skips) {
 	/** @type {number | null} */
@@ -552,8 +564,8 @@ function seekSegment(typed, text, from, skips) {
 			at = heredocEnd;
 			continue;
 		}
-		const hit = matchAt(typed, text, at);
-		if (hit) return hit;
+		const place = matchAt(typed, text, at);
+		if (place) return place;
 		at = pastJoin(text, at);
 	}
 	return null;
@@ -571,37 +583,37 @@ function pastJoin(text, at) {
 		: null;
 }
 
-/** @param {string} typed @param {string} text @param {number} from @returns {Hit | null} */
+/** @param {string} typed @param {string} text @param {number} from @returns {Place | null} */
 function matchAt(typed, text, from) {
 	/** @type {number[]} */
-	const map = [];
-	let k = from;
+	const textAt = [];
+	let at = from;
 	for (let i = 0; i < typed.length; i++) {
-		while (text.startsWith("\\\n", k) && !typed.startsWith("\\\n", i)) k += 2;
-		if (typed.charAt(i) === text.charAt(k)) {
-			map.push(k++);
+		while (text.startsWith("\\\n", at) && !typed.startsWith("\\\n", i)) at += 2;
+		if (typed.charAt(i) === text.charAt(at)) {
+			textAt.push(at++);
 			continue;
 		}
 		const opensBacktick =
 			i === typed.length - 1 &&
 			typed.charAt(i) === "$" &&
-			text.charAt(k) === "`";
-		return opensBacktick ? { from, to: k, backtick: true, map } : null;
+			text.charAt(at) === "`";
+		return opensBacktick ? { from, to: at, backtick: true, textAt } : null;
 	}
-	return { from, to: k, backtick: false, map };
+	return { from, to: at, backtick: false, textAt };
 }
 
 /**
  * @param {string} segment
  * @param {{ spans: string[], text: string }} source
- * @param {Hit | null} hit
- * @param {number} owned
+ * @param {Place | null} place
+ * @param {number} liftedCount
  * @returns {(Place | null)[]}
  */
-function placeLifted(segment, { spans, text }, hit, owned) {
+function placeLifted(segment, { spans, text }, place, liftedCount) {
 	/** @type {(Place | null)[]} */
-	const unplaced = new Array(owned).fill(null);
-	if (hit === null || owned === 0) return unplaced;
+	const unplaced = new Array(liftedCount).fill(null);
+	if (place === null || liftedCount === 0) return unplaced;
 	/** @type {(Place | null)[]} */
 	const places = [];
 	let typedAt = 0;
@@ -611,22 +623,19 @@ function placeLifted(segment, { spans, text }, hit, owned) {
 		if (span === undefined) return { text: "", stepPast: true };
 		for (const sub of quotedSubstitutions(span)) {
 			const inner = parseCommand(sub.text);
-			const base = hit.map[typedAt + sub.from];
-			const held = base !== undefined && text.startsWith(sub.text, base);
+			const bodyAt = place.textAt[typedAt + sub.from];
 			places.push(
 				null,
-				...placeSegments(inner, sub.text).map((p) =>
-					held && p
-						? { from: p.from + base, to: p.to + base, backtick: p.backtick }
-						: null,
-				),
+				...(bodyAt === undefined
+					? inner.segments.map(() => null)
+					: placeFrom(inner, text, bodyAt)),
 				null,
 			);
 		}
 		typedAt += span.length + (isBareSpan(span) ? 0 : 1);
 		return { text: "", stepPast: true };
 	});
-	return places.length === owned ? places : unplaced;
+	return places.length === liftedCount ? places : unplaced;
 }
 
 /**
