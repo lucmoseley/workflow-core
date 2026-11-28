@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
 const gateway = require("./lib/jev-gateway.js");
+const { scriptPath } = require("./lib/script-path.js");
 const {
 	readLabelRows,
 	recordedScores,
@@ -80,7 +81,7 @@ async function main() {
 	});
 	if (values.help) {
 		process.stdout.write(
-			"usage: node scripts/score-fix-or-file.js [--labels <jsonl>] [--recorded | --out <jsonl>]\n",
+			`usage: node ${scriptPath("score-fix-or-file.js")} [--labels <jsonl>] [--recorded | --out <jsonl>]\n`,
 		);
 		return 0;
 	}
