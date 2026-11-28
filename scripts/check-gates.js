@@ -214,7 +214,10 @@ function recordReadings(ctx, rows) {
 			command: r.command,
 			reading: r.reading,
 		});
-		if (fault) ctx.say(`  #${r.number}: ${fault}`);
+		if (fault !== null)
+			ctx.say(
+				`  #${r.number}: its reading was not added to the gate history (${fault})`,
+			);
 	}
 }
 

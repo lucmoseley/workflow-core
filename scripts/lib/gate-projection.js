@@ -162,7 +162,7 @@ function recordReading(reading) {
 		appendReading(reading);
 		return null;
 	} catch (e) {
-		return `the reading of \`${reading.command}\` was not added to the gate history (${caught(e).message.split("\n")[0]})`;
+		return caught(e).message.split("\n")[0] ?? "";
 	}
 }
 

@@ -669,7 +669,10 @@ function projectGate(gate, reading, { refusals, warnings }) {
 	}
 	if (reading !== null) {
 		const fault = recordReading({ ...gate, reading, at: gate.now });
-		if (fault) warnings.push(`${fault[0]?.toUpperCase()}${fault.slice(1)}.`);
+		if (fault !== null)
+			warnings.push(
+				`The reading of \`${gate.command}\` was not added to the gate history (${fault}).`,
+			);
 	}
 	const { rows, counts, shown } = history;
 	if (counts.length === 0 || FOUNDER_ROUND_RE.test(gate.basis)) return;

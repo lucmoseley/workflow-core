@@ -156,15 +156,17 @@ describe("the history store", () => {
 	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 	const put = (at: number, reading: string, over: object = {}) =>
-		recordReading({
-			repo: "O/R",
-			issue: 1,
-			command: "c",
-			reading,
-			at,
-			file,
-			...over,
-		});
+		expect(
+			recordReading({
+				repo: "O/R",
+				issue: 1,
+				command: "c",
+				reading,
+				at,
+				file,
+				...over,
+			}),
+		).toBeNull();
 	const read = (over: object = {}) =>
 		readHistory({ repo: "o/r", issue: 1, command: "c", file, ...over });
 
@@ -205,7 +207,7 @@ describe("the history store", () => {
 	});
 
 	it("writes no row for a reading with no count", () => {
-		expect(put(daysAgo(1), "met: on main")).toBeNull();
+		put(daysAgo(1), "met: on main");
 		expect(fs.existsSync(file)).toBe(false);
 	});
 

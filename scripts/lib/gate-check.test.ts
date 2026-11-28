@@ -328,13 +328,15 @@ describe("a count gate projected from its reading history (#5861)", () => {
 	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 	const seed = (days: number, reading: string, issue: number | null = 1) =>
-		recordReading({
-			repo,
-			issue,
-			command: Command,
-			reading,
-			at: Now - days * DayMs,
-		});
+		expect(
+			recordReading({
+				repo,
+				issue,
+				command: Command,
+				reading,
+				at: Now - days * DayMs,
+			}),
+		).toBeNull();
 	const body = (basis: string) =>
 		`**Gated on:** 15 commits — check: \`${Command}\` — abandon if: it is dropped\n**Gate basis:** ${basis}\n`;
 	const judge = (basis: string, run = true, issue: number | undefined = 1) =>
@@ -410,6 +412,16 @@ describe("a count gate projected from its reading history (#5861)", () => {
 		const { refusals, warnings } = judge("15 commits, #5687");
 		expect(refusals).toEqual([]);
 		expect(warnings.join(" ")).toContain("The gate history could not be read");
+	});
+
+	it("warns where its own reading cannot be added to the history, still judging the gate", () => {
+		seed(8, "0 of 15 commits");
+		fs.chmodSync(path.join(dir, "h.jsonl"), 0o444);
+		const { refusals, warnings } = judge("15 commits, #5687");
+		expect(refusals).toHaveLength(1);
+		expect(warnings.join(" ")).toContain(
+			"was not added to the gate history (EACCES",
+		);
 	});
 
 	it("adds its own run's reading to the issue's history", () => {
