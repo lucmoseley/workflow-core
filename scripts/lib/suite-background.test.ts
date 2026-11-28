@@ -336,9 +336,6 @@ describe("lib/suite-background.js", () => {
 			expect(fixOf(command), command).toBe(fix);
 			expect(verdict(fix), fix).toBe("allow");
 		}
-		expect(fixOf('timeout -s "KILL" 60 flock /l -c "npm run test &"')).toMatch(
-			/ flock \/l -c "npm run test"$/,
-		);
 	});
 
 	it("reads no detachment in a heredoc, and re-issues its body unchanged", () => {
@@ -535,6 +532,30 @@ describe("lib/suite-background.js", () => {
 			],
 			["timeout 590 npm run test &", "npm run test"],
 			["timeout 590 env -S 'npm run test'", "env -S 'npm run test'"],
+		])
+			expect(
+				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
+				command,
+			).toBe(fix);
+	});
+
+	it("strips a timeout whole when a flag value is quoted, and reads a script launch's wrappers from the walk (#5867)", () => {
+		for (const [command, fix] of [
+			['timeout -s "KILL" 60 npm run test', "npm run test"],
+			['"timeout" 60 npm run test', "npm run test"],
+			["timeout --kill-after '5' -s KILL 60 npm run test", "npm run test"],
+			[
+				'timeout -s "KILL" 60 flock /l -c "npm run test &"',
+				'flock /l -c "npm run test"',
+			],
+			[
+				'timeout -s "KILL" 60 flock "npm run test &" -c "npm run test &"',
+				'flock "npm run test &" -c "npm run test"',
+			],
+			[
+				'timeout 590 flock /l -c "npm run test -- --full=pre-push --queue"',
+				'flock /l -c "npm run test -- --full=pre-push --queue"',
+			],
 		])
 			expect(
 				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
