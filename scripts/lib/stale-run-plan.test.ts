@@ -244,42 +244,41 @@ describe("planStaleRun: the catalogue", () => {
 		expect(texts(p)).toEqual(["o/r#1 gate DEAD: exit 1, nothing on stdout"]);
 	});
 
-	it("C1: a NO-OUTPUT check gives its state", () => {
+	it("C1: each repair state gives its state and reading", () => {
+		const states = ["NO-OUTPUT", "NOT-A-COMMAND", "OVER-BUDGET"];
 		const p = plan([
 			repo({
-				issues: [issue(1, { body: GATE("x") })],
-				gates: [
-					{
-						number: 1,
-						state: "NO-OUTPUT",
-						reading: "exit 0, nothing on stdout",
-						closed: false,
-					},
-				],
+				issues: states.map((_, i) => issue(i + 1, { body: GATE("x") })),
+				gates: states.map((state, i) => ({
+					number: i + 1,
+					state,
+					reading: `${state} reading`,
+					closed: false,
+				})),
 			}),
 		]);
-		expect(texts(p)).toEqual([
-			"o/r#1 gate NO-OUTPUT: exit 0, nothing on stdout",
-		]);
+		expect(texts(p)).toEqual(
+			states.map((state, i) => `o/r#${i + 1} gate ${state}: ${state} reading`),
+		);
 	});
 
-	it("a hand-judged gate with no check: is listed only where it states no basis", () => {
+	it("a gate with no check: plans no C1 line or cause, and its other faults still list (#5914)", () => {
 		const handGate = "**Gated on:** x — abandon if: never";
 		const p = plan([
 			repo({
-				issues: [
-					issue(1, { body: `${handGate}\n**Gate basis:** event gate` }),
-					issue(2, { body: handGate }),
-				],
-				gates: [1, 2].map((number) => ({
+				issues: [1, 2, 3].map((n) => issue(n, { body: handGate })),
+				gates: [1, 2, 3].map((number) => ({
 					number,
 					state: "NOT-STATED",
 					reading: "no `check:` — judge the condition by hand",
 					closed: false,
 				})),
+				checkFindings: [{ tag: "NO-TAKES", number: 3 }],
 			}),
 		]);
-		expect(texts(p)).toEqual(["o/r#2 hand-judged gate states no basis"]);
+		expect(texts(p)).toEqual(["o/r#3 NO-TAKES"]);
+		expect(classOf(p, 3)).toEqual(["C5"]);
+		expect(p.filings).toEqual([]);
 	});
 
 	it("C2: a met reading is discharged, a closed watch one reopened too", () => {

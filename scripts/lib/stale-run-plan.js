@@ -4,7 +4,7 @@ const { PARKED_LABEL } = require("./parked.js");
 const { isLoopComment } = require("./loop-comment.js");
 const { takesLabel } = require("./takes-label.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
-const { parseVerdict } = require("./gate-check.js");
+const { NOT_STATED, parseVerdict } = require("./gate-check.js");
 const {
 	BOUND_DAYS,
 	MIN_REFUSE_DAYS,
@@ -459,21 +459,7 @@ function planGate(rc, g) {
 	if (g.closed || !iss || !overFloor(ctx, iss)) return;
 	const d = daysSince(since, ctx.now);
 	if (g.state === "READING") planReading(rc, { g, iss, d, changed });
-	else if (g.state === "NOT-STATED") planHandJudged(rc, iss);
-	else planRepair(rc, g, iss, d);
-}
-
-// #5914
-/** @param {RepoCtx} rc @param {SnapIssue} iss */
-function planHandJudged(rc, iss) {
-	if (resolveGate(iss.body, rc.ctx.now).basis) rc.excluded.add(iss.number);
-	else
-		add(rc, {
-			n: iss.number,
-			cls: "C1",
-			sig: "gate states no basis",
-			text: "hand-judged gate states no basis",
-		});
+	else if (g.state !== NOT_STATED) planRepair(rc, g, iss, d);
 }
 
 /** @param {RepoCtx} rc @param {GateRow} g @param {string} body */
