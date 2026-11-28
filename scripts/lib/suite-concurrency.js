@@ -724,7 +724,7 @@ function chargeOf(st, s, { busy, queued }) {
 
 /**
  * @param {St} st
- * @param {{ segment: string, words: string[], scripted: boolean }} at
+ * @param {{ segment: string } & Pick<import("./shell-words.js").Unwrapped, "words" | "scriptWords">} at
  * @param {Subject} s
  * @param {number} readMb
  * @returns {Judged}
@@ -954,7 +954,7 @@ function judge(st, cmd) {
  * @param {import("./shell-words.js").Unwrapped} run
  * @returns {Verdict | undefined}
  */
-function judgeRun(st, cmd, { words, scripted }) {
+function judgeRun(st, cmd, { words, scriptWords }) {
 	if (words.length === 0) return;
 	const got = subjectOf(st, words, cmd);
 	if (!("subject" in got)) return got.verdict;
@@ -967,7 +967,7 @@ function judgeRun(st, cmd, { words, scripted }) {
 		return null;
 	}
 	noteMemoryFigure(st, s, mb);
-	const j = judgedOf(st, { segment: cmd.segment, words, scripted }, s, mb);
+	const j = judgedOf(st, { segment: cmd.segment, words, scriptWords }, s, mb);
 	const verdict =
 		countVerdict(st, j) ??
 		(s.countOnly ? undefined : (memoryVerdict(st, j) ?? windowsVerdict(st, j)));

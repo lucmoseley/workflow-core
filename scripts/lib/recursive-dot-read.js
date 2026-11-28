@@ -304,7 +304,8 @@ const isRootSpelling = (w, root) =>
  */
 function judge(scene, { segment, words, runs }) {
 	for (const run of runs()) {
-		const { words: w, watched, scripted } = run;
+		const { words: w, watched } = run;
+		const scripted = run.scriptWords !== null;
 		const [head, ...args] = w;
 		if (head === undefined) continue;
 		const [cwd] = run.dirs();
