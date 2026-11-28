@@ -13,8 +13,6 @@ const { LOADS_BODY, pragmaLine } = require("./code-edges-pragmas.js");
 const { JS_TEST_FILE, isJsTestFile, isTestKind } = require("./test-kind.js");
 const { isUnder } = require("./is-under.js");
 const { programLibs } = require("./program-libs.js");
-
-const LIB_CLOSURE_FIXTURE = "scripts/lib-closure-fixture.ts";
 const {
 	DISPATCH_ENTRY,
 	MANIFEST_REL,
@@ -1871,7 +1869,7 @@ function helperReads(t, source, { tracked, read, programReads }) {
 
 const PROGRAM_LIBS_CALL = /\breadProgramLibs\(/g;
 
-const PROGRAM_DIR = path.posix.dirname(LIB_CLOSURE_FIXTURE);
+const PROGRAM_DIR = path.posix.dirname("scripts/lib-closure-fixture.ts");
 
 /**
  * @param {SiteScan} scan

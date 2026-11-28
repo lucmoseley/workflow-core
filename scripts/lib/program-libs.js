@@ -1,9 +1,7 @@
 // #5855
 
-const { requiredGroup } = require("./regex-group.js");
-const { stripComments } = require("./strip-comments.js");
+const { localRequires } = require("./local-requires.js");
 
-const LOCAL_REQUIRE = /\brequire\(\s*["'](\.\.?\/[^"']+)["']\s*\)/g;
 const SIBLING = /^\.\/([^/]+)$/;
 const PROGRAM_LIB = /^\.\/lib\/([^/]+)$/;
 
@@ -11,12 +9,6 @@ const PROGRAM_LIB = /^\.\/lib\/([^/]+)$/;
 const READ_BY_PATH = {
 	"model-table.js": ["model-routing.json"],
 };
-
-/** @param {string} text @returns {string[]} */
-const localRequires = (text) =>
-	[...stripComments(text).matchAll(LOCAL_REQUIRE)].map((m) =>
-		requiredGroup(m, 1, LOCAL_REQUIRE),
-	);
 
 /**
  * @typedef {{ read: (rel: string) => string, exists: (rel: string) => boolean }} ScriptsDir
@@ -47,4 +39,4 @@ function programLibs(program, dir) {
 	return [...out, ...[...out].flatMap((lib) => READ_BY_PATH[lib] ?? [])];
 }
 
-module.exports = { localRequires, programLibs };
+module.exports = { programLibs };

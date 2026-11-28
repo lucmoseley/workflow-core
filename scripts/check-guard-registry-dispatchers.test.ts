@@ -10,7 +10,7 @@ afterEach(removeTemps);
 
 type Rows = { script: unknown }[];
 
-const dispatcher = (hook: string, name: string, rows: Rows) => ({
+const buildDispatcher = (hook: string, name: string, rows: Rows) => ({
 	hook,
 	name,
 	rows,
@@ -18,22 +18,22 @@ const dispatcher = (hook: string, name: string, rows: Rows) => ({
 });
 
 const DISPATCHERS = [
-	dispatcher(
+	buildDispatcher(
 		".husky/pre-commit",
 		"precommit-dispatch.js",
 		require(path.join(__dirname, "lib", "precommit-gates.js")).GATES,
 	),
-	dispatcher(
+	buildDispatcher(
 		".husky/commit-msg",
 		"commit-msg-dispatch.js",
 		require(path.join(__dirname, "lib", "commit-msg-rows.js")).ROWS,
 	),
-	dispatcher(
+	buildDispatcher(
 		".husky/prepare-commit-msg",
 		"prepare-commit-msg-dispatch.js",
 		require(path.join(__dirname, "lib", "prepare-commit-msg-rows.js")).ROWS,
 	),
-	dispatcher(
+	buildDispatcher(
 		".husky/post-commit",
 		"post-commit-dispatch.js",
 		require(path.join(__dirname, "lib", "post-commit-rows.js")).ROWS,

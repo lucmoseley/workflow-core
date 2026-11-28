@@ -9,13 +9,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENVELOPE_FRAME_KEYS } from "./envelope-frame-keys";
 import { defineTemplate } from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
+import { localRequires } from "./local-requires.js";
 import {
 	base as notifyBase,
 	readReport as readNotifyReport,
 	readRun,
 } from "./notify-report.js";
 import { runRecordFile } from "./notify-report-testkit";
-import { localRequires } from "./program-libs.js";
 import { copyRequireClosure } from "./require-closure-testkit";
 import { runInProcess, runInProcessAsync } from "./run-in-process";
 

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { localRequires } from "./program-libs.js";
+import { localRequires } from "./local-requires.js";
 
 const NAMED_SCRIPT = /(?<![\w.-])scripts\/[\w./-]+\.(?:js|sh)\b/g;
 
