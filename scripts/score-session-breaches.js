@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-
+// #5843
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
