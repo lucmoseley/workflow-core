@@ -1,4 +1,4 @@
-const { WAITING_LABEL } = require("./frontier-order.js");
+const { AGE_UNIT_DAYS, WAITING_LABEL } = require("./frontier-order.js");
 const { PARKED_LABEL } = require("./parked.js");
 const { takesLabel } = require("./takes-label.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
@@ -9,8 +9,7 @@ const { isTagRef, sameRelease } = require("./plugin-state.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 const { buildStandaloneLine } = require("./standalone-line.js");
 
-// guess, #5857
-const FLOOR_DAYS = 7;
+const FLOOR_DAYS = AGE_UNIT_DAYS;
 // guess, #5857
 const GATE_FRESH_DAYS = 7;
 // guess, #5857

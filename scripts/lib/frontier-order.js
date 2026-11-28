@@ -1,4 +1,19 @@
+const { DAY_MS } = require("./retained-jsonl.js");
+
 const WAITING_LABEL = "waiting:external";
+// #5840
+const AGE_UNIT_DAYS = 7;
+
+/**
+ * @param {string|undefined|null} createdAt
+ * @param {number} now
+ */
+function agePointsOf(createdAt, now) {
+	const age = now - Date.parse(createdAt ?? "");
+	return Number.isFinite(age)
+		? Math.max(0, Math.floor(age / (AGE_UNIT_DAYS * DAY_MS)))
+		: 0;
+}
 
 /**
  * @typedef {object} SortLevels
@@ -9,6 +24,7 @@ const WAITING_LABEL = "waiting:external";
  * @property {boolean} asksQuestions
  * @property {number} depth
  * @property {number} closes
+ * @property {number} agePoints
  * @property {number} reach
  * @property {boolean|number} collision
  */
@@ -36,7 +52,7 @@ function compareLevels(a, b) {
 		Number(b.goal) - Number(a.goal) ||
 		b.stallDays - a.stallDays ||
 		Number(b.asksQuestions) - Number(a.asksQuestions) ||
-		b.depth + b.closes - (a.depth + a.closes) ||
+		b.depth + b.closes + b.agePoints - (a.depth + a.closes + a.agePoints) ||
 		b.reach - a.reach ||
 		Number(a.collision) - Number(b.collision)
 	);
@@ -96,6 +112,8 @@ function mergeFrontiers(repos) {
 }
 
 module.exports = {
+	AGE_UNIT_DAYS,
+	agePointsOf,
 	WAITING_LABEL,
 	compareLevels,
 	joinInherited,
