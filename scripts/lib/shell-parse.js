@@ -2809,11 +2809,11 @@ function drop(st, n) {
 /**
  * @param {Strip} st
  * @param {string[]} words
- * @param {(number | null)[]} wordAt
+ * @param {number | null} wordAt
  */
 function prepend(st, words, wordAt) {
 	st.ws = [...words, ...st.ws];
-	st.wordAt = [...wordAt, ...st.wordAt];
+	st.wordAt = [...words.map(() => wordAt), ...st.wordAt];
 }
 
 /** @param {Strip} st @param {string[]} words */
@@ -2981,7 +2981,7 @@ function sweepFlags(st, wrapper, spans) {
 			[raw, st.ws[1]],
 			spans,
 		);
-		const valueAt = st.wordAt.slice(taken, taken + 1);
+		const valueAt = st.wordAt[taken];
 		drop(st, 1 + taken);
 		for (const option of options)
 			if (!takeOption(st, wrapper, option, { read, valueAt })) return false;
@@ -2993,7 +2993,7 @@ function sweepFlags(st, wrapper, spans) {
  * @param {Strip} st
  * @param {WrapperGrammar} wrapper
  * @param {WrapperOption} option
- * @param {{ read: boolean, valueAt: (number | null)[] }} from
+ * @param {{ read: boolean, valueAt: number | null | undefined }} from
  */
 function takeOption(st, wrapper, { kind, name, value }, { read, valueAt }) {
 	if (kind === "dangling") return false;
@@ -3001,12 +3001,9 @@ function takeOption(st, wrapper, { kind, name, value }, { read, valueAt }) {
 		st.execs = true;
 	if (kind !== "opt") return true;
 	if (wrapper.splits && (name === "-S" || name === "--split-string")) {
-		const split = splitEnvString(value);
-		prepend(
-			st,
-			split,
-			split.flatMap(() => valueAt),
-		);
+		if (valueAt === undefined)
+			throw new Error(`${name} took a value from no word`);
+		prepend(st, splitEnvString(value), valueAt);
 	} else if (name === wrapper.chdir || name === "--chdir")
 		st.chdirs.push({ dir: value, read, holds: "always" });
 	return true;

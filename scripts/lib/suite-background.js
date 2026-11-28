@@ -107,12 +107,12 @@ const hasDetachedRun = (text, scripts) =>
 
 /**
  * @param {string[]} words
- * @param {number[]} at
+ * @param {number[]} wordIndices
  * @param {string[]} spans
  * @returns {ScriptSource}
  */
-function buildScriptSource(words, at, spans) {
-	const held = at.flatMap((i) => words.slice(i, i + 1));
+function buildScriptSource(words, wordIndices, spans) {
+	const held = wordIndices.flatMap((i) => words.slice(i, i + 1));
 	return {
 		text: held.map((w) => literal(w, spans).text).join(" "),
 		spanIndices: held.flatMap((word) => quotedSpanIndices(word, spans)),
@@ -312,11 +312,12 @@ function decide(command, ctx) {
 				first.words.length === 0 ? null : noteLaunch(cmd.leading, first);
 			if (launch) launched.push(first);
 			/** @type {Map<string, number[]>} */
-			const sources = new Map();
+			const scriptWordLists = new Map();
 			for (const { scriptWords } of launched)
-				if (scriptWords) sources.set(scriptWords.join(" "), scriptWords);
-			for (const at of sources.values())
-				scripts.push(buildScriptSource(cmd.words, at, spans));
+				if (scriptWords)
+					scriptWordLists.set(scriptWords.join(" "), scriptWords);
+			for (const wordIndices of scriptWordLists.values())
+				scripts.push(buildScriptSource(cmd.words, wordIndices, spans));
 			if (launch) noteTimed(cmd, first, launch);
 		},
 		ctx,
