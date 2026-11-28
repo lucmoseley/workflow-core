@@ -146,13 +146,13 @@ function appendLedgerLine(root, marker, green) {
  * @param {string} root
  * @param {string} tree
  * @param {{ suite: string, sessionId?: string|null, argv: string[],
- *   leftOut: string[], boundedFrom?: number|null,
+ *   leftOut: string[],
  *   touchedBase: import("./test-pass-marker.js").TouchedBase }} run
  */
 function appendEmptyTouchedLine(
 	root,
 	tree,
-	{ suite, sessionId, argv, leftOut, boundedFrom, touchedBase },
+	{ suite, sessionId, argv, leftOut, touchedBase },
 ) {
 	const at = new Date().toISOString();
 	appendLedgerLine(
@@ -171,7 +171,6 @@ function appendEmptyTouchedLine(
 				touched: true,
 				resolvedFiles: 0,
 				leftOut,
-				...(boundedFrom ? { boundedFrom } : {}),
 				touchedBase,
 			},
 			sessionId,
