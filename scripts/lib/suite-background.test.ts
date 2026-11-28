@@ -488,6 +488,19 @@ describe("lib/suite-background.js", () => {
 		}
 	});
 
+	it("re-issues a typed BEL-digit-BEL as typed beside a heredoc", () => {
+		const write = [
+			"echo '\x071\x07' > /tmp/y; cat > /tmp/x.sh <<'EOF'",
+			"body line",
+			"EOF",
+		].join("\n");
+		const command = `${write}\nnpm run test &`;
+		const fix = `${write}\nnpm run test`;
+		expect(readDenyReason(command).split("\nThis suite is ")[0]).toBe(
+			`${SNAPSHOT_OPENER}${fix}`,
+		);
+	});
+
 	it("keeps the escape, the no-tool-call ending and the check before a relaunch", () => {
 		const reason = readDenyReason("nohup npm run test");
 		expect(reason).toContain("WFC_SUITE_DETACH=1");
