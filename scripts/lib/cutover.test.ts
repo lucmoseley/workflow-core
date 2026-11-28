@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { cutover, isCutOver, renderCutover } from "./cutover.js";
-import { GIT_TIMEOUT_MS, gitReader } from "./git.js";
+import { GIT_TIMEOUT_MS, type GitReader, gitReader } from "./git.js";
 import { defineTemplate } from "./git-fixture";
 import {
 	level,
@@ -37,8 +37,12 @@ interface Agent {
 
 const ports = ({
 	agents = [],
+	gitIn = (dir: string) => gitReader(dir, GIT_TIMEOUT_MS),
+	mergeMs = GIT_TIMEOUT_MS,
 }: {
 	agents?: Agent[] | { why: string };
+	gitIn?: (dir: string) => GitReader;
+	mergeMs?: number;
 } = {}) => ({
 	listed: () => (Array.isArray(agents) ? { agents } : agents),
 	cut: (root: string, name: string) => {
@@ -57,7 +61,8 @@ const ports = ({
 		readOrphanedEdits(root, Date.now(), () => null),
 	level: (root: string) =>
 		level(root, { install: () => undefined, now: Date.now() }),
-	gitIn: (dir: string) => gitReader(dir, GIT_TIMEOUT_MS),
+	gitIn,
+	mergeIn: (dir: string) => gitReader(dir, mergeMs),
 });
 
 const render = (r: ReturnType<typeof cutover>) =>
@@ -192,4 +197,50 @@ it("cuts over with nothing to land, and a second run only reports", () => {
 	);
 	expect(second).toMatchObject({ status: "cut-over", already: true });
 	expect(render(second)).toContain("main is level with origin/main");
+});
+
+// guess, #5824: slept for real, outrunning MERGE_LIMIT_MS by a second
+const GATE_SLEEP_S = 2;
+// guess, #5824: a merge-port limit well under the gate's sleep
+const MERGE_LIMIT_MS = 1000;
+
+const slowMergeGate = () => {
+	const hooks = path.join(main, ".git", "hooks");
+	fs.mkdirSync(hooks, { recursive: true });
+	fs.writeFileSync(
+		path.join(hooks, "pre-merge-commit"),
+		`#!/bin/sh\nsleep ${GATE_SLEEP_S}\n`,
+		{ mode: 0o755 },
+	);
+	commitIn(main, { "local.md": "mine\n" }, "local only");
+	commitIn(other, { "b.md": "b\n" }, "a neighbour's");
+	git(other, "push", "-q", "origin", "HEAD:main");
+};
+
+it("refuses a merge whose gate outruns the merge port's limit, naming no files — the pair of the landing case below (#5824)", () => {
+	slowMergeGate();
+	expect(cutover(main, ports({ mergeMs: MERGE_LIMIT_MS }))).toMatchObject({
+		status: "unmerged",
+		local: 1,
+		files: [],
+	});
+	expect(isCutOver(main)).toBe(false);
+});
+
+it("lands through that same slow gate when the merge port outlasts it, no merge reaching the short reader — the pair of the refusal above (#5824)", () => {
+	slowMergeGate();
+	const viaGitIn: string[][] = [];
+	const recording = (dir: string): GitReader => {
+		const read = gitReader(dir, GIT_TIMEOUT_MS);
+		return (args, noMatch) => {
+			viaGitIn.push(args);
+			return read(args, noMatch);
+		};
+	};
+	expect(
+		cutover(main, ports({ gitIn: recording, mergeMs: 60_000 })),
+	).toMatchObject({ status: "cut-over", landed: { count: 1 } });
+	expect(isCutOver(main)).toBe(true);
+	expect(viaGitIn.some((args) => args[0] === "fetch")).toBe(true);
+	expect(viaGitIn.filter((args) => args[0] === "merge")).toEqual([]);
 });
