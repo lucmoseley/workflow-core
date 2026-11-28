@@ -19,6 +19,7 @@ const {
 	buildIsWrapperScript,
 	isSnapshotLaunch,
 } = require("./suite-launch.js");
+const { noop } = require("./noop.js");
 const { launchTestFileCount } = require("./suite-bounded.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
 const {
@@ -76,13 +77,6 @@ const DETACH_REWRITES = /** @type {const} */ ([
 		),
 		"$1",
 	],
-	[
-		new RegExp(
-			`([^ \\t\\v\\f\\r])${SP}*&${SP}*((?:\\\\["'])+)${SP}*(;|$)`,
-			"g",
-		),
-		"$1$2$3",
-	],
 	[new RegExp(`&${SP}*(;|$)`, "g"), "$1"],
 	[/&/g, ";"],
 ]);
@@ -97,10 +91,39 @@ function stripDetachment(text, scriptSpans, stripScript) {
 	const { masked, spans } = maskQuotes(text);
 	const kept = spans.map((span, i) =>
 		scriptSpans.get(i) === span
-			? span.charAt(0) + stripScript(span.slice(1))
+			? span.charAt(0) + stripQuotedScript(span, stripScript)
 			: stripSpan(span),
 	);
 	return trimStart(asWritten(stripBare(masked), kept));
+}
+
+const ESCAPED_DOLLAR = "\x10";
+const ESCAPED_TICK = "\x11";
+/** @type {Record<string, string>} */
+const HELD_ESCAPES = { $: ESCAPED_DOLLAR, "`": ESCAPED_TICK };
+
+/** @param {string} body */
+const decodeDoubleQuoted = (body) =>
+	body.replace(/\\([\\"$`])/g, (_, c) => HELD_ESCAPES[c] ?? c);
+
+/** @param {string} text */
+const encodeDoubleQuoted = (text) =>
+	text
+		.replace(/[\\"]/g, (c) => `\\${c}`)
+		.split(ESCAPED_DOLLAR)
+		.join("\\$")
+		.split(ESCAPED_TICK)
+		.join("\\`");
+
+/**
+ * @param {string} span
+ * @param {(body: string) => string} stripScript
+ */
+function stripQuotedScript(span, stripScript) {
+	const body = span.slice(1);
+	if (span.charAt(0) !== '"' || body.replace(/\\[\s\S]/g, "").includes('"'))
+		return stripScript(body);
+	return encodeDoubleQuoted(stripScript(decodeDoubleQuoted(body)));
 }
 
 /**
@@ -278,6 +301,13 @@ const TIMED_TEXT = `This suite is WRAPPED IN A SHELL \`timeout\`, which kills it
  * @property {Map<number, string>} respanned
  * @typedef {{ run: import("./shell-words.js").Unwrapped, wordIndices: number[] }} ScriptRun
  * @typedef {{ respan: number, span: string } | { requote: string[], body: string }} ScriptFix
+ * @typedef {object} ScriptRead
+ * @property {import("./shell-words.js").Unwrapped} run
+ * @property {string[]} words
+ * @property {ReturnType<typeof literal>[]} literals
+ * @property {string} body
+ * @property {ReturnType<typeof readLaunches>} inner
+ * @property {ScriptSource} source
  */
 
 /**
@@ -329,6 +359,7 @@ function readLaunches(parsed, ctx, launchPorts) {
 	/**
 	 * @param {import("./shell-parse.js").Command} cmd
 	 * @param {ScriptRun} script
+	 * @returns {ScriptRead}
 	 */
 	const readScript = (cmd, { run, wordIndices }) => {
 		const words = wordIndices.flatMap((i) => cmd.words.slice(i, i + 1));
@@ -344,7 +375,7 @@ function readLaunches(parsed, ctx, launchPorts) {
 	};
 	/**
 	 * @param {import("./shell-parse.js").Command} cmd
-	 * @param {ReturnType<typeof readScript>} script
+	 * @param {ScriptRead} script
 	 * @returns {ScriptFix | null}
 	 */
 	const buildScriptFix = (cmd, { run, words, literals, body, inner }) => {
@@ -435,12 +466,16 @@ function readLaunches(parsed, ctx, launchPorts) {
 	return { foundSuite, escaped, snapshot, timed, scripts, requoted };
 }
 
-/** @param {ScriptSource[]} scripts @param {string[]} spans */
-const scriptSpanMap = (scripts, spans) =>
+/**
+ * @param {ScriptSource[]} scripts
+ * @param {string[]} spans
+ * @param {(i: number, span: string) => [number, string]} [entry]
+ */
+const buildScriptSpanMap = (scripts, spans, entry = (i, span) => [i, span]) =>
 	new Map(
 		scripts.flatMap((s) =>
 			s.spanIndices.flatMap((i) =>
-				spans.slice(i, i + 1).map((span) => /** @type {const} */ ([i, span])),
+				spans.slice(i, i + 1).map((span) => entry(i, span)),
 			),
 		),
 	);
@@ -548,14 +583,14 @@ function decide(command, ctx) {
 
 	const shift = spanShift(timed);
 	const { indexAfterDrops, respanned } = shift;
-	const quiet = { ...ctx, log: () => undefined };
+	const quiet = { ...ctx, log: noop };
 	/** @param {string} body @returns {string} */
 	const stripScript = (body) => {
 		const inner = parseCommand(body);
 		const { scripts: nested } = readLaunches(inner, quiet, launchPorts);
 		return stripDetachment(
 			body,
-			scriptSpanMap(nested, inner.spans),
+			buildScriptSpanMap(nested, inner.spans),
 			stripScript,
 		);
 	};
@@ -563,16 +598,10 @@ function decide(command, ctx) {
 	if (detached)
 		fix = stripDetachment(
 			fix,
-			new Map(
-				scripts.flatMap((s) =>
-					s.spanIndices.flatMap((i) => {
-						const at = indexAfterDrops(i);
-						return spans
-							.slice(i, i + 1)
-							.map((span) => [at, respanned.get(at) ?? span]);
-					}),
-				),
-			),
+			buildScriptSpanMap(scripts, spans, (i, span) => {
+				const at = indexAfterDrops(i);
+				return [at, respanned.get(at) ?? span];
+			}),
 			stripScript,
 		);
 	fix = putBackRequoted(fix, detached ? requoted.map(stripScript) : requoted);

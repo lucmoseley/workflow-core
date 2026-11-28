@@ -335,6 +335,26 @@ describe("lib/suite-background.js", () => {
 				`flock /k -c 'flock /l -c "flock /m -c \\"npm run test &\\""'`,
 				`flock /k -c 'flock /l -c "flock /m -c \\"npm run test\\""'`,
 			],
+			[
+				`flock /l -c "flock /m -c \\"flock /n -c 'npm run test &'\\""`,
+				`flock /l -c "flock /m -c \\"flock /n -c 'npm run test'\\""`,
+			],
+			[
+				`flock /l -c "flock /m -c 'flock /n -c \\"nohup npm run test\\"'"`,
+				`flock /l -c "flock /m -c 'flock /n -c \\"npm run test\\"'"`,
+			],
+			[
+				`flock /l -c "flock /m -c \\"watch 'npm run test &'\\""`,
+				`flock /l -c "flock /m -c \\"watch 'npm run test'\\""`,
+			],
+			[
+				`flock /l -c 'flock /m -c "echo \\"a & b\\"; npm run test &"'`,
+				`flock /l -c 'flock /m -c "echo \\"a & b\\"; npm run test"'`,
+			],
+			[
+				`flock /l -c "echo \\w; flock /m -c \\"flock /n -c 'npm run test &'\\""`,
+				`flock /l -c "echo \\\\w; flock /m -c \\"flock /n -c 'npm run test'\\""`,
+			],
 		]) {
 			expect(readDenyReason(command).split("\n")[0], command).toBe(
 				`${SNAPSHOT_OPENER}${fix}`,
@@ -807,6 +827,13 @@ describe("its deliberate limits", () => {
 		"tmux new-session -d 'npm run test'",
 	])("passes a detachment through `%s` unseen", (command) => {
 		expect(verdict(command)).toBe("allow");
+	});
+
+	it("strips a double-quoted script holding a quoted substitution as typed, so a detachment quoted deeper survives its re-issue (#5885)", () => {
+		const command = `flock /l -c "echo $(echo "x"); flock /m -c \\"flock /n -c 'npm run test &'\\""`;
+		expect(readDenyReason(command).split("\n")[0]).toBe(
+			`${SNAPSHOT_OPENER}${command}`,
+		);
 	});
 
 	it("reads a detachment past a tab-indented `<<-` terminator as heredoc body", () => {

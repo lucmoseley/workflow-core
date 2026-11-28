@@ -1,5 +1,6 @@
 // code-edges loads: guard-cores.json host
 
+const { noop } = require("./noop.js");
 const { CORE_FAULT_TEXT } = require("./core-fault.js");
 const { caught } = require("./caught.js");
 const { watchRepoFault } = require("./refuse-on-throw.js");
@@ -113,7 +114,7 @@ function noticeRoom(judged, cap) {
 		part,
 		answer: answer && {
 			...answer,
-			env: { ...answer.env, log: () => undefined },
+			env: { ...answer.env, log: noop },
 		},
 	}));
 	return fitToCap(silent, cap).dropped.length > 0

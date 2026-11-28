@@ -1,4 +1,5 @@
 const { basename } = require("node:path").posix;
+const { noop } = require("./noop.js");
 
 const REJECTED = "[rejected]";
 const FETCH_FIRST = "fetch first";
@@ -63,7 +64,7 @@ function firstRefusable(command, cwd, isDir) {
 			vars: {},
 			isDir,
 			treeClass: () => "shared",
-			log: () => undefined,
+			log: noop,
 		},
 		{
 			subs: ["pull", "push"],
