@@ -415,6 +415,22 @@ describe("PROGRAM's exits and input channels", () => {
 		);
 	});
 
+	it("exits 2 from its direct entry on a spawn failure, naming it, where the checker's own exit is propagated (#5818)", () => {
+		const repo = fixture({
+			staged: { "docs/research/note.md": "x\n" },
+			checkerExit: 0,
+		});
+
+		const run = runInProcess(path.join(ROOT, PROGRAM_FILE), [], {
+			cwd: repo,
+			env: { ...NO_ANNOTATIONS, WFC_GIT: path.join(repo, "no-such-git") },
+		});
+		expect(run.status, run.stderr).toBe(2);
+		expect(run.stderr).toContain(
+			"doc-map gate: could not run git checkout-index (ENOENT)",
+		);
+	});
+
 	it("propagates the checker's own exit code", () => {
 		const repo = fixture({
 			staged: { "docs/research/note.md": "x\n" },
