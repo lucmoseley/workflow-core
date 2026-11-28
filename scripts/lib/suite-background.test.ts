@@ -557,7 +557,7 @@ describe("lib/suite-background.js", () => {
 			[
 				[0x02, 0x03, 0x04, 0x05, 0x06, 0x0f, 0x10],
 				(b: string) => {
-					const bare = `echo a${b}b; npm run test`;
+					const bare = `echo a${b}b && echo c \\& d >&2; npm run test`;
 					return [`${bare} &`, bare];
 				},
 			],
@@ -575,6 +575,18 @@ describe("lib/suite-background.js", () => {
 					return [
 						`${typed}; watch timeout 300 npm run test \\& true`,
 						`${typed}; watch 'npm run test ; true'`,
+					];
+				},
+			],
+			[
+				[],
+				(b: string) => {
+					const timed = "watch timeout 300 npm run test \\&";
+					const requoted = "watch 'npm run test ;";
+					const heredoc = "cat <<EOF\nbody & x\nEOF";
+					return [
+						`echo ${b}; ${timed} true; ${timed} false; ${heredoc}`,
+						`echo ${b}; ${requoted} true'; ${requoted} false'; ${heredoc}`,
 					];
 				},
 			],
