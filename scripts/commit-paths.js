@@ -1445,7 +1445,6 @@ function prepareWhole(paths, { refuseUnchanged }) {
 }
 
 /**
- * #5891
  * @param {string[]} toAdd
  */
 function recordIntentAdds(toAdd) {
