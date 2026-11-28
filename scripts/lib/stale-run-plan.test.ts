@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 const {
 	actComment,
 	bodyUnchanged,
+	buildHubBody,
 	buildRunRow,
+	failedText,
 	hubAfter,
 	planStaleRun,
 	reopenSteps,
@@ -67,6 +69,8 @@ const snap = (repos: unknown[], over: Record<string, unknown> = {}) => ({
 
 const plan = (repos: unknown[], over: Record<string, unknown> = {}) =>
 	planStaleRun(snap(repos, over));
+
+const hubBody = (p: unknown) => buildHubBody(p, { done: [], failed: [] });
 
 const texts = (p: { lines: { text: string }[] }) => p.lines.map((l) => l.text);
 const classOf = (p: { lines: { number: number; cls: string }[] }, n: number) =>
@@ -191,7 +195,7 @@ describe("planStaleRun: selection", () => {
 		expect(p.lines).toEqual([]);
 	});
 
-	it("lists a container's line and not the container in another class", () => {
+	it("lists no line for a container with an open child, in any class", () => {
 		const p = plan([
 			repo({
 				frontier: [1],
@@ -205,7 +209,7 @@ describe("planStaleRun: selection", () => {
 				checkFindings: [{ tag: "NO-TAKES", number: 1 }],
 			}),
 		]);
-		expect(texts(p)).toEqual(["o/r#1 container held by 1 open child: o/r#2"]);
+		expect(p.lines).toEqual([]);
 	});
 });
 
@@ -909,6 +913,57 @@ describe("planStaleRun: filings", () => {
 		expect(two.filings[0].body).toContain("o/q#5 NO-TAKES");
 	});
 
+	const blockedPlan = (tags: [string, string]) =>
+		plan([
+			repo({
+				issues: [
+					issue(1, { blockedBy: [{ repo: null, number: 3, state: "open" }] }),
+					issue(2, { blockedBy: [{ repo: null, number: 4, state: "open" }] }),
+					issue(3),
+					issue(4),
+				],
+				checkFindings: [
+					{ tag: tags[0], number: 3 },
+					{ tag: tags[1], number: 4 },
+				],
+			}),
+		]);
+	const causeTitles = (p: ReturnType<typeof plan>) =>
+		p.filings
+			.filter((f: { kind: string }) => f.kind === "cause")
+			.map((f: { title: string }) => f.title);
+
+	it("files no cause for stuck-blocker lines, which borrow their blocker's class (#5913)", () => {
+		const p = blockedPlan(["NO-TAKES", "UNPLACED"]);
+		expect(texts(p)).toContain("o/r#1 blocked by o/r#3 (C5, 10 d)");
+		expect(texts(p)).toContain("o/r#2 blocked by o/r#4 (C4, 10 d)");
+		expect(causeTitles(p)).toEqual([]);
+	});
+
+	it("still files the blockers' own cause when they share a signature", () => {
+		expect(causeTitles(blockedPlan(["NO-TAKES", "NO-TAKES"]))).toEqual([
+			"Stale-ticket cause: C5 NO-TAKES",
+		]);
+	});
+
+	it("files nothing for two containers with open children, across repos, unlike two NO-TAKES issues (#5911)", () => {
+		const parent = (n: number) =>
+			issue(n, {
+				labels: ["takes:children"],
+				subIssues: [{ repo: null, number: n + 1, state: "open" }],
+			});
+		const p = plan([
+			repo({ issues: [parent(1), issue(2, { createdAt: daysAgo(2) })] }),
+			repo({
+				root: "/h/q",
+				tracker: "o/q",
+				issues: [parent(5), issue(6, { createdAt: daysAgo(2) })],
+			}),
+		]);
+		expect(p.lines).toEqual([]);
+		expect(p.filings).toEqual([]);
+	});
+
 	it("files the same title on a second run, so fileOrRefresh refreshes it", () => {
 		const repos = [
 			repo({
@@ -1010,7 +1065,7 @@ describe("planStaleRun: the hub issue", () => {
 	it("is refreshed while an undisposed session-owed line exists", () => {
 		const p = plan(listed);
 		expect(p.hub.action).toBe("refresh");
-		expect(p.hub.body).toContain("o/r#1 NO-TAKES (new)");
+		expect(hubBody(p)).toContain("o/r#1 NO-TAKES (new)");
 		expect(p.hubKeys).toEqual(["o/r#1:C5"]);
 	});
 
@@ -1040,6 +1095,36 @@ describe("planStaleRun: the hub issue", () => {
 		expect(changed.hub.action).toBe("refresh");
 	});
 
+	it("lists the acts done and gives a failed-acts section only when one failed", () => {
+		const p = plan(listed);
+		const clean = buildHubBody(p, { done: ["cleared: o/r#2"], failed: [] });
+		expect(clean).toContain("## Restored this run\n\n- cleared: o/r#2\n");
+		expect(clean).not.toContain("## Failed this run");
+		const failed = buildHubBody(p, {
+			done: [],
+			failed: ["discharged: o/r#3 (met) — failed: refused"],
+		});
+		expect(failed).toContain("## Restored this run\n\nNone.\n");
+		expect(failed).toContain(
+			"## Failed this run\n\n- discharged: o/r#3 (met) — failed: refused\n",
+		);
+	});
+
+	it("bounds a failure to its first line, capped, in a code span", () => {
+		const act = {
+			kind: "strip-gate",
+			repo: "o/r",
+			number: 3,
+			blocker: "o/r#8",
+		};
+		expect(failedText(act, "gh `refused`\n## injected @someone")).toBe(
+			"cleared: o/r#3 gated on o/r#8, which has closed — failed: `gh 'refused'`",
+		);
+		expect(failedText(act, "x".repeat(300))).toContain(
+			`\`${"x".repeat(200)}…\``,
+		);
+	});
+
 	it("closes an open hub issue once nothing undisposed is left", () => {
 		const p = plan([repo()], { hub: { number: 40, state: "open" } });
 		expect(p.hub).toEqual({ action: "close", number: 40 });
@@ -1055,7 +1140,7 @@ describe("planStaleRun: the hub issue", () => {
 				checkFindings: [{ tag: "NO-TAKES", number: 2 }],
 			}),
 		]);
-		expect(p.hub.body).not.toMatch(/founder|@/i);
+		expect(hubBody(p)).not.toMatch(/founder|@/i);
 	});
 });
 

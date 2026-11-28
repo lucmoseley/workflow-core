@@ -605,17 +605,22 @@ const APPLY = {
 	},
 };
 
-/** @param {Act} a */
+/** @param {Act} a @returns {{done: string} | {failed: string}} */
 function applyAct(a) {
+	let stripped;
 	try {
-		const stripped = /** @type {(a: Act) => boolean|void} */ (APPLY[a.kind])(a);
-		const note = plan.actComment(a, { stripped: stripped === true });
-		if (note) issue(a.repo, note.number, ["comment", "--body", note.text]);
-		return plan.actText(a);
+		stripped = /** @type {(a: Act) => boolean|void} */ (APPLY[a.kind])(a);
 	} catch (e) {
 		warn(`${plan.actText(a)} — failed: ${caught(e).message}`);
-		return null;
+		return { failed: plan.failedText(a, caught(e).message) };
 	}
+	const note = plan.actComment(a, { stripped: stripped === true });
+	try {
+		if (note) issue(a.repo, note.number, ["comment", "--body", note.text]);
+	} catch (e) {
+		warn(`${plan.actText(a)} — its comment not posted: ${caught(e).message}`);
+	}
+	return { done: plan.actText(a) };
 }
 
 const ORIGIN = originLabel("stale-run");
@@ -660,14 +665,15 @@ function file(labelled, { title, body, repo }) {
  * @param {import("./lib/stale-run-plan.js").Plan} p
  * @param {string} coreTracker
  * @param {Set<string>} labelled
+ * @param {import("./lib/stale-run-plan.js").ActOutcomes} acts
  * @returns {number|null}
  */
-function applyHub(p, coreTracker, labelled) {
+function applyHub(p, coreTracker, labelled, acts) {
 	if (p.hub.action === "close") issue(coreTracker, p.hub.number, ["close"]);
 	if (p.hub.action !== "refresh") return null;
 	const { number, text } = file(labelled, {
 		title: plan.HUB_TITLE,
-		body: p.hub.body,
+		body: plan.buildHubBody(p, acts),
 		repo: coreTracker,
 	});
 	say(text);
@@ -679,7 +685,12 @@ function applyHub(p, coreTracker, labelled) {
  * @param {import("./lib/stale-run-plan.js").Snapshot} snap
  */
 function apply(p, snap) {
-	const acts = p.acts.flatMap((a) => applyAct(a) ?? []);
+	const outcomes = p.acts.map(applyAct);
+	/** @type {import("./lib/stale-run-plan.js").ActOutcomes} */
+	const acts = {
+		done: outcomes.flatMap((o) => ("done" in o ? [o.done] : [])),
+		failed: outcomes.flatMap((o) => ("failed" in o ? [o.failed] : [])),
+	};
 	/** @type {Set<string>} */
 	const labelled = new Set();
 	const filings = p.filings.flatMap((f) => {
@@ -693,10 +704,10 @@ function apply(p, snap) {
 		}
 	});
 	const hub = plan.hubAfter(p.hub, {
-		filed: applyHub(p, snap.coreTracker, labelled),
+		filed: applyHub(p, snap.coreTracker, labelled, acts),
 		before: snap.hub?.state === "open" ? snap.hub.number : null,
 	});
-	return { acts, filings, hub };
+	return { acts: acts.done, filings, hub };
 }
 
 /** @param {import("./lib/stale-run-plan.js").Plan} p */

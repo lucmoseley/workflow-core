@@ -7,7 +7,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { shellQuote } from "./sh-quote.js";
 
-const { addedCheckVerdict, runCheckCommand } = require("./gate-check.js");
+const {
+	addedCheckVerdict,
+	parseVerdict,
+	runCheckCommand,
+} = require("./gate-check.js");
 
 // guess, #3487
 const TIMEOUT_MS = 5000;
@@ -452,5 +456,21 @@ describe("a count gate projected from its reading history (#5861)", () => {
 	it("adds its own run's reading to the issue's history", () => {
 		judge("15 commits, #5687");
 		expect(readHistory({ repo, issue: 1 })).toHaveLength(1);
+	});
+});
+
+describe("a reading's verdict (#5924)", () => {
+	it("reads a met line beside a count below its threshold as unmet", () => {
+		const reading = [
+			"met: lucmoseley/mantahostels pins v3.2.4, read from GitHub now, which carries 6da0d8f1",
+			"2 of 7 UTC days closed since mantahostels pinned v3.2.2 (c350d2e14, 2026-11-25 20:21 UTC)",
+		].join("\n");
+		expect(parseVerdict(reading)).toBe("unmet");
+	});
+
+	it("reads a met line beside a reached count as met", () => {
+		expect(parseVerdict("met: pins v3.2.4\n7 of 7 UTC days closed")).toBe(
+			"met",
+		);
 	});
 });
