@@ -374,6 +374,20 @@ describe("a count gate projected from its reading history (#5861)", () => {
 		);
 	});
 
+	it("refuses the bound's cite as an adopter's copy prints it, there too", () => {
+		const { qualifyProse } = require("./qualify-citations.js");
+		const { judgeBound } = require("./gate-projection.js");
+		seed(8, "0 of 15 commits");
+		const shipped = qualifyProse(judge("15 commits, #5687", false).refusals[0]);
+		const cite = shipped.match(/[\w-]+#\d+ Q\d+/)?.[0];
+		expect(cite).toBe("workflow-core#5687 Q1");
+		const rows = readHistory({ repo, issue: 1, command: COMMAND });
+		const adopter = { basis: `past ${cite}`, repo: "o/adopter", now: NOW };
+		expect(judgeBound(rows, [{ a: 1, b: 15 }], adopter).verdict).toBe(
+			"unreachable",
+		);
+	});
+
 	it("refuses a stated expected time past the bound under 7 days of history", () => {
 		const { refusals } = judge(
 			"baseline 1/1; pass = 15 commits in n = 15 commits (about 33 days at 0.5 commits a day); fail never",

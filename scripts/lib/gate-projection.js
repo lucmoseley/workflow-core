@@ -268,27 +268,30 @@ const STATED_TIME_RES = [
 	/\babout\s+(\d+(?:\.\d+)?)\s+(days?|weeks?)\b/gi,
 ];
 
+/** @param {string} repo */
+const isUpstreamRepo = (repo) =>
+	isSameRepo(repo, UPSTREAM_TRACKER) || isSameRepo(repo, UPSTREAM_CODE_REPO);
+
 /**
- * @param {string} before
- * @param {string} repo
+ * @param {string} textBefore
+ * @param {string} gateRepo
  */
-function isBoundRepoRef(before, repo) {
-	const word = (before.split(/\s/).at(-1) ?? "").replace(/^\W+/, "");
-	if (word === "") return repo === "" || isSameRepo(repo, UPSTREAM_TRACKER);
-	if (word === CITATION_REPO) return true;
-	return (
-		isSameRepo(word, UPSTREAM_TRACKER) || isSameRepo(word, UPSTREAM_CODE_REPO)
-	);
+function isBoundRepoRef(textBefore, gateRepo) {
+	const word = (textBefore.split(/\s/).at(-1) ?? "").replace(/^\W+/, "");
+	const named = word.split("/").slice(-2);
+	if (named.length === 2) return isUpstreamRepo(named.join("/"));
+	if (word.toLowerCase() === CITATION_REPO) return true;
+	return gateRepo === "" || isUpstreamRepo(gateRepo);
 }
 
 /**
  * @param {string} basis
- * @param {string} repo
+ * @param {string} gateRepo
  */
-const citesLongerWaitRound = (basis, repo) =>
+const citesOtherFounderRound = (basis, gateRepo) =>
 	[...basis.matchAll(FOUNDER_ROUND_RE)].some(
 		({ 1: issue, 2: round, index }) =>
-			!isBoundRepoRef(basis.slice(0, index), repo) ||
+			!isBoundRepoRef(basis.slice(0, index), gateRepo) ||
 			Number(issue) !== BOUND_ROUND.issue ||
 			Number(round) !== BOUND_ROUND.round,
 	);
@@ -322,7 +325,7 @@ function parseStatedDays(basis) {
 function judgeBound(rows, counts, { basis, repo, now }) {
 	/** @type {BoundVerdict} */
 	const pass = { verdict: "pass" };
-	if (counts.length === 0 || citesLongerWaitRound(basis, repo)) return pass;
+	if (counts.length === 0 || citesOtherFounderRound(basis, repo)) return pass;
 	const p = project(rows, counts, now);
 	if (p.verdict === "met") return pass;
 	if (p.verdict !== "no-history" && p.spanDays >= MIN_REFUSE_DAYS)
