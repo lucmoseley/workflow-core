@@ -171,6 +171,7 @@
 			"scripts/lib/repo-hold-notices.test.ts",
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/sensitive-paths.test.ts",
+			"scripts/lib/stale-run-plan.test.ts",
 			"scripts/lib/wfc-config.test.ts",
 			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/priced-options-copies.test.ts"
@@ -3182,6 +3183,7 @@
 			"scripts/lib/repo-hold-notices.test.ts",
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/sensitive-paths.test.ts",
+			"scripts/lib/stale-run-plan.test.ts",
 			"scripts/lib/wfc-config.test.ts",
 			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/statusline.test.ts"
