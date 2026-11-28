@@ -240,6 +240,19 @@ function stagedRepo(prefix, temps, committed, staged) {
 }
 
 /**
+ * @param {TempRepo} repo
+ * @param {string[]} temps
+ * @returns {string}
+ */
+function linkedWorktree(repo, temps) {
+	const parent = fs.mkdtempSync(path.join(os.tmpdir(), "linked-wt-"));
+	temps.push(parent);
+	const root = path.join(parent, "wt");
+	repo.git("worktree", "add", "-q", "--detach", root, "HEAD");
+	return root;
+}
+
+/**
  * @param {string} root
  * @returns {string}
  */
@@ -260,6 +273,7 @@ module.exports = {
 	expectFixtureSupplies,
 	gateHead,
 	gateTmpdir,
+	linkedWorktree,
 	newRepo,
 	registerTempCleanup,
 	stagedRepo,
