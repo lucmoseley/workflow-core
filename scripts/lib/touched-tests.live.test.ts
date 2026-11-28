@@ -43,6 +43,12 @@ it("the read-edge manifest selects the generated-rule-copies test", () => {
 	]);
 });
 
+it("a lib in a copied program's closure selects that program's test (#5855)", () => {
+	expect(selectedBy("scripts/lib/jev-gateway.js")).toContain(
+		"scripts/guard-jev-advisory.test.ts",
+	);
+});
+
 it("the instruction-surface anchors select their checker test and the generated-rule-copies test", () => {
 	expect(selectedBy("scripts/instruction-surface-anchors.json")).toEqual([
 		"scripts/check-instruction-surface.test.ts",

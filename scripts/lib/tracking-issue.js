@@ -129,22 +129,28 @@ function createIssue({ title, labels, body, repo }) {
 	]).trim();
 }
 
+/** @typedef {{ title: string, label?: string, labels: string[], takes?: string, body: string, repo?: string }} TrackingSpec */
+
 /**
- * @param {{ title: string, label?: string, labels: string[], takes?: string, body: string, repo?: string }} spec
- * @returns {string}
+ * @param {TrackingSpec} spec
+ * @returns {{ number: number | null, text: string }}
  */
 function fileOrRefresh({ title, label, labels, takes, body, repo }) {
 	const existing = openTrackingIssue({ title, label, repo });
 	if (existing)
-		return (
-			refresh(existing.number, body, { repo }) +
-			(takes
-				? reconcileTakes(existing.number, existing.labels, takes, repo)
-				: "")
-		);
+		return {
+			number: existing.number,
+			text:
+				refresh(existing.number, body, { repo }) +
+				(takes
+					? reconcileTakes(existing.number, existing.labels, takes, repo)
+					: ""),
+		};
 
 	const wanted = takes && !labels.includes(takes) ? [...labels, takes] : labels;
-	return `Filed ${createIssue({ title, labels: wanted, body, repo })}`;
+	const url = createIssue({ title, labels: wanted, body, repo });
+	const n = Number(/\/issues\/(\d+)$/.exec(url)?.[1]);
+	return { number: Number.isInteger(n) ? n : null, text: `Filed ${url}` };
 }
 
 module.exports = {

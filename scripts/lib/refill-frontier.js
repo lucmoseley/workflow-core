@@ -51,12 +51,13 @@ const SHORTLIST_TIMEOUT_MS = FALLBACK_MS;
 /**
  * @param {string} root
  * @param {string|null} goal
+ * @param {string} [script]
  * @returns {Promise<Shortlist | {error: string}>}
  */
-async function readShortlist(root, goal) {
+async function readShortlist(root, goal, script = PICK_NEXT) {
 	const run = await runGrouped(
 		process.execPath,
-		[PICK_NEXT, "--json", ...(goal === null ? [] : ["--goal", goal])],
+		[script, "--json", ...(goal === null ? [] : ["--goal", goal])],
 		{
 			cwd: root,
 			env: buildCheckoutEnv(root),

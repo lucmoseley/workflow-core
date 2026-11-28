@@ -8,12 +8,17 @@ import { runInProcess } from "./lib/run-in-process";
 const SCRIPT = path.join(__dirname, "stale-run-age.js");
 const { parseVerdict } = require("./lib/gate-check.js");
 const DAY_MS = 86_400_000;
+const NOW = "2026-11-28T06:00:00.000Z";
 
 let dir: string;
 const run = (args: string[]) =>
 	runInProcess(SCRIPT, args, {
 		cwd: dir,
-		env: { ...process.env, WFC_REFILL_DIR: path.join(dir, "refill") },
+		env: {
+			...process.env,
+			WFC_NOW: NOW,
+			WFC_REFILL_DIR: path.join(dir, "refill"),
+		},
 	});
 const writeRows = (...ages: number[]) => {
 	fs.mkdirSync(path.join(dir, "refill"), { recursive: true });
@@ -22,7 +27,7 @@ const writeRows = (...ages: number[]) => {
 		ages
 			.map(
 				(a) =>
-					`${JSON.stringify({ date: new Date(Date.now() - a * DAY_MS).toISOString() })}\n`,
+					`${JSON.stringify({ date: new Date(Date.parse(NOW) - a * DAY_MS).toISOString() })}\n`,
 			)
 			.join(""),
 	);

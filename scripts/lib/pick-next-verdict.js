@@ -1,6 +1,10 @@
 const blockerGraph = require("./blocker-graph.js");
 const { isRouteStep } = require("./decision-labels.js");
-const { compareLevels, WAITING_LABEL } = require("./frontier-order.js");
+const {
+	agePointsOf,
+	compareLevels,
+	WAITING_LABEL,
+} = require("./frontier-order.js");
 const { resolveGate } = require("./issue-gate.js");
 const { parseIssueRef } = require("./issue-ref.js");
 const { labelAge } = require("./label-age.js");
@@ -44,6 +48,7 @@ const { URGENT_LABEL } = require("./urgent-label.js");
  * @property {boolean} [urgent]
  * @property {ReturnType<typeof waitFrom>|null} [wait]
  * @property {number} [stallDays]
+ * @property {number} [agePoints]
  * @property {ReturnType<typeof labelAge>|null} [parked]
  * @property {boolean} [goal]
  * @property {number} [collision]
@@ -303,6 +308,7 @@ function enrichIssue(i, ctx) {
 		urgent: tiers.urgent,
 		wait,
 		stallDays: wait && !wait.unknown && wait.stalled ? wait.ageDays : 0,
+		agePoints: agePointsOf(i.createdAt, ctx.now()),
 		parked,
 		goal: tiers.goal,
 		collision: collisionOf(i),
