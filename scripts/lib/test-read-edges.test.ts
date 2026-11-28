@@ -1097,6 +1097,78 @@ describe("buildManifest over a core dispatched by name (#5638)", () => {
 	});
 });
 
+describe("buildManifest over a program's lib closure a test copies (#5855)", () => {
+	const program = {
+		"scripts/p.js": `require("./lib/a");`,
+		"scripts/lib/a.js": `require("./b.js");`,
+		"scripts/lib/b.js": "",
+		"scripts/lib/c.js": "",
+		"scripts/lib/b.test.ts": `import { f } from "./b.js";`,
+	};
+	const readers = (files: Record<string, string>, reader = T) => {
+		const { edges, warnings } = build({ ...program, ...files });
+		return {
+			reads: Object.keys(edges)
+				.filter(
+					(p) => p.startsWith("scripts/lib/") && edges[p].includes(reader),
+				)
+				.sort(),
+			warnings,
+		};
+	};
+
+	it("reads every lib in the program's closure, a lib another test imports included", () => {
+		expect(readers({ [T]: `copyLibs(dir, readProgramLibs("p.js"));` })).toEqual(
+			{
+				reads: ["scripts/lib/a.js", "scripts/lib/b.js"],
+				warnings: [],
+			},
+		);
+	});
+
+	it("follows a call in a test-support helper the test imports", () => {
+		expect(
+			readers({
+				[T]: `import { libs } from "./kit";`,
+				"scripts/zz/kit.ts": `export const libs = () => readProgramLibs("p.js");`,
+			}).reads,
+		).toEqual(["scripts/lib/a.js", "scripts/lib/b.js"]);
+	});
+
+	it("traces a program named through a const or a parameter", () => {
+		const viaConst = `const name = "p.js";\nreadProgramLibs(name);`;
+		const viaParam = `const kit = (name) => readProgramLibs(name);\nkit("p.js");`;
+		expect(readers({ [T]: viaConst }).reads).toEqual([
+			"scripts/lib/a.js",
+			"scripts/lib/b.js",
+		]);
+		expect(readers({ [T]: viaParam }).reads).toEqual([
+			"scripts/lib/a.js",
+			"scripts/lib/b.js",
+		]);
+	});
+
+	it("reads nothing for a call spelt inside a string", () => {
+		expect(
+			readers({ [T]: `const fixture = 'readProgramLibs("p.js")';` }),
+		).toEqual({
+			reads: [],
+			warnings: [],
+		});
+	});
+
+	it("warns where the program cannot be traced or is no tracked file", () => {
+		const { reads, warnings } = readers({
+			[T]: `readProgramLibs(row.name);\nreadProgramLibs("gone.js");`,
+		});
+		expect(reads).toEqual([]);
+		expect(warnings).toEqual([
+			`${T}:1: readProgramLibs names no program the selector can trace, so its libs never select this test`,
+			`${T}:2: readProgramLibs names scripts/gone.js, no tracked file`,
+		]);
+	});
+});
+
 describe("buildManifest over a patch a test reads (#3206)", () => {
 	const fix = "scripts/fixes/x.patch";
 	const reader = "scripts/a.test.ts";

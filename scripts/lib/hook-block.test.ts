@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { sweptMarkers } from "./arbiter-testkit";
-import { localRequires } from "./require-closure-testkit";
+import { localRequires } from "./local-requires.js";
 import { runInProcess } from "./run-in-process.js";
 
 const REPO = path.join(__dirname, "..", "..");

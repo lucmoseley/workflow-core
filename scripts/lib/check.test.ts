@@ -9,13 +9,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENVELOPE_FRAME_KEYS } from "./envelope-frame-keys";
 import { defineTemplate } from "./git-fixture";
 import { keptSpawn } from "./kept-spawn.js";
+import { localRequires } from "./local-requires.js";
 import {
 	base as notifyBase,
 	readReport as readNotifyReport,
 	readRun,
 } from "./notify-report.js";
 import { runRecordFile } from "./notify-report-testkit";
-import { copyRequireClosure, localRequires } from "./require-closure-testkit";
+import { copyRequireClosure } from "./require-closure-testkit";
 import { runInProcess, runInProcessAsync } from "./run-in-process";
 
 const LIB = path.resolve(__dirname, "check.js");
