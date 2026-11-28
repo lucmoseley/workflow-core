@@ -184,7 +184,7 @@ describe("a waiting ref", () => {
 				batch: batch({ phase: "testing", integration: merged }),
 			}),
 		).toEqual([
-			`queued: queue/alpha at ${short(later)} — moved past its snapshot ${short(member)} in the batch under test, so it waits for the next batch`,
+			`queued: queue/alpha at ${short(later)} — moved past its snapshot ${short(member)} in the batch under test, so it waits for the next batch, or for this one to take it should its test reach no verdict`,
 		]);
 	});
 

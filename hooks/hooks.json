@@ -347,7 +347,7 @@
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/check-main-checkout-cutover.js --notify || true",
-						"timeout": 300
+						"timeout": 660
 					},
 					{
 						"type": "command",
