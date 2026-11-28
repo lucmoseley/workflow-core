@@ -1493,7 +1493,7 @@ function namedList(paths) {
 /**
  * @param {string} dir
  * @param {string} home
- * @param {RouteOptions} options
+ * @param {RouteOptions & { ledger?: Ledger }} options
  */
 function freshenSnapshot(dir, home, options) {
 	const session = options.sessionId || idSeam.fromEnv();
