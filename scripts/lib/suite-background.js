@@ -76,20 +76,28 @@ const DETACH_REWRITES = /** @type {const} */ ([
 		),
 		"$1",
 	],
+	[
+		new RegExp(
+			`([^ \\t\\v\\f\\r])${SP}*&${SP}*((?:\\\\["'])+)${SP}*(;|$)`,
+			"g",
+		),
+		"$1$2$3",
+	],
 	[new RegExp(`&${SP}*(;|$)`, "g"), "$1"],
 	[/&/g, ";"],
 ]);
 
 /**
  * @param {string} text
- * @param {Map<number, string>} [scriptSpans]
+ * @param {Map<number, string>} scriptSpans
+ * @param {(body: string) => string} stripScript
  * @returns {string}
  */
-function stripDetachment(text, scriptSpans = new Map()) {
+function stripDetachment(text, scriptSpans, stripScript) {
 	const { masked, spans } = maskQuotes(text);
 	const kept = spans.map((span, i) =>
 		scriptSpans.get(i) === span
-			? span.charAt(0) + stripDetachment(span.slice(1))
+			? span.charAt(0) + stripScript(span.slice(1))
 			: stripSpan(span),
 	);
 	return trimStart(asWritten(stripBare(masked), kept));
@@ -97,27 +105,13 @@ function stripDetachment(text, scriptSpans = new Map()) {
 
 /**
  * @typedef {object} ScriptSource
- * @property {string} text
  * @property {number[]} spanIndices
+ * @property {boolean} detached
  */
 
 /** @param {string} text @param {ScriptSource[]} scripts */
 const hasDetachedRun = (text, scripts) =>
-	hasDetachment(text) || scripts.some((s) => hasDetachment(s.text));
-
-/**
- * @param {string[]} words
- * @param {number[]} wordIndices
- * @param {string[]} spans
- * @returns {ScriptSource}
- */
-function buildScriptSource(words, wordIndices, spans) {
-	const held = wordIndices.flatMap((i) => words.slice(i, i + 1));
-	return {
-		text: held.map((w) => literal(w, spans).text).join(" "),
-		spanIndices: held.flatMap((word) => quotedSpanIndices(word, spans)),
-	};
-}
+	hasDetachment(text) || scripts.some((s) => s.detached);
 
 /** @param {string} word */
 function spanIndicesIn(word) {
@@ -150,7 +144,7 @@ function stripSpan(span) {
 		if (hasDetachment(text))
 			out =
 				out.slice(0, from) +
-				stripDetachment(out.slice(from, to)) +
+				stripDetachment(out.slice(from, to), new Map(), (body) => body) +
 				out.slice(to);
 	return out;
 }
@@ -335,15 +329,27 @@ function readLaunches(parsed, ctx, launchPorts) {
 	/**
 	 * @param {import("./shell-parse.js").Command} cmd
 	 * @param {ScriptRun} script
-	 * @returns {ScriptFix | null}
 	 */
-	const buildScriptFix = (cmd, { run, wordIndices }) => {
-		if (carriesVar("WFC_SUITE_TIMEOUT", cmd.leading, run.wrapperWords))
-			return null;
+	const readScript = (cmd, { run, wordIndices }) => {
 		const words = wordIndices.flatMap((i) => cmd.words.slice(i, i + 1));
 		const literals = words.map((w) => literal(w, spans));
 		const body = literals.map((l) => l.text).join(" ");
 		const inner = readLaunches(parseCommand(body), ctx, launchPorts);
+		/** @type {ScriptSource} */
+		const source = {
+			spanIndices: words.flatMap((word) => quotedSpanIndices(word, spans)),
+			detached: !inner.escaped && hasDetachedRun(body, inner.scripts),
+		};
+		return { run, words, literals, body, inner, source };
+	};
+	/**
+	 * @param {import("./shell-parse.js").Command} cmd
+	 * @param {ReturnType<typeof readScript>} script
+	 * @returns {ScriptFix | null}
+	 */
+	const buildScriptFix = (cmd, { run, words, literals, body, inner }) => {
+		if (carriesVar("WFC_SUITE_TIMEOUT", cmd.leading, run.wrapperWords))
+			return null;
 		if (inner.timed.length === 0) return null;
 		const untimed = putBackRequoted(
 			applyTimed(body, inner.timed, spanShift(inner.timed)),
@@ -410,9 +416,10 @@ function readLaunches(parsed, ctx, launchPorts) {
 				const launch = noteLaunch(cmd.leading, run);
 				if (launch) launches.push({ run, launch });
 			}
-			const scriptRuns = distinctScripts(launches.map(({ run }) => run));
-			for (const { wordIndices } of scriptRuns)
-				scripts.push(buildScriptSource(cmd.words, wordIndices, spans));
+			const scriptRuns = distinctScripts(launches.map(({ run }) => run)).map(
+				(script) => readScript(cmd, script),
+			);
+			for (const { source } of scriptRuns) scripts.push(source);
 			const [timeouts = []] = launches
 				.map(({ run, launch }) => typedTimeouts(cmd, run, launch))
 				.filter((t) => t.length > 0);
@@ -427,6 +434,16 @@ function readLaunches(parsed, ctx, launchPorts) {
 	);
 	return { foundSuite, escaped, snapshot, timed, scripts, requoted };
 }
+
+/** @param {ScriptSource[]} scripts @param {string[]} spans */
+const scriptSpanMap = (scripts, spans) =>
+	new Map(
+		scripts.flatMap((s) =>
+			s.spanIndices.flatMap((i) =>
+				spans.slice(i, i + 1).map((span) => /** @type {const} */ ([i, span])),
+			),
+		),
+	);
 
 /** @param {import("./shell-words.js").Unwrapped[]} runs @returns {ScriptRun[]} */
 function distinctScripts(runs) {
@@ -519,17 +536,29 @@ function applyTimed(text, timed, { respanned }) {
 function decide(command, ctx) {
 	const parsed = parseCommand(command);
 	const { spans } = parsed;
+	const launchPorts = {
+		runners: ctx.runners,
+		isWrapperScript: buildIsWrapperScript(ctx.tree, ctx.log),
+	};
 	const { foundSuite, escaped, snapshot, timed, scripts, requoted } =
-		readLaunches(parsed, ctx, {
-			runners: ctx.runners,
-			isWrapperScript: buildIsWrapperScript(ctx.tree, ctx.log),
-		});
+		readLaunches(parsed, ctx, launchPorts);
 	const hold = holdHeredocs(command, parsed.heredocLines);
 	const detached = foundSuite && !escaped && hasDetachedRun(hold.text, scripts);
 	if (!detached && timed.length === 0) return null;
 
 	const shift = spanShift(timed);
 	const { indexAfterDrops, respanned } = shift;
+	const quiet = { ...ctx, log: () => undefined };
+	/** @param {string} body @returns {string} */
+	const stripScript = (body) => {
+		const inner = parseCommand(body);
+		const { scripts: nested } = readLaunches(inner, quiet, launchPorts);
+		return stripDetachment(
+			body,
+			scriptSpanMap(nested, inner.spans),
+			stripScript,
+		);
+	};
 	let fix = applyTimed(hold.text, timed, shift);
 	if (detached)
 		fix = stripDetachment(
@@ -544,11 +573,9 @@ function decide(command, ctx) {
 					}),
 				),
 			),
+			stripScript,
 		);
-	fix = putBackRequoted(
-		fix,
-		detached ? requoted.map((body) => stripDetachment(body)) : requoted,
-	);
+	fix = putBackRequoted(fix, detached ? requoted.map(stripScript) : requoted);
 	fix = putBackHeredocs(trimStart(fix), hold.kept);
 	if (fix === "") {
 		ctx.log(

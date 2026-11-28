@@ -317,6 +317,38 @@ describe("lib/suite-background.js", () => {
 		).toBe(`${SNAPSHOT_OPENER}flock /l -c "cd scripts && npm run test"`);
 	});
 
+	it("reads a detachment in a wrapper script nested in another (#5885)", () => {
+		for (const [command, fix] of [
+			[
+				`flock /l -c 'flock /m -c "npm run test &"'`,
+				`flock /l -c 'flock /m -c "npm run test"'`,
+			],
+			[
+				`flock /l -c "flock /m -c 'npm run test &'"`,
+				`flock /l -c "flock /m -c 'npm run test'"`,
+			],
+			[
+				`watch 'flock /m -c "nohup npm run test &"'`,
+				`watch 'flock /m -c "npm run test"'`,
+			],
+			[
+				`flock /k -c 'flock /l -c "flock /m -c \\"npm run test &\\""'`,
+				`flock /k -c 'flock /l -c "flock /m -c \\"npm run test\\""'`,
+			],
+		]) {
+			expect(readDenyReason(command).split("\n")[0], command).toBe(
+				`${SNAPSHOT_OPENER}${fix}`,
+			);
+			expect(verdict(fix), fix).toBe("allow");
+		}
+		for (const command of [
+			`flock /l -c 'npm run test; flock /m -c "sleep 1 &"'`,
+			`flock /l -c 'flock /m -c "echo \\"a & b\\"; npm run test"'`,
+			`flock /l -c 'WFC_SUITE_DETACH=1 flock /m -c "npm run test &"'`,
+		])
+			expect(verdict(command), command).toBe("allow");
+	});
+
 	it("rewrites only the words a wrapper took its script from (#5846)", () => {
 		const fixOf = (command: string) =>
 			(readDenyReason(command).split("\n")[0] ?? "").slice(
@@ -629,6 +661,10 @@ describe("lib/suite-background.js", () => {
 			[
 				'timeout -s "KILL" 5 flock /l -c "echo \\"x\\"; timeout 590 npm run test &"',
 				`flock /l -c 'echo "x"; npm run test'`,
+			],
+			[
+				`flock /l -c 'flock /m -c "echo \\"hi\\"; timeout 590 npm run test &"'`,
+				`flock /l -c 'flock /m -c '\\''echo "hi"; npm run test'\\'''`,
 			],
 			[
 				'WFC_SUITE_DETACH=1 flock /l -c "echo \\"x\\"; timeout 590 npm run test &"',
