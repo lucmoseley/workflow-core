@@ -8,6 +8,8 @@ const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 
 const core = require("./lib/arbiter-core.js");
+const { recordWrite } = require("./lib/arbiter-ledger.js");
+const idSeam = require("./lib/session-id.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { isUnder } = require("./lib/is-under.js");
 const { numstatPaths } = require("./lib/patch-files.js");
@@ -1443,6 +1445,23 @@ function prepareWhole(paths, { refuseUnchanged }) {
 }
 
 /**
+ * #5891
+ * @param {string[]} toAdd
+ */
+function recordIntentAdds(toAdd) {
+	const sessionId = idSeam.fromEnv();
+	if (!sessionId) return;
+	try {
+		for (const p of toAdd) recordWrite(path.resolve(p), sessionId);
+	} catch (e) {
+		core.logError("record intent-add", e);
+		err(
+			`${NAME}: the intent-add of ${toAdd.join(", ")} was not recorded as this session's (${caught(e).message}), so the next test run's freshen leaves its read edges out until it is committed (#5891).\n`,
+		);
+	}
+}
+
+/**
  * @param {string[]} whole
  * @param {string|null} cut
  * @returns {never}
@@ -1555,6 +1574,7 @@ function main() {
 			);
 		}
 		markTouched();
+		recordIntentAdds(toAdd);
 	}
 
 	const r = git(

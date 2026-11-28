@@ -6,7 +6,12 @@ const { readText } = require("./file-read.js");
 const { relativeUnder } = require("./is-under.js");
 const { coreRoot } = require("./script-path.js");
 const { EDGES_FILE } = require("./test-pass-marker.js");
-const { buildManifestText } = require("./read-edges-render.js");
+const arbiterStore = require("./arbiter-store");
+const {
+	buildManifestText,
+	readIntentToAdd,
+	render: renderReadEdges,
+} = require("./read-edges-render.js");
 
 // guess, #1860
 const CLAIM_TIMEOUT_MS = 5000;
@@ -104,6 +109,22 @@ function writeShared(home, text, { given, session, claimFn, err }) {
 }
 
 /**
+ * #5891
+ * @param {string} dir
+ * @param {string} home
+ * @param {{ sessionId: string|null,
+ *   ledger?: { readWritesBy: (id: string, tree?: string) => string[]|null } }} by
+ * @returns {Record<string, string[]>}
+ */
+function renderFreshEdges(dir, home, { sessionId, ledger = arbiterStore }) {
+	const own = sessionId ? ledger.readWritesBy(sessionId, home) : null;
+	const leaveOut = own
+		? readIntentToAdd(home).filter((p) => !own.includes(p))
+		: [];
+	return renderReadEdges(dir, { leaveOut }).edges;
+}
+
+/**
  * @param {() => Record<string, string[]>} render
  * @param {{ root: string, home: string, session: string|null, claimFn?: ClaimFn,
  *   snapshot?: RenderSnapshot,
@@ -163,4 +184,5 @@ module.exports = {
 	driftClause,
 	freshenManifest,
 	renderDrift,
+	renderFreshEdges,
 };

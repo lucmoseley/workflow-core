@@ -53,6 +53,12 @@ function readIsIntentToAdd(root, head) {
 }
 
 /** @param {string} root */
+function readIntentToAdd(root) {
+	const isIntentToAdd = readIsIntentToAdd(root);
+	return gitList(root, ["ls-files", "-z"]).filter(isIntentToAdd);
+}
+
+/** @param {string} root */
 function readIndexBlobIds(root) {
 	const isIntentToAdd = readIsIntentToAdd(root);
 	/** @type {Map<string, string>} */
@@ -165,10 +171,14 @@ function readTreeFor(root, { index, only, at }) {
 
 /**
  * @param {string} root
- * @param {{ index?: boolean, only?: string[], at?: string, sites?: boolean }} [opts]
+ * @param {{ index?: boolean, only?: string[], at?: string, sites?: boolean, leaveOut?: string[] }} [opts]
  */
-function render(root, { index = false, only, at, sites = false } = {}) {
+function render(
+	root,
+	{ index = false, only, at, sites = false, leaveOut = [] } = {},
+) {
 	const tree = readTreeFor(root, { index, only, at });
+	for (const p of leaveOut) tree.tracked.delete(p);
 	const read = new Set();
 	const { edges, anchored, tests, warnings, unseen } = buildManifest(
 		tree.tracked,
@@ -194,4 +204,4 @@ function render(root, { index = false, only, at, sites = false } = {}) {
 const buildManifestText = (edges) =>
 	`${JSON.stringify({ $note: NOTE, edges }, null, "\t")}\n`;
 
-module.exports = { OUT, buildManifestText, hasHead, render };
+module.exports = { OUT, buildManifestText, hasHead, readIntentToAdd, render };
