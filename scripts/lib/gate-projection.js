@@ -7,7 +7,12 @@ const { parseErrorFirstLine } = require("./first-line.js");
 const { now: clockNow } = require("./clock.js");
 const { readJsonl } = require("./jsonl.js");
 const { refillPath } = require("./refill-dir.js");
-const { UPSTREAM_TRACKER } = require("./workflow-core-config.js");
+const { CITATION_REPO } = require("./exempt-markers.js");
+const { isSameRepo } = require("./issue-ref.js");
+const {
+	UPSTREAM_CODE_REPO,
+	UPSTREAM_TRACKER,
+} = require("./workflow-core-config.js");
 
 // #5687
 const BOUND_DAYS = 7;
@@ -263,18 +268,27 @@ const STATED_TIME_RES = [
 	/\babout\s+(\d+(?:\.\d+)?)\s+(days?|weeks?)\b/gi,
 ];
 
-/** @param {string} before */
-const isUpstreamRef = (before) => {
-	const word = before.split(/\s/).at(-1) ?? "";
-	const repo = word.replace(/^\W+/, "");
-	return !repo.includes("/") || repo.toLowerCase() === UPSTREAM_TRACKER;
-};
+/**
+ * @param {string} before
+ * @param {string} repo
+ */
+function isBoundRepoRef(before, repo) {
+	const word = (before.split(/\s/).at(-1) ?? "").replace(/^\W+/, "");
+	if (word === "") return repo === "" || isSameRepo(repo, UPSTREAM_TRACKER);
+	if (word === CITATION_REPO) return true;
+	return (
+		isSameRepo(word, UPSTREAM_TRACKER) || isSameRepo(word, UPSTREAM_CODE_REPO)
+	);
+}
 
-/** @param {string} basis */
-const hasFounderRound = (basis) =>
+/**
+ * @param {string} basis
+ * @param {string} repo
+ */
+const citesLongerWaitRound = (basis, repo) =>
 	[...basis.matchAll(FOUNDER_ROUND_RE)].some(
 		({ 1: issue, 2: round, index }) =>
-			!isUpstreamRef(basis.slice(0, index)) ||
+			!isBoundRepoRef(basis.slice(0, index), repo) ||
 			Number(issue) !== BOUND_ROUND.issue ||
 			Number(round) !== BOUND_ROUND.round,
 	);
@@ -302,14 +316,13 @@ function parseStatedDays(basis) {
 /**
  * @param {HistoryRow[]} rows
  * @param {Count[]} counts
- * @param {string} basis
- * @param {number} now
+ * @param {{basis: string, repo: string, now: number}} gate
  * @returns {BoundVerdict}
  */
-function judgeBound(rows, counts, basis, now) {
+function judgeBound(rows, counts, { basis, repo, now }) {
 	/** @type {BoundVerdict} */
 	const pass = { verdict: "pass" };
-	if (counts.length === 0 || hasFounderRound(basis)) return pass;
+	if (counts.length === 0 || citesLongerWaitRound(basis, repo)) return pass;
 	const p = project(rows, counts, now);
 	if (p.verdict === "met") return pass;
 	if (p.verdict !== "no-history" && p.spanDays >= MIN_REFUSE_DAYS)

@@ -363,29 +363,15 @@ describe("a count gate projected from its reading history (#5861)", () => {
 		expect(judge("15 commits, set by #4925 Q2").refusals).toEqual([]);
 	});
 
-	it.each([
-		"15 commits, past #5687 Q1's week",
-		"15 commits, past #5687 Q01's week",
-		"15 commits, past lucmoseley/workflow-core-tracker#5687 Q1's week",
-	])(
-		"refuses a basis whose only round is the bound's own ruling: %s",
-		(basis) => {
-			seed(8, "0 of 15 commits");
-			expect(judge(basis).refusals).toHaveLength(1);
-		},
-	);
-
 	it("refuses a basis citing the round its own refusal names as the bound", () => {
 		seed(8, "0 of 15 commits");
-		const printed =
-			judge("15 commits, #5687").refusals[0]?.match(/#\d+ Q\d+/)?.[0];
+		const printed = judge("15 commits, #5687", false).refusals[0]?.match(
+			/#\d+ Q\d+/,
+		)?.[0];
 		expect(printed).toBeDefined();
-		expect(judge(`15 commits, past ${printed}`).refusals).toHaveLength(1);
-	});
-
-	it("passes a round of the same number on another repo", () => {
-		seed(8, "0 of 15 commits");
-		expect(judge("15 commits, set by o/r#5687 Q1").refusals).toEqual([]);
+		expect(judge(`15 commits, past ${printed}`, false).refusals).toHaveLength(
+			1,
+		);
 	});
 
 	it("refuses a stated expected time past the bound under 7 days of history", () => {

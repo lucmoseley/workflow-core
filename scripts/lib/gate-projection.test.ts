@@ -11,7 +11,9 @@ const {
 	project,
 	readHistory,
 	reachableFloor,
+	judgeBound,
 } = require("./gate-projection.js");
+const { qualifyCitations } = require("./qualify-citations.js");
 
 const NOW = Date.parse("2026-11-28T00:00:00Z");
 const daysAgo = (d: number) => NOW - d * DAY_MS;
@@ -145,6 +147,49 @@ describe("a count whose series reset under a day ago", () => {
 			counts: [{ a: 0, b: 15, since: NOW - DAY_MS / 12 }],
 		});
 		expect(project(rows, [{ a: 1, b: 15 }], NOW).verdict).toBe("no-history");
+	});
+});
+
+describe("a founder round cited against the bound", () => {
+	const Tracker = "lucmoseley/workflow-core-tracker";
+	const Adopter = "o/adopter";
+	const rows = rowsOf([[8, 0]]);
+	const counts = [{ a: 1, b: 15 }];
+	const verdictFor = (basis: string, repo = Tracker) =>
+		judgeBound(rows, counts, { basis: `15 commits, ${basis}`, repo, now: NOW })
+			.verdict;
+
+	it.each([
+		"past #5687 Q1's week",
+		"past #5687 Q01's week",
+		"past lucmoseley/workflow-core-tracker#5687 Q1's week",
+		"past lucmoseley/workflow-core#5687 Q1's week",
+		"past workflow-core#5687 Q1's week",
+	])("does not exempt the bound's own ruling: %s", (basis) => {
+		expect(verdictFor(basis)).toBe("unreachable");
+	});
+
+	it("exempts another round, or the same numbers on another repo", () => {
+		expect(verdictFor("set by #4925 Q2")).toBe("pass");
+		expect(verdictFor("set by o/r#5687 Q1")).toBe("pass");
+	});
+
+	it("reads a bare cite in an adopter as the adopter's own round", () => {
+		expect(verdictFor("set by #5687 Q1", Adopter)).toBe("pass");
+		expect(verdictFor("past workflow-core#5687 Q1", Adopter)).toBe(
+			"unreachable",
+		);
+	});
+
+	it("does not exempt the bound's cite as the shipped refusal prints it", () => {
+		const source = fs.readFileSync(
+			path.join(__dirname, "gate-check.js"),
+			"utf8",
+		);
+		const shipped = qualifyCitations(source, "scripts/lib/gate-check.js");
+		const cite = shipped.match(/const BOUND_CITE = .*?([\w-]+#\d+ Q\d+)/)?.[1];
+		expect(cite).toBe("workflow-core#5687 Q1");
+		expect(verdictFor(`past ${cite}`, Adopter)).toBe("unreachable");
 	});
 });
 
