@@ -219,7 +219,7 @@ function readSiblingTests(root, changed, isSibling) {
 // guess, #5878
 const TOUCHED_BOUND = 120;
 
-/** @typedef {{ from: number, out: string[], own: number }} Bounded */
+/** @typedef {{ from: number, out: string[], ownCount: number }} Bounded */
 
 /**
  * @param {string[]} files
@@ -261,7 +261,7 @@ function boundNearest(files, { own, selecting, siblings }) {
 	const left = new Set(out);
 	return {
 		files: files.filter((f) => !left.has(f)),
-		bounded: { from: files.length, out: out.sort(), own: kept.length },
+		bounded: { from: files.length, out: out.sort(), ownCount: kept.length },
 	};
 }
 
@@ -578,8 +578,8 @@ function touchedBanner(
 		);
 	if (bounded)
 		lines.push(
-			bounded.own > TOUCHED_BOUND
-				? `LEFT TO THE LANDER — this work selects ${bounded.from} test files, over the touched run's bound of ${TOUCHED_BOUND}, and ${bounded.own} of them are tests it edited, so all ${bounded.own} of those run and the lander's full suite runs the other ${bounded.out.length} (#5878):`
+			bounded.ownCount > TOUCHED_BOUND
+				? `LEFT TO THE LANDER — this work selects ${bounded.from} test files, over the touched run's bound of ${TOUCHED_BOUND}, and ${bounded.ownCount} of them are tests it edited, so all ${bounded.ownCount} of those run and the lander's full suite runs the other ${bounded.out.length} (#5878):`
 				: `LEFT TO THE LANDER — this work selects ${bounded.from} test files, over the touched run's bound of ${TOUCHED_BOUND}; the ${files.length} nearest the change run, and the lander's full suite runs the other ${bounded.out.length} (#5878):`,
 			...bounded.out.map((f) => `  ${f}`),
 		);
