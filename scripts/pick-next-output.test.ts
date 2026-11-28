@@ -1456,21 +1456,10 @@ describe("age points on the frontier row (#5880)", () => {
 		const { out } = await run(fx);
 		const rowOf = (n: number) =>
 			out.split("\n").find((l) => l.startsWith(`#${n} `)) ?? "";
-		const at =
-			out
-				.split("\n")
-				.find((l) => l.startsWith("#  "))
-				?.indexOf("AGE") ?? -1;
-		expect(at).toBeGreaterThan(0);
-		expect(
-			rowOf(1)
-				.slice(at, at + 5)
-				.trim(),
-		).toBe("2");
-		expect(
-			rowOf(2)
-				.slice(at, at + 5)
-				.trim(),
-		).toBe("");
+		const header = out.split("\n").find((l) => l.startsWith("#  ")) ?? "";
+		const cell = (n: number) =>
+			rowOf(n).slice(header.indexOf("AGE"), header.indexOf("REACH")).trim();
+		expect(header).toContain("AGE");
+		expect([cell(1), cell(2)]).toEqual(["2", ""]);
 	});
 });
