@@ -390,6 +390,7 @@ describe("the core-only class (#440)", () => {
 	const namedNotRun = [
 		"scripts/check-release-pin.js -> scripts/release-plugin.js",
 		"scripts/check-release-lag.js -> scripts/lib/release-tags.js",
+		"scripts/stale-ticket-run.js -> scripts/lib/release-tags.js",
 		"scripts/lib/release-lag.js -> scripts/release-plugin.js",
 		"scripts/report-release-due.js -> scripts/lib/release-tags.js",
 		"scripts/report-release-due.js -> scripts/release-plugin.js",
