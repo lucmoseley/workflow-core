@@ -176,11 +176,11 @@ function classifyExit(r, { out, err, timeoutMs, elapsedMs }) {
 
 /** @param {string} reading @returns {"met"|"unmet"|null} */
 function parseVerdict(reading) {
-	if (/^[ \t]*unmet\b/im.test(reading)) return "unmet";
-	if (/^[ \t]*met\b/im.test(reading)) return "met";
 	const counts = parseCounts(reading);
-	if (counts.length === 0) return null;
-	return counts.every(({ a, b }) => a >= b) ? "met" : "unmet";
+	if (/^[ \t]*unmet\b/im.test(reading) || counts.some(({ a, b }) => a < b))
+		return "unmet";
+	if (/^[ \t]*met\b/im.test(reading) || counts.length > 0) return "met";
+	return null;
 }
 
 const PRINTING_FIX =
