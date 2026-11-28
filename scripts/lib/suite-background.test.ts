@@ -605,6 +605,7 @@ describe("lib/suite-background.js", () => {
 				"timeout 590 npm run test -- -t `date` --queue",
 				"npm run test -- -t `date` --queue",
 			],
+			["timeout 590 npm run test -- -t a$", "npm run test -- -t a$"],
 			[
 				'flock /l -c "timeout 590 npm run test -- -t `date`"',
 				'flock /l -c "npm run test -- -t `date`"',
