@@ -5,13 +5,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
 const gateway = require("./lib/jev-gateway.js");
-const { scriptPath } = require("./lib/script-path.js");
 const {
 	readLabelRows,
 	recordedScores,
 	report,
 } = require("./lib/fix-or-file-rates.js");
 const { worktreeRoot } = require("./lib/host-root.js");
+const { scriptPath } = require("./lib/script-path.js");
 
 const LABELS = path.join(
 	"docs",

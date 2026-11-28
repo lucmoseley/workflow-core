@@ -74,6 +74,41 @@ Researched: 2026-11-08 for this section.
 - SRE tracks action items to closure ("AIs created vs. closed") and judges effect only by recurrence of a similar incident. It names no review of a closed item's effect. Close items that are "obsolete or infeasible". Lunney et al. 2017 [named expert]; SRE Workbook ch. 10 [named expert]
 - ITIL's post-implementation review checks a change against success criteria and a back-out plan set beforehand. The free secondary sources give no interval and no rule for a failed change, so it sets no default here. IT Process Maps, "Checklist Post Implementation Review" [unverified]; AWS Well-Architected, "Change enablement in ITIL 4" [unverified]
 
+## Ageing work items
+
+Researched: 2026-11-28 for this section.
+
+### Why items age
+
+- The causes the sources name are: too much work started at once, blocked work, an item too big for the system, work set aside and not taken up again, and a reviewer or owner who does not respond. The Kanban Guide 2025.5 (kanbanguides.org: active management covers "Controlling WIP", "Ensuring work items do not age unnecessarily", "Unblocking blocked work") [standard or field body]; Vacanti, "The Kanban Pocket Guide, ch. 2" (prokanban.org: an item not right-sized; "variation in work item size will always exist") [named expert]; Wester, "Want to be more predictable?" (Scrum.org, 2020-02-06: "One of the biggest culprits of lengthening cycle times is multi-tasking") [named expert]; Khatoonabadi et al., ACM TOSEM 2023 (arXiv:2305.18150: PRs wait for reviewers) [named expert]
+- A picker that ranks work starves the lowest-rank items when higher-rank work keeps coming. Fix it in the rule: give waiting items a boost that grows with their wait. Arpaci-Dusseau, *OSTEP* ch. 8 (pages.cs.wisc.edu/~remzi/OSTEP: long-running jobs "will never receive any CPU time (they starve)"; "Rule 5: After some time period S, move all the jobs in the system to the topmost queue") [named expert]; Little, "Little's Law as Viewed on Its 50th Anniversary", 2011 (the mean wait is "independent of queue discipline"; the discipline only decides who waits) [named expert]
+- Act on a wait that is long and persists, not on every wait. RFC 8289 §1-3 ("the 'good' queue goes away in about a round-trip time, while 'bad' queue hangs around for longer"; a spike "should be ignored unless it persists") [standard or field body]; DeVault, "GitHub stale bot considered harmful", 2021 (an open issue gathers "details and workarounds" over time) [named expert]
+
+### Flagging an aged item
+
+- Measure the age of each item against its own queue's past, as a percentile. The Kanban Guide's reference is the SLE, "based on historical cycle time", per Definition of Workflow; Vacanti uses the 50th, 70th and 85th percentiles as checkpoints of rising urgency; Wester flags an item older than the 60th percentile. Kanban Guide 2025.5 [standard or field body]; Vacanti, Pocket Guide ch. 2 [named expert]; Wester 2020 [named expert]. ActionableAgile's "pace percentile" does this for each item (55degrees docs, "Aging Work in Progress", what the tool does only) [standard or field body]
+- Do not use one fixed number of days across queues of different pace. In steady state the mean wait is the open count divided by the close rate, so N days is short in a fast queue and long in a slow one. Little 2011 (L = λW) [named expert]; RFC 8289 §3.1-4.5 (the interval is set from the system's own cycle, the target at "5-10% of the RTT"; one class's values "will cause problems" in another) [standard or field body]; *OSTEP* ch. 8 (a hand-set period is a "voo-doo constant") [named expert]
+- Keep a fixed floor under the percentile, and flag only an item over both. A percentile always marks its top slice, also in a healthy queue; the floor stops that. Where a queue has too few finished items for a percentile, use the floor alone until data exists. Kanban Guide 2025.5 ("a best guess will do until there is enough historical data") [standard or field body]; RFC 8289 §2 (a queue is "tolerable ... as long as it does not exceed some target delay") [standard or field body]. No source gives a value for the floor or the minimum sample.
+- The Kanban Guide's Work Item Age starts at the commitment point ("started"). It gives no rule for items not yet started. For a tracker where an issue waits untaken, measure age from when it last became takeable, and treat the rule above as an analogue. No source covers this case directly [unverified]
+
+### When the check runs
+
+- Choose the trigger unit from what drives the risk, not the calendar by default. A field body sets preventive intervals in "time, operating hours, or cycles", and warns that "Timed maintenance can often result in unnecessary and in some cases harmful maintenance"; it prefers to read the condition directly where it can. NASA, *Reliability-Centered Maintenance Guide*, 2008, §4.2.2, §5.2 [standard or field body]
+- The Kanban Guide lets the review run "continuously, at regular intervals, or through a combination of both"; the Scrum Guide refines the backlog "as needed" with no cadence. Kanban Guide 2025.5 [standard or field body]; Scrum Guide 2020 [standard or field body]. Kubernetes and `actions/stale` use a calendar idle timer (90 days; 60 days to stale, 7 to close) and give no reason for the number. kubernetes.dev, "Issue Triage"; github.com/actions/stale README; Wessel et al., BotSE 2019 (most of 765 projects keep the defaults) [unverified] as a default
+- So: run a cheap read-only check often (on each dispatch pass), let the threshold carry the queue's pace, and keep a calendar backstop so that a queue that is seldom dispatched still gets checked. No source found studies an every-N-closes trigger for a tracker, and no source gives N. [unverified]
+
+### Acting on an aged item
+
+- Report the aged item; let a person or the owner act. The action is a choice: swarm it, split it, unblock it, or drop it on purpose. Kanban Guide 2025.5 [standard or field body]; Vacanti, Pocket Guide ch. 2 ("pair, swarm, break the item up"; after a breach, do not "take our foot off the gas") [named expert]; Scrum Guide 2020 (the Product Owner orders the backlog) [standard or field body]
+- Do not auto-close for age. After stale-bot adoption, 20 large projects closed 15% more PRs in the first month, but by the end of the year merged 24% fewer and had 14% fewer active contributors each month; the rule "could wrongly close PRs that may still be under progress". Projects that use the bot exempt items that wait for a known reason ("on hold", "needs review") or that they must keep ("security", "bug"). Khatoonabadi et al. 2023 [named expert]; Wessel et al. 2019 [named expert]; DeVault 2021 ("There is no shame in having a lot of open issues") [named expert]
+- Auto-act only where the stuck state is mechanical and needs no judgement: a gate whose date has passed, a claim whose session is gone, a blocker already closed. Then the act restores the true state; it does not close or re-rank the item. This follows from the entries above; no single source states it
+
+### Sweep against root-cause fix
+
+- A recurring sweep that frees stuck items is toil when the same causes recur. Use the sweep to detect and group aged items by cause, and fix each cause class at its source. SRE Book ch. 5, "Eliminating Toil" (work is toil if "the need for the task could be designed away"; engineering "produces a permanent improvement") [named expert]; *OSTEP* ch. 8 [named expert]; Khatoonabadi et al. 2023 ("ensure that PRs receive timely reviews", not lean on the bot) [named expert]
+
+**Not read (paywalled or not opened):** Vacanti, *Actionable Agile Metrics for Predictability* and *When Will It Be Done?* (books); Anderson, *Kanban* and the Kanban Maturity Model (paywalled); Wessel et al., "Don't Disturb Me", CSCW 2021 (not opened).
+
 ## Tools practitioners use
 
 - GitHub sub-issues and issue dependencies hold the parent spec, its tickets and the blocking edges natively, and the `gh` CLI shows them. GitHub.com is hosted and unversioned; gh 2.95.0; both read 2026-10-26. GitHub Docs, "Creating issue dependencies" [standard or field body]

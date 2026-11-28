@@ -275,6 +275,48 @@ describe("lib/suite-background.js", () => {
 			).toBe(fix);
 	});
 
+	it("reads no detachment inside a quoted string, and re-issues it as typed (#5822)", () => {
+		for (const command of [
+			"npm run test -- -t 'a & b'",
+			"echo 'a & b'; npm run test",
+			'echo "a & b"; npm run test',
+			"sed -i 's/a \\&\\& b/a/' f.py; npm run test",
+			"echo 'run nohup later'; npm run test",
+		])
+			expect(verdict(command), command).toBe("allow");
+		expect(
+			readDenyReason("git commit -m 'a & b' && npm run test &").split("\n")[0],
+		).toBe(`${SNAPSHOT_OPENER}git commit -m 'a & b' && npm run test`);
+	});
+
+	it("reads a detachment in a substitution inside double quotes (#5822)", () => {
+		for (const [command, fix] of [
+			['echo "$(npm run test &)"', 'echo "$(npm run test)"'],
+			['echo "x `npm run test &` y"', 'echo "x `npm run test` y"'],
+			[
+				'echo "x `npm run test \\"a\\" &` y"',
+				'echo "x `npm run test \\"a\\"` y"',
+			],
+		])
+			expect(readDenyReason(command).split("\n")[0], command).toBe(
+				`${SNAPSHOT_OPENER}${fix}`,
+			);
+	});
+
+	it("reads the script a wrapper runs as commands, quotes and all (#5822)", () => {
+		for (const command of [
+			`flock /l -c "echo 'a & b'; npm run test"`,
+			'flock "/tmp/a & b.lock" -c "npm run test"',
+			'flock /l -c "npm run test" "a & b"',
+		])
+			expect(verdict(command), command).toBe("allow");
+		expect(
+			readDenyReason('flock /l -c "cd scripts && nohup npm run test &"').split(
+				"\n",
+			)[0],
+		).toBe(`${SNAPSHOT_OPENER}flock /l -c "cd scripts && npm run test"`);
+	});
+
 	it("reads no detachment in a heredoc, and re-issues its body unchanged", () => {
 		const write = [
 			"cat > /tmp/x.sh <<'EOF'",
@@ -560,14 +602,6 @@ describe("a queued suite detached from a session in its own worktree (#4242)", (
 });
 
 describe("its deliberate limits", () => {
-	it("reads a detachment lexically, so a quoted `&` is one and its fix rewrites it", () => {
-		const command = "npm run test -- -t 'a & b'";
-		expect(run(command)?.permissionDecision).toBe("deny");
-		expect(readDenyReason(command).split("\n")[0]).toBe(
-			`${SNAPSHOT_OPENER}npm run test -- -t 'a ; b'`,
-		);
-	});
-
 	it.each([
 		"sh -c 'npm run test &'",
 		["bash <<'EOF'", "npm run test &", "EOF"].join("\n"),
