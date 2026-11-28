@@ -52,7 +52,7 @@ function isWholeKill(m) {
 	if (suiteOf(m) !== DEFAULT_SUITE || !m.ceilingKill) return false;
 	if (typeof m.durationMs !== "number") return false;
 	const argv = m.argv ?? [];
-	if (!m.full && fullFlagWord(argv) === null) return false;
+	if (!m.scope?.full && fullFlagWord(argv) === null) return false;
 	return isFullRunArgv(stripWrapperFlags(argv));
 }
 

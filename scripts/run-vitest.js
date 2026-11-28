@@ -20,7 +20,11 @@ const {
 	shortSha,
 	formatCachedClause,
 } = require("./lib/test-pass-marker.js");
-const { launchEnv } = require("./lib/suite-handoff.js");
+const {
+	launchEnv,
+	launchScope,
+	readLaunch,
+} = require("./lib/suite-handoff.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { markStart, START_MARK_ENV } = require("./lib/tree-drift.js");
 const {
@@ -634,23 +638,24 @@ function runOnce(
 		};
 		const memory = takeWrapperMemory() ?? runMemory.startSampler(runLaunch);
 		memory.setLaunch(runLaunch);
+		const env = vitestEnv({
+			inflightFile,
+			timingsFile,
+			plan,
+			launch: weighed,
+			base: readRunBase(weighed, plan, root, expandOptions.execFn),
+			cached,
+			startMark: markStart(root),
+			tmpRoot,
+			memoryFile: memory.file,
+		});
 		const child = spawnFn(
 			bin,
 			["run", ...touchedWorkers(weighed, runArgv), ...runArgv],
 			{
 				cwd: root,
 				stdio: ["inherit", "pipe", "pipe"],
-				env: vitestEnv({
-					inflightFile,
-					timingsFile,
-					plan,
-					launch: weighed,
-					base: readRunBase(weighed, plan, root, expandOptions.execFn),
-					cached,
-					startMark: markStart(root),
-					tmpRoot,
-					memoryFile: memory.file,
-				}),
+				env,
 				detached: true,
 			},
 		);
@@ -712,11 +717,11 @@ function runOnce(
 			inflight: record.open,
 			finished: record.finished,
 			argv: launch.argv ?? [],
+			scope: launchScope(readLaunch(env)),
+			...(session ? { sessionId: session } : {}),
 			memory: memory.current(),
 			...markerAdmission(admission),
 			...(idSeam.isLanderRun() ? { lander: true } : {}),
-			...(launch.touchedBase ? { touchedBase: launch.touchedBase } : {}),
-			...(weighed.full ? { full: weighed.full } : {}),
 		});
 		const killUnlessBeat = () => {
 			const beat = inflight.lastBeat(inflightFile);

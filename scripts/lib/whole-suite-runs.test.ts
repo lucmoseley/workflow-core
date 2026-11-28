@@ -50,7 +50,7 @@ it("takes a ceiling kill of a lone whole suite after the green", () => {
 		sha: "k",
 		at: "2026-11-02",
 		ceilingKill: true,
-		full: "flag",
+		scope: { full: "flag" as const },
 		durationMs: 840_000,
 		argv: ["--full=other"],
 	};

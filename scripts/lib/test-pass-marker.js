@@ -50,7 +50,8 @@ const { readTreeIds, isSameContent } = require("./content-ids.js");
  *   slowest?: import("./test-file-timings.js").SlowFile[],
  *   memory?: import("./run-memory.js").RunMemory|null,
  *   admission?: import("./part-suite-peak.js").PartAdmission}} Marker
- * @typedef {Marker & {sha: string, at: string, suite: string,
+ * @typedef {Omit<Marker, "scope"> & {scope?: Partial<Scope>}} RunRow
+ * @typedef {RunRow & {sha: string, at: string, suite: string,
  *   startedAt: string, durationMs: number, argv: string[]}} KillRow
  * @typedef {{closure: "*"|string[], selected?: string[],
  *   changedPaths?: string[]|null, base?: string|null,
@@ -183,7 +184,7 @@ function record(entry, options) {
 }
 
 /**
- * @param {Marker} entry
+ * @param {RunRow} entry
  * @param {{root?: string|null, pruneAt?: number, keep?: number}} [options]
  * @returns {boolean}
  */
@@ -221,7 +222,7 @@ function failureRecoveryCommand(root, marker) {
 
 /**
  * @param {string} store
- * @param {Marker} entry
+ * @param {RunRow} entry
  * @param {{root?: string|null, pruneAt?: number, keep?: number}} [options]
  * @returns {boolean}
  */
