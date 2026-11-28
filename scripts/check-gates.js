@@ -201,7 +201,6 @@ function readIssues(only) {
 }
 
 /**
- * #5861
  * @param {import("./lib/check").Ctx} ctx
  * @param {GateRow[]} rows
  */
