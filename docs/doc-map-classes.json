@@ -1728,6 +1728,14 @@
 		"route": null,
 		"consumes": null
 	},
+	"docs/data/fix-or-file-labels-2026-11-28/fresh.jsonl": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "#5833's fresh sample: 2,500 end-of-turn replies, one per transcript, from 35 days of seven repos' transcripts (watch-digest had none), seed 5833. pA scores #5814's question and pB #5833's sharper one, both on jev. `drawn` names each candidate whose random 60 fires took the row; of those 106 rows, 105 are blind-judged and one was left undecidable. No row carries text; the score script fills it in memory from the local transcript its hash matches.",
+		"route": null,
+		"consumes": null
+	},
 	"docs/data/fix-or-file-labels-2026-11-28/labels.jsonl": {
 		"section": "Evidence & data",
 		"class": "source-of-truth",
@@ -1740,7 +1748,7 @@
 		"section": "Evidence & data",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "#5827's natural sample: 133 random end-of-turn replies from 14 days of five repos' transcripts, each with the measuring run's score `p`. Hand-judged: 19 of the 20 fires at 0.5, and three non-fires within 0.04 of it; the rest are unjudged. It gives the classifier's effective false-positive rate in use. Private-repo rows carry no text.",
+		"role": "#5827's natural sample: 133 random end-of-turn replies from 14 days of five repos' transcripts, each with the measuring run's score `p`. Hand-judged: 19 of the 20 fires at 0.5, and three non-fires within 0.04 of it; the rest are unjudged. It gives the classifier's effective false-positive rate in use. #5833 added `pB`, `pC` and `pD`, its sharper question's scores on jev, Haiku and Sonnet; `drawn`, as in `fresh.jsonl`; and `blindLabel`, its blind judge on two fires #5827 left unjudged. Private-repo rows carry no text.",
 		"route": null,
 		"consumes": null
 	},

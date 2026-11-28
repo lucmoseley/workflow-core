@@ -1,14 +1,37 @@
 // @vitest-environment node
 
+import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { runInProcessAsync } from "./lib/run-in-process";
 
-const { readLabelRows, recordedScores, rates, report } = createRequire(
-	__filename,
-)("./lib/fix-or-file-rates.js");
+const { readLabelRows, recordedScores, report } = createRequire(__filename)(
+	"./lib/fix-or-file-rates.js",
+);
+
+const pct = (cell: string) =>
+	cell === "n/a" ? null : Number(cell.slice(0, -1));
+
+function rowAt(rows: unknown[], threshold: number) {
+	const line = (report(rows) as string[]).find((l) =>
+		l.trim().startsWith(threshold.toFixed(1)),
+	);
+	const [, tpr, tnr, fires, tp, fp, unjudged, effectiveFp] = (line ?? "")
+		.trim()
+		.split(/\s+/);
+	return {
+		tpr: pct(tpr),
+		tnr: pct(tnr),
+		fires: Number(fires),
+		tp: Number(tp),
+		fp: Number(fp),
+		unjudged: Number(unjudged),
+		effectiveFp: pct(effectiveFp),
+	};
+}
 
 const ROOT = path.resolve(__dirname, "..");
 const LABELS = path.join(
@@ -36,23 +59,24 @@ const scored = [
 
 describe("the fix-or-file scorer's rates (#5827)", () => {
 	it("counts a reply at the threshold as a fire", () => {
-		expect(rates(scored, 0.6)).toMatchObject({ fires: 3, tp: 1, fp: 1 });
+		expect(rowAt(scored, 0.6)).toMatchObject({ fires: 3, tp: 1, fp: 1 });
 	});
 
 	it("reads TPR and TNR over judged replies only", () => {
-		const r = rates(scored, 0.5);
-		expect(r.tpr).toBe(0.5);
-		expect(r.tnr).toBe(0.5);
+		const r = rowAt(scored, 0.5);
+		expect(r.tpr).toBe(50);
+		expect(r.tnr).toBe(50);
 	});
 
 	it("leaves an unjudged fire out of the effective false-positive rate", () => {
-		const r = rates(scored, 0.5);
+		const r = rowAt(scored, 0.5);
 		expect(r.unjudged).toBe(1);
-		expect(r.effectiveFp).toBe(0.5);
+		expect(r.effectiveFp).toBe(50);
 	});
 
 	it("reports no rate where nothing judged fired", () => {
-		expect(rates(scored, 0.95)).toMatchObject({
+		const low = scored.map((r) => ({ ...r, p: Math.min(r.p, 0.2) }));
+		expect(rowAt(low, 0.9)).toMatchObject({
 			fires: 0,
 			tpr: 0,
 			effectiveFp: null,
@@ -92,22 +116,25 @@ describe("the committed fix-or-file data (#5827)", () => {
 	it("reproduces the labelled set's published TNR from its recorded scores", () => {
 		const s = recordedScores(readLabelRows(LABELS));
 		expect(s).toHaveLength(93);
-		expect(Math.round(rates(s, 0.5).tnr * 100)).toBe(82);
-		expect(Math.round(rates(s, 0.7).tnr * 100)).toBe(96);
+		expect(rowAt(s, 0.5).tnr).toBe(82);
+		expect(rowAt(s, 0.7).tnr).toBe(96);
 	});
 
 	it("reproduces the natural sample's published effective false positives", () => {
 		const s = recordedScores(readLabelRows(NATURAL));
 		expect(s).toHaveLength(131);
-		expect(
-			[0.5, 0.6, 0.7].map((t) => Math.round(rates(s, t).effectiveFp * 100)),
-		).toEqual([58, 56, 25]);
+		expect([0.5, 0.6, 0.7].map((t) => rowAt(s, t).effectiveFp)).toEqual([
+			58, 56, 25,
+		]);
 	});
 });
 
-const { rehydrate, textHash, transcriptIndex } = createRequire(__filename)(
+const { rehydrate, transcriptIndex } = createRequire(__filename)(
 	"./lib/fix-or-file-rehydrate.js",
 );
+
+const textHash = (text: string) =>
+	crypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
 const { claudeArgs, claudePrompt, parseClaudeVerdict } = createRequire(
 	__filename,
 )("./lib/fix-or-file-claude.js");
@@ -230,5 +257,93 @@ describe("the Claude-model route (#5833)", () => {
 		["a number inside prose", { result: "About 0.7, I think." }],
 	])("refuses %s", (_name, out) => {
 		expect(() => parseClaudeVerdict(JSON.stringify(out))).toThrow();
+	});
+});
+
+describe("the fix-or-file scorer as a program (#5833)", () => {
+	const Scorer = path.join(__dirname, "score-fix-or-file.js");
+	let dir: string;
+
+	beforeAll(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "fix-or-file-run-"));
+	});
+
+	afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+	const env = (extra: NodeJS.ProcessEnv = {}) => {
+		const base: NodeJS.ProcessEnv = {
+			...process.env,
+			WFC_SECRETS_FILE: path.join(dir, "absent.env"),
+			HOME: dir,
+		};
+		delete base.AI_GATEWAY_API_KEY;
+		return { ...base, ...extra };
+	};
+
+	it("refuses a route it does not know, exit 2", async () => {
+		const res = await runInProcessAsync(Scorer, ["--route", "bard"], {
+			env: env(),
+		});
+		expect(res.status).toBe(2);
+	});
+
+	it("refuses to score on jev with no gateway key, exit 2", async () => {
+		const res = await runInProcessAsync(Scorer, ["--labels", LABELS], {
+			env: env(),
+		});
+		expect(res.status).toBe(2);
+		expect(res.stderr).toContain("nothing can be scored");
+	});
+
+	it("reports from the recorded scores with no call, exit 0", async () => {
+		const res = await runInProcessAsync(
+			Scorer,
+			["--recorded", "--labels", LABELS],
+			{
+				env: env(),
+			},
+		);
+		expect(res.status).toBe(0);
+		expect(res.stdout).toContain("replies scored");
+	});
+
+	it("skips a reply its model fails on and scores the rest, with their cost", async () => {
+		const labels = path.join(dir, "rows.jsonl");
+		fs.writeFileSync(
+			labels,
+			`${[
+				{
+					id: "good",
+					repo: "r",
+					label: true,
+					kind: "lost",
+					text: "a good reply",
+				},
+				{
+					id: "bad",
+					repo: "r",
+					label: false,
+					kind: "none",
+					text: "a failing reply",
+				},
+			]
+				.map((r) => JSON.stringify(r))
+				.join("\n")}\n`,
+		);
+		const stub = path.join(dir, "claude-stub.sh");
+		fs.writeFileSync(
+			stub,
+			'#!/bin/sh\nif grep -q good; then echo \'{"result":"0.9","total_cost_usd":0.002}\'; else exit 1; fi\n',
+			{ mode: 0o755 },
+		);
+		const res = await runInProcessAsync(
+			Scorer,
+			["--labels", labels, "--route", "claude"],
+			{ env: env({ WFC_CLAUDE_BIN: stub }) },
+		);
+		expect(res.stderr).toContain("bad: not scored");
+		expect(res.status).toBe(0);
+		expect(res.stdout).toContain("1 replies scored");
+		expect(res.stdout).toContain("cost: $0.0020 over 1 replies");
 	});
 });

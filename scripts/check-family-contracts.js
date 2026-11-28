@@ -18,7 +18,7 @@ const OPENING_POINTER = new RegExp(String.raw`^//\s*${ISSUE_REF}\s*$`);
 const RUN_CHECK = /\brunCheck\s*\(/;
 const FILER =
 	/\b(?:createIssue|fileOrRefresh|buildScriptFilerArgv|fileThrough)\s*\(/;
-const FILER_PATH = /(["'`])file-issue\.js\1/;
+const FILER_PATH = /(?<!\bscriptPath\()(["'`])file-issue\.js\1/;
 const ISSUE_CREATE = /(["'`])issue\1\s*,\s*(["'`])create\2/;
 const ROOTED_PATH = /^(?:\$\{?\w+\}?\/|\.\/)?(scripts\/[^/]+)$/;
 

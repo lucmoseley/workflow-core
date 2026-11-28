@@ -122,7 +122,7 @@ describe("check-family-contracts", () => {
 		write("scripts/skill-hook.js", "noop();\n");
 		write(
 			"scripts/explain-things.js",
-			'// runCheck(SPEC) and createIssue({}) in a comment\nconst t = "runCheck( createIssue( gh issue create";\n',
+			'// runCheck(SPEC) and createIssue({}) in a comment\nconst t = "runCheck( createIssue( gh issue create";\nconst hint = "file it with node " + scriptPath("file-issue.js");\n',
 		);
 		write("scripts/lib/sweep-lib.js", GATE);
 		write("scripts/sweep-things.test.js", GATE);
