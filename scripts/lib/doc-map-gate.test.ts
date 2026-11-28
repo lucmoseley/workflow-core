@@ -38,18 +38,23 @@ describe("a readable index", () => {
 		).toBe(true);
 	});
 
-	it("refuses a BROKEN checker run as could-not-run, comparing nothing with HEAD", () => {
+	it("refuses a checker run that could not finish, comparing nothing with HEAD — the pair of 'refuses a fault absent from HEAD' (#5831)", () => {
 		const broken = "BROKEN: could not walk the plugin root: ENOENT";
-		const { exit, stderr, calls } = gate(
-			failing({ check: { status: 2, report: broken } }),
-		);
-		expect(exit).toBe(2);
-		expect(stderr.startsWith(`${broken}\n`)).toBe(true);
-		expect(stderr).toContain(
-			"pre-commit: the doc-map checker could not run (BROKEN, above) — refusing.\n",
-		);
-		expect(stderr).not.toContain("NOT in HEAD");
-		expect(calls).toHaveLength(1);
+		for (const status of [2, 137]) {
+			const { exit, stderr, calls } = gate(
+				failing({ check: { status, report: broken } }),
+			);
+			expect(exit).toBe(status);
+			expect(stderr.startsWith(`${broken}\n`)).toBe(true);
+			expect(stderr).toContain(
+				`pre-commit: the doc-map checker could not run (exit ${status}, above) — refusing.\n`,
+			);
+			expect(stderr).toContain(
+				"Clear the cause its report above names, then commit again.",
+			);
+			expect(stderr).not.toContain("NOT in HEAD");
+			expect(calls).toHaveLength(1);
+		}
 	});
 
 	it("passes a failing check whose every fault is already in HEAD, still replaying the report", () => {

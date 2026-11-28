@@ -431,7 +431,7 @@ describe("PROGRAM's exits and input channels", () => {
 		);
 	});
 
-	it("refuses a BROKEN checker run on its own exit code, comparing nothing with HEAD", () => {
+	it("refuses a BROKEN checker run on its own exit code, comparing nothing with HEAD — the pair of 'refuses a commit that adds a row for a file it does not contain' (#5831)", () => {
 		const repo = fixture({
 			staged: { "docs/research/note.md": "x\n" },
 			checkerExit: 2,
@@ -440,7 +440,10 @@ describe("PROGRAM's exits and input channels", () => {
 		const { code, output } = runProgram(repo);
 		expect(code, output).toBe(2);
 		expect(output).toContain(STUB_MARKER);
-		expect(output).toContain("checker could not run (BROKEN, above)");
+		expect(output).toContain("checker could not run (exit 2, above)");
+		expect(output).toContain(
+			"Clear the cause its report above names, then commit again.",
+		);
 		expect(output).not.toContain("NOT in HEAD");
 	});
 

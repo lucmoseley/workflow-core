@@ -57,11 +57,15 @@ const noBaselineLine = (label) =>
 		`pre-commit: no readable HEAD baseline for the ${label} check — refusing.`,
 	]);
 
-/** @param {string} label */
-const brokenLine = (label) =>
+/**
+ * @param {string} label
+ * @param {number} status
+ */
+const couldNotRunLine = (label, status) =>
 	text([
-		`pre-commit: the ${label} checker could not run (BROKEN, above) — refusing.`,
-		"  No fault was compared with HEAD: a BROKEN run's findings say nothing about what this commit adds.",
+		`pre-commit: the ${label} checker could not run (exit ${status}, above) — refusing.`,
+		"  No fault was compared with HEAD: a run that could not finish says nothing about what this commit adds.",
+		"  Clear the cause its report above names, then commit again.",
 	]);
 
 /**
@@ -109,7 +113,7 @@ function directionVerdict(noun, ticket, run) {
 
 module.exports = {
 	allowDeleteLine,
-	brokenLine,
+	couldNotRunLine,
 	deletionUnknownLine,
 	directionVerdict,
 	noBaselineLine,
