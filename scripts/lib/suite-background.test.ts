@@ -563,7 +563,7 @@ describe("lib/suite-background.js", () => {
 			).toBe(fix);
 	});
 
-	it("strips a timeout from inside a wrapper's script string (#5874)", () => {
+	it("strips a timeout from inside a wrapper's script string, keeping its quotes (#5874)", () => {
 		for (const [command, fix] of [
 			['flock /l -c "timeout 590 npm run test"', 'flock /l -c "npm run test"'],
 			[
@@ -588,20 +588,87 @@ describe("lib/suite-background.js", () => {
 				'flock /l -c "npm run test"',
 			],
 			[
-				'flock /l -c "timeout 590 npm run test -- -t \\"a b\\""',
-				'flock /l -c "timeout 590 npm run test -- -t \\"a b\\""',
+				'flock /l -c "timeout 590 npm run test -- -t $(date)"',
+				'flock /l -c "npm run test -- -t $(date)"',
 			],
 		])
 			expect(
 				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
 				command,
 			).toBe(fix);
-		for (const command of [
-			'WFC_SUITE_TIMEOUT=1 flock /l -c "timeout 590 npm run test"',
-			'flock /l -c "WFC_SUITE_TIMEOUT=1 timeout 590 npm run test"',
-			'flock /l -c "timeout 60 pytest"',
+	});
+
+	it("re-quotes a timed script its own quotes cannot hold rewritten as one single-quoted word (#5874)", () => {
+		for (const [command, fix] of [
+			[
+				'flock /l -c "timeout 590 npm run test -- -t \\"a b\\""',
+				`flock /l -c 'npm run test -- -t "a b"'`,
+			],
+			["watch timeout 590 npm run test", "watch 'npm run test'"],
+			[
+				`watch 'flock /m -c "timeout 590 npm run test -- -t \\"a\\""'`,
+				`watch 'flock /m -c '\\''npm run test -- -t "a"'\\'''`,
+			],
+			['watch "timeout 590 npm run" test', "watch 'npm run test'"],
+			[
+				'flock /l -c "timeout 590 npm"" run test"',
+				"flock /l -c 'npm run test'",
+			],
+			[
+				'flock /l -c "echo \\$X; timeout 590 npm run test"',
+				"flock /l -c 'echo $X; npm run test'",
+			],
+			[
+				`flock /l -c "echo \\"it's\\"; timeout 590 npm run test &"`,
+				`flock /l -c 'echo "it'\\''s"; npm run test'`,
+			],
+			[
+				'flock /l -c "flock /m -c \\"timeout 590 npm run test\\""',
+				`flock /l -c 'flock /m -c "npm run test"'`,
+			],
+			[
+				'timeout -s "KILL" 5 flock /l -c "echo \\"x\\"; timeout 590 npm run test &"',
+				`flock /l -c 'echo "x"; npm run test'`,
+			],
+			[
+				'WFC_SUITE_DETACH=1 flock /l -c "echo \\"x\\"; timeout 590 npm run test &"',
+				`WFC_SUITE_DETACH=1 flock /l -c 'echo "x"; npm run test &'`,
+			],
 		])
-			expect(verdict(command), command).toBe("allow");
+			expect(
+				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
+				command,
+			).toBe(fix);
+	});
+
+	it("reads a typed timeout over a script whose launch is not its first command", () => {
+		expect(
+			readDenyReason('timeout 5 flock /l -c "echo x; npm run test"')
+				.split("\n")[0]
+				.replace(FIX_OPENER, ""),
+		).toBe('flock /l -c "echo x; npm run test"');
+	});
+
+	it.each([
+		'WFC_SUITE_TIMEOUT=1 flock /l -c "timeout 590 npm run test"',
+		'flock /l -c "WFC_SUITE_TIMEOUT=1 timeout 590 npm run test"',
+		'flock /l -c "timeout 60 pytest"',
+	])("passes a script's escaped or bounded timed launch: `%s`", (command) => {
+		expect(verdict(command)).toBe("allow");
+	});
+
+	it("leaves a timed script holding an expansion it cannot re-quote unjudged, and logs it", () => {
+		const { output, logs } = runCore(
+			"guard-suite-background",
+			toolCall("Bash", {
+				command: 'flock /l -c "echo \\"x\\" $Y; timeout 590 npm run test"',
+			}),
+			{ root: dir },
+		);
+		expect(output).toBeNull();
+		expect(logs).toContain(
+			"the timed script carries an expansion the re-issue cannot re-quote — its launch is left unjudged",
+		);
 	});
 
 	it("says why the shell timeout is refused and names its escape", () => {
@@ -815,6 +882,9 @@ describe("its deliberate limits", () => {
 		"timeout 60 pytest",
 		"timeout 60 node --test",
 		"env -S 'timeout 590 npm run test'",
+		'sh -c "timeout 590 npm run test"',
+		'flock /l sh -c "timeout 590 npm run test"',
+		"flock /l -c timeout\\ 590\\ npm\\ run\\ test",
 	])("reads no shell timeout on `%s`", (command) => {
 		expect(verdict(command)).toBe("allow");
 	});
