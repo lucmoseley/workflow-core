@@ -394,8 +394,10 @@ function readLaunches(parsed, ctx, launchPorts) {
 			)
 				requoted.push(fix.body);
 		timed.push({
-			from: asWritten(cmd.segment, spans),
-			to: asWritten(segment, spans),
+			...beforeSubstitution(
+				asWritten(cmd.segment, spans),
+				asWritten(segment, spans),
+			),
 			dropped,
 			respanned,
 		});
@@ -427,6 +429,13 @@ function readLaunches(parsed, ctx, launchPorts) {
 	);
 	return { foundSuite, escaped, snapshot, timed, scripts, requoted };
 }
+
+// #5882
+/** @param {string} from @param {string} to */
+const beforeSubstitution = (from, to) =>
+	from.length > 1 && from.endsWith("$") && to.endsWith("$")
+		? { from: from.slice(0, -1), to: to.slice(0, -1) }
+		: { from, to };
 
 /** @param {import("./shell-words.js").Unwrapped[]} runs @returns {ScriptRun[]} */
 function distinctScripts(runs) {

@@ -598,6 +598,24 @@ describe("lib/suite-background.js", () => {
 			).toBe(fix);
 	});
 
+	it("strips a timeout from a launch holding a backtick substitution, keeping the backticks (#5882)", () => {
+		for (const [command, fix] of [
+			["timeout 590 npm run test -- -t `date`", "npm run test -- -t `date`"],
+			[
+				"timeout 590 npm run test -- -t `date` --queue",
+				"npm run test -- -t `date` --queue",
+			],
+			[
+				'flock /l -c "timeout 590 npm run test -- -t `date`"',
+				'flock /l -c "npm run test -- -t `date`"',
+			],
+		])
+			expect(
+				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
+				command,
+			).toBe(fix);
+	});
+
 	it("re-issues a timed script as one single-quoted word where its own quotes cannot hold the rewrite (#5874)", () => {
 		for (const [command, fix] of [
 			[
