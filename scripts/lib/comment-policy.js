@@ -1026,7 +1026,8 @@ function barePointers(text) {
 	return tokens.length > 0 && tokens.every((t) => POINTER.test(t));
 }
 const LICENCE = /SPDX-License-Identifier:|\bcopyright\b|©/i;
-const DERIVATION = /\b(?:measured|guess|ruled)\b/i;
+const DERIVATION = /\b(?:measured|guess)\b/i;
+const RULED = new RegExp(String.raw`^ruled, ${ISSUE_REF} Q\d+$`);
 const ISSUE = new RegExp(String.raw`(?<![\w&])${ISSUE_REF}`);
 const ANY_ISSUE = /(?<!&)#\d+/;
 const URL = /\bhttps?:\/\/\S/;
@@ -1155,6 +1156,7 @@ function proseBreach(unit, prose, facts) {
 	}
 	if (prose.length === 1 && DERIVATION.test(text) && ISSUE.test(text))
 		return null;
+	if (prose.length === 1 && RULED.test(text)) return null;
 	if (isSourceNote(prose, facts)) return null;
 	if (unit.top && facts.shipped && isUsageBlock(prose, facts)) return null;
 	if (onShippedExport(unit, facts)) return null;

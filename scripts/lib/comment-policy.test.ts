@@ -78,9 +78,14 @@ describe("the permitted shapes", () => {
 		expect(tags("// ruled, #5687 Q1\nconst BOUND_DAYS = 7;\n", "js")).toEqual(
 			[],
 		);
-		expect(tags("// a week, #5687 Q1\nconst BOUND_DAYS = 7;\n", "js")).toEqual([
-			"COMMENT@1",
-		]);
+		for (const line of [
+			"// a week, #5687 Q1",
+			"// ruled, #5687",
+			"// we ruled this out, #12 Q1",
+		])
+			expect(tags(`${line}\nconst BOUND_DAYS = 7;\n`, "js")).toEqual([
+				"COMMENT@1",
+			]);
 	});
 
 	it("passes a bare #N, owner/repo#N or RFC pointer, several together (K5)", () => {
