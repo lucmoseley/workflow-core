@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	daysAgo,
 	type Fixture,
 	installPickNextHarness,
 	kit,
@@ -20,7 +21,7 @@ const selectionMarker = require("./lib/selection-marker.js");
 installPickNextHarness();
 
 describe("possible file collisions", () => {
-	const table = (out: string) => out.split("-".repeat(106))[1].split("\n\n")[0];
+	const table = (out: string) => out.split(/^-+$/m)[1].split("\n\n")[0];
 
 	it("reports two shortlisted issues whose bodies name the same tracked file", async () => {
 		stubRepo(["scripts/lib/guard-log.sh", "scripts/pick-next.js"]);
@@ -1427,5 +1428,38 @@ describe("the run summary (mantahostels#1001)", () => {
 	it("exits 0 on every summary above", async () => {
 		const r = await run({ issues: [{ number: 1, body: "one" }] });
 		expect(r.status).toBe(0);
+	});
+});
+
+describe("age points on the frontier row (#5880)", () => {
+	const fx = {
+		issues: [
+			{ number: 1, body: "old", createdAt: daysAgo(15) },
+			{ number: 2, body: "young", createdAt: daysAgo(1) },
+		],
+	};
+
+	it("carries each row's age points into --json", async () => {
+		const j = (await run(fx, ["--json"])).json();
+		expect(
+			j.frontier.map((r: { number: number; agePoints: number }) => [
+				r.number,
+				r.agePoints,
+			]),
+		).toEqual([
+			[1, 2],
+			[2, 0],
+		]);
+	});
+
+	it("shows the AGE column, blank where the points are zero", async () => {
+		const { out } = await run(fx);
+		const rowOf = (n: number) =>
+			out.split("\n").find((l) => l.startsWith(`#${n} `)) ?? "";
+		const header = out.split("\n").find((l) => l.startsWith("#  ")) ?? "";
+		const cell = (n: number) =>
+			rowOf(n).slice(header.indexOf("AGE"), header.indexOf("REACH")).trim();
+		expect(header).toContain("AGE");
+		expect([cell(1), cell(2)]).toEqual(["2", ""]);
 	});
 });

@@ -43,6 +43,8 @@ const DETACHER = /(^|[^A-Za-z0-9_-])(nohup|setsid|disown)([^A-Za-z0-9_.-]|$)/m;
 
 const ESCAPED_AMP = "\x0f";
 
+const REREAD_AMP = "\x10";
+
 /**
  * @param {string} text
  * @param {(at: number, backslashPairsBefore: number) => string} to
@@ -63,33 +65,31 @@ function mapEscapedAmps(text, to) {
 	});
 }
 
-/** @param {string} text @param {string} to */
-const holdEscapedAmps = (text, to) => mapEscapedAmps(text, () => to);
+/**
+ * @param {string} text
+ * @param {boolean} reread
+ * @param {string} literalTo
+ * @param {string} detachTo
+ */
+const holdEscapedAmps = (text, reread, literalTo, detachTo) =>
+	mapEscapedAmps(text, (_at, pairs) =>
+		reread && pairs % 2 === 0 ? detachTo : literalTo,
+	);
 
-/** @param {string} masked */
-function hasBareDetachment(masked) {
+/** @param {string} masked @param {boolean} reread */
+function hasBareDetachment(masked, reread) {
 	if (DETACHER.test(masked)) return true;
 	return NOT_DETACHING.reduce(
 		(t, op) => t.split(op).join("  "),
-		holdEscapedAmps(masked, "  "),
+		holdEscapedAmps(masked, reread, "  ", "&"),
 	).includes("&");
 }
 
-/**
- * @param {string} script
- * @returns {string}
- */
-const stripScriptEscapedAmps = (script) =>
-	mapEscapedAmps(script, (at, pairs) => {
-		if (pairs % 2 === 1) return "\\&";
-		return /^ *(\\;|$)/.test(script.slice(at + 2)) ? "" : "\\;";
-	});
-
-/** @param {string} text @returns {boolean} */
-function hasDetachment(text) {
+/** @param {string} text @param {boolean} [reread] @returns {boolean} */
+function hasDetachment(text, reread = false) {
 	const { masked, spans } = maskQuotes(text);
 	return (
-		hasBareDetachment(masked) ||
+		hasBareDetachment(masked, reread) ||
 		spans.some((span) =>
 			quotedSubstitutions(span).some((sub) => hasDetachment(sub.text)),
 		)
@@ -97,6 +97,8 @@ function hasDetachment(text) {
 }
 
 const DETACH_REWRITES = /** @type {const} */ ([
+	[new RegExp(`${REREAD_AMP}${SP}*(\\\\;|;|$)`, "g"), "$1"],
+	[new RegExp(REREAD_AMP, "g"), "\\;"],
 	[
 		new RegExp(
 			`(^|[ \\t\\v\\f\\r;|&(])(/[^ \\t\\v\\f\\r]*/)?(nohup|setsid)(${SP}+-[^ \\t\\v\\f\\r]+)*(${SP}+|$)`,
@@ -118,16 +120,17 @@ const DETACH_REWRITES = /** @type {const} */ ([
 /**
  * @param {string} text
  * @param {Map<number, string>} [scriptSpans]
+ * @param {boolean} [reread]
  * @returns {string}
  */
-function stripDetachment(text, scriptSpans = new Map()) {
+function stripDetachment(text, scriptSpans = new Map(), reread = false) {
 	const { masked, spans } = maskQuotes(text);
 	const kept = spans.map((span, i) =>
 		scriptSpans.get(i) === span
 			? span.charAt(0) + stripDetachment(span.slice(1))
 			: stripSpan(span),
 	);
-	return trimStart(asWritten(stripBare(masked), kept));
+	return trimStart(asWritten(stripBare(masked, reread), kept));
 }
 
 /**
@@ -136,9 +139,9 @@ function stripDetachment(text, scriptSpans = new Map()) {
  * @property {number[]} spanIndices
  */
 
-/** @param {string} text @param {ScriptSource[]} scripts */
-const hasDetachedRun = (text, scripts) =>
-	hasDetachment(text) || scripts.some((s) => hasDetachment(s.text));
+/** @param {string} text @param {ScriptSource[]} scripts @param {boolean} reread */
+const hasDetachedRun = (text, scripts, reread) =>
+	hasDetachment(text, reread) || scripts.some((s) => hasDetachment(s.text));
 
 /**
  * @param {string[]} words
@@ -190,11 +193,11 @@ function stripSpan(span) {
 	return out;
 }
 
-/** @param {string} masked */
-function stripBare(masked) {
+/** @param {string} masked @param {boolean} reread */
+function stripBare(masked, reread) {
 	let s = NOT_DETACHING.reduce(
 		(t, op, i) => t.split(op).join(String.fromCharCode(2 + i)),
-		holdEscapedAmps(masked, ESCAPED_AMP),
+		holdEscapedAmps(masked, reread, ESCAPED_AMP, REREAD_AMP),
 	);
 	s = trimEndRun(
 		s
@@ -335,10 +338,9 @@ function readLaunches(parsed, ctx, launchPorts) {
 	let foundSuite = false;
 	let escaped = false;
 	let snapshot = true;
+	let reread = false;
 	/** @type {Timed[]} */
 	const timed = [];
-	/** @type {Timed[]} */
-	const unescaped = [];
 	/** @type {ScriptSource[]} */
 	const scripts = [];
 	/** @type {string[]} */
@@ -347,9 +349,10 @@ function readLaunches(parsed, ctx, launchPorts) {
 	 * @param {string[]} leading
 	 * @param {import("./shell-words.js").Unwrapped} run
 	 */
-	const noteLaunch = (leading, { words, wrapperWords }) => {
+	const noteLaunch = (leading, { words, wrapperWords, watched }) => {
 		const launch = suiteLaunchKind(words.map(typed), launchPorts);
 		if (!launch) return null;
+		if (watched) reread = true;
 		if (carriesVar("WFC_SUITE_DETACH", leading, wrapperWords)) escaped = true;
 		if (!isSnapshotLaunch(launch, words.map(typed))) snapshot = false;
 		foundSuite = true;
@@ -433,38 +436,13 @@ function readLaunches(parsed, ctx, launchPorts) {
 			)
 				requoted.push(fix.body);
 		timed.push({
-			from: asWritten(cmd.segment, spans),
-			to: asWritten(segment, spans),
+			...beforeSubstitution(
+				asWritten(cmd.segment, spans),
+				asWritten(segment, spans),
+			),
 			dropped,
 			respanned,
 		});
-		return segment;
-	};
-	/**
-	 * @param {import("./shell-parse.js").Command} cmd
-	 * @param {string} segment
-	 * @param {ScriptRun[]} scriptRuns
-	 */
-	const noteUnescaped = (cmd, segment, scriptRuns) => {
-		let seg = segment;
-		for (const { wordIndices } of scriptRuns) {
-			const words = wordIndices.flatMap((i) => cmd.words.slice(i, i + 1));
-			const put = stripScriptEscapedAmps(words.join(" ")).split(" ");
-			if (put.join(" ") === words.join(" ")) continue;
-			const swapped = swapWords(seg, [[words, put.filter(Boolean)]]);
-			if (swapped === null)
-				ctx.log(
-					"swapWords could not place the script's escaped `&` — the deny re-issues it as typed",
-				);
-			seg = swapped ?? seg;
-		}
-		if (seg !== segment)
-			unescaped.push({
-				from: asWritten(segment, spans),
-				to: asWritten(seg, spans),
-				dropped: [],
-				respanned: new Map(),
-			});
 	};
 	walkCommands(
 		parsed,
@@ -486,11 +464,8 @@ function readLaunches(parsed, ctx, launchPorts) {
 				const fix = buildScriptFix(cmd, script);
 				return fix ? [fix] : [];
 			});
-			const segment =
-				timeouts.length > 0 || fixes.length > 0
-					? noteTimed(cmd, timeouts, fixes)
-					: cmd.segment;
-			noteUnescaped(cmd, segment, scriptRuns);
+			if (timeouts.length > 0 || fixes.length > 0)
+				noteTimed(cmd, timeouts, fixes);
 		},
 		ctx,
 	);
@@ -499,11 +474,18 @@ function readLaunches(parsed, ctx, launchPorts) {
 		escaped,
 		snapshot,
 		timed,
-		unescaped,
+		reread,
 		scripts,
 		requoted,
 	};
 }
+
+// #5882
+/** @param {string} from @param {string} to */
+const beforeSubstitution = (from, to) =>
+	from.length > 1 && from.endsWith("$") && to.endsWith("$")
+		? { from: from.slice(0, -1), to: to.slice(0, -1) }
+		: { from, to };
 
 /** @param {import("./shell-words.js").Unwrapped[]} runs @returns {ScriptRun[]} */
 function distinctScripts(runs) {
@@ -596,22 +578,19 @@ function applyTimed(text, timed, { respanned }) {
 function decide(command, ctx) {
 	const parsed = parseCommand(command);
 	const { spans } = parsed;
-	const { foundSuite, escaped, snapshot, timed, unescaped, scripts, requoted } =
+	const { foundSuite, escaped, snapshot, timed, reread, scripts, requoted } =
 		readLaunches(parsed, ctx, {
 			runners: ctx.runners,
 			isWrapperScript: buildIsWrapperScript(ctx.tree, ctx.log),
 		});
 	const hold = holdHeredocs(command, parsed.heredocLines);
-	const detached = foundSuite && !escaped && hasDetachedRun(hold.text, scripts);
+	const detached =
+		foundSuite && !escaped && hasDetachedRun(hold.text, scripts, reread);
 	if (!detached && timed.length === 0) return null;
 
 	const shift = spanShift(timed);
 	const { indexAfterDrops, respanned } = shift;
-	let fix = applyTimed(
-		hold.text,
-		detached ? [...timed, ...unescaped] : timed,
-		shift,
-	);
+	let fix = applyTimed(hold.text, timed, shift);
 	if (detached)
 		fix = stripDetachment(
 			fix,
@@ -625,6 +604,7 @@ function decide(command, ctx) {
 					}),
 				),
 			),
+			reread,
 		);
 	fix = putBackRequoted(
 		fix,

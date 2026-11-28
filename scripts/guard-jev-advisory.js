@@ -13,6 +13,7 @@ const { hasRoundMarker } = require("./lib/round-marker");
 const gateway = require("./lib/jev-gateway.js");
 const { ignoreFailure, orFallback } = require("./lib/caught.js");
 const { noop } = require("./lib/noop.js");
+const { parseJsonl } = require("./lib/jsonl.js");
 
 const CHECK_NAME = "jev-advisory";
 
@@ -392,13 +393,12 @@ const pendingPath = (sessionId) =>
 	hookBlock.counterPath(PENDING_PREFIX, sessionId);
 
 /**
- * @param {string} raw
+ * @param {Record<string, any>} row
  * @param {number} since
  * @returns {{name: string, input?: {command?: unknown}}[]}
  */
-function callsIn(raw, since) {
-	const row = orFallback(() => JSON.parse(raw), null);
-	if (row?.type !== "assistant" || row.isSidechain) return [];
+function callsIn(row, since) {
+	if (row.type !== "assistant" || row.isSidechain) return [];
 	if (!(Date.parse(row.timestamp ?? "") > since)) return [];
 	const content = row.message?.content;
 	if (!Array.isArray(content)) return [];
@@ -413,7 +413,7 @@ function callsIn(raw, since) {
  * @returns {{tools: string[], acted: boolean}}
  */
 function callsSince(text, since) {
-	const calls = text.split("\n").flatMap((raw) => callsIn(raw, since));
+	const calls = parseJsonl(text).rows.flatMap((row) => callsIn(row, since));
 	return {
 		tools: calls.map((c) => c.name),
 		acted: calls.some(

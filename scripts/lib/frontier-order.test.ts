@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-const { compareLevels, mergeFrontiers } = require("./frontier-order.js");
+const {
+	agePointsOf,
+	compareLevels,
+	mergeFrontiers,
+} = require("./frontier-order.js");
 
 const row = (number: number, over: Record<string, unknown> = {}) => ({
 	number,
@@ -11,6 +15,7 @@ const row = (number: number, over: Record<string, unknown> = {}) => ({
 	asksQuestions: false,
 	depth: 0,
 	closes: 0,
+	agePoints: 0,
 	reach: 0,
 	collision: "comment-only",
 	...over,
@@ -28,6 +33,125 @@ describe("compareLevels", () => {
 				.sort(compareLevels)
 				.map((r) => r.number),
 		).toEqual([2, 1, 3]);
+	});
+});
+
+const NOW = Date.parse("2026-11-28T12:00:00Z");
+const daysAgo = (d: number) => new Date(NOW - d * 86_400_000).toISOString();
+const aged = (
+	number: number,
+	days: number,
+	over: Record<string, unknown> = {},
+) =>
+	row(number, {
+		createdAt: daysAgo(days),
+		agePoints: agePointsOf(daysAgo(days), NOW),
+		...over,
+	});
+const order = (rows: ReturnType<typeof row>[]) =>
+	[...rows].sort(compareLevels).map((r) => r.number);
+
+describe("age points (#5880)", () => {
+	it("gives one point per full week: none at 6 days, one at 7 and still one at 13", () => {
+		expect([6, 7, 13, 14, 21].map((d) => agePointsOf(daysAgo(d), NOW))).toEqual(
+			[0, 1, 1, 2, 3],
+		);
+		expect(order([row(1, { depth: 1 }), aged(2, 7)])).toEqual([1, 2]);
+		expect(order([row(1, { depth: 1 }), aged(2, 7, { reach: 1 })])).toEqual([
+			2, 1,
+		]);
+		expect(order([row(1, { depth: 1, reach: 1 }), aged(2, 13)])).toEqual([
+			1, 2,
+		]);
+	});
+
+	it("gives a missing or unreadable createdAt no points, never an error", () => {
+		expect(
+			[undefined, null, "", "not a date"].map((c) => agePointsOf(c, NOW)),
+		).toEqual([0, 0, 0, 0]);
+	});
+
+	it("ranks a 6-day row exactly as with no age term", () => {
+		expect(order([aged(1, 6), row(2, { reach: 1 })])).toEqual([2, 1]);
+		expect(order([aged(1, 6, { reach: 1 }), row(2)])).toEqual([1, 2]);
+	});
+
+	it("lifts a 21-day leaf over depth plus closes of 2, not over 4", () => {
+		expect(order([row(1, { depth: 1, closes: 1 }), aged(2, 21)])).toEqual([
+			2, 1,
+		]);
+		expect(order([row(1, { depth: 2, closes: 2 }), aged(2, 21)])).toEqual([
+			1, 2,
+		]);
+	});
+
+	it("never lifts a row over bug, urgent, goal, a stall or a question type", () => {
+		for (const over of [
+			{ bug: true },
+			{ urgent: true },
+			{ goal: true },
+			{ stallDays: 8 },
+			{ asksQuestions: true },
+		])
+			expect(order([aged(1, 700), row(2, over)])).toEqual([2, 1]);
+	});
+
+	it("ranks an aged row above a younger one with greater reach", () => {
+		expect(order([row(1, { reach: 9 }), aged(2, 7)])).toEqual([2, 1]);
+	});
+
+	it("lets an old row in one repo beat a younger, deeper row in another once its points pass the depth gap", () => {
+		const merged = mergeFrontiers([
+			{
+				root: "busy",
+				lastLaunchAt: null,
+				retroBundles: [],
+				rows: [aged(1, 1, { depth: 2 })],
+			},
+			{
+				root: "quiet",
+				lastLaunchAt: null,
+				retroBundles: [],
+				rows: [aged(5, 21), aged(6, 13)],
+			},
+		]);
+		expect(ranked(merged)).toEqual(["quiet#5", "busy#1", "quiet#6"]);
+	});
+
+	it("falls an equal score through to the oldest createdAt", () => {
+		const merged = mergeFrontiers([
+			{
+				root: "a",
+				lastLaunchAt: null,
+				retroBundles: [],
+				rows: [aged(1, 10, { depth: 1 }), aged(2, 15)],
+			},
+		]);
+		expect(ranked(merged)).toEqual(["a#2", "a#1"]);
+	});
+
+	it("falls an equal, undated score through launch time, number, then root", () => {
+		const merged = mergeFrontiers([
+			{
+				root: "b",
+				lastLaunchAt: 2000,
+				retroBundles: [],
+				rows: [row(1, { agePoints: 2 })],
+			},
+			{
+				root: "c",
+				lastLaunchAt: 1000,
+				retroBundles: [],
+				rows: [row(3, { depth: 1, agePoints: 1 })],
+			},
+			{
+				root: "a",
+				lastLaunchAt: 1000,
+				retroBundles: [],
+				rows: [row(3, { agePoints: 2 }), row(4, { closes: 2 })],
+			},
+		]);
+		expect(ranked(merged)).toEqual(["a#3", "c#3", "a#4", "b#1"]);
 	});
 });
 
