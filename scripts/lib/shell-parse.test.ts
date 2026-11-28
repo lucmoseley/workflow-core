@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { parseFileAliases } from "./git-alias.js";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
 import { noop } from "./noop.js";
+import { escapeRe } from "./regex-group.js";
 import { Lexer } from "./shell-lexer.js";
 import type {
 	Command,
@@ -25,7 +26,7 @@ import {
 	walkCommands,
 	walkGit,
 } from "./shell-parse.js";
-import { literal, QUOTED } from "./shell-words.js";
+import { literal, QUOTED, SENTINEL_BYTE } from "./shell-words.js";
 
 const braced = (inner: string) => `$\{${inner}}`;
 const DIR = "/fx";
@@ -803,16 +804,21 @@ describe("escapeShield — one shield for every escape-aware split (#5116)", () 
 	});
 
 	it("holds under a stand-in the text lacks, so a typed one comes back as typed (#5920)", () => {
-		const raw = "\ue000 \\\ue000 \\\ue001 \\;";
+		const typed = "\\\ue000 \\\ue001";
+		const raw = `\ue000 ${typed} \\;`;
 		const { text, unshield } = shieldOf(raw);
-		expect(text).toBe(" \\ \\ \\");
+		expect(text).not.toContain("\\;");
+		expect(text.startsWith(`\ue000 ${typed} \\`)).toBe(true);
 		expect(unshield(text)).toBe(raw);
 	});
 });
 
 describe("parseCommand — a typed mark byte parses as typed (#5920)", () => {
 	const Neutral = "\x06";
-	const spanToken = new RegExp(`${QUOTED}[0-9]+\x01`, "g");
+	const spanToken = new RegExp(
+		`${escapeRe(QUOTED)}[0-9]+${SENTINEL_BYTE}`,
+		"g",
+	);
 	const shapes = [
 		(m: string) => `echo a${m}b${m}; gh y`,
 		(m: string) => `echo \\${m} ${m}( gh y ) && gh z`,

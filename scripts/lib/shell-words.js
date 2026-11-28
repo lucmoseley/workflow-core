@@ -13,7 +13,6 @@ const BAR_HOLD = "\x04";
 
 const OP_MARK = "\x05";
 
-// #5920
 const MARK_BYTES = [
 	SENTINEL_BYTE,
 	SCOPE_MARK,
@@ -21,6 +20,17 @@ const MARK_BYTES = [
 	BAR_HOLD,
 	OP_MARK,
 ].join("");
+
+/** @param {string} text */
+const holdRedirectOps = (text) =>
+	text
+		.replace(/([<>])&/g, `$1${AMP_HOLD}`)
+		.replace(/&>/g, `${AMP_HOLD}>`)
+		.replace(/>\|/g, `>${BAR_HOLD}`);
+
+/** @param {string} text */
+const releaseRedirectOps = (text) =>
+	text.replaceAll(AMP_HOLD, "&").replaceAll(BAR_HOLD, "|");
 
 /** @param {string} recorded */
 const isBareSpan = (recorded) => !["'", '"'].includes(recorded.charAt(0));
@@ -935,10 +945,10 @@ module.exports = {
 	QUOTED,
 	SENTINEL_BYTE,
 	SCOPE_MARK,
-	AMP_HOLD,
-	BAR_HOLD,
 	OP_MARK,
 	MARK_BYTES,
+	holdRedirectOps,
+	releaseRedirectOps,
 	absolute,
 	hasExpansion,
 	isBareSpan,

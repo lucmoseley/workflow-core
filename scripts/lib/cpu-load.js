@@ -8,9 +8,9 @@ const {
 const {
 	afterSlash,
 	literal,
-	AMP_HOLD,
-	BAR_HOLD,
 	OP_MARK,
+	holdRedirectOps,
+	releaseRedirectOps,
 } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
@@ -135,10 +135,7 @@ function splitLines(masked) {
 	return shield.text
 		.split("\n")
 		.map((line) =>
-			line
-				.replace(/([<>])&/g, `$1${AMP_HOLD}`)
-				.replace(/&>/g, `${AMP_HOLD}>`)
-				.replace(/>\|/g, `>${BAR_HOLD}`)
+			holdRedirectOps(line)
 				.replace(
 					new RegExp(`for${WS}\\(\\(${WS};${WS};${WS}\\)\\)`, "g"),
 					"while true",
@@ -503,9 +500,7 @@ const isRelevant = (words) =>
 function readLine(line) {
 	const cut = line.indexOf(OP_MARK);
 	const sep = cut === -1 ? "\n" : line.slice(cut + 1);
-	const seg = (cut === -1 ? line : line.slice(0, cut))
-		.replaceAll(AMP_HOLD, "&")
-		.replaceAll(BAR_HOLD, "|");
+	const seg = releaseRedirectOps(cut === -1 ? line : line.slice(0, cut));
 	let words = ifsWords(seg);
 	while (words.length > 0 && RESERVED.includes(words[0] ?? ""))
 		words = words.slice(1);
