@@ -29,7 +29,7 @@ const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { runLinkSync } = require("./lib/link-writer.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { shellQuote } = require("./lib/sh-quote.js");
-const { originLabel } = require("./lib/issue-origin.js");
+const { RELEASE_BUMP_LABEL } = require("./lib/issue-origin.js");
 const { takesLabel } = require("./lib/takes-label.js");
 const { URGENT_LABEL } = require("./lib/urgent-label.js");
 const {
@@ -463,7 +463,7 @@ function fileBumpIssues(repos, tag) {
 				"-f",
 				`labels[]=${URGENT_LABEL}`,
 				"-f",
-				`labels[]=${originLabel("release-bump")}`,
+				`labels[]=${RELEASE_BUMP_LABEL}`,
 			],
 			(args) => JSON.parse(gh(args)),
 		);

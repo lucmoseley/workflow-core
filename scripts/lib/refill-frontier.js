@@ -12,7 +12,7 @@ const {
 } = require("./refill-repos.js");
 const { ghAsync } = require("./gh.js");
 const { caught } = require("./caught.js");
-const { RELEASE_BUMP } = require("./refill-decide.js");
+const { RELEASE_BUMP_LABEL } = require("./issue-origin.js");
 const { refKey } = require("./issue-ref.js");
 const { buildGoalRead, buildShortlistGoal } = require("./refill-goal.js");
 const { FALLBACK_MS } = require("./refill-wake.js");
@@ -83,12 +83,12 @@ function parseFailureLine(stderr) {
  * @param {string[]} roots
  * @returns {Promise<OpenBumps[]>}
  */
-function readUntickedBumps(roots) {
-	const unticked = readCandidates(homeDir()).filter(
+function readUnservedBumps(roots) {
+	const unserved = readCandidates(homeDir()).filter(
 		(c) => c.disabled === null && !roots.includes(c.root),
 	);
 	return Promise.all(
-		unticked.map(async ({ root }) => {
+		unserved.map(async ({ root }) => {
 			try {
 				const repo = readHostTracker(root);
 				if (repo === null) return { root, error: "no tracker set" };
@@ -101,7 +101,7 @@ function readUntickedBumps(roots) {
 						"--state",
 						"open",
 						"--label",
-						RELEASE_BUMP,
+						RELEASE_BUMP_LABEL,
 						"--json",
 						"number",
 					],
@@ -158,15 +158,15 @@ const heldPull = (p, why) => ({
 
 /**
  * @param {{root: string, result: Shortlist}[]} served
- * @param {Map<string, Map<number, PulledRow>>} pulledByRoot
+ * @param {Map<string, Map<number, Held>>} wantedByRoot
  * @returns {Held[]}
  */
-function unreturnedPulls(served, pulledByRoot) {
+function unreturnedOf(served, wantedByRoot) {
 	return served.flatMap(({ root, result }) => {
 		const returned = new Set(result.rows.map((r) => r.number));
-		return [...(pulledByRoot.get(root)?.values() ?? [])]
-			.filter((p) => !returned.has(p.number))
-			.map((p) => heldPull(p, `not on ${p.repo}'s shortlist`));
+		return [...(wantedByRoot.get(root) ?? [])]
+			.filter(([n]) => !returned.has(n))
+			.map(([, h]) => h);
 	});
 }
 
@@ -174,39 +174,49 @@ function unreturnedPulls(served, pulledByRoot) {
 
 /**
  * @param {OpenBumps[]} found
- * @param {{root: string, error: string}[]} failed
- * @returns {BumpsByRoot}
+ * @returns {{byRoot: BumpsByRoot, unread: {root: string, error: string}[]}}
  */
-function bumpsByRootOf(found, failed) {
+function bumpsByRootOf(found) {
 	/** @type {BumpsByRoot} */
 	const byRoot = new Map();
+	/** @type {{root: string, error: string}[]} */
+	const unread = [];
 	for (const b of found)
-		if ("error" in b)
-			failed.push({ root: b.root, error: `release bumps unread: ${b.error}` });
+		if ("error" in b) unread.push(b);
 		else if (b.numbers.length > 0)
 			byRoot.set(b.root, { repo: b.repo, numbers: new Set(b.numbers) });
-	return byRoot;
+	return { byRoot, unread };
 }
 
 /**
- * @param {{root: string, result: Shortlist}[]} served
- * @param {BumpsByRoot} bumpsByRoot
  * @param {Map<string, Map<number, PulledRow>>} pulledByRoot
- * @returns {Held[]}
+ * @param {BumpsByRoot} bumpsByRoot
+ * @returns {Map<string, Map<number, Held>>}
  */
-function unreturnedBumps(served, bumpsByRoot, pulledByRoot) {
-	return served.flatMap(({ root, result }) => {
-		const bumps = bumpsByRoot.get(root);
-		if (!bumps) return [];
-		const returned = new Set(result.rows.map((r) => r.number));
-		return [...bumps.numbers]
-			.filter((n) => !returned.has(n) && !pulledByRoot.get(root)?.has(n))
-			.map((n) => ({
-				ref: `${bumps.repo}#${n}`,
-				why: `a release bump, not on ${bumps.repo}'s shortlist`,
-				holds: [],
-			}));
-	});
+function wantedOf(pulledByRoot, bumpsByRoot) {
+	/** @type {Map<string, Map<number, Held>>} */
+	const wanted = new Map();
+	for (const [root, { repo, numbers }] of bumpsByRoot)
+		wanted.set(
+			root,
+			new Map(
+				[...numbers].map((n) => [
+					n,
+					{
+						ref: `${repo}#${n}`,
+						why: `a release bump, not on ${repo}'s shortlist`,
+						holds: [],
+					},
+				]),
+			),
+		);
+	for (const [root, pulls] of pulledByRoot) {
+		const of = wanted.get(root) ?? new Map();
+		for (const [n, p] of pulls)
+			of.set(n, heldPull(p, `not on ${p.repo}'s shortlist`));
+		wanted.set(root, of);
+	}
+	return wanted;
 }
 
 /**
@@ -219,7 +229,7 @@ async function refillFrontier(
 	roots,
 	goal,
 	readList = readShortlist,
-	readBumps = readUntickedBumps,
+	readBumps = readUnservedBumps,
 ) {
 	/** @param {string[]} of @param {(root: string) => string|null} goalIn */
 	const read = (of, goalIn) =>
@@ -259,12 +269,9 @@ async function refillFrontier(
 		of.set(p.number, p);
 		pulledByRoot.set(p.root, of);
 	}
-	const bumpsByRoot = bumpsByRootOf(await readBumps(roots), failed);
-	/** @param {string} root @param {number} n */
-	const isBump = (root, n) => bumpsByRoot.get(root)?.numbers.has(n) === true;
-	const foreign = [
-		...new Set([...pulledByRoot.keys(), ...bumpsByRoot.keys()]),
-	].filter((r) => !roots.includes(r));
+	const bumps = bumpsByRootOf(await readBumps(roots));
+	const wanted = wantedOf(pulledByRoot, bumps.byRoot);
+	const foreign = [...wanted.keys()].filter((r) => !roots.includes(r));
 	for (const { root, result } of await read(foreign, () => null))
 		if ("error" in result) failed.push({ root, error: result.error });
 		else
@@ -273,16 +280,12 @@ async function refillFrontier(
 				result: {
 					...result,
 					rows: result.rows
-						.filter(
-							(r) =>
-								pulledByRoot.get(root)?.has(r.number) || isBump(root, r.number),
-						)
+						.filter((r) => wanted.get(root)?.has(r.number))
 						.map((r) => ({ ...r, reach: 0, depth: 0, closes: 0 })),
 					retroBundles: [],
 				},
 			});
-	held.push(...unreturnedPulls(served, pulledByRoot));
-	held.push(...unreturnedBumps(served, bumpsByRoot, pulledByRoot));
+	held.push(...unreturnedOf(served, wanted));
 
 	/** @type {RepoFrontier[]} */
 	const merged = served.map(({ root, result }) => ({
@@ -297,6 +300,7 @@ async function refillFrontier(
 	const order = mergeFrontiers(merged);
 	return {
 		failed,
+		bumpsUnread: bumps.unread,
 		held,
 		goal: buildGoalRead(
 			goal,
@@ -312,4 +316,4 @@ async function refillFrontier(
 	};
 }
 
-module.exports = { parseFailureLine, readUntickedBumps, refillFrontier };
+module.exports = { parseFailureLine, refillFrontier };

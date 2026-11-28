@@ -7,7 +7,7 @@ const { buildSeatLabel, isSameSeat, seatIdOf } = require("./refill-seats.js");
 const { loneCommandOf, TAKES_PREFIX } = require("./takes-label.js");
 const { withoutStamps } = require("./stamp-paths.js");
 const { buildRowPrompt } = require("./unclosed-launch.js");
-const { originLabel } = require("./issue-origin.js");
+const { RELEASE_BUMP_LABEL } = require("./issue-origin.js");
 const {
 	BREAKER_OPEN,
 	buildLaunchRoom,
@@ -19,7 +19,6 @@ const {
 /** @type {"unread"} */
 const UNREAD = "unread";
 const MODEL = "opus";
-const RELEASE_BUMP = originLabel("release-bump");
 const FULL = 100;
 const BILLING_SKIP_MS = LAST_RESUME_OFFSET_MS;
 const NOTHING_LAUNCHABLE = "nothing launchable";
@@ -802,7 +801,7 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 		}
 		launch(row.root, next.issues, next.prompt, {
 			parkedRoute: next.parkedRoute,
-			releaseBump: row.labels.includes(RELEASE_BUMP),
+			releaseBump: row.labels.includes(RELEASE_BUMP_LABEL),
 		});
 	};
 	/** @param {MergedRow} row @param {string} why */
@@ -1126,7 +1125,6 @@ function readParkers(frontier, readMarkers) {
 
 module.exports = {
 	readParkers,
-	RELEASE_BUMP,
 	startedAt,
 	EXPLICIT_STOP_DETAIL,
 	PROBE_HOLD_WAIT,

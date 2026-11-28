@@ -40,6 +40,8 @@ const ORIGIN_PREFIX = "origin:";
 /** @param {typeof ORIGINS[number]} origin */
 const originLabel = (origin) => `${ORIGIN_PREFIX}${origin}`;
 
+const RELEASE_BUMP_LABEL = originLabel("release-bump");
+
 /** @param {string} v @returns {boolean} */
 const isOrigin = (v) => /** @type {readonly string[]} */ (ORIGINS).includes(v);
 
@@ -72,4 +74,5 @@ module.exports = {
 	isScriptOrigin,
 	originLabel,
 	originOfLabels,
+	RELEASE_BUMP_LABEL,
 };

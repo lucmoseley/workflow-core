@@ -580,6 +580,8 @@ async function decide(io, input, scope) {
 	};
 	for (const f of merged.failed)
 		io.log(`shortlist failed in ${f.root}: ${f.error}`);
+	for (const b of merged.bumpsUnread)
+		io.log(`release bumps unread in ${b.root}: ${b.error}`);
 	for (const h of merged.held)
 		io.log(
 			`held outside the loop: ${h.ref} (${h.why})${h.holds.length > 0 ? `, holding ${h.holds.join(", ")}` : ""}`,
