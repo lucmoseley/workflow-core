@@ -8,6 +8,7 @@ const {
 const {
 	BASH_SPACE,
 	asWritten,
+	isArgumentTail,
 	maskQuotes,
 	parseCommand,
 	placeSegments,
@@ -571,6 +572,7 @@ function readLaunches(parsed, ctx, launchPorts) {
 	walkCommands(
 		parsed,
 		(cmd) => {
+			if (isArgumentTail(parsed, cmd.segIdx)) return;
 			const [first, ...later] = cmd.runs();
 			/** @type {{ run: import("./shell-words.js").Unwrapped, launch: import("./suite-launch.js").Launch }[]} */
 			const launches = [];
