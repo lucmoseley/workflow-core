@@ -101,6 +101,7 @@ describe("refill-loop.js status's per-call cost (#4821)", () => {
 			"lib/founder-typing.js",
 			"lib/frontier-order.js",
 			"lib/gate-check.js",
+			"lib/gate-projection.js",
 			"lib/gate-sweep.js",
 			"lib/gate-window.js",
 			"lib/gh-binary.js",

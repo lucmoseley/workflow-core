@@ -776,7 +776,11 @@ function refuseGateFaults(before, after, repo, issue) {
 		advicePrinted.add(advice);
 		writeFd(2, `${advice}\n`);
 	}
-	const checks = addedCheckVerdict(before, after, { run: true, repo });
+	const checks = addedCheckVerdict(before, after, {
+		run: true,
+		repo,
+		issue: Number(issue),
+	});
 	for (const w of checks.warnings) writeFd(2, `${w}\n`);
 	if (checks.refusals.length > 0)
 		throw new CallerError(`Nothing written: ${checks.refusals.join(" ")}`);
