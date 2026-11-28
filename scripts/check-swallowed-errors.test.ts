@@ -72,6 +72,7 @@ describe("check-swallowed-errors in an adopter", () => {
 		);
 		const { code, output } = check(repo({ [PY]: swallow() }, { [PY]: twice }));
 		expect(output).toMatch(/1 of these 2 were already in HEAD/);
+		expect(output).toMatch(WAY_OUT);
 		expect(code).toBe(1);
 	});
 
@@ -100,6 +101,7 @@ describe("check-swallowed-errors in an adopter", () => {
 		const r = repo({ [PY]: swallow(), "tools/b.py": swallow("b") }, {});
 		const { code, output } = check(r, ["--all"]);
 		expect(output).toMatch(/FAIL: 2 swallow/);
+		expect(output).toMatch(WAY_OUT);
 		expect(code).toBe(1);
 	});
 });
