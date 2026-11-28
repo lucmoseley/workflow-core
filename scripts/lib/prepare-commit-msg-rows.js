@@ -34,7 +34,7 @@ const HOOK = "prepare-commit-msg";
  * @typedef {import("./precommit-dispatch.js").RowResult} RowResult
  * @typedef {import("./precommit-dispatch.js").Row & {
  *   script: string,
- *   run: (ctx: PrepareCommitMsgContext) => RowResult,
+ *   run: (ctx: PrepareCommitMsgContext) => RowResult | Promise<RowResult>,
  * }} PrepareCommitMsgRow
  */
 
@@ -69,7 +69,6 @@ function exportOf(file, name) {
 	return fn;
 }
 
-/** @typedef {(args: string[]) => { code: number, stderr: string }} ScannerMain */
 /** @typedef {(opts: { cwd: string, env: NodeJS.ProcessEnv, args?: string[] }) => RowResult} StepProgram */
 
 /** @param {string} route */
@@ -105,8 +104,8 @@ function shellStatus(r) {
 /** @type {RowResult} */
 const PASS = { exit: 0, stdout: "", stderr: "" };
 
-/** @param {PrepareCommitMsgContext} ctx @returns {RowResult} */
-function closingKeyword(ctx) {
+/** @param {PrepareCommitMsgContext} ctx @returns {Promise<RowResult>} */
+async function closingKeyword(ctx) {
 	const scanner = scriptAt(ctx, SCANNER);
 	if (!readable(scanner))
 		return {
@@ -114,9 +113,12 @@ function closingKeyword(ctx) {
 			stdout: "",
 			stderr: `${HOOK}: ${scanner} is missing, so the closing-keyword scan did not run.\n  Refusing rather than passing the message unread (#138).\n`,
 		};
-	const main = /** @type {ScannerMain} */ (exportOf(scanner, "main"));
-	const r = main([ctx.file, HOOK]);
-	return { exit: r.code === 0 ? 0 : 1, stdout: "", stderr: r.stderr };
+	const spec = require(scanner).SPEC;
+	if (typeof spec?.run !== "function")
+		throw new Error(`${scanner} exports no SPEC`);
+	const { checkInProcess } = require("./check.js");
+	const r = await checkInProcess(spec, [ctx.file, HOOK], { script: scanner });
+	return { ...r, exit: r.exit === 0 ? 0 : 1 };
 }
 
 const GITLEAKS_STAGED = ["git", "--staged", "--redact"];
@@ -238,6 +240,7 @@ const ROWS = [
 		arm: { always: true },
 		when: { unlessRoutes: ["replay"], facts: ["message"] },
 		policy: "gate",
+		quietPass: true,
 		run: closingKeyword,
 	},
 	{

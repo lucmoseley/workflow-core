@@ -20534,6 +20534,7 @@
 		],
 		"scripts/lib/check-side.js": [
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -20582,6 +20583,7 @@
 		],
 		"scripts/lib/check-sink.js": [
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -20849,6 +20851,7 @@
 		"scripts/lib/child-buffer.js": [
 			"scripts/admission.test.ts",
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -22565,6 +22568,7 @@
 		],
 		"scripts/lib/clock.js": [
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -22892,6 +22896,7 @@
 		],
 		"scripts/lib/code-edges.js": [
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -23662,6 +23667,7 @@
 		],
 		"scripts/lib/commit-sha.js": [
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -28120,6 +28126,7 @@
 		],
 		"scripts/lib/envelope-frame-keys.js": [
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -28440,6 +28447,7 @@
 		],
 		"scripts/lib/fault-diff.js": [
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -28512,6 +28520,7 @@
 		],
 		"scripts/lib/fault-profiles.js": [
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -36152,6 +36161,7 @@
 		],
 		"scripts/lib/hook-envelope.js": [
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -38505,6 +38515,7 @@
 		"scripts/lib/is-under.js": [
 			"scripts/admission.test.ts",
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -43663,6 +43674,7 @@
 		],
 		"scripts/lib/merge-heads.js": [
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -44786,6 +44798,7 @@
 		"scripts/lib/notify-report.js": [
 			"scripts/check-ci-status.test.ts",
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-ghost-jobs.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -45523,6 +45536,7 @@
 		],
 		"scripts/lib/outcome-error.js": [
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-doc-map.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -46943,6 +46957,7 @@
 		],
 		"scripts/lib/persist-mode.js": [
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -61810,6 +61825,7 @@
 		"scripts/lib/session-id.js": [
 			"scripts/admission.test.ts",
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-family-contracts.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",

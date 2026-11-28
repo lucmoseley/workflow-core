@@ -125,6 +125,17 @@ const SPEC = heresySpec({
 			message: buildMessage("gates through runCheck", "check-"),
 		},
 		{
+			tag: "FAMILY-CHECK-OFF",
+			sites: ({ source }, rel) =>
+				path.basename(rel).startsWith("check-") &&
+				!hasOpeningPointer(source) &&
+				!RUN_CHECK.test(blankInert(source))
+					? [{ line: 1, text: "no runCheck" }]
+					: [],
+			message: (rel, site) =>
+				`${rel}:${site.line} takes the \`check-\` prefix but never gates through runCheck, and opens with no bare #N. Fix: gate through runCheck and its five-outcome alphabet, or open the file with the bare #N of the issue ruling its departure (§N3, §N4).`,
+		},
+		{
 			tag: "FAMILY-REPORT",
 			sites: outsidePrefix("report-", ({ source, code }) => {
 				const filer = findFirstSite(blankInert(source), FILER);

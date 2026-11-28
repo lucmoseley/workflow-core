@@ -100,6 +100,30 @@ describe("check-family-contracts", () => {
 		);
 	});
 
+	it.each([
+		["no call at all", "module.exports = { main };\n"],
+		[
+			"runCheck only in a comment or string",
+			'// runCheck(SPEC)\nconst t = "runCheck(";\n',
+		],
+	])("FAILs a check- program that never calls runCheck, with %s", (_, body) => {
+		write("scripts/check-x.js", `#!/usr/bin/env node\n${body}`);
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain(
+			"scripts/check-x.js:1 takes the `check-` prefix but never gates through runCheck, and opens with no bare #N. Fix: gate through runCheck and its five-outcome alphabet, or open the file with the bare #N of the issue ruling its departure (§N3, §N4).",
+		);
+	});
+
+	it("passes a check- program off runCheck that opens on its ruling issue", () => {
+		write(
+			"scripts/check-x.js",
+			"#!/usr/bin/env node\n// #123\nmodule.exports = {};\n",
+		);
+		const r = run();
+		expect(r.status).toBe(0);
+	});
+
 	it("passes a departing program that opens on its ruling issue, after a shebang or not", () => {
 		write("scripts/sweep-things.js", `#!/usr/bin/env node\n\n// #123\n${GATE}`);
 		write("scripts/answer-things.js", `// owner/repo#45\n${FILE}`);
