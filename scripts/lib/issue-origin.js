@@ -21,6 +21,7 @@ const ORIGINS = /** @type {const} */ ([
 	"release-bump",
 	"repo-checks-script",
 	"disk-watch-script",
+	"stale-run",
 	"founder",
 ]);
 
@@ -33,12 +34,15 @@ const SCRIPT_ORIGINS = /** @type {readonly string[]} */ ([
 	"release-bump",
 	"repo-checks-script",
 	"disk-watch-script",
+	"stale-run",
 ]);
 
 const ORIGIN_PREFIX = "origin:";
 
 /** @param {typeof ORIGINS[number]} origin */
 const originLabel = (origin) => `${ORIGIN_PREFIX}${origin}`;
+
+const RELEASE_BUMP_LABEL = originLabel("release-bump");
 
 /** @param {string} v @returns {boolean} */
 const isOrigin = (v) => /** @type {readonly string[]} */ (ORIGINS).includes(v);
@@ -72,4 +76,5 @@ module.exports = {
 	isScriptOrigin,
 	originLabel,
 	originOfLabels,
+	RELEASE_BUMP_LABEL,
 };

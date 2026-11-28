@@ -61,7 +61,8 @@ const WAITING_WORDS = new Map([
 
 const REPOS_NOTE = [
 	"An unticked repo still supplies",
-	"the blockers of served issues",
+	"its release bumps and the",
+	"blockers of served issues",
 ];
 
 const SIBLING_GAP = { text: "", role: /** @type {Role} */ ("secondary") };

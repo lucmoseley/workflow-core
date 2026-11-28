@@ -133,6 +133,7 @@ const HOOK_ERE: Record<string, string> = {
 	"scripts/check-arbiter-commands.js": String.raw`^scripts/.+\.[cm]?js$`,
 	"scripts/check-clock-copies.js": String.raw`^scripts/.+\.[cm]?js$`,
 	"scripts/check-report-programs.js": String.raw`^scripts/report-[^/]+\.[cm]?js$`,
+	"scripts/check-family-contracts.js": String.raw`^(scripts/[^/]+\.[cm]?js|hooks/hooks\.json|\.claude/settings\.json)$`,
 	"scripts/check-program-output.js": String.raw`^(scripts|\.claude/skills/[^/]+/scripts)/.+\.[cm]?js$`,
 	"scripts/check-precommit-exit.js": String.raw`^\.husky/pre-commit(\.local)?$`,
 	"scripts/check-roadmap-valid.js": String.raw`^docs/reference-roadmap\.html$`,

@@ -459,7 +459,7 @@ describe("check-cleared-trackers", () => {
 			"File it by hand — node scripts/report-red-suite.js",
 		);
 		expect(r.status).not.toBe(0);
-		expect(ghCalls().length).toBe(10);
+		expect(ghCalls().length).toBe(11);
 	});
 
 	it("says nothing about a green suite with no ci-red issue open (mantahostels#2297)", () => {

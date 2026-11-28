@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5865
 
 const { run } = require("./lib/guard-entry.js");
 const { decideClaim } = require("./lib/issue-claim-hook.js");

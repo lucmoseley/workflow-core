@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5866
 
 const fs = require("node:fs");
 

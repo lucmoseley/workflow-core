@@ -7,6 +7,7 @@ const { buildSeatLabel, isSameSeat, seatIdOf } = require("./refill-seats.js");
 const { loneCommandOf, TAKES_PREFIX } = require("./takes-label.js");
 const { withoutStamps } = require("./stamp-paths.js");
 const { buildRowPrompt } = require("./unclosed-launch.js");
+const { RELEASE_BUMP_LABEL } = require("./issue-origin.js");
 const {
 	BREAKER_OPEN,
 	buildLaunchRoom,
@@ -90,6 +91,7 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {true} [nothingToRepeat]
  * @property {number} [parkStopped]
  * @property {SeatReason} [reason]
+ * @property {true} [releaseBump]
  */
 
 /**
@@ -177,6 +179,7 @@ const buildLaunchHoldText = (hold) => buildIdleText(buildLaunchHoldIdle(hold));
  * @property {SeatReason} reason
  * @property {true} [gate]
  * @property {({resume: ResumeTarget}|{afresh: string}) & {limitParks?: number}} [parkedRoute]
+ * @property {true} [releaseBump]
  */
 
 /**
@@ -725,9 +728,15 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 	let seatsLeft = seats;
 	/**
 	 * @param {string} root @param {number[]} issues @param {string} prompt
-	 * @param {{gate?: boolean, parkedRoute?: Launch["parkedRoute"]}} [kind]
+	 * @param {{gate?: boolean, parkedRoute?: Launch["parkedRoute"],
+	 *   releaseBump?: boolean}} [kind]
 	 */
-	const launch = (root, issues, prompt, { gate, parkedRoute } = {}) => {
+	const launch = (
+		root,
+		issues,
+		prompt,
+		{ gate, parkedRoute, releaseBump } = {},
+	) => {
 		for (const n of issues) taken.add(key(root, n));
 		room.spend(root);
 		launches.push({
@@ -739,6 +748,7 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 			reason,
 			...(gate ? { gate: /** @type {const} */ (true) } : {}),
 			...(parkedRoute ? { parkedRoute } : {}),
+			...(releaseBump ? { releaseBump: /** @type {const} */ (true) } : {}),
 		});
 	};
 	/** @param {MergedRow} row */
@@ -791,6 +801,7 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 		}
 		launch(row.root, next.issues, next.prompt, {
 			parkedRoute: next.parkedRoute,
+			releaseBump: row.labels.includes(RELEASE_BUMP_LABEL),
 		});
 	};
 	/** @param {MergedRow} row @param {string} why */

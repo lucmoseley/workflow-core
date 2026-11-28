@@ -111,9 +111,9 @@
 		"TREE": "none — judges machine-wide refill-loop state"
 	},
 	"scripts/check-release-lag.js": {
-		"IMPLICIT": "at every session start, reads the newest release tag's source, `origin/main`, each adopter checkout's pin and its installed version, and where the source is more than LAG_WARN_DAYS behind `origin/main`, or unreadable, or an adopter's install is not at its pin, prints that with the pins and installs it concerns; prints nothing otherwise.",
-		"JUSTIFIED": "convenience — it only reports; nothing else says that no fix has reached an adopter.",
-		"DEFEAT": "none at the hook; cutting a release clears the lag, installing the pinned release clears an adopter's.",
+		"IMPLICIT": "at every session start, reads the newest release tag's source, `origin/main`, each adopter checkout's pin and its installed version, and where the source is more than LAG_WARN_DAYS behind `origin/main`, or unreadable, or an adopter's install is not at its pin, or an adopter's main checkout stands behind its last fetched `origin/main` (with what a levelling pass would do, and what blocks it), prints that with the pins, installs and blockers it concerns; prints nothing otherwise. It fetches nothing and moves no checkout.",
+		"JUSTIFIED": "convenience — it only reports; nothing else says that no fix has reached an adopter, or that levelling has stalled in one.",
+		"DEFEAT": "none at the hook; cutting a release clears the lag, installing the pinned release clears an adopter's, and levelling its main checkout clears a main behind.",
 		"TREE": "host — reads the main checkout's tags and `origin/main`, the adopters' main checkouts and the config dir's install registry"
 	},
 	"scripts/check-seat-utilisation.js": {

@@ -3,9 +3,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubGhScript } from "./gh-stub.js";
 
-const { parseFailureLine, refillFrontier } = require("./refill-frontier.js");
+const {
+	parseFailureLine,
+	refillFrontier: buildFrontier,
+} = require("./refill-frontier.js");
 const { blockerGraph, pulledInOf } = require("./blocker-graph.js");
 const { decideTick } = require("./refill-decide.js");
 
@@ -19,6 +23,14 @@ beforeEach(() => {
 	other = path.join(home, "other");
 });
 afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
+
+const noBumps = async () => [];
+const refillFrontier = (
+	roots: string[],
+	goal: unknown,
+	readList: unknown,
+	readBumps: unknown = noBumps,
+) => buildFrontier(roots, goal, readList, readBumps);
 
 const row = (number: number, over: Record<string, unknown> = {}) => ({
 	number,
@@ -411,6 +423,163 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 		const m = await refillFrontier([served, third], null, s.fn);
 		expect(s.asked.filter((r) => r === other)).toHaveLength(1);
 		expect(m.frontier.map((r: { reach: number }) => r.reach)).toEqual([2]);
+	});
+});
+
+describe("a release bump in an unserved adopter (#5847)", () => {
+	const Bump = { labels: ["takes:implement", "urgent", "origin:release-bump"] };
+	const bumpsIn = (numbers: number[]) => async (roots: string[]) => {
+		expect(roots).toEqual([served]);
+		return [{ root: other, repo: "o/other", numbers }];
+	};
+
+	it("joins the frontier alone, the repo's other issues left out", async () => {
+		const s = shortlists({
+			[served]: list([2]),
+			[other]: {
+				...list([]),
+				rows: [row(20, { ...Bump, urgent: true }), row(21)],
+			},
+		});
+		const m = await refillFrontier([served], null, s.fn, bumpsIn([20]));
+		expect(s.asked).toEqual([served, other]);
+		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([
+			20, 2,
+		]);
+		expect(m.frontier[0]).toMatchObject({ root: other, urgent: true });
+		expect(launchesOf(m.frontier)).toContain("other#20");
+	});
+
+	it("costs no shortlist read where the repo holds no open bump", async () => {
+		const s = shortlists({ [served]: list([2]) });
+		const m = await refillFrontier([served], null, s.fn, bumpsIn([]));
+		expect(s.asked).toEqual([served]);
+		expect(m.failed).toEqual([]);
+	});
+
+	it("appears once where a blocker edge pulls it in too", async () => {
+		const s = shortlists({
+			[served]: { ...list([]), pulledIn: [pulled(20)] },
+			[other]: { ...list([]), rows: [row(20, Bump)] },
+		});
+		const m = await refillFrontier([served], null, s.fn, bumpsIn([20]));
+		expect(s.asked).toEqual([served, other]);
+		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([20]);
+		expect(m.frontier[0].reach).toBe(1);
+		expect(m.held).toEqual([]);
+	});
+
+	it("is held, naming it a release bump, where its shortlist leaves it out", async () => {
+		const s = shortlists({ [served]: list([]), [other]: list([]) });
+		const m = await refillFrontier([served], null, s.fn, bumpsIn([20]));
+		expect(m.frontier).toEqual([]);
+		expect(m.held).toEqual([
+			{
+				ref: "o/other#20",
+				why: "a release bump, not on o/other's shortlist",
+				holds: [],
+			},
+		]);
+	});
+
+	it("logs an unread bump query apart from the failed shortlists", async () => {
+		const s = shortlists({ [served]: list([2]) });
+		const m = await refillFrontier([served], null, s.fn, async () => [
+			{ root: other, error: "HTTP 502" },
+		]);
+		expect(m.failed).toEqual([]);
+		expect(m.bumpsUnread).toEqual([{ root: other, error: "HTTP 502" }]);
+		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([2]);
+	});
+
+	it("names the launch a release bump on the launch line", async () => {
+		const { buildLaunchLine } = require("./refill-loop.js");
+		const s = shortlists({
+			[served]: list([]),
+			[other]: { ...list([]), rows: [row(20, Bump)] },
+		});
+		const m = await refillFrontier([served], null, s.fn, bumpsIn([20]));
+		const { launches } = decideTick({
+			now: NOW,
+			runFrom: NOW - 3_600_000,
+			stopRequested: false,
+			frontier: m.frontier,
+			retroBundles: [],
+			running: [],
+			freeSlots: 3,
+			seats: [{ seat: "~/.claude2", week: 10, session: 10, fits: 9 }],
+			history: [],
+			lastActAt: {},
+		});
+		expect(launches).toMatchObject([{ root: other, releaseBump: true }]);
+		expect(buildLaunchLine(launches)).toMatch(
+			/^launch other \/implement 20 \(release bump\) on /,
+		);
+	});
+});
+
+describe("the unserved adopters' bump read (#5847)", () => {
+	let log: string;
+	beforeEach(() => {
+		vi.stubEnv("HOME", home);
+		log = path.join(home, "gh.log");
+	});
+	const adopter = (name: string, config: Record<string, unknown>) => {
+		const root = path.join(home, name);
+		fs.mkdirSync(path.join(root, ".git"), { recursive: true });
+		fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(root, ".claude", "workflow-core.json"),
+			JSON.stringify(config),
+		);
+		return root;
+	};
+	const ghAnswering = (stdout: string, status = 0) =>
+		vi.stubEnv(
+			"WFC_GH",
+			stubGhScript(
+				home,
+				`#!/bin/sh\necho "$*" >> ${log}\nprintf '%s' '${stdout}'\nexit ${status}\n`,
+			).gh,
+		);
+	const asked = () =>
+		fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : [];
+
+	it("queries only the unserved, undisabled adopter, and launches its bump", async () => {
+		const root = adopter("served", { tracker: "o/served" });
+		adopter("off", { tracker: "o/off", refillLoop: false });
+		const bumped = adopter("bumped", { tracker: "o/bumped" });
+		ghAnswering('[{"number":20}]');
+		const s = shortlists({
+			[root]: list([2]),
+			[bumped]: { ...list([]), rows: [row(20), row(21)] },
+		});
+		const m = await buildFrontier([root], null, s.fn);
+		expect(asked()).toEqual([
+			"issue list -R o/bumped --state open --label origin:release-bump --json number",
+		]);
+		expect(s.asked).toEqual([root, bumped]);
+		expect(
+			m.frontier
+				.map(
+					(r: { root: string; number: number }) =>
+						`${path.basename(r.root)}#${r.number}`,
+				)
+				.sort(),
+		).toEqual(["bumped#20", "served#2"]);
+	});
+
+	it("names a failed bump query and still reads the served repo", async () => {
+		const root = adopter("served", { tracker: "o/served" });
+		const bumped = adopter("bumped", { tracker: "o/bumped" });
+		ghAnswering("", 1);
+		const s = shortlists({ [root]: list([2]) });
+		const m = await buildFrontier([root], null, s.fn);
+		expect(m.bumpsUnread).toEqual([
+			{ root: bumped, error: expect.any(String) },
+		]);
+		expect(m.failed).toEqual([]);
+		expect(s.asked).toEqual([root]);
 	});
 });
 

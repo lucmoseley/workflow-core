@@ -215,6 +215,7 @@ function fakeIo(
 			frontier,
 			retroBundles: [],
 			failed: [],
+			bumpsUnread: [],
 			held: [],
 			goal: null,
 		})) as unknown as TickIo["readFrontier"],

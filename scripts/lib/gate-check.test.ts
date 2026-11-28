@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { shellQuote } from "./sh-quote.js";
 
 const { addedCheckVerdict, runCheckCommand } = require("./gate-check.js");
@@ -31,15 +31,15 @@ describe("a check the write adds", () => {
 	});
 
 	it("passes a check that prints a verdict, whatever its exit code", () => {
-		for (const check of [
-			"`echo met: on main`",
-			"echo unmet: nothing; false",
-			'`echo "7 of 8 verdicts"`',
-		])
+		for (const check of ["`echo met: on main`", "echo unmet: nothing; false"])
 			expect(verdictOf("", gate(check))).toEqual({
 				refusals: [],
 				warnings: [],
 			});
+		expect(verdictOf("", gate('`echo "8 of 8 verdicts"`'))).toEqual({
+			refusals: [],
+			warnings: [],
+		});
 	});
 
 	it.each([
@@ -308,5 +308,124 @@ describe("a check the write does not add", () => {
 		expect(
 			verdictOf("", "**Gated on:** it lands — abandon if: it is dropped\n"),
 		).toEqual({ refusals: [], warnings: [] });
+	});
+});
+
+describe("a count gate projected from its reading history (#5861)", () => {
+	const DayMs = 864e5;
+	const { recordReading, readHistory } = require("./gate-projection.js");
+	const { readHostTracker } = require("./refill-repos.js");
+	const { hostRoot } = require("./host-root.js");
+	const repo = readHostTracker(hostRoot()) ?? "";
+	const Now = Date.parse("2026-11-28T00:00:00Z");
+	const Command = 'echo "1 of 15 commits"';
+	let dir: string;
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-projection-"));
+		vi.stubEnv("WFC_GATE_HISTORY", path.join(dir, "h.jsonl"));
+	});
+	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+	const seed = (days: number, reading: string, issue: number | null = 1) =>
+		expect(
+			recordReading({
+				repo,
+				issue,
+				command: Command,
+				reading,
+				at: Now - days * DayMs,
+			}),
+		).toBeNull();
+	const body = (basis: string) =>
+		`**Gated on:** 15 commits — check: \`${Command}\` — abandon if: it is dropped\n**Gate basis:** ${basis}\n`;
+	const judge = (basis: string, run = true, issue: number | undefined = 1) =>
+		addedCheckVerdict("", body(basis), {
+			run,
+			issue,
+			now: Now,
+			timeoutMs: TIMEOUT_MS,
+		});
+
+	it("refuses a 7-day history the rate cannot carry to the floor, naming the date and the reachable floor", () => {
+		seed(8, "0 of 15 commits");
+		const { refusals } = judge("15 commits, #5687");
+		expect(refusals).toHaveLength(1);
+		expect(refusals[0]).toContain("1 of 15 commits");
+		expect(refusals[0]).toContain("14 remaining are met on 2027-03-06");
+		expect(refusals[0]).toContain("#5687 Q1");
+		expect(refusals[0]).toContain("it reaches 2 within 7 days");
+		expect(refusals[0]).toContain("§Gating an issue");
+	});
+
+	it("passes the same history where the basis cites a founder question round", () => {
+		seed(8, "0 of 15 commits");
+		expect(judge("15 commits, set by #4925 Q2").refusals).toEqual([]);
+	});
+
+	it("refuses a stated expected time past the bound under 7 days of history", () => {
+		const { refusals } = judge(
+			"baseline 1/1; pass = 15 commits in n = 15 commits (about 33 days at 0.5 commits a day); fail never",
+		);
+		expect(refusals).toHaveLength(1);
+		expect(refusals[0]).toContain("expects 33 days");
+	});
+
+	it("warns where there is no history and no stated time", () => {
+		const { refusals, warnings } = judge("15 commits, #5687");
+		expect(refusals).toEqual([]);
+		expect(warnings.join(" ")).toContain(
+			"the daily stale-ticket run projects it once it has a day of readings",
+		);
+	});
+
+	it("passes a met count", () => {
+		const met = 'echo "15 of 15 commits"';
+		seed(8, "0 of 15 commits");
+		expect(
+			addedCheckVerdict(
+				"",
+				`**Gated on:** 15 commits — check: \`${met}\` — abandon if: it is dropped\n**Gate basis:** 15 commits, #5687\n`,
+				{ run: true, issue: 1, now: Now, timeoutMs: TIMEOUT_MS },
+			).refusals,
+		).toEqual([]);
+	});
+
+	it("refuses from the command's history alone on the run: false path, adding no row", () => {
+		seed(9, "0 of 15 commits", null);
+		seed(1, "1 of 15 commits", 4);
+		const { refusals } = judge("15 commits, #5687", false, undefined);
+		expect(refusals).toHaveLength(1);
+		expect(refusals[0]).toContain("1 of 15");
+		expect(readHistory({ repo, command: Command })).toHaveLength(2);
+	});
+
+	it("judges an issue with no rows of its own on its command's history, before adding its own reading", () => {
+		seed(9, "0 of 15 commits", 5);
+		const { refusals } = judge("15 commits, #5687", true, 2);
+		expect(refusals).toHaveLength(1);
+		expect(readHistory({ repo, issue: 2 })).toHaveLength(1);
+	});
+
+	it("warns, never throws, where the history cannot be read", () => {
+		fs.mkdirSync(path.join(dir, "h.jsonl"));
+		const { refusals, warnings } = judge("15 commits, #5687");
+		expect(refusals).toEqual([]);
+		expect(warnings.join(" ")).toContain("The gate history could not be read");
+	});
+
+	it("warns where its own reading cannot be added to the history, still judging the gate", () => {
+		seed(8, "0 of 15 commits");
+		fs.chmodSync(path.join(dir, "h.jsonl"), 0o444);
+		const { refusals, warnings } = judge("15 commits, #5687");
+		expect(refusals).toHaveLength(1);
+		expect(warnings.join(" ")).toContain(
+			"was not added to the gate history (EACCES",
+		);
+	});
+
+	it("adds its own run's reading to the issue's history", () => {
+		judge("15 commits, #5687");
+		expect(readHistory({ repo, issue: 1 })).toHaveLength(1);
 	});
 });
