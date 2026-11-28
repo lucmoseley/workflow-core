@@ -281,10 +281,28 @@ describe("a launch killed from outside (#5145)", () => {
 		);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain(
-			"(claude exited 137; not recorded as launched.)",
+			"REFUSED: /implement 341 — not launching this member.\n  (claude exited 137; not recorded as launched.)",
 		);
 		expect(r.stderr).not.toContain("did not return within");
 		expect(launchArgv()).toContain("/wayfinder 1114");
+	});
+});
+
+describe("a launch the launcher refuses (#5918)", () => {
+	it("carries the launcher's own line under the member's REFUSED header", async () => {
+		stubClaude({});
+		const refusing = path.join(fx.dir, "refusing-claude");
+		fs.writeFileSync(
+			refusing,
+			`#!/bin/bash\n[[ " $* " == *" --bg "* ]] && { echo "Workspace not trusted."; exit 1; }\nexec ${shellQuote(stubPath())} "$@"\n`,
+			{ mode: 0o755 },
+		);
+		const r = await runCore(["opus", "/implement 341"], {
+			WFC_CLAUDE_BIN: refusing,
+		});
+		expect(r.stderr).toContain(
+			"REFUSED: /implement 341 — not launching this member.\n  Workspace not trusted.\n  (claude exited 1; not recorded as launched.)",
+		);
 	});
 });
 

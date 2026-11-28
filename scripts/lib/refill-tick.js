@@ -108,6 +108,7 @@ const {
 	updateState,
 } = require("./refill-state.js");
 const refillBatch = require("./refill-batch.js");
+const { isUntrusted } = require("./workspace-trust.js");
 const { iso, launchName } = require("./refill-block-core.js");
 const blocks = require("./refill-blocks.js");
 const {
@@ -661,6 +662,7 @@ const launchOrResume = (batch, served) =>
 			});
 		},
 		admitResume,
+		isUntrusted,
 		stagger: staggerResume,
 		recordLaunch,
 		launchFresh: launchBatch,

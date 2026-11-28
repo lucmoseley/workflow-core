@@ -654,7 +654,7 @@ it("refuses every batch behind a parked resume the re-read made wait, naming why
 		},
 	);
 	expect(called).toEqual(["/a"]);
-	expect(line).toContain(`refused b /implement 9: ${reason}`);
+	expect(line).toContain(`refused a /implement 1; b /implement 9: ${reason}`);
 });
 
 describe("a batch on record before its dispatch (#4180)", () => {
