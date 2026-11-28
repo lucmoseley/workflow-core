@@ -255,7 +255,6 @@ function project(rows, counts, now) {
 const reachableFloor = (a, ratePerDay) =>
 	a + Math.floor(Math.max(0, ratePerDay) * BOUND_DAYS);
 
-const BOUND_RULING = "#5687 Q1";
 const BOUND_ROUND = { issue: 5687, round: 1 };
 const FOUNDER_ROUND_RE = /#(\d+)\s+Q(\d+)\b/g;
 const PASS_CLAUSE_RE = /\bpass\s*=([^;]*)/i;
@@ -324,7 +323,6 @@ function judgeBound(rows, counts, basis, now) {
 
 module.exports = {
 	BOUND_DAYS,
-	BOUND_RULING,
 	MIN_REFUSE_DAYS,
 	judgeBound,
 	project,

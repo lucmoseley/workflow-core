@@ -13,7 +13,6 @@ const { parseErrorFirstLine } = require("./first-line.js");
 const { docPath, isCoreRepo, scriptPath } = require("./script-path");
 const {
 	BOUND_DAYS,
-	BOUND_RULING,
 	MIN_REFUSE_DAYS,
 	judgeBound,
 	parseCounts,
@@ -592,7 +591,7 @@ const dayOf = (at) => new Date(at).toISOString().slice(0, 10);
 const WAYS_OUT =
 	"Re-size or re-measure the gate, or take the longer wait to the founder as a question round and cite it in the `**Gate basis:**` as `#<n> Q<k>`";
 
-const BOUND_CITE = `the ${BOUND_DAYS}-day bound (${BOUND_RULING}: "Nothing should need more than a week")`;
+const BOUND_CITE = `the ${BOUND_DAYS}-day bound (#5687 Q1: "Nothing should need more than a week")`;
 
 /**
  * @typedef {{repo: string, issue: number|null, command: string, basis: string,
