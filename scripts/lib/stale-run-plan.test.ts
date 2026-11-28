@@ -159,7 +159,13 @@ describe("planStaleRun: selection", () => {
 				repo({
 					issues: [issue(1, { body: GATE("x reaches 5") })],
 					gates: [
-						{ number: 1, state: "READING", reading: "2 of 5", closed: false },
+						{
+							number: 1,
+							state: "READING",
+							reading: "2 of 5",
+							closed: false,
+							history: [],
+						},
 					],
 				}),
 			],
@@ -602,17 +608,23 @@ describe("planStaleRun: the catalogue", () => {
 		]);
 	});
 
-	const countGate = (reading: string, history: unknown[]) =>
-		plan([
-			repo({
-				issues: [
-					issue(1, { createdAt: daysAgo(20), body: GATE("x reaches 50") }),
-				],
-				gates: [
-					{ number: 1, state: "READING", reading, closed: false, history },
-				],
-			}),
-		]);
+	const countGate = (
+		reading: string,
+		history: unknown[],
+		body = GATE("x reaches 50"),
+		previous: unknown = null,
+	) =>
+		plan(
+			[
+				repo({
+					issues: [issue(1, { createdAt: daysAgo(20), body })],
+					gates: [
+						{ number: 1, state: "READING", reading, closed: false, history },
+					],
+				}),
+			],
+			{ previous },
+		);
 	const row = (d: number, a: number, since: number) => ({
 		repo: REPO,
 		issue: 1,
@@ -657,6 +669,53 @@ describe("planStaleRun: the catalogue", () => {
 		]);
 		expect(p.lines).toEqual([]);
 		expect(p.filings).toEqual([]);
+	});
+
+	it("a projection past its bound on a basis citing a founder round lists nothing; unmoved still lists", () => {
+		const ruled =
+			"**Gated on:** x reaches 50 — check: `echo x` — abandon if: never\n**Gate basis:** the wait set at #12 Q2";
+		const projected = countGate(
+			"5 of 50",
+			[row(8, 1, 8), row(2, 4, 2), row(0, 5, 0)],
+			ruled,
+		);
+		expect(projected.lines).toEqual([]);
+		expect(projected.filings).toEqual([]);
+		const unmoved = countGate("3 of 50", [row(9, 3, 9), row(0, 3, 9)], ruled);
+		expect(classOf(unmoved, 1)).toEqual(["C1", "C7"]);
+	});
+
+	it("a flat count reading on under a week of history lists nothing", () => {
+		const p = countGate("3 of 50", [row(1.5, 3, 1.5), row(0, 3, 1.5)]);
+		expect(p.lines).toEqual([]);
+		expect(p.filings).toEqual([]);
+	});
+
+	it("a count reading with no history falls back to the run record's unmoved line", () => {
+		const p = countGate(
+			"3 of 50",
+			[],
+			GATE("x reaches 50"),
+			prevRow({
+				gates: { "o/r#1": { reading: "3 of 50", since: daysAgo(8) } },
+			}),
+		);
+		expect(texts(p)).toEqual(["o/r#1 gate READING: 3 of 50; unmoved 8 d"]);
+		expect(p.filings).toEqual([]);
+	});
+
+	it("a stalled count gate with no basis gets its basis line and its data-route filing", () => {
+		const p = countGate(
+			"3 of 50",
+			[row(9, 3, 9), row(0, 3, 9)],
+			"**Gated on:** x reaches 50 — check: `echo x` — abandon if: never",
+		);
+		expect(texts(p)).toEqual([
+			"o/r#1 gate READING: 3 of 50; unmoved 9 d",
+			"o/r#1 data not accruing (3 of 50, 9 d)",
+			"o/r#1 gate READING states no basis: 3 of 50",
+		]);
+		expect(p.filings).toHaveLength(1);
 	});
 
 	it("C8: an unanswered round, a takes:human and a parked question are owed", () => {

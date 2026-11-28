@@ -6,6 +6,7 @@ const { URGENT_LABEL } = require("./urgent-label.js");
 const { parseVerdict } = require("./gate-check.js");
 const {
 	BOUND_DAYS,
+	MIN_REFUSE_DAYS,
 	RATE_WINDOW_DAYS,
 	hasFounderRound,
 	parseCounts,
@@ -110,7 +111,7 @@ const CLASS_ORDER = /** @type {Cls[]} */ (Object.keys(CLASS_NAMES));
  * @property {{repo: string, number: number}|null} [parent]
  * @property {TimelineRow[]} [timeline]
  * @typedef {{number: number, state: string, reading: string, closed: boolean, detail?: string|null,
- *   history?: import("./gate-projection.js").HistoryRow[]}} GateRow
+ *   history: import("./gate-projection.js").HistoryRow[]}} GateRow
  * @typedef {{issue: number, sessionId: string|null, claimedAt: string}} ClaimRecord
  * @typedef {object} SnapRepo
  * @property {string} root
@@ -487,22 +488,27 @@ function planRepair(rc, g, iss, d) {
 		});
 		return;
 	}
-	add(rc, {
-		n: g.number,
-		cls: "C7",
-		sig: "check source absent",
-		text: `data not accruing (${shown}, ${d} d)`,
-	});
 	const detail = g.detail ? ` (${oneLine(g.detail)})` : "";
-	fileDataRoute(
-		rc,
-		iss,
-		`gate check reads DEAD because its data source is absent: \`${shown}\`${detail}, for ${d} d`,
-	);
+	notAccruing(rc, iss, {
+		sig: "check source absent",
+		shown,
+		d,
+		why: `gate check reads DEAD because its data source is absent: \`${shown}\`${detail}, for ${d} d`,
+	});
 }
 
-/** @param {RepoCtx} rc @param {SnapIssue} iss @param {string} why */
-function fileDataRoute(rc, iss, why) {
+/**
+ * @param {RepoCtx} rc
+ * @param {SnapIssue} iss
+ * @param {{sig: string, shown: string, d: number, why: string}} stall
+ */
+function notAccruing(rc, iss, { sig, shown, d, why }) {
+	add(rc, {
+		n: iss.number,
+		cls: "C7",
+		sig,
+		text: `data not accruing (${shown}, ${d} d)`,
+	});
 	rc.ctx.filings.push({
 		kind: "data-route",
 		tracker: rc.repo,
@@ -512,61 +518,85 @@ function fileDataRoute(rc, iss, why) {
 	});
 }
 
-/** @param {RepoCtx} rc @param {GateRow} g @param {SnapIssue} iss @param {string} basis */
-function planCount(rc, g, iss, basis) {
-	const p = project(g.history ?? [], parseCounts(g.reading), rc.ctx.now);
-	const unmoved =
-		p.verdict === "unreachable" && p.unmovedDays >= RATE_WINDOW_DAYS;
-	if (p.verdict !== "unreachable" || (!unmoved && hasFounderRound(basis))) {
-		rc.excluded.add(g.number);
-		return;
+/**
+ * @param {Extract<import("./gate-projection.js").Projection, {metAt: unknown}>} p
+ * @param {string} shown
+ */
+function countStall(p, shown) {
+	if (p.unmovedDays >= RATE_WINDOW_DAYS) {
+		const d = Math.floor(p.unmovedDays);
+		return {
+			projected: false,
+			sig: "count gate unmoved",
+			state: `unmoved ${d} d`,
+			d,
+			why: `count gate reads \`${shown}\` and has not moved for ${d} d`,
+		};
 	}
-	const shown = oneLine(g.reading);
-	const d = Math.floor(unmoved ? p.unmovedDays : p.spanDays);
+	if (p.spanDays < MIN_REFUSE_DAYS) return null;
+	const d = Math.floor(p.spanDays);
 	const met = p.metAt === null ? "never" : isoDate(p.metAt);
+	return {
+		projected: true,
+		sig: "count gate projected past bound",
+		state: `projected met ${met}`,
+		d,
+		why: `count gate reads \`${shown}\` and, at its rate over the last ${d} d, is projected to be met ${met}, past the ${BOUND_DAYS}-day bound`,
+	};
+}
+
+/**
+ * @param {RepoCtx} rc @param {GateRow} g @param {SnapIssue} iss @param {string} basis
+ * @returns {"fresh"|"stalled"|"unjudged"}
+ */
+function planCount(rc, g, iss, basis) {
+	const p = project(g.history, parseCounts(g.reading), rc.ctx.now);
+	if (p.verdict === "on-track") return "fresh";
+	const shown = oneLine(g.reading);
+	const stall = p.verdict === "unreachable" ? countStall(p, shown) : null;
+	if (stall === null) return "unjudged";
+	if (stall.projected && hasFounderRound(basis)) return "fresh";
 	add(rc, {
 		n: g.number,
 		cls: "C1",
-		sig: unmoved ? "count gate unmoved" : "count gate projected past bound",
-		text: `gate READING: ${shown}; ${unmoved ? `unmoved ${d} d` : `projected met ${met}`}`,
+		sig: stall.sig,
+		text: `gate READING: ${shown}; ${stall.state}`,
 	});
-	add(rc, {
-		n: g.number,
-		cls: "C7",
-		sig: "count data not accruing",
-		text: `data not accruing (${shown}, ${d} d)`,
-	});
-	fileDataRoute(
-		rc,
-		iss,
-		unmoved
-			? `count gate reads \`${shown}\` and has not moved for ${d} d`
-			: `count gate reads \`${shown}\` and, at its rate over the last ${d} d, is projected to be met ${met}, past the ${BOUND_DAYS}-day bound`,
-	);
+	notAccruing(rc, iss, { ...stall, shown });
+	return "stalled";
 }
 
 /** @param {RepoCtx} rc @param {{g: GateRow, iss: SnapIssue, d: number, changed: boolean}} at */
 function planReading(rc, { g, iss, d, changed }) {
 	const shown = oneLine(g.reading);
 	const n = g.number;
-	const { basis } = resolveGate(iss.body, rc.ctx.now);
-	if (changed && parseVerdict(g.reading) === null)
+	if (changed && parseVerdict(g.reading) === null) {
 		add(rc, {
 			n,
 			cls: "C2",
 			sig: "changed, no verdict",
 			text: "gate reading changed, needs a judge",
 		});
-	else if (!basis)
+		return;
+	}
+	const { basis } = resolveGate(iss.body, rc.ctx.now);
+	const counted =
+		parseCounts(g.reading).length > 0
+			? planCount(rc, g, iss, basis ?? "")
+			: "unjudged";
+	if (!basis)
 		add(rc, {
 			n,
 			cls: "C1",
 			sig: "gate states no basis",
 			text: `gate READING states no basis: ${shown}`,
 		});
-	else if (parseCounts(g.reading).length > 0) planCount(rc, g, iss, basis);
-	else if (d < GATE_FRESH_DAYS) rc.excluded.add(n);
-	else
+	else if (
+		counted === "fresh" ||
+		(counted === "unjudged" && d < GATE_FRESH_DAYS)
+	)
+		rc.excluded.add(n);
+	else if (counted === "unjudged")
 		add(rc, {
 			n,
 			cls: "C1",

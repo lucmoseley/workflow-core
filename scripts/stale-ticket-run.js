@@ -293,7 +293,7 @@ async function readCycles(tracker, issues) {
  * @param {number} number
  * @param {unknown} command
  */
-function gateHistory(tracker, number, command) {
+function readGateHistory(tracker, number, command) {
 	try {
 		return readHistory({
 			repo: tracker,
@@ -331,7 +331,7 @@ function readGateRows(root, tracker, run) {
 							reading: g.reading,
 							closed: g.closed === true,
 							detail: typeof g.detail === "string" ? g.detail : null,
-							history: gateHistory(tracker, g.number, g.command),
+							history: readGateHistory(tracker, g.number, g.command),
 						},
 					]
 				: [];
