@@ -296,7 +296,7 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "SessionStart",
-		id: "scripts/guard-plugin-gap.js --notify",
+		id: "scripts/guard-plugin-gap.js",
 		matcher: null,
 		covers: [],
 	},

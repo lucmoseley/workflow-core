@@ -2,17 +2,13 @@
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
-const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { deref } = require("./lib/deref.js");
-const { envelope } = require("./lib/hook-envelope.js");
-const { hostRoot } = require("./lib/host-root.js");
 const { readPluginState, resolveConfigDir } = require("./lib/plugin-state.js");
 const { readRuleText } = require("./lib/rule-text.js");
-const { scriptPath } = require("./lib/script-path.js");
 const { walkCommand } = require("./lib/walk-command.js");
 const { ignoreFailure, orFallback } = require("./lib/caught.js");
-const { parseOrExit } = require("./lib/cli-args.js");
+const { run } = require("./lib/guard-entry.js");
 const { isDeclined, readPendingConsent } = require("./lib/adopter-consent.js");
 const { readStepsOwed } = require("./lib/steps-owed.js");
 const { HOOKS, hookRootOf, NO_CORE_FIX } = require("./lib/adopter-skeleton.js");
@@ -22,11 +18,6 @@ const {
 	predictedRefConflict,
 	refConflictExplanation,
 } = require("./lib/materialise-plugin.js");
-
-const USAGE = `usage: node ${scriptPath("guard-plugin-gap.js")} --notify`;
-
-/** @type {import("./lib/cli-args").CliSpec} */
-const CLI = { usage: USAGE, flags: { "--notify": "boolean" } };
 
 /**
  * @param {ReturnType<typeof readPluginState>} state
@@ -337,29 +328,36 @@ function buildReport({ root, pluginRoot, runningRoot }) {
 	return join(lines.join("\n"));
 }
 
-/** @param {string[]} argv */
-function main(argv) {
-	if (!parseOrExit(argv, CLI).flags["--notify"]) {
-		writeFd(2, `${USAGE}\n`);
-		return 2;
-	}
-	try {
-		const root = hostRoot();
-		const runningRoot = process.env.CLAUDE_PLUGIN_ROOT;
-		const pluginRoot = runningRoot ?? root;
-		const text = buildReport({ root, pluginRoot, runningRoot });
-		if (!text) return 0;
-		writeFd(
-			1,
-			`${JSON.stringify(envelope("SessionStart", { additionalContext: text }))}\n`,
-		);
-		return 0;
-	} catch (err) {
-		ignoreFailure(() =>
-			require("./lib/arbiter-core.js").logError("guard-plugin-gap", err),
-		);
-		return 0;
-	}
+/**
+ * @typedef {{ root: string, runningRoot: string|undefined }} Ports
+ */
+
+/**
+ * @param {string} _source
+ * @param {Ports} io
+ * @returns {import("./lib/guard-entry.js").Decision}
+ */
+function decide(_source, { root, runningRoot }) {
+	const text = buildReport({
+		root,
+		pluginRoot: runningRoot ?? root,
+		runningRoot,
+	});
+	return text ? { context: text } : null;
 }
 
-if (require.main === module) process.exit(main(process.argv.slice(2)));
+if (require.main === module)
+	run({
+		field: "source",
+		top: true,
+		// #4340
+		event: /** @type {import("./lib/guard-entry.js").HookEvent} */ (
+			/** @type {unknown} */ ("SessionStart")
+		),
+		noun: "a session's start",
+		decide,
+		ports: ({ root }) => ({
+			root,
+			runningRoot: process.env.CLAUDE_PLUGIN_ROOT,
+		}),
+	});

@@ -40,7 +40,7 @@ describe("check-program-output", () => {
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("FAIL: 1 write(s) past writeFd");
 		expect(r.out).toContain(
-			"scripts/measure-a.js:1 writes past writeFd before process.exit (`console.log(`). Fix: write through writeFd in scripts/lib/write-fd.js, as scripts/guard-plugin-gap.js does",
+			"scripts/measure-a.js:1 writes past writeFd before process.exit (`console.log(`). Fix: write through writeFd in scripts/lib/write-fd.js, as scripts/upgrade.js does",
 		);
 	});
 

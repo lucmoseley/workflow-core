@@ -12155,6 +12155,7 @@
 			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-plugin-gap.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",

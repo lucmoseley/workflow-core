@@ -13,6 +13,10 @@ import { runInProcess } from "./lib/run-in-process.js";
 import { appendStepsOwed, declineStepOwed } from "./lib/steps-owed.js";
 
 const SCRIPT = path.join(__dirname, "guard-plugin-gap.js");
+const PAYLOAD = JSON.stringify({
+	hook_event_name: "SessionStart",
+	source: "startup",
+});
 const fixture = adopterFixtures("wfc-guard-plugin-gap-");
 
 function report({
@@ -24,7 +28,8 @@ function report({
 	pluginRoot?: string;
 	configDir: string;
 }): string | null {
-	const r = runInProcess(SCRIPT, ["--notify"], {
+	const r = runInProcess(SCRIPT, [], {
+		stdin: PAYLOAD,
 		env: {
 			...process.env,
 			CLAUDE_PROJECT_DIR: root,
@@ -111,14 +116,15 @@ describe("guard-plugin-gap.js's report (#243)", () => {
 		expect(report({ root, pluginRoot, configDir })).toBeNull();
 	});
 
-	it("--notify prints nothing and exits 0 on a clean adopter", () => {
+	it("prints nothing and exits 0 on a clean adopter", () => {
 		const { root, pluginRoot, configDir } = fixture({
 			pinRef: "v1.1.8",
 			installedVersion: "1.1.8",
 			supplyTag: "v1.1.8",
 		});
 
-		const r = runInProcess(SCRIPT, ["--notify"], {
+		const r = runInProcess(SCRIPT, [], {
+			stdin: PAYLOAD,
 			env: {
 				...process.env,
 				CLAUDE_PROJECT_DIR: root,
@@ -143,9 +149,10 @@ describe("guard-plugin-gap.js's report (#243)", () => {
 		);
 		const r = keptSpawn("boundary").spawnSync(
 			process.execPath,
-			["--require", preload, SCRIPT, "--notify"],
+			["--require", preload, SCRIPT],
 			{
 				encoding: "utf8",
+				input: PAYLOAD,
 				env: {
 					...process.env,
 					CLAUDE_PROJECT_DIR: root,
@@ -159,7 +166,7 @@ describe("guard-plugin-gap.js's report (#243)", () => {
 		vi.stubEnv("CLAUDE_CONFIG_DIR", configDir);
 		vi.stubEnv("CLAUDE_PROJECT_DIR", root);
 		expect(fs.readFileSync(errorLog(), "utf8")).toMatch(
-			/\tguard-plugin-gap\t.*planted plugin-state fault/,
+			/\tguard-plugin-gap\.js\t.*planted plugin-state fault/,
 		);
 	});
 });
@@ -231,15 +238,6 @@ describe("guard-plugin-gap.js's corrected reporting (#251)", () => {
 		expect(text).toMatch(/upgrade\.js$/m);
 		decline(root, "v1.1.11", { configDir });
 		expect(report({ root, pluginRoot, configDir })).toBeNull();
-	});
-
-	it("--notify refuses a bad invocation with usage on stderr and exit 2", () => {
-		const r = runInProcess(SCRIPT, []);
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain(
-			"usage: node scripts/guard-plugin-gap.js --notify",
-		);
-		expect(r.stdout).toBe("");
 	});
 });
 
