@@ -835,6 +835,12 @@
 						"needle": "6 hours"
 					}
 				]
+			},
+			{
+				"path": "docs/data/fix-or-file-labels-2026-11-28/natural.jsonl",
+				"anchors": [
+					"{\"id\":\"s-062\","
+				]
 			}
 		]
 	},
@@ -1872,6 +1878,19 @@
 						"needle": "21-day"
 					}
 				]
+			},
+			{
+				"path": "scripts/lib/frontier-order.test.ts",
+				"anchors": [
+					"lifts a 21-day leaf over depth plus closes of 2"
+				]
+			},
+			{
+				"path": "scripts/stale-run-age.test.ts",
+				"anchors": [
+					"/^22 of 21 days since/",
+					"\"0 of 21 days: no stale-ticket run is recorded yet"
+				]
 			}
 		]
 	},
@@ -2716,6 +2735,14 @@
 			{
 				"needle": "weekly release cut",
 				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/data/fix-or-file-labels-2026-11-28/natural.jsonl",
+				"anchors": [
+					"{\"id\":\"s-090\","
+				]
 			}
 		]
 	}
