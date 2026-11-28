@@ -199,7 +199,7 @@ it("cuts over with nothing to land, and a second run only reports", () => {
 	expect(render(second)).toContain("main is level with origin/main");
 });
 
-// guess, #5824: slept for real, outrunning MERGE_LIMIT_MS by a second
+// guess, #5824: outruns MERGE_LIMIT_MS by a second
 const GATE_SLEEP_S = 2;
 // guess, #5824: a merge-port limit well under the gate's sleep
 const MERGE_LIMIT_MS = 1000;
