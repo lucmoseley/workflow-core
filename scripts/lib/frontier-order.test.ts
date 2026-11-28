@@ -56,6 +56,13 @@ describe("age points (#5880)", () => {
 		expect([6, 7, 13, 14, 21].map((d) => agePointsOf(daysAgo(d), NOW))).toEqual(
 			[0, 1, 1, 2, 3],
 		);
+		expect(order([row(1, { depth: 1 }), aged(2, 7)])).toEqual([1, 2]);
+		expect(order([row(1, { depth: 1 }), aged(2, 7, { reach: 1 })])).toEqual([
+			2, 1,
+		]);
+		expect(order([row(1, { depth: 1, reach: 1 }), aged(2, 13)])).toEqual([
+			1, 2,
+		]);
 	});
 
 	it("gives a missing or unreadable createdAt no points, never an error", () => {
