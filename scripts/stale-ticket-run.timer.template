@@ -3,7 +3,6 @@ Description=Fire the daily stale-ticket run (#5857)
 
 [Timer]
 OnCalendar=daily
-# A day the machine was off is caught up at the next boot (#5849).
 Persistent=true
 
 [Install]
