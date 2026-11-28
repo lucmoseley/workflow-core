@@ -100,3 +100,30 @@ describe("the pre-run freshen's render of an intent-to-add entry (#5891)", () =>
 		expect(r.status).toBe(3);
 	});
 });
+
+describe("the pre-run freshen's render of an untracked file (#5902)", () => {
+	it("leaves out one this session did not write, which no commit of its carries", () => {
+		expect(fresh(SESSION)).toBeUndefined();
+	});
+
+	it("keeps one this session wrote", () => {
+		store.recordWrite(path.join(sb.repo, DOC), SESSION);
+		const snapshot = openSnapshot();
+		expect(freshIn(snapshot, SESSION)).toEqual([READER]);
+		expect(freshIn(snapshot, "a-neighbour")).toBeUndefined();
+	});
+
+	it("keeps every one where it cannot tell whose they are", () => {
+		const snapshot = openSnapshot();
+		expect(freshIn(snapshot, null)).toEqual([READER]);
+		unreadableLedger();
+		expect(freshIn(snapshot, SESSION)).toEqual([READER]);
+	});
+
+	it("keeps one HEAD carries, which a git rm --cached left on disk", () => {
+		git("add", DOC);
+		git("commit", "-qm", "doc");
+		git("rm", "-q", "--cached", DOC);
+		expect(fresh(SESSION)).toEqual([READER]);
+	});
+});
