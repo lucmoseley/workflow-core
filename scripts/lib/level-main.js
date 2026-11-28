@@ -572,7 +572,7 @@ function renderSurvey(s, now) {
 			? ""
 			: `, after discarding ${s.landed.map((l) => l.path).join(", ")}, which ${UPSTREAM} holds byte for byte`;
 	return [
-		`clear: no edit blocks the fast-forward, so the next levelling pass takes main to ${UPSTREAM}${landed} — \`node ${scriptPath("level-main.js")}\` runs one now`,
+		`clear: the next levelling pass takes main to ${UPSTREAM}${landed} — \`node ${scriptPath("level-main.js")}\` runs one now`,
 	];
 }
 
@@ -589,7 +589,7 @@ function renderStatus(o, now) {
 	switch (o.status) {
 		case "busy":
 			lines.push(
-				`skipped: another levelling pass${o.holder === null ? "" : ` (pid ${o.holder})`} holds the lock, so this one did nothing`,
+				`skipped: another levelling pass${o.holder === null ? "" : ` (pid ${o.holder})`} holds the lock`,
 			);
 			break;
 		case "level":
