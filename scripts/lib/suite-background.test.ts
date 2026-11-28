@@ -549,6 +549,47 @@ describe("lib/suite-background.js", () => {
 		}
 	});
 
+	it("re-issues a typed byte from each held-text mark's set as typed (#5910)", () => {
+		const fixOf = (command: string) =>
+			run(command)?.permissionDecisionReason?.split("\nThis suite is ")[0];
+		const free = [0xe1_00, 0xe1_01];
+		const families = [
+			[
+				[0x02, 0x03, 0x04, 0x05, 0x06, 0x0f, 0x10],
+				(b: string) => {
+					const bare = `echo a${b}b; npm run test`;
+					return [`${bare} &`, bare];
+				},
+			],
+			[
+				[0x11, 0x12],
+				(b: string) => {
+					const script = `echo \\$x \\\`a${b}b; npm run test`;
+					return [`flock /l -c "${script} &"`, `flock /l -c "${script}"`];
+				},
+			],
+			[
+				[0x0e],
+				(b: string) => {
+					const typed = `echo ${b}0${b}`;
+					return [
+						`${typed}; watch timeout 300 npm run test \\& true`,
+						`${typed}; watch 'npm run test ; true'`,
+					];
+				},
+			],
+		] as const;
+		const wrong: string[] = [];
+		for (const [codes, shape] of families)
+			for (const code of [...codes, ...free]) {
+				const [command, fix] = shape(String.fromCharCode(code));
+				const got = fixOf(command);
+				if (got !== `${SNAPSHOT_OPENER}${fix}`)
+					wrong.push(`${JSON.stringify(command)} -> ${JSON.stringify(got)}`);
+			}
+		expect(wrong).toEqual([]);
+	});
+
 	it("keeps the escape, the no-tool-call ending and the check before a relaunch", () => {
 		const reason = readDenyReason("nohup npm run test");
 		expect(reason).toContain("WFC_SUITE_DETACH=1");
