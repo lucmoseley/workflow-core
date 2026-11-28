@@ -5,6 +5,8 @@ const fs = require("node:fs");
 const hookBlock = require("./lib/hook-block");
 const { scriptPath } = require("./lib/script-path.js");
 const stopGuard = require("./lib/stop-guard");
+const sessionTranscript = require("./lib/session-transcript.js");
+const { envelope } = require("./lib/hook-envelope.js");
 const jevLog = require("./lib/jev-log.js");
 const { guardDisabled } = require("./lib/workflow-core-config");
 const { hasRoundMarker } = require("./lib/round-marker");
@@ -73,10 +75,17 @@ const QUESTIONS = {
 // guess, #5833: the lowest threshold its plan judges at
 const KEEP_LEAVES_TEXT_AT = 0.5;
 
-// #5833
+// #5833 measured 3 false of 60 judged fires at 0.8
 const FIX_THRESHOLD = 0.8;
 
 const FIX_PREFIX = ".fix-or-file-told-";
+
+const PENDING_PREFIX = ".fix-or-file-pending-";
+
+const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+
+const ACT_COMMAND =
+	/\b(?:file-issue\.js|resolve-ticket\.js|gh\s+issue\s+(?:create|comment|edit|close|reopen)|gh\s+api\b[^\n]*\/comments|git\s+commit)\b/;
 
 const FIX_BUDGET = hookBlock.MAX_BLOCKS;
 
@@ -86,7 +95,8 @@ const LOG_CAP_BYTES = 2_097_152;
 /**
  * @typedef {"skipped-marker"|"skipped-disabled"|"skipped-budget"|
  *   "skipped-no-sdk"|"skipped-redaction"|
- *   "flagged"|"clear"|"outage"|"malformed"|"refused"} Outcome
+ *   "flagged"|"clear"|"outage"|"malformed"|"refused"|
+ *   "fix-or-file-followup"} Outcome
  */
 const OUTCOMES = [
 	"skipped-marker",
@@ -99,11 +109,16 @@ const OUTCOMES = [
 	"outage",
 	"malformed",
 	"refused",
+	"fix-or-file-followup",
 ];
 
-const VENDOR_OUTCOMES = new Set(
-	OUTCOMES.filter((o) => !o.startsWith("skipped-")),
-);
+const VENDOR_OUTCOMES = new Set([
+	"flagged",
+	"clear",
+	"outage",
+	"malformed",
+	"refused",
+]);
 
 /**
  * @param {string} message
@@ -170,28 +185,42 @@ function switchedOff(root) {
 }
 
 /**
- * @param {{message: string, sessionId: string, root: string}} ctx
- * @returns {{outcome: Outcome|null, why?: string, key?: string}}
+ * @typedef {{outcome: null, key: string, askChoice: boolean,
+ *   askLeaves: boolean, held: Outcome|null}} Cleared
  */
-function preflight({ message, sessionId, root }) {
-	if (hasRoundMarker(message)) return { outcome: "skipped-marker" };
+
+/**
+ * @param {{message: string, sessionId: string, root: string, active: boolean}} ctx
+ * @returns {{outcome: Outcome, why?: string} | Cleared}
+ */
+function preflight({ message, sessionId, root, active }) {
 	if (switchedOff(root)) return { outcome: "skipped-disabled" };
-	if (hookBlock.capSpent({ prefix: WARN_PREFIX, sessionId, max: WARN_BUDGET }))
-		return { outcome: "skipped-budget" };
+	/** @type {Outcome|null} */
+	let held = null;
+	if (hasRoundMarker(message)) held = "skipped-marker";
+	else if (
+		hookBlock.capSpent({ prefix: WARN_PREFIX, sessionId, max: WARN_BUDGET })
+	)
+		held = "skipped-budget";
+	const askLeaves =
+		!active &&
+		!hookBlock.capSpent({ prefix: FIX_PREFIX, sessionId, max: FIX_BUDGET });
+	if (held && !askLeaves) return { outcome: held };
 	if (gateway.sdkMissing()) return { outcome: "skipped-no-sdk", why: "sdk" };
 	const key = gateway.readKey();
 	if (!key) return { outcome: "skipped-no-sdk", why: "key" };
 	const refusal = gateway.sweepRefusal({ message });
 	if (refusal) return { outcome: "skipped-redaction", why: refusal };
-	return { outcome: null, key };
+	return { outcome: null, key, askChoice: held === null, askLeaves, held };
 }
 
 /** @typedef {import("./lib/jev-gateway.js").Served} Served */
 
 /**
  * @typedef {{outcome: Outcome, why?: string, confidence?: number,
- *   fixOrFileConfidence?: number, fixOrFileTold?: boolean,
- *   latencyMs?: number, retries?: number, served?: Served}} LineFields
+ *   fixOrFileConfidence?: number, fixOrFileTold?: boolean, called?: boolean,
+ *   latencyMs?: number, retries?: number, served?: Served,
+ *   followUp?: FollowUp}} LineFields
  */
 
 /**
@@ -212,7 +241,7 @@ const keepsText = ({ outcome, fixOrFileConfidence = 0 }) =>
  * @param {{sessionId: string, message: string} & LineFields} spec
  * @returns {Record<string, unknown>}
  */
-function lineFor({ sessionId, message, served, ...fields }) {
+function lineFor({ sessionId, message, served, followUp, ...fields }) {
 	return defined({
 		at: new Date().toISOString(),
 		session: sessionId,
@@ -224,9 +253,11 @@ function lineFor({ sessionId, message, served, ...fields }) {
 		latencyMs: fields.latencyMs,
 		retries: fields.retries || undefined,
 		...served,
-		questionHash: VENDOR_OUTCOMES.has(fields.outcome)
-			? QUESTION_HASH
-			: undefined,
+		...followUp,
+		questionHash:
+			fields.called || VENDOR_OUTCOMES.has(fields.outcome)
+				? QUESTION_HASH
+				: undefined,
 		messageLen: message.length,
 		messageHash: digest(message),
 		messageText: keepsText(fields) ? message.slice(0, TEXT_CAP) : undefined,
@@ -250,7 +281,7 @@ function logGate({ root, ...spec }) {
 
 /** @param {string} text */
 function say(text) {
-	process.stdout.write(JSON.stringify({ systemMessage: text }));
+	deliver({ systemMessage: text });
 }
 
 /**
@@ -352,18 +383,99 @@ async function askWithRetries({
 	}
 }
 
+/** @typedef {import("./lib/stop-guard").StopPayload} StopPayload */
+
+/** @typedef {{firedHash: string, tools: string[], acted: boolean}} FollowUp */
+
+/** @param {string} sessionId */
+const pendingPath = (sessionId) =>
+	hookBlock.counterPath(PENDING_PREFIX, sessionId);
+
+/**
+ * @param {string} raw
+ * @param {number} since
+ * @returns {{name: string, input?: {command?: unknown}}[]}
+ */
+function callsIn(raw, since) {
+	const row = orFallback(() => JSON.parse(raw), null);
+	if (row?.type !== "assistant" || row.isSidechain) return [];
+	if (!(Date.parse(row.timestamp ?? "") > since)) return [];
+	const content = row.message?.content;
+	if (!Array.isArray(content)) return [];
+	return content.filter(
+		(part) => part?.type === "tool_use" && typeof part.name === "string",
+	);
+}
+
+/**
+ * @param {string} text
+ * @param {number} since
+ * @returns {{tools: string[], acted: boolean}}
+ */
+function callsSince(text, since) {
+	const calls = text.split("\n").flatMap((raw) => callsIn(raw, since));
+	return {
+		tools: calls.map((c) => c.name),
+		acted: calls.some(
+			(c) =>
+				EDIT_TOOLS.has(c.name) ||
+				ACT_COMMAND.test(String(c.input?.command ?? "")),
+		),
+	};
+}
+
+/**
+ * @param {{sessionId: string, payload: StopPayload|null}} ctx
+ * @returns {FollowUp|null}
+ */
+function readFollowUp({ sessionId, payload }) {
+	const file = pendingPath(sessionId);
+	const pending = orFallback(
+		() => JSON.parse(fs.readFileSync(file, "utf8")),
+		null,
+	);
+	if (!pending) return null;
+	ignoreFailure(() => fs.unlinkSync(file));
+	const since = Date.parse(pending.at);
+	const transcript = orFallback(() => {
+		const found = sessionTranscript.resolve(payload ?? {}, sessionId);
+		return found ? sessionTranscript.read(found) : "";
+	}, "");
+	return {
+		firedHash: String(pending.hash),
+		...callsSince(transcript, Number.isFinite(since) ? since : 0),
+	};
+}
+
+/** @param {{sessionId: string, message: string}} ctx */
+function markPending({ sessionId, message }) {
+	ignoreFailure(() =>
+		fs.writeFileSync(
+			pendingPath(sessionId),
+			JSON.stringify({ at: new Date().toISOString(), hash: digest(message) }),
+		),
+	);
+}
+
 /**
  * @param {{sessionId: string, message: string, root: string,
- *   payload: import("./lib/stop-guard").StopPayload|null}} ctx
+ *   payload: StopPayload|null}} ctx
  * @returns {Promise<void>}
  */
 async function review({ sessionId, message, root, payload }) {
 	const log = (/** @type {LineFields} */ rest) =>
 		logGate({ root, sessionId, message, ...rest });
 
-	const { outcome, why, key } = preflight({ message, sessionId, root });
-	if (outcome !== null || !key)
-		return log({ outcome: outcome ?? "skipped-no-sdk", why });
+	const active = payload?.stop_hook_active === true;
+	if (active) {
+		const followUp = readFollowUp({ sessionId, payload });
+		if (followUp) log({ outcome: "fix-or-file-followup", followUp });
+	}
+
+	const cleared = preflight({ message, sessionId, root, active });
+	if (cleared.outcome !== null)
+		return log({ outcome: cleared.outcome, why: cleared.why });
+	const { key } = cleared;
 
 	const abortMs = abortBudget();
 	const started = Date.now();
@@ -376,22 +488,41 @@ async function review({ sessionId, message, root, payload }) {
 		started,
 	});
 	if (!answer) return;
-	const { probabilities, served, retries } = answer;
+	settle({ ...answer, ...cleared, sessionId, message, log, started });
+}
+
+/**
+ * @param {Cleared & {probabilities: Record<string, number>, served: Served,
+ *   retries: number, sessionId: string, message: string,
+ *   log: (rest: LineFields) => void, started: number}} spec
+ */
+function settle({
+	probabilities,
+	served,
+	retries,
+	askChoice,
+	askLeaves,
+	held,
+	sessionId,
+	message,
+	log,
+	started,
+}) {
 	const probability = probabilities[QUESTION_KEY] ?? 0;
 	const leaves = probabilities[LEAVES_KEY] ?? 0;
-
 	const latencyMs = Date.now() - started;
 	// #171
-	const flagged = probability >= 0.5;
+	const flagged = askChoice && probability >= 0.5;
 	const told =
-		payload?.stop_hook_active !== true &&
+		askLeaves &&
 		leaves >= FIX_THRESHOLD &&
 		hookBlock.charge({ prefix: FIX_PREFIX, sessionId, max: FIX_BUDGET });
 	log({
-		outcome: flagged ? "flagged" : "clear",
-		confidence: Number(probability.toFixed(2)),
-		fixOrFileConfidence: Number(leaves.toFixed(2)),
+		outcome: held ?? (flagged ? "flagged" : "clear"),
+		confidence: askChoice ? Number(probability.toFixed(2)) : undefined,
+		fixOrFileConfidence: askLeaves ? Number(leaves.toFixed(2)) : undefined,
 		fixOrFileTold: told,
+		called: true,
 		latencyMs,
 		retries,
 		served,
@@ -399,6 +530,7 @@ async function review({ sessionId, message, root, payload }) {
 	const warned =
 		flagged &&
 		hookBlock.charge({ prefix: WARN_PREFIX, sessionId, max: WARN_BUDGET });
+	if (told) markPending({ sessionId, message });
 	deliver({
 		systemMessage: warned ? advisory(digest(message)) : undefined,
 		additionalContext: told ? FIX_OR_FILE_NOTICE : undefined,
@@ -413,11 +545,7 @@ function deliver({ systemMessage, additionalContext }) {
 	process.stdout.write(
 		JSON.stringify({
 			...(systemMessage ? { systemMessage } : {}),
-			...(additionalContext
-				? {
-						hookSpecificOutput: { hookEventName: "Stop", additionalContext },
-					}
-				: {}),
+			...(additionalContext ? envelope("Stop", { additionalContext }) : {}),
 		}),
 	);
 }

@@ -47,6 +47,8 @@ interface LogLine {
 	confidence?: number;
 	fixOrFileConfidence?: number;
 	fixOrFileTold?: boolean;
+	tools?: string[];
+	acted?: boolean;
 	latencyMs?: number;
 	retries?: number;
 	model?: string;
@@ -240,18 +242,25 @@ const ROUND =
 const WITH_SECRET = `Two ways to take this, and the key is AKIA${"Z3XQ7LMNB4RTVKWD"} — pick one.`;
 
 describe("the round-marker gate", () => {
-	it("skips a message the other guard already owns", async () => {
-		expect(await outcomeOf(ROUND)).toBe("skipped-marker");
+	it("leaves a message the other guard already owns to it", async () => {
+		const { res } = await ask(ROUND, 0.99);
+		expect(saidBy(res)).toBe("");
+		const [line] = readLogLines();
+		expect(line.outcome).toBe("skipped-marker");
+		expect(line).not.toHaveProperty("confidence");
 	});
 
-	it("takes the marker gate first, before every other limb", async () => {
-		// #200
+	it("takes the switch first, before every other limb", async () => {
 		expect(await outcomeOf(ROUND, { WFC_JEV_ADVISORY: "0" })).toBe(
-			"skipped-marker",
+			"skipped-disabled",
 		);
 	});
 
-	it("never calls the vendor on a message carrying a round marker", async () => {
+	it("never calls the vendor on a round-marked message once the notices are spent", async () => {
+		fs.writeFileSync(
+			marker(`.fix-or-file-told-${sid}`),
+			`${hookBlock.MAX_BLOCKS}\n`,
+		);
 		const { res, asks } = await ask(ROUND, 0.99);
 		expect(asks).toEqual([]);
 		expect(saidBy(res)).toBe("");
@@ -300,7 +309,9 @@ describe("the warn budget", () => {
 			marker(`.jev-advisory-nagged-${sid}`),
 			`${hookBlock.MAX_BLOCKS}\n`,
 		);
-		expect(await outcomeOf(PLAIN)).toBe("skipped-budget");
+		const { res } = await ask(PLAIN, 0.99);
+		expect(saidBy(res)).toBe("");
+		expect(readLogLines()[0].outcome).toBe("skipped-budget");
 	});
 
 	it("runs while the budget is only part spent", async () => {
@@ -1130,11 +1141,65 @@ describe("the fix-or-file question (#5833)", () => {
 		expect(readLogLines()[0]).not.toHaveProperty("fixOrFileTold");
 	});
 
-	it("never tells a turn a Stop hook already continued", async () => {
+	it("never asks a turn a Stop hook already continued", async () => {
 		const { base } = await answering(0.1, 0.99);
 		const res = await run(PLAIN, callable(base), { stop_hook_active: true });
 		expect(res.stdout).toBe("");
-		expect(readLogLines()[0].fixOrFileConfidence).toBe(0.99);
+		expect(readLogLines()[0]).not.toHaveProperty("fixOrFileConfidence");
+	});
+
+	it("still asks it on a round-marked message", async () => {
+		const { res, asks } = await ask(ROUND, 0.99, {}, 0.9);
+		expect(asks).toHaveLength(1);
+		const out = JSON.parse(res.stdout);
+		expect(out).not.toHaveProperty("systemMessage");
+		expect(toldBy(res)).toContain("rule:fix-or-file");
+		const [line] = readLogLines();
+		expect(line.outcome).toBe("skipped-marker");
+		expect(line.fixOrFileConfidence).toBe(0.9);
+		expect(line).not.toHaveProperty("confidence");
+	});
+
+	it("still asks it once the choice warns are spent", async () => {
+		fs.writeFileSync(
+			marker(`.jev-advisory-nagged-${sid}`),
+			`${hookBlock.MAX_BLOCKS}\n`,
+		);
+		const { res } = await ask(PLAIN, 0.99, {}, 0.9);
+		expect(toldBy(res)).toContain("rule:fix-or-file");
+		expect(readLogLines()[0].outcome).toBe("skipped-budget");
+	});
+
+	it("logs what the session did after a notice, on the turn it continued", async () => {
+		const { base } = await answering(0.1, 0.9);
+		await run(PLAIN, callable(base));
+		const transcript = path.join(dir, "followup.jsonl");
+		const later = new Date(Date.now() + 60_000).toISOString();
+		fs.writeFileSync(
+			transcript,
+			`${JSON.stringify({
+				type: "assistant",
+				timestamp: later,
+				message: {
+					content: [
+						{
+							type: "tool_use",
+							name: "Bash",
+							input: { command: "node scripts/file-issue.js --title x" },
+						},
+					],
+				},
+			})}\n`,
+		);
+		await run("Filed it as #12.", callable(base), {
+			stop_hook_active: true,
+			transcript_path: transcript,
+		});
+		const followUp = readLogLines().find(
+			(l) => l.outcome === "fix-or-file-followup",
+		);
+		expect(followUp?.tools).toEqual(["Bash"]);
+		expect(followUp?.acted).toBe(true);
 	});
 
 	it("goes quiet once the session's budget is spent", async () => {

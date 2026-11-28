@@ -152,7 +152,7 @@ function withLocalText(rows) {
 const USAGE = `usage: node ${scriptPath("score-fix-or-file.js")} [--labels <jsonl>] [--recorded | [--question <json>] [--route jev|claude] [--model <m>] [--out <jsonl>]]\n`;
 
 /** @returns {Promise<number>} */
-async function main() {
+async function score() {
 	const { values } = parseArgs({
 		options: {
 			labels: { type: "string" },
@@ -205,12 +205,15 @@ async function main() {
 	return 0;
 }
 
-main().then(
-	(code) => {
-		process.exitCode = code;
-	},
-	(e) => {
+/** @returns {Promise<void>} */
+async function main() {
+	process.exitCode = await score();
+}
+
+module.exports = { main };
+
+if (require.main === module)
+	main().catch((e) => {
 		process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n`);
 		process.exitCode = 1;
-	},
-);
+	});

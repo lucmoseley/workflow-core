@@ -23,7 +23,7 @@
 {"id":"f-0022","repo":"workflow-core","transcript":"claude3__f0308cff","label":null,"kind":"fresh","why":"","textHash":"3c8c3dec2381d081","pA":0.28,"pB":0.11}
 {"id":"f-0023","repo":"workflow-core","transcript":"claude2__263c2ab9","label":null,"kind":"fresh","why":"","textHash":"3e3148fb8cff9c57","pA":0.66,"pB":0.51}
 {"id":"f-0024","repo":"workflow-core","transcript":"claude3__363f60cf","label":null,"kind":"fresh","why":"","textHash":"e424eeebf62d9bc5","pA":0.31,"pB":0.08}
-{"id":"f-0025","repo":"mantahostels","transcript":"claude3__0879936e","label":true,"kind":"fresh","why":"Pre-existing doc-map check failure left without an issue number.","textHash":"5220c780cf1ed8bc","pA":0.66,"pB":0.9}
+{"id":"f-0025","repo":"mantahostels","transcript":"claude3__0879936e","label":true,"kind":"fresh","why":"Pre-existing doc-map check failure left without an issue number.","textHash":"5220c780cf1ed8bc","pA":0.66,"pB":0.9,"drawn":["B"]}
 {"id":"f-0026","repo":"workflow-core","transcript":"claude2__8952bd1c","label":null,"kind":"fresh","why":"","textHash":"269562c599c48ec3","pA":0.09,"pB":0.06}
 {"id":"f-0027","repo":"workflow-core","transcript":"claude3__14ff2044","label":null,"kind":"fresh","why":"","textHash":"cc0754c80ff24813","pA":0.77,"pB":0.76}
 {"id":"f-0028","repo":"workflow-core","transcript":"claude3__44c74ccc","label":null,"kind":"fresh","why":"","textHash":"2699f6f680178f22","pA":0.17,"pB":0.07}
@@ -88,7 +88,7 @@
 {"id":"f-0087","repo":"workflow-core","transcript":"claude3__1f5c7fb0","label":null,"kind":"fresh","why":"","textHash":"05b94a33bc4d9727","pA":0.56,"pB":0.52}
 {"id":"f-0088","repo":"workflow-core","transcript":"claude3__04f93db3","label":null,"kind":"fresh","why":"","textHash":"df249cefb4b1a1bf","pA":0.67,"pB":0.56}
 {"id":"f-0089","repo":"workflow-core","transcript":"claude2__b8183825","label":null,"kind":"fresh","why":"","textHash":"db297082ca34031f","pA":0.07,"pB":0.03}
-{"id":"f-0090","repo":"mantahostels","transcript":"claude2__214a44d9","label":false,"kind":"fresh","why":"Defects fixed; process gaps recorded on the numbered ticket; one finding declined.","textHash":"1fdde9c3f09d7664","pA":0.92,"pB":0.86}
+{"id":"f-0090","repo":"mantahostels","transcript":"claude2__214a44d9","label":false,"kind":"fresh","why":"Defects fixed; process gaps recorded on the numbered ticket; one finding declined.","textHash":"1fdde9c3f09d7664","pA":0.92,"pB":0.86,"drawn":["B"]}
 {"id":"f-0091","repo":"workflow-core","transcript":"claude3__4cde778f","label":null,"kind":"fresh","why":"","textHash":"d2de1d4a698a0117","pA":0.31,"pB":0.13}
 {"id":"f-0092","repo":"workflow-core","transcript":"claude2__fff36007","label":null,"kind":"fresh","why":"","textHash":"2ab613cb67c98eb0","pA":0.76,"pB":0.67}
 {"id":"f-0093","repo":"workflow-core","transcript":"claude3__744750cd","label":null,"kind":"fresh","why":"","textHash":"34c4d012c7e4f56d","pA":0.09,"pB":0.05}
@@ -138,7 +138,7 @@
 {"id":"f-0137","repo":"workflow-core","transcript":"claude3__d31f0cbb","label":null,"kind":"fresh","why":"","textHash":"d784e445a76d6a77","pA":0.72,"pB":0.79}
 {"id":"f-0138","repo":"workflow-core","transcript":"claude3__346450b2","label":null,"kind":"fresh","why":"","textHash":"e42c3154cdb4e0fd","pA":0.08,"pB":0.24}
 {"id":"f-0139","repo":"workflow-core","transcript":"claude2__fae5cc2c","label":null,"kind":"fresh","why":"","textHash":"646873c4320710a8","pA":0.17,"pB":0.05}
-{"id":"f-0140","repo":"workflow-core","transcript":"claude3__ce7c19c9","label":true,"kind":"fresh","why":"Stalled main and missing sweeps left for someone, no issue.","textHash":"b01a929788784fc0","pA":0.81,"pB":0.82}
+{"id":"f-0140","repo":"workflow-core","transcript":"claude3__ce7c19c9","label":true,"kind":"fresh","why":"Stalled main and missing sweeps left for someone, no issue.","textHash":"b01a929788784fc0","pA":0.81,"pB":0.82,"drawn":["B"]}
 {"id":"f-0141","repo":"design-vault","transcript":"claude2__07e67fd4","label":null,"kind":"fresh","why":"","textHash":"feb0fa835a5e853a","pA":0.52,"pB":0.37}
 {"id":"f-0142","repo":"workflow-core","transcript":"claude2__613bb495","label":null,"kind":"fresh","why":"","textHash":"6d5bd6e288399765","pA":0.64,"pB":0.52}
 {"id":"f-0143","repo":"workflow-core","transcript":"claude2__86c91c95","label":null,"kind":"fresh","why":"","textHash":"7aefeaafde2a2a7d","pA":0.02,"pB":0.02}
@@ -203,7 +203,7 @@
 {"id":"f-0202","repo":"workflow-core","transcript":"claude2__27f17ad7","label":null,"kind":"fresh","why":"","textHash":"c488cb2f6251c211","pA":0.39,"pB":0.2}
 {"id":"f-0203","repo":"workflow-core","transcript":"claude3__41e00b8d","label":null,"kind":"fresh","why":"","textHash":"b9145d4efb6cdb18","pA":0.08,"pB":0.08}
 {"id":"f-0204","repo":"workflow-core","transcript":"claude2__45336f5c","label":null,"kind":"fresh","why":"","textHash":"4143b7afe3d0d307","pA":0.02,"pB":0.02}
-{"id":"f-0205","repo":"workflow-core","transcript":"claude3__2b4577ee","label":false,"kind":"fresh","why":"Resume bug filed as a numbered ticket; staged files only a caution.","textHash":"bfb11b6be8454ea0","pA":0.8,"pB":0.76}
+{"id":"f-0205","repo":"workflow-core","transcript":"claude3__2b4577ee","label":false,"kind":"fresh","why":"Resume bug filed as a numbered ticket; staged files only a caution.","textHash":"bfb11b6be8454ea0","pA":0.8,"pB":0.76,"drawn":["A"]}
 {"id":"f-0206","repo":"workflow-core","transcript":"claude2__27d448bf","label":null,"kind":"fresh","why":"","textHash":"b3f7cb7cdcfdcbc1","pA":0.38,"pB":0.22}
 {"id":"f-0207","repo":"workflow-core","transcript":"claude3__dfa4bc21","label":null,"kind":"fresh","why":"","textHash":"23c76709e26ef0a7","pA":0.16,"pB":0.07}
 {"id":"f-0208","repo":"workflow-core","transcript":"claude3__38d1a3f0","label":null,"kind":"fresh","why":"","textHash":"4847ecb31b08b798","pA":0.68,"pB":0.15}
@@ -221,7 +221,7 @@
 {"id":"f-0220","repo":"workflow-core","transcript":"claude2__e7e62577","label":null,"kind":"fresh","why":"","textHash":"f9bb6494fdb90b83","pA":0.03,"pB":0.04}
 {"id":"f-0221","repo":"workflow-core","transcript":"claude2__1a14ebf2","label":null,"kind":"fresh","why":"","textHash":"c1ff6bb49fc2678c","pA":0.57,"pB":0.66}
 {"id":"f-0222","repo":"workflow-core","transcript":"claude2-api__7e005800","label":null,"kind":"fresh","why":"","textHash":"e49dd5619509eefc","pA":0.36,"pB":0.12}
-{"id":"f-0223","repo":"workflow-core","transcript":"claude3__c5b8d468","label":true,"kind":"fresh","why":"Stale census entry left alone with no issue number.","textHash":"cc683037c6eb5d6b","pA":0.83,"pB":0.79}
+{"id":"f-0223","repo":"workflow-core","transcript":"claude3__c5b8d468","label":true,"kind":"fresh","why":"Stale census entry left alone with no issue number.","textHash":"cc683037c6eb5d6b","pA":0.83,"pB":0.79,"drawn":["A"]}
 {"id":"f-0224","repo":"health-and-fitness","transcript":"claude3__4112fbae","label":null,"kind":"fresh","why":"","textHash":"cac39f803f2f2c25","pA":0.06,"pB":0.03}
 {"id":"f-0225","repo":"health-and-fitness","transcript":"claude3__fa9824df","label":null,"kind":"fresh","why":"","textHash":"47e312e61044b591","pA":0.25,"pB":0.15}
 {"id":"f-0226","repo":"workflow-core","transcript":"claude3__a901ea3a","label":null,"kind":"fresh","why":"","textHash":"8c9630d7063e5007","pA":0.83,"pB":0.79}
@@ -236,7 +236,7 @@
 {"id":"f-0235","repo":"workflow-core","transcript":"claude3__d083b7e0","label":null,"kind":"fresh","why":"","textHash":"731b87615c596f73","pA":0.69,"pB":0.56}
 {"id":"f-0236","repo":"workflow-core","transcript":"claude2__ecdb37fc","label":null,"kind":"fresh","why":"","textHash":"bc3919f2748bafe9","pA":0.15,"pB":0.1}
 {"id":"f-0237","repo":"workflow-core","transcript":"claude3__0cd337b9","label":null,"kind":"fresh","why":"","textHash":"e55fa0c0cacd9c63","pA":0.31,"pB":0.35}
-{"id":"f-0238","repo":"workflow-core","transcript":"claude3__4548208e","label":true,"kind":"fresh","why":"Missing scheduled sweeps not looked into, no issue number.","textHash":"97fc73f8e19956cd","pA":0.91,"pB":0.93}
+{"id":"f-0238","repo":"workflow-core","transcript":"claude3__4548208e","label":true,"kind":"fresh","why":"Missing scheduled sweeps not looked into, no issue number.","textHash":"97fc73f8e19956cd","pA":0.91,"pB":0.93,"drawn":["B"]}
 {"id":"f-0239","repo":"workflow-core","transcript":"claude2__c50846e5","label":null,"kind":"fresh","why":"","textHash":"58aafb19b896ea55","pA":0.39,"pB":0.54}
 {"id":"f-0240","repo":"workflow-core","transcript":"claude3__1ebed2be","label":null,"kind":"fresh","why":"","textHash":"dc8d1e5409eaa13d","pA":0.78,"pB":0.65}
 {"id":"f-0241","repo":"workflow-core","transcript":"claude2__e0e1447b","label":null,"kind":"fresh","why":"","textHash":"e76b38f64c715702","pA":0.54,"pB":0.34}
@@ -248,7 +248,7 @@
 {"id":"f-0247","repo":"workflow-core","transcript":"claude3__7d3eba50","label":null,"kind":"fresh","why":"","textHash":"e350936062128e4b","pA":0.48,"pB":0.28}
 {"id":"f-0248","repo":"workflow-core","transcript":"claude2__09e6fadf","label":null,"kind":"fresh","why":"","textHash":"f0efa284c735b4f4","pA":0.22,"pB":0.12}
 {"id":"f-0249","repo":"workflow-core","transcript":"claude3__947b5670","label":null,"kind":"fresh","why":"","textHash":"68864526b76edefc","pA":0.16,"pB":0.07}
-{"id":"f-0250","repo":"workflow-core","transcript":"claude2__62259c44","label":false,"kind":"fresh","why":"Broken guards put to the founder on the numbered ticket.","textHash":"105cf139f61d7d9c","pA":0.96,"pB":0.5}
+{"id":"f-0250","repo":"workflow-core","transcript":"claude2__62259c44","label":false,"kind":"fresh","why":"Broken guards put to the founder on the numbered ticket.","textHash":"105cf139f61d7d9c","pA":0.96,"pB":0.5,"drawn":["A"]}
 {"id":"f-0251","repo":"design-vault","transcript":"claude2__8e395aa3","label":null,"kind":"fresh","why":"","textHash":"5d18ca19a4d4d870","pA":0.63,"pB":0.09}
 {"id":"f-0252","repo":"design-vault","transcript":"claude2__29e0dc71","label":null,"kind":"fresh","why":"","textHash":"46f49c10744bdb23","pA":0.28,"pB":0.18}
 {"id":"f-0253","repo":"workflow-core","transcript":"claude3__a947cf0e","label":null,"kind":"fresh","why":"","textHash":"3b52b1c8c486186f","pA":0.32,"pB":0.09}
@@ -260,13 +260,13 @@
 {"id":"f-0259","repo":"workflow-core","transcript":"claude2__cc145d32","label":null,"kind":"fresh","why":"","textHash":"f4091d070166b542","pA":0.04,"pB":0.04}
 {"id":"f-0260","repo":"workflow-core","transcript":"claude3__399381e9","label":null,"kind":"fresh","why":"","textHash":"09d08bc587b61d1c","pA":0.06,"pB":0.03}
 {"id":"f-0261","repo":"workflow-core","transcript":"claude2__81b8febc","label":null,"kind":"fresh","why":"","textHash":"3cd73bd823d6948a","pA":0.43,"pB":0.24}
-{"id":"f-0262","repo":"design-vault","transcript":"claude3__8ae30811","label":true,"kind":"fresh","why":"Local main behind and uncommitted test fix left without issue.","textHash":"bcb0c09526d5a754","pA":0.54,"pB":0.82}
+{"id":"f-0262","repo":"design-vault","transcript":"claude3__8ae30811","label":true,"kind":"fresh","why":"Local main behind and uncommitted test fix left without issue.","textHash":"bcb0c09526d5a754","pA":0.54,"pB":0.82,"drawn":["B"]}
 {"id":"f-0263","repo":"workflow-core","transcript":"claude3__59c4a663","label":null,"kind":"fresh","why":"","textHash":"1c83cd3cf1a75f9a","pA":0.39,"pB":0.13}
 {"id":"f-0264","repo":"workflow-core","transcript":"claude2__0f286c6c","label":null,"kind":"fresh","why":"","textHash":"1cd49fde6de2c68e","pA":0.12,"pB":0.03}
 {"id":"f-0265","repo":"workflow-core","transcript":"claude3__b827c77e","label":null,"kind":"fresh","why":"","textHash":"e7d201eb50f92125","pA":0.29,"pB":0.11}
 {"id":"f-0266","repo":"workflow-core","transcript":"claude3__9c8c78d9","label":null,"kind":"fresh","why":"","textHash":"a0655b90aea90408","pA":0.02,"pB":0.04}
 {"id":"f-0267","repo":"health-and-fitness","transcript":"claude2__ed732d25","label":null,"kind":"fresh","why":"","textHash":"91af2299d915edd5","pA":0.45,"pB":0.16}
-{"id":"f-0268","repo":"workflow-core","transcript":"claude3__2c6413dc","label":true,"kind":"fresh","why":"Red CI sweep has no open issue yet.","textHash":"ed008c4196b9e38b","pA":0.84,"pB":0.82}
+{"id":"f-0268","repo":"workflow-core","transcript":"claude3__2c6413dc","label":true,"kind":"fresh","why":"Red CI sweep has no open issue yet.","textHash":"ed008c4196b9e38b","pA":0.84,"pB":0.82,"drawn":["A"]}
 {"id":"f-0269","repo":"design-vault","transcript":"claude2__aba44716","label":null,"kind":"fresh","why":"","textHash":"e0c5c42345095880","pA":0.05,"pB":0.02}
 {"id":"f-0270","repo":"health-and-fitness","transcript":"claude3__0b18bab3","label":null,"kind":"fresh","why":"","textHash":"d2581c4b3467ba60","pA":0.14,"pB":0.06}
 {"id":"f-0271","repo":"workflow-core","transcript":"claude3__9e24d259","label":null,"kind":"fresh","why":"","textHash":"77fad33276d0e02d","pA":0.1,"pB":0.03}
@@ -317,14 +317,14 @@
 {"id":"f-0316","repo":"design-vault","transcript":"claude2__8588109d","label":null,"kind":"fresh","why":"","textHash":"97f096f503f2a0af","pA":0.18,"pB":0.09}
 {"id":"f-0317","repo":"workflow-core","transcript":"claude3__b65568f1","label":null,"kind":"fresh","why":"","textHash":"ad9c7e3c30b3c31a","pA":0.08,"pB":0.07}
 {"id":"f-0318","repo":"workflow-core","transcript":"claude3__a3a5c471","label":null,"kind":"fresh","why":"","textHash":"f7e9397b451ea11c","pA":0.37,"pB":0.17}
-{"id":"f-0319","repo":"workflow-core","transcript":"claude2__0f370db8","label":true,"kind":"fresh","why":"Failing scheduled suite shard on main has no ticket.","textHash":"844dac176333745c","pA":0.63,"pB":0.92}
+{"id":"f-0319","repo":"workflow-core","transcript":"claude2__0f370db8","label":true,"kind":"fresh","why":"Failing scheduled suite shard on main has no ticket.","textHash":"844dac176333745c","pA":0.63,"pB":0.92,"drawn":["B"]}
 {"id":"f-0320","repo":"workflow-core","transcript":"claude3__72d0c2f3","label":null,"kind":"fresh","why":"","textHash":"4449910b9c703db0","pA":0.18,"pB":0.09}
 {"id":"f-0321","repo":"workflow-core","transcript":"claude3__6a385b49","label":null,"kind":"fresh","why":"","textHash":"58cc6a239ead0b58","pA":0.01,"pB":0.02}
 {"id":"f-0322","repo":"workflow-core","transcript":"claude2__98159ed9","label":null,"kind":"fresh","why":"","textHash":"7477b80429f1e206","pA":0.47,"pB":0.56}
 {"id":"f-0323","repo":"workflow-core","transcript":"claude3__7e3a6102","label":null,"kind":"fresh","why":"","textHash":"9017d1023c4b5261","pA":0.06,"pB":0.05}
 {"id":"f-0324","repo":"mantahostels","transcript":"claude2__c775b31a","label":null,"kind":"fresh","why":"","textHash":"05dcd4336927d245","pA":0.52,"pB":0.14}
 {"id":"f-0325","repo":"workflow-core","transcript":"claude2__46544640","label":null,"kind":"fresh","why":"","textHash":"d0b4b523a29e6fcf","pA":0.02,"pB":0.03}
-{"id":"f-0326","repo":"workflow-core","transcript":"claude3__f51f23a9","label":true,"kind":"fresh","why":"Scheduled Vitest failure has no covering issue yet.","textHash":"0036f2716ef810d1","pA":0.96,"pB":0.93}
+{"id":"f-0326","repo":"workflow-core","transcript":"claude3__f51f23a9","label":true,"kind":"fresh","why":"Scheduled Vitest failure has no covering issue yet.","textHash":"0036f2716ef810d1","pA":0.96,"pB":0.93,"drawn":["B"]}
 {"id":"f-0327","repo":"workflow-core","transcript":"claude2__8d2aa637","label":null,"kind":"fresh","why":"","textHash":"081fae6b7748d7f0","pA":0.02,"pB":0.02}
 {"id":"f-0328","repo":"workflow-core","transcript":"claude2__c0d3adf4","label":null,"kind":"fresh","why":"","textHash":"d087ad5f053b2600","pA":0.11,"pB":0.06}
 {"id":"f-0329","repo":"workflow-core","transcript":"claude2__e88594ab","label":null,"kind":"fresh","why":"","textHash":"ce86b3c15512251c","pA":0.59,"pB":0.39}
@@ -344,7 +344,7 @@
 {"id":"f-0343","repo":"workflow-core","transcript":"claude2-api__ed53ee63","label":null,"kind":"fresh","why":"","textHash":"d37b4266714aff8e","pA":0.12,"pB":0.06}
 {"id":"f-0344","repo":"workflow-core","transcript":"claude3__4c236f8a","label":null,"kind":"fresh","why":"","textHash":"b58c6337a8d5c88e","pA":0.03,"pB":0.03}
 {"id":"f-0345","repo":"workflow-core","transcript":"claude2__688f47fc","label":null,"kind":"fresh","why":"","textHash":"722078afca2726db","pA":0.02,"pB":0.02}
-{"id":"f-0346","repo":"fantasy-books","transcript":"claude3__68937538","label":true,"kind":"fresh","why":"Record inconsistency noticed, not fixed, no issue tied.","textHash":"38249352927129d8","pA":0.9,"pB":0.81}
+{"id":"f-0346","repo":"fantasy-books","transcript":"claude3__68937538","label":true,"kind":"fresh","why":"Record inconsistency noticed, not fixed, no issue tied.","textHash":"38249352927129d8","pA":0.9,"pB":0.81,"drawn":["B"]}
 {"id":"f-0347","repo":"workflow-core","transcript":"claude2__db8b5d68","label":null,"kind":"fresh","why":"","textHash":"39d71f2f33454a06","pA":0.25,"pB":0.05}
 {"id":"f-0348","repo":"workflow-core","transcript":"claude2__d6adb64c","label":null,"kind":"fresh","why":"","textHash":"099bb947c8132db3","pA":0.67,"pB":0.45}
 {"id":"f-0349","repo":"workflow-core","transcript":"claude3__b993ea64","label":null,"kind":"fresh","why":"","textHash":"8d2056a38deaf393","pA":0.52,"pB":0.12}
@@ -368,7 +368,7 @@
 {"id":"f-0367","repo":"design-vault","transcript":"claude2__41b08c0d","label":null,"kind":"fresh","why":"","textHash":"4119d047c90f50ca","pA":0.62,"pB":0.56}
 {"id":"f-0368","repo":"workflow-core","transcript":"claude2__34238926","label":null,"kind":"fresh","why":"","textHash":"1d85e50c1dc79e20","pA":0.24,"pB":0.1}
 {"id":"f-0369","repo":"workflow-core","transcript":"claude3__3525e3ea","label":null,"kind":"fresh","why":"","textHash":"bb95ec5e90b0b097","pA":0.25,"pB":0.16}
-{"id":"f-0370","repo":"workflow-core","transcript":"claude2__188bc81f","label":true,"kind":"fresh","why":"Stale record missing from the owning ticket's list, no ticket filed.","textHash":"9a2a421d7c322265","pA":0.82,"pB":0.82}
+{"id":"f-0370","repo":"workflow-core","transcript":"claude2__188bc81f","label":true,"kind":"fresh","why":"Stale record missing from the owning ticket's list, no ticket filed.","textHash":"9a2a421d7c322265","pA":0.82,"pB":0.82,"drawn":["A","B"]}
 {"id":"f-0371","repo":"workflow-core","transcript":"claude3__69ab6d50","label":null,"kind":"fresh","why":"","textHash":"84753b8b5ae4d31b","pA":0.02,"pB":0.02}
 {"id":"f-0372","repo":"workflow-core","transcript":"claude3__9699ac5d","label":null,"kind":"fresh","why":"","textHash":"a18a340928e13045","pA":0.03,"pB":0.02}
 {"id":"f-0373","repo":"mantahostels","transcript":"claude2__0aa97300","label":null,"kind":"fresh","why":"","textHash":"3bb310c1053fa8d1","pA":0.08,"pB":0.03}
@@ -406,7 +406,7 @@
 {"id":"f-0405","repo":"workflow-core","transcript":"claude2__9eeb4625","label":null,"kind":"fresh","why":"","textHash":"7e112b4a4ff9a2c2","pA":0.15,"pB":0.17}
 {"id":"f-0406","repo":"workflow-core","transcript":"claude2__8c51fa62","label":null,"kind":"fresh","why":"","textHash":"ac6ce3006a7a425d","pA":0.14,"pB":0.07}
 {"id":"f-0407","repo":"workflow-core","transcript":"claude3__53eb1542","label":null,"kind":"fresh","why":"","textHash":"5ee836703aa65ebe","pA":0.2,"pB":0.06}
-{"id":"f-0408","repo":"workflow-core","transcript":"claude3__1add038b","label":false,"kind":"fresh","why":"Reports a page fact; no defect named.","textHash":"ad0592cfd59460cf","pA":0.88,"pB":0.86}
+{"id":"f-0408","repo":"workflow-core","transcript":"claude3__1add038b","label":false,"kind":"fresh","why":"Reports a page fact; no defect named.","textHash":"ad0592cfd59460cf","pA":0.88,"pB":0.86,"drawn":["B"]}
 {"id":"f-0409","repo":"mantahostels","transcript":"claude2__dd18cc02","label":null,"kind":"fresh","why":"","textHash":"52b053e5d4a2ea4e","pA":0.08,"pB":0.04}
 {"id":"f-0410","repo":"workflow-core","transcript":"claude2__fe40affe","label":null,"kind":"fresh","why":"","textHash":"c3be55d16f8b413f","pA":0.77,"pB":0.47}
 {"id":"f-0411","repo":"workflow-core","transcript":"claude2__c9437a0c","label":null,"kind":"fresh","why":"","textHash":"9235eb1705a9168b","pA":0.16,"pB":0.17}
@@ -427,7 +427,7 @@
 {"id":"f-0426","repo":"workflow-core","transcript":"claude2__9cd62ce8","label":null,"kind":"fresh","why":"","textHash":"3426d2039119daa1","pA":0.02,"pB":0.02}
 {"id":"f-0427","repo":"workflow-core","transcript":"claude3__42bf0fb7","label":null,"kind":"fresh","why":"","textHash":"fb0f4cebd839b8b1","pA":0.03,"pB":0.03}
 {"id":"f-0428","repo":"workflow-core","transcript":"claude2__4efa4303","label":null,"kind":"fresh","why":"","textHash":"18717c0413fe7df0","pA":0.31,"pB":0.13}
-{"id":"f-0429","repo":"workflow-core","transcript":"claude2__171c38e4","label":true,"kind":"fresh","why":"Hard review finding awaiting fix, none fixed or filed.","textHash":"13ff64f829d1c553","pA":0.92,"pB":0.86}
+{"id":"f-0429","repo":"workflow-core","transcript":"claude2__171c38e4","label":true,"kind":"fresh","why":"Hard review finding awaiting fix, none fixed or filed.","textHash":"13ff64f829d1c553","pA":0.92,"pB":0.86,"drawn":["A"]}
 {"id":"f-0430","repo":"workflow-core","transcript":"claude2__ed20ea18","label":null,"kind":"fresh","why":"","textHash":"811b91d0293b03fd","pA":0.19,"pB":0.05}
 {"id":"f-0431","repo":"workflow-core","transcript":"claude3__404950be","label":null,"kind":"fresh","why":"","textHash":"f2cab78f7ca9677b","pA":0.43,"pB":0.06}
 {"id":"f-0432","repo":"workflow-core","transcript":"claude2__f53d31dc","label":null,"kind":"fresh","why":"","textHash":"aa079b0fb4792e30","pA":0.04,"pB":0.02}
@@ -464,7 +464,7 @@
 {"id":"f-0463","repo":"workflow-core","transcript":"claude2__22e0a7d9","label":null,"kind":"fresh","why":"","textHash":"85635444516db0f5","pA":0.06,"pB":0.04}
 {"id":"f-0464","repo":"workflow-core","transcript":"claude3__21f935d3","label":null,"kind":"fresh","why":"","textHash":"3a4a2507a88944d8","pA":0.55,"pB":0.37}
 {"id":"f-0465","repo":"health-and-fitness","transcript":"claude3__f753ad0c","label":null,"kind":"fresh","why":"","textHash":"7dc7ab076bd4a634","pA":0.32,"pB":0.06}
-{"id":"f-0466","repo":"workflow-core","transcript":"claude3__db37a942","label":true,"kind":"fresh","why":"Missed CI sweeps noted and not looked into, no issue.","textHash":"ad500e36972c066c","pA":0.84,"pB":0.76}
+{"id":"f-0466","repo":"workflow-core","transcript":"claude3__db37a942","label":true,"kind":"fresh","why":"Missed CI sweeps noted and not looked into, no issue.","textHash":"ad500e36972c066c","pA":0.84,"pB":0.76,"drawn":["A"]}
 {"id":"f-0467","repo":"workflow-core","transcript":"claude3__558c4bfd","label":null,"kind":"fresh","why":"","textHash":"91de68ad1f948953","pA":0.7,"pB":0.57}
 {"id":"f-0468","repo":"workflow-core","transcript":"claude3__71517a25","label":null,"kind":"fresh","why":"","textHash":"e71a41d85dbe9ffe","pA":0.45,"pB":0.09}
 {"id":"f-0469","repo":"workflow-core","transcript":"claude2__69309dbd","label":null,"kind":"fresh","why":"","textHash":"d4be9d5d264fd1fe","pA":0.77,"pB":0.24}
@@ -508,7 +508,7 @@
 {"id":"f-0507","repo":"workflow-core","transcript":"claude2__75df3dba","label":null,"kind":"fresh","why":"","textHash":"4b81404333ec6c50","pA":0.07,"pB":0.07}
 {"id":"f-0508","repo":"workflow-core","transcript":"claude3__a7e16dc5","label":null,"kind":"fresh","why":"","textHash":"8391adbbbe367e8f","pA":0.31,"pB":0.29}
 {"id":"f-0509","repo":"workflow-core","transcript":"claude2__b24008be","label":null,"kind":"fresh","why":"","textHash":"39ae8790eb8ab4d9","pA":0.06,"pB":0.06}
-{"id":"f-0510","repo":"workflow-core","transcript":"claude3__d19f5af7","label":true,"kind":"fresh","why":"Red flaky CI shard on main, no open issue covers it.","textHash":"da7219ffad90b9cb","pA":0.84,"pB":0.9}
+{"id":"f-0510","repo":"workflow-core","transcript":"claude3__d19f5af7","label":true,"kind":"fresh","why":"Red flaky CI shard on main, no open issue covers it.","textHash":"da7219ffad90b9cb","pA":0.84,"pB":0.9,"drawn":["A","B"]}
 {"id":"f-0511","repo":"workflow-core","transcript":"claude2__90b7387f","label":null,"kind":"fresh","why":"","textHash":"563b0c1cb9b030e5","pA":0.03,"pB":0.03}
 {"id":"f-0512","repo":"workflow-core","transcript":"claude2__0ff20706","label":null,"kind":"fresh","why":"","textHash":"a061a4a4fe4031b3","pA":0.28,"pB":0.08}
 {"id":"f-0513","repo":"health-and-fitness","transcript":"claude3__be6e4900","label":null,"kind":"fresh","why":"","textHash":"6005f42e72ffbfc9","pA":0.13,"pB":0.12}
@@ -549,7 +549,7 @@
 {"id":"f-0548","repo":"workflow-core","transcript":"claude2__b3da9c98","label":null,"kind":"fresh","why":"","textHash":"7536643a3798e305","pA":0.28,"pB":0.14}
 {"id":"f-0549","repo":"workflow-core","transcript":"claude2__dfd1f00b","label":null,"kind":"fresh","why":"","textHash":"8269db545be97902","pA":0.07,"pB":0.08}
 {"id":"f-0550","repo":"design-vault","transcript":"claude3__790f5639","label":null,"kind":"fresh","why":"","textHash":"46068197f53b4a3c","pA":0.73,"pB":0.7}
-{"id":"f-0551","repo":"workflow-core","transcript":"claude3__67c24240","label":true,"kind":"fresh","why":"Out-of-date guard-registry rule left as is, no ticket.","textHash":"47c387e9d6c107c3","pA":0.82,"pB":0.88}
+{"id":"f-0551","repo":"workflow-core","transcript":"claude3__67c24240","label":true,"kind":"fresh","why":"Out-of-date guard-registry rule left as is, no ticket.","textHash":"47c387e9d6c107c3","pA":0.82,"pB":0.88,"drawn":["B"]}
 {"id":"f-0552","repo":"workflow-core","transcript":"claude3__7cf44af5","label":null,"kind":"fresh","why":"","textHash":"a4d44dc0962ba46e","pA":0.06,"pB":0.07}
 {"id":"f-0553","repo":"workflow-core","transcript":"claude2__c6309fa1","label":null,"kind":"fresh","why":"","textHash":"9c23a636abea3a80","pA":0.9,"pB":0.83}
 {"id":"f-0554","repo":"workflow-core","transcript":"claude3__906d8ff8","label":null,"kind":"fresh","why":"","textHash":"51a9ee3396804fb3","pA":0.65,"pB":0.23}
@@ -579,9 +579,9 @@
 {"id":"f-0578","repo":"workflow-core","transcript":"claude3__542ad4ed","label":null,"kind":"fresh","why":"","textHash":"61a2dc231d1ccc71","pA":0.72,"pB":0.63}
 {"id":"f-0579","repo":"design-vault","transcript":"claude3__e86f0542","label":null,"kind":"fresh","why":"","textHash":"182341772339d827","pA":0.15,"pB":0.04}
 {"id":"f-0580","repo":"workflow-core","transcript":"claude3__ca86c9e5","label":null,"kind":"fresh","why":"","textHash":"c4755ad702895888","pA":0.65,"pB":0.68}
-{"id":"f-0581","repo":"workflow-core","transcript":"claude2__d3678fd6","label":true,"kind":"fresh","why":"Thirty test failures left to another session with no issue number.","textHash":"7f2583b159de1e8e","pA":0.7,"pB":0.81}
-{"id":"f-0582","repo":"design-vault","transcript":"claude2__14568289","label":true,"kind":"fresh","why":"Repo-checks findings in doc map and labels left untouched, no issue.","textHash":"702d6afe82876e66","pA":0.81,"pB":0.59}
-{"id":"f-0583","repo":"workflow-core","transcript":"claude3__1cada294","label":true,"kind":"fresh","why":"Hard review finding only planned for fixing, no issue.","textHash":"a4169e1d27ba640c","pA":0.89,"pB":0.85}
+{"id":"f-0581","repo":"workflow-core","transcript":"claude2__d3678fd6","label":true,"kind":"fresh","why":"Thirty test failures left to another session with no issue number.","textHash":"7f2583b159de1e8e","pA":0.7,"pB":0.81,"drawn":["B"]}
+{"id":"f-0582","repo":"design-vault","transcript":"claude2__14568289","label":true,"kind":"fresh","why":"Repo-checks findings in doc map and labels left untouched, no issue.","textHash":"702d6afe82876e66","pA":0.81,"pB":0.59,"drawn":["A"]}
+{"id":"f-0583","repo":"workflow-core","transcript":"claude3__1cada294","label":true,"kind":"fresh","why":"Hard review finding only planned for fixing, no issue.","textHash":"a4169e1d27ba640c","pA":0.89,"pB":0.85,"drawn":["A"]}
 {"id":"f-0584","repo":"workflow-core","transcript":"claude2__0b3759c8","label":null,"kind":"fresh","why":"","textHash":"f94e3c9871b418ec","pA":0.23,"pB":0.11}
 {"id":"f-0585","repo":"workflow-core","transcript":"claude2__3719cb79","label":null,"kind":"fresh","why":"","textHash":"2a9cf78171beb618","pA":0.02,"pB":0.02}
 {"id":"f-0586","repo":"workflow-core","transcript":"claude2__84dc9031","label":null,"kind":"fresh","why":"","textHash":"57ca9b4d6e33fb3b","pA":0.29,"pB":0.12}
@@ -630,7 +630,7 @@
 {"id":"f-0629","repo":"workflow-core","transcript":"claude3__9feef566","label":null,"kind":"fresh","why":"","textHash":"d94ef6a0bd4ac585","pA":0.25,"pB":0.06}
 {"id":"f-0630","repo":"workflow-core","transcript":"claude2__4b34839c","label":null,"kind":"fresh","why":"","textHash":"097598b8ed99a9df","pA":0.17,"pB":0.22}
 {"id":"f-0631","repo":"workflow-core","transcript":"claude2__5808d174","label":null,"kind":"fresh","why":"","textHash":"8622a9073c42ebe5","pA":0.04,"pB":0.02}
-{"id":"f-0632","repo":"workflow-core","transcript":"claude3__b3c25118","label":true,"kind":"fresh","why":"Stranded dirty files from a gone session left with no issue number.","textHash":"f9bd56c52c616577","pA":0.79,"pB":0.81}
+{"id":"f-0632","repo":"workflow-core","transcript":"claude3__b3c25118","label":true,"kind":"fresh","why":"Stranded dirty files from a gone session left with no issue number.","textHash":"f9bd56c52c616577","pA":0.79,"pB":0.81,"drawn":["B"]}
 {"id":"f-0633","repo":"workflow-core","transcript":"claude3__9c0aed59","label":null,"kind":"fresh","why":"","textHash":"1e3eef17f47fdf4a","pA":0.7,"pB":0.79}
 {"id":"f-0634","repo":"workflow-core","transcript":"claude3__03c30779","label":null,"kind":"fresh","why":"","textHash":"16a38db12052e5c0","pA":0.5,"pB":0.24}
 {"id":"f-0635","repo":"workflow-core","transcript":"claude3__fdbb1d42","label":null,"kind":"fresh","why":"","textHash":"57eacc978713f1aa","pA":0.43,"pB":0.08}
@@ -641,11 +641,11 @@
 {"id":"f-0640","repo":"workflow-core","transcript":"claude2__ce25e9f3","label":null,"kind":"fresh","why":"","textHash":"b47365b2bbbf9766","pA":0.12,"pB":0.07}
 {"id":"f-0641","repo":"workflow-core","transcript":"claude3__43f04e8e","label":null,"kind":"fresh","why":"","textHash":"3a928530938ab779","pA":0.05,"pB":0.05}
 {"id":"f-0642","repo":"workflow-core","transcript":"claude2__dffddb06","label":null,"kind":"fresh","why":"","textHash":"a488d4f58095d544","pA":0.1,"pB":0.12}
-{"id":"f-0643","repo":"workflow-core","transcript":"claude2__570c61c8","label":true,"kind":"fresh","why":"Missed CI sweeps not acted on, no ticket.","textHash":"3eff33f9fea1edcb","pA":0.8,"pB":0.94}
+{"id":"f-0643","repo":"workflow-core","transcript":"claude2__570c61c8","label":true,"kind":"fresh","why":"Missed CI sweeps not acted on, no ticket.","textHash":"3eff33f9fea1edcb","pA":0.8,"pB":0.94,"drawn":["B"]}
 {"id":"f-0644","repo":"workflow-core","transcript":"claude2__36c50cb9","label":null,"kind":"fresh","why":"","textHash":"209482808397bf0e","pA":0.02,"pB":0.02}
 {"id":"f-0645","repo":"health-and-fitness","transcript":"claude2__bc79c39f","label":null,"kind":"fresh","why":"","textHash":"4a4f2165bb39bad6","pA":0.58,"pB":0.59}
 {"id":"f-0646","repo":"health-and-fitness","transcript":"claude3__0e23c0ef","label":null,"kind":"fresh","why":"","textHash":"3d9dc3d34e341ea9","pA":0.3,"pB":0.14}
-{"id":"f-0647","repo":"workflow-core","transcript":"claude3__b2adaacb","label":true,"kind":"fresh","why":"Failed scheduled sweep has no covering issue.","textHash":"2d9df241b2c4a991","pA":0.49,"pB":0.81}
+{"id":"f-0647","repo":"workflow-core","transcript":"claude3__b2adaacb","label":true,"kind":"fresh","why":"Failed scheduled sweep has no covering issue.","textHash":"2d9df241b2c4a991","pA":0.49,"pB":0.81,"drawn":["B"]}
 {"id":"f-0648","repo":"health-and-fitness","transcript":"claude3__14f1dbf8","label":null,"kind":"fresh","why":"","textHash":"85066c4d65be0912","pA":0.54,"pB":0.32}
 {"id":"f-0649","repo":"workflow-core","transcript":"claude3__335022b8","label":null,"kind":"fresh","why":"","textHash":"4fa093be6041d838","pA":0.42,"pB":0.23}
 {"id":"f-0650","repo":"workflow-core","transcript":"claude2__0df8f706","label":null,"kind":"fresh","why":"","textHash":"7510aef99fe74fb2","pA":0.53,"pB":0.43}
@@ -656,7 +656,7 @@
 {"id":"f-0655","repo":"workflow-core","transcript":"claude2__2f117168","label":null,"kind":"fresh","why":"","textHash":"da6d66817c6484f5","pA":0.12,"pB":0.03}
 {"id":"f-0656","repo":"workflow-core","transcript":"claude2__781675a4","label":null,"kind":"fresh","why":"","textHash":"4094090079bafce7","pA":0.06,"pB":0.09}
 {"id":"f-0657","repo":"workflow-core","transcript":"claude2__1f53228c","label":null,"kind":"fresh","why":"","textHash":"9510d52baa8a22ef","pA":0.13,"pB":0.06}
-{"id":"f-0658","repo":"workflow-core","transcript":"claude3__1800c4ca","label":true,"kind":"fresh","why":"Seventeen stale census rows and dropped CI run left without tickets.","textHash":"25e20f60703064b6","pA":0.83,"pB":0.8}
+{"id":"f-0658","repo":"workflow-core","transcript":"claude3__1800c4ca","label":true,"kind":"fresh","why":"Seventeen stale census rows and dropped CI run left without tickets.","textHash":"25e20f60703064b6","pA":0.83,"pB":0.8,"drawn":["B"]}
 {"id":"f-0659","repo":"workflow-core","transcript":"claude3__5def50a1","label":null,"kind":"fresh","why":"","textHash":"6025c2f85b596aca","pA":0.6,"pB":0.56}
 {"id":"f-0660","repo":"workflow-core","transcript":"claude2__98a11dbf","label":null,"kind":"fresh","why":"","textHash":"192f110b565773a9","pA":0.14,"pB":0.08}
 {"id":"f-0661","repo":"workflow-core","transcript":"claude3__5a2036b4","label":null,"kind":"fresh","why":"","textHash":"d81c5aa3e58bc5c5","pA":0.05,"pB":0.04}
@@ -671,7 +671,7 @@
 {"id":"f-0670","repo":"workflow-core","transcript":"claude2__b6f9ff33","label":null,"kind":"fresh","why":"","textHash":"49c8bfaa3c7bad9a","pA":0.14,"pB":0.06}
 {"id":"f-0671","repo":"workflow-core","transcript":"claude2__fad2ab14","label":null,"kind":"fresh","why":"","textHash":"861db9112aa5d8ca","pA":0.03,"pB":0.05}
 {"id":"f-0672","repo":"workflow-core","transcript":"claude3__dfff8180","label":null,"kind":"fresh","why":"","textHash":"beb2cb91ea558b48","pA":0.6,"pB":0.65}
-{"id":"f-0673","repo":"workflow-core","transcript":"claude3__792652d2","label":true,"kind":"fresh","why":"Stray files and unchecked local commits left with no ticket.","textHash":"58c2c9b0cc9af25d","pA":0.85,"pB":0.74}
+{"id":"f-0673","repo":"workflow-core","transcript":"claude3__792652d2","label":true,"kind":"fresh","why":"Stray files and unchecked local commits left with no ticket.","textHash":"58c2c9b0cc9af25d","pA":0.85,"pB":0.74,"drawn":["A"]}
 {"id":"f-0674","repo":"workflow-core","transcript":"claude3__964b16b9","label":null,"kind":"fresh","why":"","textHash":"a4f548baecad85a8","pA":0.45,"pB":0.46}
 {"id":"f-0675","repo":"workflow-core","transcript":"claude3__eb1f30a1","label":null,"kind":"fresh","why":"","textHash":"e80dcd78b8b0dd9f","pA":0.94,"pB":0.25}
 {"id":"f-0676","repo":"workflow-core","transcript":"claude2__9607d843","label":null,"kind":"fresh","why":"","textHash":"043078e88edd4010","pA":0.02,"pB":0.04}
@@ -688,7 +688,7 @@
 {"id":"f-0687","repo":"mantahostels","transcript":"claude2__70f069b0","label":null,"kind":"fresh","why":"","textHash":"da37b1d8e84acfcd","pA":0.55,"pB":0.53}
 {"id":"f-0688","repo":"workflow-core","transcript":"claude2__14971c9e","label":null,"kind":"fresh","why":"","textHash":"cfa4521908ce2feb","pA":0.51,"pB":0.31}
 {"id":"f-0689","repo":"workflow-core","transcript":"claude2__b8ee4273","label":null,"kind":"fresh","why":"","textHash":"8e527238852aaa99","pA":0.56,"pB":0.39}
-{"id":"f-0690","repo":"workflow-core","transcript":"claude3-api__580d6f03","label":false,"kind":"fresh","why":"Skipped CI runs are the fault named in the numbered ticket's gate basis.","textHash":"82da3ce10949253d","pA":0.85,"pB":0.68}
+{"id":"f-0690","repo":"workflow-core","transcript":"claude3-api__580d6f03","label":false,"kind":"fresh","why":"Skipped CI runs are the fault named in the numbered ticket's gate basis.","textHash":"82da3ce10949253d","pA":0.85,"pB":0.68,"drawn":["A"]}
 {"id":"f-0691","repo":"workflow-core","transcript":"claude2__b3bf97c2","label":null,"kind":"fresh","why":"","textHash":"e6d58c2b2d024825","pA":0.13,"pB":0.18}
 {"id":"f-0692","repo":"workflow-core","transcript":"claude3__71fd8751","label":null,"kind":"fresh","why":"","textHash":"d1243012adfcd509","pA":0.04,"pB":0.04}
 {"id":"f-0693","repo":"mantahostels","transcript":"claude2__40190f28","label":null,"kind":"fresh","why":"","textHash":"63aec130f95cc262","pA":0.05,"pB":0.03}
@@ -696,7 +696,7 @@
 {"id":"f-0695","repo":"workflow-core","transcript":"claude2__534cf8dc","label":null,"kind":"fresh","why":"","textHash":"bc145be69f99eb50","pA":0.76,"pB":0.63}
 {"id":"f-0696","repo":"workflow-core","transcript":"claude3__6861c740","label":null,"kind":"fresh","why":"","textHash":"36c7b92d89c35662","pA":0.08,"pB":0.06}
 {"id":"f-0697","repo":"design-vault","transcript":"claude3__22346545","label":null,"kind":"fresh","why":"","textHash":"af1c0fb316e33d12","pA":0.2,"pB":0.07}
-{"id":"f-0698","repo":"workflow-core","transcript":"claude3__bbe0fa6f","label":false,"kind":"fresh","why":"Breakage owned by the named session on another numbered ticket.","textHash":"b9a5821208ecd314","pA":0.84,"pB":0.38}
+{"id":"f-0698","repo":"workflow-core","transcript":"claude3__bbe0fa6f","label":false,"kind":"fresh","why":"Breakage owned by the named session on another numbered ticket.","textHash":"b9a5821208ecd314","pA":0.84,"pB":0.38,"drawn":["A"]}
 {"id":"f-0699","repo":"health-and-fitness","transcript":"claude3__4c65e231","label":null,"kind":"fresh","why":"","textHash":"369448150f5b0eb3","pA":0.17,"pB":0.05}
 {"id":"f-0700","repo":"workflow-core","transcript":"claude3__f7fa8c2e","label":null,"kind":"fresh","why":"","textHash":"cc332cbec5192fc2","pA":0.58,"pB":0.25}
 {"id":"f-0701","repo":"workflow-core","transcript":"claude2__d6c17c95","label":null,"kind":"fresh","why":"","textHash":"d826aaa32b62d460","pA":0.22,"pB":0.08}
@@ -718,7 +718,7 @@
 {"id":"f-0717","repo":"workflow-core","transcript":"claude3__bca7c6b5","label":null,"kind":"fresh","why":"","textHash":"ac6e7c33c1fe4028","pA":0.13,"pB":0.09}
 {"id":"f-0718","repo":"workflow-core","transcript":"claude2__ad6234f6","label":null,"kind":"fresh","why":"","textHash":"cdbc4cce7dcc580f","pA":0.12,"pB":0.04}
 {"id":"f-0719","repo":"workflow-core","transcript":"claude3__3a33f928","label":null,"kind":"fresh","why":"","textHash":"1011af78d1602f6b","pA":0.04,"pB":0.03}
-{"id":"f-0720","repo":"mantahostels","transcript":"claude2__d913fe73","label":true,"kind":"fresh","why":"Seat file likely broken by upgrade, left untouched, no issue.","textHash":"9edccbd00f062038","pA":0.93,"pB":0.83}
+{"id":"f-0720","repo":"mantahostels","transcript":"claude2__d913fe73","label":true,"kind":"fresh","why":"Seat file likely broken by upgrade, left untouched, no issue.","textHash":"9edccbd00f062038","pA":0.93,"pB":0.83,"drawn":["B"]}
 {"id":"f-0721","repo":"workflow-core","transcript":"claude3__e8f98aff","label":null,"kind":"fresh","why":"","textHash":"fbe575f67be186d7","pA":0.12,"pB":0.28}
 {"id":"f-0722","repo":"workflow-core","transcript":"claude2__24772084","label":null,"kind":"fresh","why":"","textHash":"7381a1feb3e1471f","pA":0.83,"pB":0.87}
 {"id":"f-0723","repo":"workflow-core","transcript":"claude2__4431d6ca","label":null,"kind":"fresh","why":"","textHash":"70bd07d8c669a5be","pA":0.27,"pB":0.27}
@@ -727,9 +727,9 @@
 {"id":"f-0726","repo":"workflow-core","transcript":"claude2__e0e3b817","label":null,"kind":"fresh","why":"","textHash":"4cb5e6524197a551","pA":0.37,"pB":0.12}
 {"id":"f-0727","repo":"workflow-core","transcript":"claude3__0af72e0f","label":null,"kind":"fresh","why":"","textHash":"a91da5dfaa1a29f0","pA":0.19,"pB":0.07}
 {"id":"f-0728","repo":"workflow-core","transcript":"claude3__c822f5fa","label":null,"kind":"fresh","why":"","textHash":"f05a3fc11cb34444","pA":0.12,"pB":0.06}
-{"id":"f-0729","repo":"workflow-core","transcript":"claude3__6b758144","label":true,"kind":"fresh","why":"Stale and overdue rows plus dropped sweeps left, no ticket.","textHash":"0f25ba46b89887a7","pA":0.83,"pB":0.8}
+{"id":"f-0729","repo":"workflow-core","transcript":"claude3__6b758144","label":true,"kind":"fresh","why":"Stale and overdue rows plus dropped sweeps left, no ticket.","textHash":"0f25ba46b89887a7","pA":0.83,"pB":0.8,"drawn":["A","B"]}
 {"id":"f-0730","repo":"workflow-core","transcript":"claude2__53a39784","label":null,"kind":"fresh","why":"","textHash":"6cfb679000fdc533","pA":0.16,"pB":0.04}
-{"id":"f-0731","repo":"workflow-core","transcript":"claude3__ef59ea88","label":true,"kind":"fresh","why":"Account mismatch in machine notes found and left unedited, no issue.","textHash":"b8d15535550798d0","pA":0.89,"pB":0.68}
+{"id":"f-0731","repo":"workflow-core","transcript":"claude3__ef59ea88","label":true,"kind":"fresh","why":"Account mismatch in machine notes found and left unedited, no issue.","textHash":"b8d15535550798d0","pA":0.89,"pB":0.68,"drawn":["A"]}
 {"id":"f-0732","repo":"mantahostels","transcript":"claude__81eac035","label":null,"kind":"fresh","why":"","textHash":"3a28289825759126","pA":0.17,"pB":0.13}
 {"id":"f-0733","repo":"health-and-fitness","transcript":"claude2__a5d1ff11","label":null,"kind":"fresh","why":"","textHash":"747023e9223fbda5","pA":0.24,"pB":0.04}
 {"id":"f-0734","repo":"workflow-core","transcript":"claude3__073dfff3","label":null,"kind":"fresh","why":"","textHash":"b0aaead0adc905ec","pA":0.36,"pB":0.18}
@@ -768,7 +768,7 @@
 {"id":"f-0767","repo":"workflow-core","transcript":"claude2__2ac055b4","label":null,"kind":"fresh","why":"","textHash":"3a54b7238495c6fe","pA":0.67,"pB":0.18}
 {"id":"f-0768","repo":"mantahostels","transcript":"claude2__9ec89de2","label":null,"kind":"fresh","why":"","textHash":"2228bd7ccd0bdc2e","pA":0.44,"pB":0.39}
 {"id":"f-0769","repo":"workflow-core","transcript":"claude3__62a5518a","label":null,"kind":"fresh","why":"","textHash":"f99cb1274fc4f205","pA":0.8,"pB":0.44}
-{"id":"f-0770","repo":"design-vault","transcript":"claude2__5edbda80","label":true,"kind":"fresh","why":"Pre-existing doc-map failure and orphan processes left, no issue number.","textHash":"43e18cf239cac9ae","pA":0.93,"pB":0.89}
+{"id":"f-0770","repo":"design-vault","transcript":"claude2__5edbda80","label":true,"kind":"fresh","why":"Pre-existing doc-map failure and orphan processes left, no issue number.","textHash":"43e18cf239cac9ae","pA":0.93,"pB":0.89,"drawn":["A","B"]}
 {"id":"f-0771","repo":"workflow-core","transcript":"claude3__e98a11bd","label":null,"kind":"fresh","why":"","textHash":"88986937f28cc17b","pA":0.04,"pB":0.03}
 {"id":"f-0772","repo":"workflow-core","transcript":"claude3__cfdb21cb","label":null,"kind":"fresh","why":"","textHash":"676c8482de9177f4","pA":0.72,"pB":0.52}
 {"id":"f-0773","repo":"design-vault","transcript":"claude2__d116a6ee","label":null,"kind":"fresh","why":"","textHash":"6f6947119e71e994","pA":0.74,"pB":0.33}
@@ -810,24 +810,24 @@
 {"id":"f-0809","repo":"health-and-fitness","transcript":"claude2__8dc14212","label":null,"kind":"fresh","why":"","textHash":"2fdbd7130e0e85ff","pA":0.7,"pB":0.64}
 {"id":"f-0810","repo":"workflow-core","transcript":"claude3__9e45165e","label":null,"kind":"fresh","why":"","textHash":"845ed78f90441a87","pA":0.06,"pB":0.06}
 {"id":"f-0811","repo":"workflow-core","transcript":"claude3__d443378d","label":null,"kind":"fresh","why":"","textHash":"c9c48fadeb97052d","pA":0.12,"pB":0.07}
-{"id":"f-0812","repo":"workflow-core","transcript":"claude3__e667a742","label":true,"kind":"fresh","why":"Raw character row only planned for a later fix.","textHash":"52a1b7b12a42137d","pA":0.9,"pB":0.71}
+{"id":"f-0812","repo":"workflow-core","transcript":"claude3__e667a742","label":true,"kind":"fresh","why":"Raw character row only planned for a later fix.","textHash":"52a1b7b12a42137d","pA":0.9,"pB":0.71,"drawn":["A"]}
 {"id":"f-0813","repo":"workflow-core","transcript":"claude3__ce17c900","label":null,"kind":"fresh","why":"","textHash":"bb802d885c0b8d69","pA":0.22,"pB":0.1}
 {"id":"f-0814","repo":"workflow-core","transcript":"claude3__0d903035","label":null,"kind":"fresh","why":"","textHash":"8daafef7cd332676","pA":0.16,"pB":0.06}
 {"id":"f-0815","repo":"workflow-core","transcript":"claude3__d8b34e8e","label":null,"kind":"fresh","why":"","textHash":"51053c88f97a67e6","pA":0.02,"pB":0.03}
 {"id":"f-0816","repo":"workflow-core","transcript":"claude3__fe8dab5e","label":null,"kind":"fresh","why":"","textHash":"3b30b68ff05ae002","pA":0.11,"pB":0.03}
 {"id":"f-0817","repo":"workflow-core","transcript":"claude3__1a22dbcb","label":null,"kind":"fresh","why":"","textHash":"5338213b6cf1a39c","pA":0.15,"pB":0.05}
 {"id":"f-0818","repo":"workflow-core","transcript":"claude3__78ec3820","label":null,"kind":"fresh","why":"","textHash":"ebefff6cb65a0073","pA":0.06,"pB":0.05}
-{"id":"f-0819","repo":"design-vault","transcript":"claude3__f4d78699","label":true,"kind":"fresh","why":"Red CI job on main explicitly has no ticket.","textHash":"e194dbde4dac6f43","pA":0.82,"pB":0.82}
+{"id":"f-0819","repo":"design-vault","transcript":"claude3__f4d78699","label":true,"kind":"fresh","why":"Red CI job on main explicitly has no ticket.","textHash":"e194dbde4dac6f43","pA":0.82,"pB":0.82,"drawn":["A"]}
 {"id":"f-0820","repo":"design-vault","transcript":"claude2__c6efddf9","label":null,"kind":"fresh","why":"","textHash":"6c4857b42e3797d7","pA":0.31,"pB":0.22}
 {"id":"f-0821","repo":"workflow-core","transcript":"claude2__a8aa8403","label":null,"kind":"fresh","why":"","textHash":"bf4703e7ed339381","pA":0.24,"pB":0.09}
 {"id":"f-0822","repo":"workflow-core","transcript":"claude2__b1ec94fa","label":null,"kind":"fresh","why":"","textHash":"a6550b4c521fed31","pA":0.12,"pB":0.09}
-{"id":"f-0823","repo":"workflow-core","transcript":"claude3__336f437c","label":true,"kind":"fresh","why":"Dropped scheduled CI sweep called separate, no issue number.","textHash":"f70cec3c47709c2d","pA":0.9,"pB":0.9}
+{"id":"f-0823","repo":"workflow-core","transcript":"claude3__336f437c","label":true,"kind":"fresh","why":"Dropped scheduled CI sweep called separate, no issue number.","textHash":"f70cec3c47709c2d","pA":0.9,"pB":0.9,"drawn":["A","B"]}
 {"id":"f-0824","repo":"workflow-core","transcript":"claude3__09049817","label":null,"kind":"fresh","why":"","textHash":"0925248055fda934","pA":0.41,"pB":0.51}
 {"id":"f-0825","repo":"workflow-core","transcript":"claude3__8f5381f3","label":null,"kind":"fresh","why":"","textHash":"23a5d0e24a16b5e0","pA":0.05,"pB":0.03}
 {"id":"f-0826","repo":"workflow-core","transcript":"claude3__f5712555","label":null,"kind":"fresh","why":"","textHash":"30548459c62cd87c","pA":0.02,"pB":0.02}
 {"id":"f-0827","repo":"workflow-core","transcript":"claude3__b15ea713","label":null,"kind":"fresh","why":"","textHash":"ed44ade5cc3b1102","pA":0.03,"pB":0.02}
 {"id":"f-0828","repo":"workflow-core","transcript":"claude2__528d8792","label":null,"kind":"fresh","why":"","textHash":"5a3782cd50f90414","pA":0.04,"pB":0.04}
-{"id":"f-0829","repo":"workflow-core","transcript":"claude2__719bb7f6","label":null,"kind":"fresh","why":"Broken guards named against an issue, but explicitly not posted there.","textHash":"67d2f5fc51fbc33f","pA":0.95,"pB":0.79}
+{"id":"f-0829","repo":"workflow-core","transcript":"claude2__719bb7f6","label":null,"kind":"fresh","why":"Broken guards named against an issue, but explicitly not posted there.","textHash":"67d2f5fc51fbc33f","pA":0.95,"pB":0.79,"drawn":["A"]}
 {"id":"f-0830","repo":"workflow-core","transcript":"claude2__409f1b60","label":null,"kind":"fresh","why":"","textHash":"f116c6c8cb0128c7","pA":0.22,"pB":0.15}
 {"id":"f-0831","repo":"workflow-core","transcript":"claude3__a9bcc3bd","label":null,"kind":"fresh","why":"","textHash":"70d7958884f82961","pA":0.02,"pB":0.02}
 {"id":"f-0832","repo":"mantahostels","transcript":"claude3__0aa97300","label":null,"kind":"fresh","why":"","textHash":"ddb2d2e0882db9e3","pA":0.14,"pB":0.06}
@@ -846,7 +846,7 @@
 {"id":"f-0845","repo":"workflow-core","transcript":"claude2__c5c1ecc2","label":null,"kind":"fresh","why":"","textHash":"944d71b81da37f24","pA":0.33,"pB":0.34}
 {"id":"f-0846","repo":"design-vault","transcript":"claude3__a724f32f","label":null,"kind":"fresh","why":"","textHash":"a01ec6235ec1f46e","pA":0.81,"pB":0.72}
 {"id":"f-0847","repo":"workflow-core","transcript":"claude2__8a517433","label":null,"kind":"fresh","why":"","textHash":"049339e18c10ac55","pA":0.27,"pB":0.09}
-{"id":"f-0848","repo":"workflow-core","transcript":"claude2__4aae43bc","label":true,"kind":"fresh","why":"Skipped scheduled sweeps flagged, not investigated, no issue number.","textHash":"d0bd8af755245cf1","pA":0.9,"pB":0.81}
+{"id":"f-0848","repo":"workflow-core","transcript":"claude2__4aae43bc","label":true,"kind":"fresh","why":"Skipped scheduled sweeps flagged, not investigated, no issue number.","textHash":"d0bd8af755245cf1","pA":0.9,"pB":0.81,"drawn":["B"]}
 {"id":"f-0849","repo":"design-vault","transcript":"claude2__4f874729","label":null,"kind":"fresh","why":"","textHash":"34ba6e654c8d69f0","pA":0.25,"pB":0.21}
 {"id":"f-0850","repo":"workflow-core","transcript":"claude2__3cae9336","label":null,"kind":"fresh","why":"","textHash":"b540abe4129d69f4","pA":0.18,"pB":null}
 {"id":"f-0851","repo":"workflow-core","transcript":"claude2__7e1fbfa8","label":null,"kind":"fresh","why":"","textHash":"beafd136880c9a77","pA":0.34,"pB":0.18}
@@ -868,7 +868,7 @@
 {"id":"f-0867","repo":"workflow-core","transcript":"claude2__a6f14fc7","label":null,"kind":"fresh","why":"","textHash":"54a6c132eca9c1ad","pA":0.09,"pB":0.04}
 {"id":"f-0868","repo":"workflow-core","transcript":"claude3__a6b366ab","label":null,"kind":"fresh","why":"","textHash":"a981f19e4b542f1f","pA":0.34,"pB":0.17}
 {"id":"f-0869","repo":"workflow-core","transcript":"claude2-api__ed12b5c3","label":null,"kind":"fresh","why":"","textHash":"d8befe22262ef2ef","pA":0.75,"pB":0.87}
-{"id":"f-0870","repo":"workflow-core","transcript":"claude2__4a216a2a","label":true,"kind":"fresh","why":"Full-suite shard failure on main has no ticket.","textHash":"35a00aa2981c651c","pA":0.56,"pB":0.86}
+{"id":"f-0870","repo":"workflow-core","transcript":"claude2__4a216a2a","label":true,"kind":"fresh","why":"Full-suite shard failure on main has no ticket.","textHash":"35a00aa2981c651c","pA":0.56,"pB":0.86,"drawn":["B"]}
 {"id":"f-0871","repo":"workflow-core","transcript":"claude2__b492a7b8","label":null,"kind":"fresh","why":"","textHash":"34d379bb0ef95b3d","pA":0.72,"pB":0.72}
 {"id":"f-0872","repo":"health-and-fitness","transcript":"claude2__4e3d7b37","label":null,"kind":"fresh","why":"","textHash":"5ecabde0bffb5f41","pA":0.07,"pB":0.04}
 {"id":"f-0873","repo":"workflow-core","transcript":"claude2__45c5faf9","label":null,"kind":"fresh","why":"","textHash":"b95b8eff6e776c57","pA":0.28,"pB":0.11}
@@ -877,7 +877,7 @@
 {"id":"f-0876","repo":"health-and-fitness","transcript":"claude3__34174b5f","label":null,"kind":"fresh","why":"","textHash":"9163b75a601fd194","pA":0.62,"pB":0.26}
 {"id":"f-0877","repo":"health-and-fitness","transcript":"claude3__70b9ea07","label":null,"kind":"fresh","why":"","textHash":"61223a28a361ec7f","pA":0.14,"pB":0.06}
 {"id":"f-0878","repo":"workflow-core","transcript":"claude3__e48d1157","label":null,"kind":"fresh","why":"","textHash":"61d4ee10dbcf599e","pA":0.53,"pB":0.26}
-{"id":"f-0879","repo":"workflow-core","transcript":"claude2__06e159bf","label":true,"kind":"fresh","why":"Failing CI status check outside ticket, no issue.","textHash":"81c9ac7e9d0e9a74","pA":0.79,"pB":0.91}
+{"id":"f-0879","repo":"workflow-core","transcript":"claude2__06e159bf","label":true,"kind":"fresh","why":"Failing CI status check outside ticket, no issue.","textHash":"81c9ac7e9d0e9a74","pA":0.79,"pB":0.91,"drawn":["B"]}
 {"id":"f-0880","repo":"workflow-core","transcript":"claude3__36d16f99","label":null,"kind":"fresh","why":"","textHash":"95c88920df0eba17","pA":0.4,"pB":0.09}
 {"id":"f-0881","repo":"workflow-core","transcript":"claude3__f007efc5","label":null,"kind":"fresh","why":"","textHash":"66be7439884f64d1","pA":0.11,"pB":0.07}
 {"id":"f-0882","repo":"health-and-fitness","transcript":"claude3__cb5cb5f6","label":null,"kind":"fresh","why":"","textHash":"d909a519579591c6","pA":0.35,"pB":0.37}
@@ -910,7 +910,7 @@
 {"id":"f-0909","repo":"workflow-core","transcript":"claude2__8bc849ee","label":null,"kind":"fresh","why":"","textHash":"aa812ce808652b5b","pA":0.02,"pB":0.02}
 {"id":"f-0910","repo":"workflow-core","transcript":"claude3__62b7616f","label":null,"kind":"fresh","why":"","textHash":"7d77c690f47f5f3f","pA":0.26,"pB":0.15}
 {"id":"f-0911","repo":"design-vault","transcript":"claude3__f19f649b","label":null,"kind":"fresh","why":"","textHash":"488a2307f08c1bfc","pA":0.12,"pB":0.05}
-{"id":"f-0912","repo":"workflow-core","transcript":"claude2__b9d9f9b2","label":true,"kind":"fresh","why":"Two accepted review findings only planned for fixing, no issue.","textHash":"b13525ea24c6ae40","pA":0.89,"pB":null}
+{"id":"f-0912","repo":"workflow-core","transcript":"claude2__b9d9f9b2","label":true,"kind":"fresh","why":"Two accepted review findings only planned for fixing, no issue.","textHash":"b13525ea24c6ae40","pA":0.89,"pB":null,"drawn":["A"]}
 {"id":"f-0913","repo":"mantahostels","transcript":"claude3__6a583353","label":null,"kind":"fresh","why":"","textHash":"80846a6310a29319","pA":0.31,"pB":0.16}
 {"id":"f-0914","repo":"design-vault","transcript":"claude2__b691d6d0","label":null,"kind":"fresh","why":"","textHash":"36291772b126fd88","pA":0.09,"pB":0.05}
 {"id":"f-0915","repo":"workflow-core","transcript":"claude2__4368a809","label":null,"kind":"fresh","why":"","textHash":"0bf41225edf0a5c7","pA":0.15,"pB":0.08}
@@ -964,7 +964,7 @@
 {"id":"f-0963","repo":"workflow-core","transcript":"claude2__bfb63609","label":null,"kind":"fresh","why":"","textHash":"536b530a9bd9c680","pA":0.71,"pB":0.41}
 {"id":"f-0964","repo":"workflow-core","transcript":"claude3__fca66c80","label":null,"kind":"fresh","why":"","textHash":"527d9e4b92b29129","pA":0.51,"pB":0.66}
 {"id":"f-0965","repo":"workflow-core","transcript":"claude2__c2097c95","label":null,"kind":"fresh","why":"","textHash":"f8cbb309c3b5864d","pA":0.31,"pB":0.19}
-{"id":"f-0966","repo":"workflow-core","transcript":"claude3__9b00808c","label":true,"kind":"fresh","why":"Live spec finding with no open ticket, not fixed.","textHash":"7cb5250e5432c988","pA":0.97,"pB":0.89}
+{"id":"f-0966","repo":"workflow-core","transcript":"claude3__9b00808c","label":true,"kind":"fresh","why":"Live spec finding with no open ticket, not fixed.","textHash":"7cb5250e5432c988","pA":0.97,"pB":0.89,"drawn":["A"]}
 {"id":"f-0967","repo":"workflow-core","transcript":"claude2__592e96ad","label":null,"kind":"fresh","why":"","textHash":"518aa1a82a96a7c2","pA":0.02,"pB":0.02}
 {"id":"f-0968","repo":"workflow-core","transcript":"claude3__69aa66b4","label":null,"kind":"fresh","why":"","textHash":"a543c5ff2b67e769","pA":0.59,"pB":0.39}
 {"id":"f-0969","repo":"workflow-core","transcript":"claude2__d7bab9a4","label":null,"kind":"fresh","why":"","textHash":"e2906ee3274c8b3e","pA":0.03,"pB":0.02}
@@ -1015,7 +1015,7 @@
 {"id":"f-1014","repo":"workflow-core","transcript":"claude3__c69c3d34","label":null,"kind":"fresh","why":"","textHash":"e362fcbfbd38db2d","pA":0.38,"pB":0.13}
 {"id":"f-1015","repo":"workflow-core","transcript":"claude2__2db1a8a6","label":null,"kind":"fresh","why":"","textHash":"197995c1e3786702","pA":0.13,"pB":0.1}
 {"id":"f-1016","repo":"workflow-core","transcript":"claude3__1ca05a1a","label":null,"kind":"fresh","why":"","textHash":"1203506a4e05a104","pA":0.25,"pB":0.19}
-{"id":"f-1017","repo":"workflow-core","transcript":"claude3__267851aa","label":true,"kind":"fresh","why":"Two new scanner findings left untriaged with no issue.","textHash":"4bf9f6ebbe7a70d2","pA":0.96,"pB":0.92}
+{"id":"f-1017","repo":"workflow-core","transcript":"claude3__267851aa","label":true,"kind":"fresh","why":"Two new scanner findings left untriaged with no issue.","textHash":"4bf9f6ebbe7a70d2","pA":0.96,"pB":0.92,"drawn":["B"]}
 {"id":"f-1018","repo":"design-vault","transcript":"claude3__27ab9f8c","label":null,"kind":"fresh","why":"","textHash":"6be1703a6b3be8ee","pA":0.48,"pB":0.36}
 {"id":"f-1019","repo":"workflow-core","transcript":"claude2__47efb17b","label":null,"kind":"fresh","why":"","textHash":"2e197d8a60ba6e80","pA":0.14,"pB":0.06}
 {"id":"f-1020","repo":"workflow-core","transcript":"claude2__2cc39878","label":null,"kind":"fresh","why":"","textHash":"2070fda2ef3760ac","pA":0.61,"pB":0.66}
@@ -1036,12 +1036,12 @@
 {"id":"f-1035","repo":"workflow-core","transcript":"claude2__f7c92fe3","label":null,"kind":"fresh","why":"","textHash":"5bbc3cfb09da3816","pA":0.32,"pB":0.16}
 {"id":"f-1036","repo":"workflow-core","transcript":"claude2__58e82cf3","label":null,"kind":"fresh","why":"","textHash":"6d5c7407b0ecaa70","pA":0.07,"pB":0.05}
 {"id":"f-1037","repo":"workflow-core","transcript":"claude2__7997eb17","label":null,"kind":"fresh","why":"","textHash":"b24bfc9b83759ef4","pA":0.02,"pB":0.02}
-{"id":"f-1038","repo":"workflow-core","transcript":"claude2__0eb7e575","label":true,"kind":"fresh","why":"CI sweep fault left untouched, no issue number.","textHash":"9fb12e255a381cad","pA":0.88,"pB":0.81}
+{"id":"f-1038","repo":"workflow-core","transcript":"claude2__0eb7e575","label":true,"kind":"fresh","why":"CI sweep fault left untouched, no issue number.","textHash":"9fb12e255a381cad","pA":0.88,"pB":0.81,"drawn":["B"]}
 {"id":"f-1039","repo":"mantahostels","transcript":"claude2__d8c0fbc2","label":null,"kind":"fresh","why":"","textHash":"5c25c8d506a5aee1","pA":0.7,"pB":0.29}
 {"id":"f-1040","repo":"workflow-core","transcript":"claude3__6d695484","label":null,"kind":"fresh","why":"","textHash":"c545af8aacd9426f","pA":0.02,"pB":0.02}
-{"id":"f-1041","repo":"workflow-core","transcript":"claude3__dcd64489","label":true,"kind":"fresh","why":"Date-only gate line resurfaces ticket early, no fix or issue.","textHash":"96ef8fcb2ba627e3","pA":0.89,"pB":0.68}
+{"id":"f-1041","repo":"workflow-core","transcript":"claude3__dcd64489","label":true,"kind":"fresh","why":"Date-only gate line resurfaces ticket early, no fix or issue.","textHash":"96ef8fcb2ba627e3","pA":0.89,"pB":0.68,"drawn":["A"]}
 {"id":"f-1042","repo":"design-vault","transcript":"claude2__a80367d9","label":null,"kind":"fresh","why":"","textHash":"01c7b5edfbd72b7d","pA":0.24,"pB":0.09}
-{"id":"f-1043","repo":"workflow-core","transcript":"claude3__edbf69cc","label":true,"kind":"fresh","why":"Missed scheduled sweeps called a separate fault, untouched, no issue.","textHash":"5526d2c2063acb2c","pA":0.85,"pB":0.91}
+{"id":"f-1043","repo":"workflow-core","transcript":"claude3__edbf69cc","label":true,"kind":"fresh","why":"Missed scheduled sweeps called a separate fault, untouched, no issue.","textHash":"5526d2c2063acb2c","pA":0.85,"pB":0.91,"drawn":["A"]}
 {"id":"f-1044","repo":"workflow-core","transcript":"claude2__a1156787","label":null,"kind":"fresh","why":"","textHash":"0a1322e1d71448c6","pA":0.11,"pB":0.05}
 {"id":"f-1045","repo":"workflow-core","transcript":"claude3__eed40990","label":null,"kind":"fresh","why":"","textHash":"24ef8fdee41e35a9","pA":0.04,"pB":0.07}
 {"id":"f-1046","repo":"workflow-core","transcript":"claude2__2e8a49fb","label":null,"kind":"fresh","why":"","textHash":"0843a5e792af4b99","pA":0.07,"pB":0.06}
@@ -1119,7 +1119,7 @@
 {"id":"f-1118","repo":"workflow-core","transcript":"claude2__b7235197","label":null,"kind":"fresh","why":"","textHash":"ba6b4612118301e4","pA":0.29,"pB":0.08}
 {"id":"f-1119","repo":"workflow-core","transcript":"claude2__bd925f5f","label":null,"kind":"fresh","why":"","textHash":"8acb7771fe5b5110","pA":0.04,"pB":0.04}
 {"id":"f-1120","repo":"workflow-core","transcript":"claude3__45ecf2ce","label":null,"kind":"fresh","why":"","textHash":"e63942be0ad4d680","pA":0.29,"pB":0.07}
-{"id":"f-1121","repo":"workflow-core","transcript":"claude2__24abbe70","label":true,"kind":"fresh","why":"Missed CI sweep left as it was, no issue.","textHash":"2de7389d56ecca2d","pA":0.88,"pB":0.84}
+{"id":"f-1121","repo":"workflow-core","transcript":"claude2__24abbe70","label":true,"kind":"fresh","why":"Missed CI sweep left as it was, no issue.","textHash":"2de7389d56ecca2d","pA":0.88,"pB":0.84,"drawn":["B"]}
 {"id":"f-1122","repo":"workflow-core","transcript":"claude2__0a72ff59","label":null,"kind":"fresh","why":"","textHash":"a2af03b5e87c16b1","pA":0.1,"pB":0.06}
 {"id":"f-1123","repo":"workflow-core","transcript":"claude3__b4be3c43","label":null,"kind":"fresh","why":"","textHash":"4930fe7af9df78cc","pA":0.22,"pB":0.08}
 {"id":"f-1124","repo":"workflow-core","transcript":"claude3__29e04ad2","label":null,"kind":"fresh","why":"","textHash":"00781e16955f89c3","pA":0.24,"pB":0.15}
@@ -1141,7 +1141,7 @@
 {"id":"f-1140","repo":"workflow-core","transcript":"claude3__91f45565","label":null,"kind":"fresh","why":"","textHash":"1a8b3416f315a0f5","pA":0.2,"pB":0.1}
 {"id":"f-1141","repo":"workflow-core","transcript":"claude2__294205ec","label":null,"kind":"fresh","why":"","textHash":"5af8b26c1a3a902f","pA":0.75,"pB":0.54}
 {"id":"f-1142","repo":"workflow-core","transcript":"claude2__cacb5043","label":null,"kind":"fresh","why":"","textHash":"f441c42ad2b18794","pA":0.17,"pB":0.06}
-{"id":"f-1143","repo":"workflow-core","transcript":"claude3__87402ec0","label":true,"kind":"fresh","why":"Missed sweeps and untraced failing tests left without issue numbers.","textHash":"66ef9d3dcd21673b","pA":0.8,"pB":0.89}
+{"id":"f-1143","repo":"workflow-core","transcript":"claude3__87402ec0","label":true,"kind":"fresh","why":"Missed sweeps and untraced failing tests left without issue numbers.","textHash":"66ef9d3dcd21673b","pA":0.8,"pB":0.89,"drawn":["A"]}
 {"id":"f-1144","repo":"workflow-core","transcript":"claude3__f4b925ad","label":null,"kind":"fresh","why":"","textHash":"61952d63cfca75c9","pA":0.11,"pB":0.05}
 {"id":"f-1145","repo":"workflow-core","transcript":"claude2__daf6d5fa","label":null,"kind":"fresh","why":"","textHash":"d515e895e4996332","pA":0.02,"pB":0.02}
 {"id":"f-1146","repo":"design-vault","transcript":"claude3__990fa459","label":null,"kind":"fresh","why":"","textHash":"b80887a7ea53f039","pA":0.05,"pB":0.01}
@@ -1163,14 +1163,14 @@
 {"id":"f-1162","repo":"workflow-core","transcript":"claude3__5b1ac1ef","label":null,"kind":"fresh","why":"","textHash":"a9de164de7b75a76","pA":0.04,"pB":0.05}
 {"id":"f-1163","repo":"workflow-core","transcript":"claude3__c0bbfe12","label":null,"kind":"fresh","why":"","textHash":"9b96b2232aed2abb","pA":0.02,"pB":0.02}
 {"id":"f-1164","repo":"workflow-core","transcript":"claude3__077dc4f1","label":null,"kind":"fresh","why":"","textHash":"5f47df2a7ec8955f","pA":0.06,"pB":0.03}
-{"id":"f-1165","repo":"workflow-core","transcript":"claude2__59743103","label":true,"kind":"fresh","why":"Unclear comment nit pending a decision, neither fixed nor filed.","textHash":"6ffe15fd9cd9c866","pA":0.84,"pB":0.41}
+{"id":"f-1165","repo":"workflow-core","transcript":"claude2__59743103","label":true,"kind":"fresh","why":"Unclear comment nit pending a decision, neither fixed nor filed.","textHash":"6ffe15fd9cd9c866","pA":0.84,"pB":0.41,"drawn":["A"]}
 {"id":"f-1166","repo":"workflow-core","transcript":"claude2__3073e0ca","label":null,"kind":"fresh","why":"","textHash":"9d84c2ae60c928b8","pA":0.01,"pB":0.02}
 {"id":"f-1167","repo":"workflow-core","transcript":"claude3__aaacf00a","label":null,"kind":"fresh","why":"","textHash":"535982c1eec9613a","pA":0.67,"pB":0.57}
 {"id":"f-1168","repo":"workflow-core","transcript":"claude3__99d71a30","label":null,"kind":"fresh","why":"","textHash":"5b97eb28dcdf2fa6","pA":0.23,"pB":0.1}
 {"id":"f-1169","repo":"workflow-core","transcript":"claude3__628a97a7","label":null,"kind":"fresh","why":"","textHash":"fda4e78e8bd48aa0","pA":0.41,"pB":0.21}
 {"id":"f-1170","repo":"mantahostels","transcript":"claude2__a525019b","label":null,"kind":"fresh","why":"","textHash":"352e53214d1e84f3","pA":0.31,"pB":0.07}
 {"id":"f-1171","repo":"workflow-core","transcript":"claude3__989a0b80","label":null,"kind":"fresh","why":"","textHash":"eac89dfb24dbfe10","pA":0.03,"pB":0.03}
-{"id":"f-1172","repo":"mantahostels","transcript":"claude2__d401ad6f","label":true,"kind":"fresh","why":"Unrun upgrade steps left outside the ticket, no issue number.","textHash":"641a0924a7db9548","pA":0.88,"pB":0.86}
+{"id":"f-1172","repo":"mantahostels","transcript":"claude2__d401ad6f","label":true,"kind":"fresh","why":"Unrun upgrade steps left outside the ticket, no issue number.","textHash":"641a0924a7db9548","pA":0.88,"pB":0.86,"drawn":["B"]}
 {"id":"f-1173","repo":"design-vault","transcript":"claude2__90cdabae","label":null,"kind":"fresh","why":"","textHash":"125d57d09632fdb3","pA":0.12,"pB":0.08}
 {"id":"f-1174","repo":"workflow-core","transcript":"claude3__bb81f63b","label":null,"kind":"fresh","why":"","textHash":"76bfd6f75db12db0","pA":0.42,"pB":0.17}
 {"id":"f-1175","repo":"health-and-fitness","transcript":"claude2__e9385c06","label":null,"kind":"fresh","why":"","textHash":"00f2b37a1ac2a0bc","pA":0.06,"pB":0.02}
@@ -1193,7 +1193,7 @@
 {"id":"f-1192","repo":"health-and-fitness","transcript":"claude3__8be3f049","label":null,"kind":"fresh","why":"","textHash":"68196465da532ba1","pA":0.21,"pB":0.07}
 {"id":"f-1193","repo":"workflow-core","transcript":"claude3__33bc6d8a","label":null,"kind":"fresh","why":"","textHash":"5dd2218409aedc39","pA":0.29,"pB":0.19}
 {"id":"f-1194","repo":"workflow-core","transcript":"claude3__905a193c","label":null,"kind":"fresh","why":"","textHash":"a01854cee3a87c7c","pA":0.04,"pB":0.04}
-{"id":"f-1195","repo":"workflow-core","transcript":"claude2__73b57025","label":true,"kind":"fresh","why":"Hook timeouts under load only planned for fixing, no issue.","textHash":"4f7e02e621f877f2","pA":0.9,"pB":0.9}
+{"id":"f-1195","repo":"workflow-core","transcript":"claude2__73b57025","label":true,"kind":"fresh","why":"Hook timeouts under load only planned for fixing, no issue.","textHash":"4f7e02e621f877f2","pA":0.9,"pB":0.9,"drawn":["A","B"]}
 {"id":"f-1196","repo":"workflow-core","transcript":"claude3__dff940a2","label":null,"kind":"fresh","why":"","textHash":"d15a51f5fa47ab37","pA":0.18,"pB":0.04}
 {"id":"f-1197","repo":"workflow-core","transcript":"claude3__040ccfde","label":null,"kind":"fresh","why":"","textHash":"d64d4985cb3f79ae","pA":0.19,"pB":0.09}
 {"id":"f-1198","repo":"workflow-core","transcript":"claude3__ccd9c247","label":null,"kind":"fresh","why":"","textHash":"5fd909da1dd597cf","pA":0.7,"pB":0.56}
@@ -1222,7 +1222,7 @@
 {"id":"f-1221","repo":"design-vault","transcript":"claude2__4eb54a18","label":null,"kind":"fresh","why":"","textHash":"c300f9118177f450","pA":0.37,"pB":0.18}
 {"id":"f-1222","repo":"workflow-core","transcript":"claude2__b12e8128","label":null,"kind":"fresh","why":"","textHash":"ac2435a203e81ee1","pA":0.07,"pB":0.07}
 {"id":"f-1223","repo":"workflow-core","transcript":"claude3__f9160d13","label":null,"kind":"fresh","why":"","textHash":"ab1478255b7ba799","pA":0.07,"pB":0.03}
-{"id":"f-1224","repo":"workflow-core","transcript":"claude2__9b03c9f7","label":true,"kind":"fresh","why":"Missed scheduled sweep noted, not investigated, no issue number.","textHash":"0d4a93ba0bd72435","pA":0.83,"pB":0.67}
+{"id":"f-1224","repo":"workflow-core","transcript":"claude2__9b03c9f7","label":true,"kind":"fresh","why":"Missed scheduled sweep noted, not investigated, no issue number.","textHash":"0d4a93ba0bd72435","pA":0.83,"pB":0.67,"drawn":["A"]}
 {"id":"f-1225","repo":"workflow-core","transcript":"claude3__62e7631f","label":null,"kind":"fresh","why":"","textHash":"5eb3b7d3c4dffbaf","pA":0.28,"pB":0.14}
 {"id":"f-1226","repo":"workflow-core","transcript":"claude3__db5f881c","label":null,"kind":"fresh","why":"","textHash":"f2c11eff9d0d8fe7","pA":0.13,"pB":0.07}
 {"id":"f-1227","repo":"health-and-fitness","transcript":"claude2__3141fdb4","label":null,"kind":"fresh","why":"","textHash":"a53ee708877bc2b3","pA":0.85,"pB":0.9}
@@ -1259,7 +1259,7 @@
 {"id":"f-1258","repo":"workflow-core","transcript":"claude2__a7e19478","label":null,"kind":"fresh","why":"","textHash":"9c0ad471553e58d9","pA":0.56,"pB":0.52}
 {"id":"f-1259","repo":"workflow-core","transcript":"claude2__b23530f2","label":null,"kind":"fresh","why":"","textHash":"02bbdb4ca0d00c15","pA":0.27,"pB":0.19}
 {"id":"f-1260","repo":"workflow-core","transcript":"claude2__0f6836aa","label":null,"kind":"fresh","why":"","textHash":"38b7480204eda936","pA":0.1,"pB":0.06}
-{"id":"f-1261","repo":"fantasy-books","transcript":"claude3__e59c35cd","label":true,"kind":"fresh","why":"Wrong-repo gate check readings identified, explicitly no ticket filed.","textHash":"a14ea0205ea38970","pA":0.93,"pB":0.86}
+{"id":"f-1261","repo":"fantasy-books","transcript":"claude3__e59c35cd","label":true,"kind":"fresh","why":"Wrong-repo gate check readings identified, explicitly no ticket filed.","textHash":"a14ea0205ea38970","pA":0.93,"pB":0.86,"drawn":["A"]}
 {"id":"f-1262","repo":"workflow-core","transcript":"claude2__e3f3c8ff","label":null,"kind":"fresh","why":"","textHash":"34fbded7a2e05bb0","pA":0.27,"pB":0.18}
 {"id":"f-1263","repo":"workflow-core","transcript":"claude3__e05cde57","label":null,"kind":"fresh","why":"","textHash":"2d2e6c5d5b1dc987","pA":0.05,"pB":0.03}
 {"id":"f-1264","repo":"workflow-core","transcript":"claude2__a5415d11","label":null,"kind":"fresh","why":"","textHash":"8a72adf5562a89fa","pA":0.45,"pB":0.17}
@@ -1272,7 +1272,7 @@
 {"id":"f-1271","repo":"workflow-core","transcript":"claude2__4e29a74d","label":null,"kind":"fresh","why":"","textHash":"23bd98f6267596bb","pA":0.08,"pB":0.04}
 {"id":"f-1272","repo":"design-vault","transcript":"claude3__53b2143b","label":null,"kind":"fresh","why":"","textHash":"82719e2b616d45ec","pA":0.44,"pB":0.06}
 {"id":"f-1273","repo":"workflow-core","transcript":"claude2__26a9ee03","label":null,"kind":"fresh","why":"","textHash":"e628399daea4bf48","pA":0.21,"pB":0.13}
-{"id":"f-1274","repo":"workflow-core","transcript":"claude3__cbc4af00","label":true,"kind":"fresh","why":"CI liveness fault and main drift left without issue numbers.","textHash":"2af6d2265b73cc55","pA":0.85,"pB":0.82}
+{"id":"f-1274","repo":"workflow-core","transcript":"claude3__cbc4af00","label":true,"kind":"fresh","why":"CI liveness fault and main drift left without issue numbers.","textHash":"2af6d2265b73cc55","pA":0.85,"pB":0.82,"drawn":["B"]}
 {"id":"f-1275","repo":"workflow-core","transcript":"claude3__abe3f0f2","label":null,"kind":"fresh","why":"","textHash":"549539ba52b4650f","pA":0.08,"pB":0.02}
 {"id":"f-1276","repo":"workflow-core","transcript":"claude3__6f29887d","label":null,"kind":"fresh","why":"","textHash":"a78e3efa3a419053","pA":0.27,"pB":0.08}
 {"id":"f-1277","repo":"health-and-fitness","transcript":"claude2__047c63b7","label":null,"kind":"fresh","why":"","textHash":"75dbae694f2e8517","pA":0.73,"pB":0.1}
@@ -1280,7 +1280,7 @@
 {"id":"f-1279","repo":"design-vault","transcript":"claude2__9337637f","label":null,"kind":"fresh","why":"","textHash":"c91ad052bbc5cb0f","pA":0.37,"pB":0.04}
 {"id":"f-1280","repo":"mantahostels","transcript":"claude2__f0e50e2b","label":null,"kind":"fresh","why":"","textHash":"a05a6def22510e53","pA":0.23,"pB":0.17}
 {"id":"f-1281","repo":"workflow-core","transcript":"claude3__3dd83e9e","label":null,"kind":"fresh","why":"","textHash":"7165c2076348abe9","pA":0.19,"pB":0.07}
-{"id":"f-1282","repo":"workflow-core","transcript":"claude2__77c584f0","label":true,"kind":"fresh","why":"Split local main explicitly not ticketed.","textHash":"018dcacd1b04699b","pA":0.86,"pB":0.7}
+{"id":"f-1282","repo":"workflow-core","transcript":"claude2__77c584f0","label":true,"kind":"fresh","why":"Split local main explicitly not ticketed.","textHash":"018dcacd1b04699b","pA":0.86,"pB":0.7,"drawn":["A"]}
 {"id":"f-1283","repo":"workflow-core","transcript":"claude2__2c4b31a1","label":null,"kind":"fresh","why":"","textHash":"c84e7173f062fc72","pA":0.03,"pB":0.02}
 {"id":"f-1284","repo":"design-vault","transcript":"claude3__07f26b38","label":null,"kind":"fresh","why":"","textHash":"e6d2f823a1c49c2c","pA":0.16,"pB":0.06}
 {"id":"f-1285","repo":"workflow-core","transcript":"claude2__7d194e85","label":null,"kind":"fresh","why":"","textHash":"e7b71e8c8cb0d3cd","pA":0.01,"pB":0.03}
@@ -1295,7 +1295,7 @@
 {"id":"f-1294","repo":"health-and-fitness","transcript":"claude3__ab49948a","label":null,"kind":"fresh","why":"","textHash":"5686ee9eeb515682","pA":0.22,"pB":0.07}
 {"id":"f-1295","repo":"workflow-core","transcript":"claude2__32b25030","label":null,"kind":"fresh","why":"","textHash":"ed175b4ed6a3b4e7","pA":0.03,"pB":0.05}
 {"id":"f-1296","repo":"workflow-core","transcript":"claude2__e2ecace4","label":null,"kind":"fresh","why":"","textHash":"b34ff4fb4db817e4","pA":0.02,"pB":0.03}
-{"id":"f-1297","repo":"workflow-core","transcript":"claude3__d84fc9e1","label":true,"kind":"fresh","why":"Standards review findings only planned for later fixing.","textHash":"80b42699a910d049","pA":0.8,"pB":0.31}
+{"id":"f-1297","repo":"workflow-core","transcript":"claude3__d84fc9e1","label":true,"kind":"fresh","why":"Standards review findings only planned for later fixing.","textHash":"80b42699a910d049","pA":0.8,"pB":0.31,"drawn":["A"]}
 {"id":"f-1298","repo":"workflow-core","transcript":"claude3__ad149819","label":null,"kind":"fresh","why":"","textHash":"240584fd2246cc67","pA":0.15,"pB":0.06}
 {"id":"f-1299","repo":"workflow-core","transcript":"claude3__3b11d420","label":null,"kind":"fresh","why":"","textHash":"7202c31def957e6d","pA":0.23,"pB":0.12}
 {"id":"f-1300","repo":"workflow-core","transcript":"claude3__5289272a","label":null,"kind":"fresh","why":"","textHash":"74ca2014e32bd416","pA":0.08,"pB":0.03}
@@ -1310,7 +1310,7 @@
 {"id":"f-1309","repo":"mantahostels","transcript":"claude2__56432d89","label":null,"kind":"fresh","why":"","textHash":"ad95e7dddefd8fb4","pA":0.44,"pB":0.23}
 {"id":"f-1310","repo":"workflow-core","transcript":"claude2__3da42a72","label":null,"kind":"fresh","why":"","textHash":"8632f0a3ea8d41ec","pA":0.13,"pB":0.07}
 {"id":"f-1311","repo":"workflow-core","transcript":"claude3__9709b8c6","label":null,"kind":"fresh","why":"","textHash":"ff667d34475a632c","pA":0.24,"pB":0.05}
-{"id":"f-1312","repo":"workflow-core","transcript":"claude3__48fb7101","label":false,"kind":"fresh","why":"Stale header comment is a follow-up recorded in the ticket's ruling.","textHash":"e2f26f614750bb7d","pA":0.81,"pB":0.7}
+{"id":"f-1312","repo":"workflow-core","transcript":"claude3__48fb7101","label":false,"kind":"fresh","why":"Stale header comment is a follow-up recorded in the ticket's ruling.","textHash":"e2f26f614750bb7d","pA":0.81,"pB":0.7,"drawn":["A"]}
 {"id":"f-1313","repo":"workflow-core","transcript":"claude3__5f8f9a5a","label":null,"kind":"fresh","why":"","textHash":"ab8a3aba150c2c3f","pA":0.13,"pB":0.06}
 {"id":"f-1314","repo":"workflow-core","transcript":"claude2-api__89db68bb","label":null,"kind":"fresh","why":"","textHash":"dd6656d87c980021","pA":0.32,"pB":0.13}
 {"id":"f-1315","repo":"workflow-core","transcript":"claude2__bd94673e","label":null,"kind":"fresh","why":"","textHash":"c9c3f6c0aad7a9cd","pA":0.73,"pB":0.21}
@@ -1323,7 +1323,7 @@
 {"id":"f-1322","repo":"workflow-core","transcript":"claude2__bfa6c498","label":null,"kind":"fresh","why":"","textHash":"7adb87b505de9bd3","pA":0.49,"pB":0.33}
 {"id":"f-1323","repo":"fantasy-books","transcript":"claude2__55925ea0","label":null,"kind":"fresh","why":"","textHash":"2bb7c10ad7f236d7","pA":0.47,"pB":0.57}
 {"id":"f-1324","repo":"design-vault","transcript":"claude3__a9851e54","label":null,"kind":"fresh","why":"","textHash":"3739672230df5f8e","pA":0.41,"pB":0.35}
-{"id":"f-1325","repo":"workflow-core","transcript":"claude3__af1b1d96","label":false,"kind":"fresh","why":"Only defect is the ticket's own subject; reviews pending.","textHash":"661ce68a2ae80b2b","pA":0.96,"pB":0.62}
+{"id":"f-1325","repo":"workflow-core","transcript":"claude3__af1b1d96","label":false,"kind":"fresh","why":"Only defect is the ticket's own subject; reviews pending.","textHash":"661ce68a2ae80b2b","pA":0.96,"pB":0.62,"drawn":["A"]}
 {"id":"f-1326","repo":"workflow-core","transcript":"claude2__6bd2864d","label":null,"kind":"fresh","why":"","textHash":"0f75f9f02a048998","pA":0.17,"pB":0.29}
 {"id":"f-1327","repo":"workflow-core","transcript":"claude2__af3c2d0e","label":null,"kind":"fresh","why":"","textHash":"9b12d69b5e96103a","pA":0.06,"pB":0.04}
 {"id":"f-1328","repo":"workflow-core","transcript":"claude3__1799a04e","label":null,"kind":"fresh","why":"","textHash":"fc97839b2afc283a","pA":0.79,"pB":0.8}
@@ -1350,8 +1350,8 @@
 {"id":"f-1349","repo":"workflow-core","transcript":"claude2__da2baa09","label":null,"kind":"fresh","why":"","textHash":"1a528c6e3d56b6cc","pA":0.75,"pB":0.67}
 {"id":"f-1350","repo":"workflow-core","transcript":"claude2-api__cc7e8e1d","label":null,"kind":"fresh","why":"","textHash":"18927890251a8e4b","pA":0.45,"pB":0.22}
 {"id":"f-1351","repo":"workflow-core","transcript":"claude3__3f4dc71a","label":null,"kind":"fresh","why":"","textHash":"0199701cd314f2fb","pA":0.02,"pB":0.02}
-{"id":"f-1352","repo":"workflow-core","transcript":"claude2__e4894fef","label":false,"kind":"fresh","why":"Both gaps stated on the build ticket; cleanup ticketed.","textHash":"f42ece32b02a697e","pA":0.66,"pB":0.85}
-{"id":"f-1353","repo":"workflow-core","transcript":"claude3__9b9fe939","label":true,"kind":"fresh","why":"Missed scheduled sweeps not investigated, no issue number.","textHash":"b6811b00ce2c61f2","pA":0.81,"pB":0.84}
+{"id":"f-1352","repo":"workflow-core","transcript":"claude2__e4894fef","label":false,"kind":"fresh","why":"Both gaps stated on the build ticket; cleanup ticketed.","textHash":"f42ece32b02a697e","pA":0.66,"pB":0.85,"drawn":["B"]}
+{"id":"f-1353","repo":"workflow-core","transcript":"claude3__9b9fe939","label":true,"kind":"fresh","why":"Missed scheduled sweeps not investigated, no issue number.","textHash":"b6811b00ce2c61f2","pA":0.81,"pB":0.84,"drawn":["A","B"]}
 {"id":"f-1354","repo":"workflow-core","transcript":"claude3__150ae494","label":null,"kind":"fresh","why":"","textHash":"897412b6a0cd751a","pA":0.47,"pB":0.48}
 {"id":"f-1355","repo":"workflow-core","transcript":"claude2__5a7ec0ac","label":null,"kind":"fresh","why":"","textHash":"35a3f0a36b00a207","pA":0.09,"pB":0.06}
 {"id":"f-1356","repo":"workflow-core","transcript":"claude2__694e032a","label":null,"kind":"fresh","why":"","textHash":"a436ec11bc05a055","pA":0.14,"pB":0.07}
@@ -1364,7 +1364,7 @@
 {"id":"f-1363","repo":"workflow-core","transcript":"claude2__28cc4ea1","label":null,"kind":"fresh","why":"","textHash":"809dd7bc62480ed7","pA":0.04,"pB":0.04}
 {"id":"f-1364","repo":"workflow-core","transcript":"claude3__02fd6720","label":null,"kind":"fresh","why":"","textHash":"5ebedc51276787ef","pA":0.45,"pB":0.29}
 {"id":"f-1365","repo":"workflow-core","transcript":"claude3__3f20fb80","label":null,"kind":"fresh","why":"","textHash":"114dd6474f7ac5a1","pA":0.16,"pB":0.06}
-{"id":"f-1366","repo":"workflow-core","transcript":"claude2__b6622239","label":true,"kind":"fresh","why":"Missed scheduled sweeps noted and not investigated, no issue.","textHash":"62afe50b5cef547d","pA":0.9,"pB":0.94}
+{"id":"f-1366","repo":"workflow-core","transcript":"claude2__b6622239","label":true,"kind":"fresh","why":"Missed scheduled sweeps noted and not investigated, no issue.","textHash":"62afe50b5cef547d","pA":0.9,"pB":0.94,"drawn":["A","B"]}
 {"id":"f-1367","repo":"workflow-core","transcript":"claude3__6617116e","label":null,"kind":"fresh","why":"","textHash":"a20ba37c7c6aaefe","pA":0.03,"pB":0.04}
 {"id":"f-1368","repo":"design-vault","transcript":"claude2__552adfa5","label":null,"kind":"fresh","why":"","textHash":"0bec1d64505e7978","pA":0.51,"pB":0.59}
 {"id":"f-1369","repo":"mantahostels","transcript":"claude2__6ebd0cc2","label":null,"kind":"fresh","why":"","textHash":"8a80e40dc8bfceac","pA":0.35,"pB":0.4}
@@ -1390,7 +1390,7 @@
 {"id":"f-1389","repo":"workflow-core","transcript":"claude2__4d42d23e","label":null,"kind":"fresh","why":"","textHash":"5a612653a0e15bbe","pA":0.73,"pB":0.47}
 {"id":"f-1390","repo":"workflow-core","transcript":"claude3__ef3a9c00","label":null,"kind":"fresh","why":"","textHash":"cfda833d9bd575f1","pA":0.44,"pB":0.5}
 {"id":"f-1391","repo":"workflow-core","transcript":"claude2__17e2f04a","label":null,"kind":"fresh","why":"","textHash":"b8e63182677f0c7d","pA":0.04,"pB":0.04}
-{"id":"f-1392","repo":"workflow-core","transcript":"claude3__699caabb","label":true,"kind":"fresh","why":"Skipped scheduled CI runs fault left unfixed, no issue tied.","textHash":"1e859103cb248add","pA":0.8,"pB":0.78}
+{"id":"f-1392","repo":"workflow-core","transcript":"claude3__699caabb","label":true,"kind":"fresh","why":"Skipped scheduled CI runs fault left unfixed, no issue tied.","textHash":"1e859103cb248add","pA":0.8,"pB":0.78,"drawn":["A"]}
 {"id":"f-1393","repo":"workflow-core","transcript":"claude3__f9aa7e70","label":null,"kind":"fresh","why":"","textHash":"ebbeb77897091620","pA":0.42,"pB":0.18}
 {"id":"f-1394","repo":"design-vault","transcript":"claude2__2a87597d","label":null,"kind":"fresh","why":"","textHash":"a0a16f2615fe81f0","pA":0.31,"pB":0.17}
 {"id":"f-1395","repo":"workflow-core","transcript":"claude2__0c34d0ac","label":null,"kind":"fresh","why":"","textHash":"cde73b32b9deebf0","pA":0.26,"pB":0.07}
@@ -1401,7 +1401,7 @@
 {"id":"f-1400","repo":"workflow-core","transcript":"claude2__0db3a6f2","label":null,"kind":"fresh","why":"","textHash":"90db912e674c6ab8","pA":0.2,"pB":0.07}
 {"id":"f-1401","repo":"workflow-core","transcript":"claude3__bd29774a","label":null,"kind":"fresh","why":"","textHash":"22eea16292ccc55c","pA":0.04,"pB":0.03}
 {"id":"f-1402","repo":"design-vault","transcript":"claude2__9a4f4922","label":null,"kind":"fresh","why":"","textHash":"3af41d8f9abbb187","pA":0.19,"pB":0.14}
-{"id":"f-1403","repo":"workflow-core","transcript":"claude3__c3dbe48f","label":true,"kind":"fresh","why":"Missing scheduled CI sweep left alone with no issue number.","textHash":"c05152ba5ce0c34d","pA":0.82,"pB":0.68}
+{"id":"f-1403","repo":"workflow-core","transcript":"claude3__c3dbe48f","label":true,"kind":"fresh","why":"Missing scheduled CI sweep left alone with no issue number.","textHash":"c05152ba5ce0c34d","pA":0.82,"pB":0.68,"drawn":["A"]}
 {"id":"f-1404","repo":"workflow-core","transcript":"claude2__81392bca","label":null,"kind":"fresh","why":"","textHash":"a8cb9f57776dea03","pA":0.64,"pB":0.54}
 {"id":"f-1405","repo":"workflow-core","transcript":"claude3__32ff9136","label":null,"kind":"fresh","why":"","textHash":"1d0361d071af14d2","pA":0.2,"pB":0.03}
 {"id":"f-1406","repo":"workflow-core","transcript":"claude3__0aa5bc36","label":null,"kind":"fresh","why":"","textHash":"31467bd1d2167c33","pA":0.03,"pB":0.04}
@@ -1487,7 +1487,7 @@
 {"id":"f-1486","repo":"health-and-fitness","transcript":"claude3__20f26ec3","label":null,"kind":"fresh","why":"","textHash":"084dddfd25c9448c","pA":0.35,"pB":0.17}
 {"id":"f-1487","repo":"workflow-core","transcript":"claude2__65ed5763","label":null,"kind":"fresh","why":"","textHash":"b1aba80685d4764d","pA":0.23,"pB":0.07}
 {"id":"f-1488","repo":"workflow-core","transcript":"claude2__4a370342","label":null,"kind":"fresh","why":"","textHash":"a1bbefd1ac09cb04","pA":0.23,"pB":0.09}
-{"id":"f-1489","repo":"workflow-core","transcript":"claude3__0be87bda","label":true,"kind":"fresh","why":"Hook census misfiling warning and loaded-version gap left without issue.","textHash":"93d9ffe979dd9008","pA":0.95,"pB":0.93}
+{"id":"f-1489","repo":"workflow-core","transcript":"claude3__0be87bda","label":true,"kind":"fresh","why":"Hook census misfiling warning and loaded-version gap left without issue.","textHash":"93d9ffe979dd9008","pA":0.95,"pB":0.93,"drawn":["B"]}
 {"id":"f-1490","repo":"workflow-core","transcript":"claude3__99bfbc6d","label":null,"kind":"fresh","why":"","textHash":"f1a866167765072a","pA":0.44,"pB":0.19}
 {"id":"f-1491","repo":"workflow-core","transcript":"claude3__b3b87204","label":null,"kind":"fresh","why":"","textHash":"7ecbaa2067323415","pA":0.16,"pB":0.05}
 {"id":"f-1492","repo":"workflow-core","transcript":"claude2__944fad54","label":null,"kind":"fresh","why":"","textHash":"a199507ab70a3fa2","pA":0.39,"pB":0.06}
@@ -1538,7 +1538,7 @@
 {"id":"f-1537","repo":"workflow-core","transcript":"claude2__d196816d","label":null,"kind":"fresh","why":"","textHash":"123e6eb850dd6271","pA":0.36,"pB":0.25}
 {"id":"f-1538","repo":"workflow-core","transcript":"claude2__2354ad3e","label":null,"kind":"fresh","why":"","textHash":"1db975113a3acc22","pA":0.83,"pB":0.5}
 {"id":"f-1539","repo":"workflow-core","transcript":"claude2__d7785a02","label":null,"kind":"fresh","why":"","textHash":"64443c54bc363072","pA":0.08,"pB":0.03}
-{"id":"f-1540","repo":"workflow-core","transcript":"claude2__44165d0f","label":true,"kind":"fresh","why":"Main/landing split left unresolved, no ticket filed.","textHash":"d9a6ffe8e297c345","pA":0.84,"pB":0.84}
+{"id":"f-1540","repo":"workflow-core","transcript":"claude2__44165d0f","label":true,"kind":"fresh","why":"Main/landing split left unresolved, no ticket filed.","textHash":"d9a6ffe8e297c345","pA":0.84,"pB":0.84,"drawn":["A"]}
 {"id":"f-1541","repo":"workflow-core","transcript":"claude2__48641fa6","label":null,"kind":"fresh","why":"","textHash":"9cb4bf5d555ca551","pA":0.19,"pB":0.11}
 {"id":"f-1542","repo":"workflow-core","transcript":"claude2__dd18246f","label":null,"kind":"fresh","why":"","textHash":"1973effb1e764394","pA":0.42,"pB":0.15}
 {"id":"f-1543","repo":"workflow-core","transcript":"claude2__7f648ae1","label":null,"kind":"fresh","why":"","textHash":"74827abe798aec89","pA":0.08,"pB":0.03}
@@ -1559,7 +1559,7 @@
 {"id":"f-1558","repo":"workflow-core","transcript":"claude3__5dbec41b","label":null,"kind":"fresh","why":"","textHash":"0c58be670c5062ab","pA":0.03,"pB":0.03}
 {"id":"f-1559","repo":"workflow-core","transcript":"claude2__01968ce5","label":null,"kind":"fresh","why":"","textHash":"dd8c57a85cc7ed0e","pA":0.21,"pB":0.09}
 {"id":"f-1560","repo":"workflow-core","transcript":"claude2__10080e1b","label":null,"kind":"fresh","why":"","textHash":"45fcbfb1853b197f","pA":0.03,"pB":0.06}
-{"id":"f-1561","repo":"workflow-core","transcript":"claude2-api__7f2cfa82","label":true,"kind":"fresh","why":"Dropped scheduled CI runs not looked into, no issue.","textHash":"20081b155a5516a8","pA":0.91,"pB":0.92}
+{"id":"f-1561","repo":"workflow-core","transcript":"claude2-api__7f2cfa82","label":true,"kind":"fresh","why":"Dropped scheduled CI runs not looked into, no issue.","textHash":"20081b155a5516a8","pA":0.91,"pB":0.92,"drawn":["A","B"]}
 {"id":"f-1562","repo":"mantahostels","transcript":"claude3__9b968266","label":null,"kind":"fresh","why":"","textHash":"6b7d42a3c5a739ee","pA":0.53,"pB":0.54}
 {"id":"f-1563","repo":"workflow-core","transcript":"claude2__9c470745","label":null,"kind":"fresh","why":"","textHash":"fdc75fc7118dd542","pA":0.35,"pB":0.12}
 {"id":"f-1564","repo":"workflow-core","transcript":"claude2__f2817131","label":null,"kind":"fresh","why":"","textHash":"23fec04534dde615","pA":0.15,"pB":0.04}
@@ -1639,7 +1639,7 @@
 {"id":"f-1638","repo":"workflow-core","transcript":"claude3__f45c75ae","label":null,"kind":"fresh","why":"","textHash":"292cd03d9ef76e71","pA":0.28,"pB":0.07}
 {"id":"f-1639","repo":"health-and-fitness","transcript":"claude3__2d04d894","label":null,"kind":"fresh","why":"","textHash":"8c2445d9f47ff2d6","pA":0.34,"pB":0.12}
 {"id":"f-1640","repo":"workflow-core","transcript":"claude2__8142d452","label":null,"kind":"fresh","why":"","textHash":"37fc53f9b1e43f58","pA":0.52,"pB":0.38}
-{"id":"f-1641","repo":"workflow-core","transcript":"claude3__54f2d8bd","label":true,"kind":"fresh","why":"Red CI job explicitly has no ticket; stray loops unkilled.","textHash":"9d7b68fe47513e72","pA":0.94,"pB":0.96}
+{"id":"f-1641","repo":"workflow-core","transcript":"claude3__54f2d8bd","label":true,"kind":"fresh","why":"Red CI job explicitly has no ticket; stray loops unkilled.","textHash":"9d7b68fe47513e72","pA":0.94,"pB":0.96,"drawn":["B"]}
 {"id":"f-1642","repo":"workflow-core","transcript":"claude3__c4da166d","label":null,"kind":"fresh","why":"","textHash":"4234589f927e4fbc","pA":0.41,"pB":0.25}
 {"id":"f-1643","repo":"workflow-core","transcript":"claude3__6740e41f","label":null,"kind":"fresh","why":"","textHash":"8ba5de3b7709ded9","pA":0.05,"pB":0.04}
 {"id":"f-1644","repo":"workflow-core","transcript":"claude3__11d895ec","label":null,"kind":"fresh","why":"","textHash":"97770681de8c93d0","pA":0.6,"pB":0.27}
@@ -1654,7 +1654,7 @@
 {"id":"f-1653","repo":"workflow-core","transcript":"claude3__a17d45df","label":null,"kind":"fresh","why":"","textHash":"37778e9d200abe08","pA":0.6,"pB":0.73}
 {"id":"f-1654","repo":"workflow-core","transcript":"claude3__a6fdbe39","label":null,"kind":"fresh","why":"","textHash":"80785e0a102bfe23","pA":0.1,"pB":0.05}
 {"id":"f-1655","repo":"workflow-core","transcript":"claude3__9f0ef1ad","label":null,"kind":"fresh","why":"","textHash":"2462b368f188e5fe","pA":0.02,"pB":0.02}
-{"id":"f-1656","repo":"design-vault","transcript":"claude2__56c87819","label":true,"kind":"fresh","why":"Workflow guard faults explicitly not filed anywhere.","textHash":"7258b79e7fd1c71d","pA":0.91,"pB":0.86}
+{"id":"f-1656","repo":"design-vault","transcript":"claude2__56c87819","label":true,"kind":"fresh","why":"Workflow guard faults explicitly not filed anywhere.","textHash":"7258b79e7fd1c71d","pA":0.91,"pB":0.86,"drawn":["A"]}
 {"id":"f-1657","repo":"workflow-core","transcript":"claude3__059b5d56","label":null,"kind":"fresh","why":"","textHash":"79a2ea53399024bb","pA":0.22,"pB":0.29}
 {"id":"f-1658","repo":"workflow-core","transcript":"claude3__e83f2bf8","label":null,"kind":"fresh","why":"","textHash":"80c22d76da9e4acf","pA":0.54,"pB":0.22}
 {"id":"f-1659","repo":"workflow-core","transcript":"claude3__042f8393","label":null,"kind":"fresh","why":"","textHash":"10b1fac5c24f6828","pA":0.25,"pB":0.07}
@@ -1662,7 +1662,7 @@
 {"id":"f-1661","repo":"workflow-core","transcript":"claude2__3764d1e1","label":null,"kind":"fresh","why":"","textHash":"b7d70cb7db11d14f","pA":0.08,"pB":0.05}
 {"id":"f-1662","repo":"workflow-core","transcript":"claude3__079009b3","label":null,"kind":"fresh","why":"","textHash":"48c17477cfadb4b2","pA":0.88,"pB":0.78}
 {"id":"f-1663","repo":"workflow-core","transcript":"claude2__b265019c","label":null,"kind":"fresh","why":"","textHash":"5529e193dc166dbd","pA":0.45,"pB":0.27}
-{"id":"f-1664","repo":"workflow-core","transcript":"claude3__155a9e98","label":true,"kind":"fresh","why":"Main and landing divergence left unowned, no issue number.","textHash":"a4b80e6cf6e98eb0","pA":0.8,"pB":0.85}
+{"id":"f-1664","repo":"workflow-core","transcript":"claude3__155a9e98","label":true,"kind":"fresh","why":"Main and landing divergence left unowned, no issue number.","textHash":"a4b80e6cf6e98eb0","pA":0.8,"pB":0.85,"drawn":["B"]}
 {"id":"f-1665","repo":"workflow-core","transcript":"claude3__99aa9e83","label":null,"kind":"fresh","why":"","textHash":"c7ce889dc477ff81","pA":0.11,"pB":0.04}
 {"id":"f-1666","repo":"workflow-core","transcript":"claude3__c326bbf8","label":null,"kind":"fresh","why":"","textHash":"f4857fd8d9269f2c","pA":0.34,"pB":0.27}
 {"id":"f-1667","repo":"workflow-core","transcript":"claude2__cd94ffda","label":null,"kind":"fresh","why":"","textHash":"c4add39bb7342a98","pA":0.48,"pB":0.19}
@@ -1683,7 +1683,7 @@
 {"id":"f-1682","repo":"workflow-core","transcript":"claude3__e121822f","label":null,"kind":"fresh","why":"","textHash":"a09e51d9a4bc73ed","pA":0.37,"pB":0.19}
 {"id":"f-1683","repo":"workflow-core","transcript":"claude3__40d81008","label":null,"kind":"fresh","why":"","textHash":"064beba96b1300b1","pA":0.1,"pB":0.04}
 {"id":"f-1684","repo":"workflow-core","transcript":"claude3__a56b48b4","label":null,"kind":"fresh","why":"","textHash":"1e09480d007b0eb9","pA":0.42,"pB":0.41}
-{"id":"f-1685","repo":"workflow-core","transcript":"claude3__5902d5c0","label":true,"kind":"fresh","why":"Red CI on main not looked into, no issue.","textHash":"79360c177c0e731c","pA":0.77,"pB":0.87}
+{"id":"f-1685","repo":"workflow-core","transcript":"claude3__5902d5c0","label":true,"kind":"fresh","why":"Red CI on main not looked into, no issue.","textHash":"79360c177c0e731c","pA":0.77,"pB":0.87,"drawn":["B"]}
 {"id":"f-1686","repo":"workflow-core","transcript":"claude3__2efa2aa0","label":null,"kind":"fresh","why":"","textHash":"1cb5928e30172872","pA":0.26,"pB":0.28}
 {"id":"f-1687","repo":"workflow-core","transcript":"claude2__d1f0e16b","label":null,"kind":"fresh","why":"","textHash":"9114d540dafd1eff","pA":0.77,"pB":0.55}
 {"id":"f-1688","repo":"design-vault","transcript":"claude3__1c11219b","label":null,"kind":"fresh","why":"","textHash":"7604c91236a3b387","pA":0.52,"pB":0.4}
@@ -1695,7 +1695,7 @@
 {"id":"f-1694","repo":"workflow-core","transcript":"claude2-api__098aa9d5","label":null,"kind":"fresh","why":"","textHash":"f8f764dfcf1c6c91","pA":0.32,"pB":0.11}
 {"id":"f-1695","repo":"workflow-core","transcript":"claude3__0135d740","label":null,"kind":"fresh","why":"","textHash":"eaa1b56545685c6d","pA":0.03,"pB":0.04}
 {"id":"f-1696","repo":"workflow-core","transcript":"claude2__737406dc","label":null,"kind":"fresh","why":"","textHash":"9933419ed69a45b1","pA":0.74,"pB":0.84}
-{"id":"f-1697","repo":"workflow-core","transcript":"claude3__24ac44af","label":true,"kind":"fresh","why":"Red landing type-check and patch failure route left unticketed.","textHash":"aaf230f2666bcb47","pA":0.73,"pB":0.89}
+{"id":"f-1697","repo":"workflow-core","transcript":"claude3__24ac44af","label":true,"kind":"fresh","why":"Red landing type-check and patch failure route left unticketed.","textHash":"aaf230f2666bcb47","pA":0.73,"pB":0.89,"drawn":["B"]}
 {"id":"f-1698","repo":"workflow-core","transcript":"claude3__862b1c64","label":null,"kind":"fresh","why":"","textHash":"83c9603e5cd12d1e","pA":0.48,"pB":0.15}
 {"id":"f-1699","repo":"workflow-core","transcript":"claude2__54d5b850","label":null,"kind":"fresh","why":"","textHash":"b65c16974e4fef18","pA":0.4,"pB":0.33}
 {"id":"f-1700","repo":"workflow-core","transcript":"claude2__16c1deda","label":null,"kind":"fresh","why":"","textHash":"256cfad33f11c5bf","pA":0.06,"pB":0.15}
@@ -1711,7 +1711,7 @@
 {"id":"f-1710","repo":"workflow-core","transcript":"claude2__f8a3e965","label":null,"kind":"fresh","why":"","textHash":"9e7eeb10c0f618bb","pA":0.06,"pB":0.06}
 {"id":"f-1711","repo":"workflow-core","transcript":"claude2__6cbbba98","label":null,"kind":"fresh","why":"","textHash":"2595fc2ea14465ab","pA":0.51,"pB":0.47}
 {"id":"f-1712","repo":"workflow-core","transcript":"claude2__7bba875c","label":null,"kind":"fresh","why":"","textHash":"73899ae1807afd42","pA":0.06,"pB":0.14}
-{"id":"f-1713","repo":"workflow-core","transcript":"claude2__b81bb7de","label":true,"kind":"fresh","why":"Lander revert defect named as separate, no issue number.","textHash":"5d176c13af2abb75","pA":0.94,"pB":0.87}
+{"id":"f-1713","repo":"workflow-core","transcript":"claude2__b81bb7de","label":true,"kind":"fresh","why":"Lander revert defect named as separate, no issue number.","textHash":"5d176c13af2abb75","pA":0.94,"pB":0.87,"drawn":["A","B"]}
 {"id":"f-1714","repo":"workflow-core","transcript":"claude2__58e625a8","label":null,"kind":"fresh","why":"","textHash":"2a53e228436287eb","pA":0.1,"pB":0.04}
 {"id":"f-1715","repo":"workflow-core","transcript":"claude2__9b752dec","label":null,"kind":"fresh","why":"","textHash":"c2961e1d0c5256b3","pA":0.77,"pB":0.63}
 {"id":"f-1716","repo":"workflow-core","transcript":"claude2__7a9feada","label":null,"kind":"fresh","why":"","textHash":"81d02764fda627e2","pA":0.16,"pB":0.19}
@@ -1759,7 +1759,7 @@
 {"id":"f-1758","repo":"workflow-core","transcript":"claude2__ce04d4ee","label":null,"kind":"fresh","why":"","textHash":"f64cb3960568b639","pA":0.45,"pB":0.21}
 {"id":"f-1759","repo":"workflow-core","transcript":"claude2__7af54553","label":null,"kind":"fresh","why":"","textHash":"719a95b284b23593","pA":0.03,"pB":0.04}
 {"id":"f-1760","repo":"workflow-core","transcript":"claude2__b2608601","label":null,"kind":"fresh","why":"","textHash":"71aa5e9ced85ecb6","pA":0.06,"pB":0.02}
-{"id":"f-1761","repo":"workflow-core","transcript":"claude2__f7fd6823","label":true,"kind":"fresh","why":"Manually triggered CI failure has no ticket.","textHash":"081f204f512f9c7d","pA":0.79,"pB":0.86}
+{"id":"f-1761","repo":"workflow-core","transcript":"claude2__f7fd6823","label":true,"kind":"fresh","why":"Manually triggered CI failure has no ticket.","textHash":"081f204f512f9c7d","pA":0.79,"pB":0.86,"drawn":["B"]}
 {"id":"f-1762","repo":"workflow-core","transcript":"claude2-api__e8a88431","label":null,"kind":"fresh","why":"","textHash":"292ec4aeb26242ff","pA":0.08,"pB":0.02}
 {"id":"f-1763","repo":"workflow-core","transcript":"claude2__bf039284","label":null,"kind":"fresh","why":"","textHash":"69f7828957a2119c","pA":0.89,"pB":0.85}
 {"id":"f-1764","repo":"workflow-core","transcript":"claude2__223ba748","label":null,"kind":"fresh","why":"","textHash":"167b2db9b8a99b69","pA":0.22,"pB":0.11}
@@ -1768,7 +1768,7 @@
 {"id":"f-1767","repo":"workflow-core","transcript":"claude3__b0f5fbc8","label":null,"kind":"fresh","why":"","textHash":"5a15bf9ece2d9ef3","pA":0.06,"pB":0.06}
 {"id":"f-1768","repo":"workflow-core","transcript":"claude3__d6723e16","label":null,"kind":"fresh","why":"","textHash":"88517d00a631478f","pA":0.15,"pB":0.13}
 {"id":"f-1769","repo":"workflow-core","transcript":"claude3__18b75b48","label":null,"kind":"fresh","why":"","textHash":"3aeb7eedb06bccf1","pA":0.22,"pB":0.05}
-{"id":"f-1770","repo":"workflow-core","transcript":"claude3__4a0197bd","label":true,"kind":"fresh","why":"Failed sweep job and missed sweeps explicitly not ticketed.","textHash":"2f1727a936067a93","pA":0.96,"pB":0.96}
+{"id":"f-1770","repo":"workflow-core","transcript":"claude3__4a0197bd","label":true,"kind":"fresh","why":"Failed sweep job and missed sweeps explicitly not ticketed.","textHash":"2f1727a936067a93","pA":0.96,"pB":0.96,"drawn":["B"]}
 {"id":"f-1771","repo":"workflow-core","transcript":"claude2-api__d3568b18","label":null,"kind":"fresh","why":"","textHash":"3c0b02d07db66739","pA":0.02,"pB":0.02}
 {"id":"f-1772","repo":"design-vault","transcript":"claude3__c449b237","label":null,"kind":"fresh","why":"","textHash":"17d48097818bac2d","pA":0.3,"pB":0.07}
 {"id":"f-1773","repo":"mantahostels","transcript":"claude2__ab1837ea","label":null,"kind":"fresh","why":"","textHash":"b737d5379f5d1bd9","pA":0.37,"pB":0.13}
@@ -1816,10 +1816,10 @@
 {"id":"f-1815","repo":"workflow-core","transcript":"claude2__50aec3dd","label":null,"kind":"fresh","why":"","textHash":"d7e2fd1c8a8c3f92","pA":0.02,"pB":0.02}
 {"id":"f-1816","repo":"workflow-core","transcript":"claude2__5336a627","label":null,"kind":"fresh","why":"","textHash":"edcaa26fb902db73","pA":0.83,"pB":0.69}
 {"id":"f-1817","repo":"workflow-core","transcript":"claude3__420c9b35","label":null,"kind":"fresh","why":"","textHash":"2ade29ba4ca2c66d","pA":0.12,"pB":0.03}
-{"id":"f-1818","repo":"workflow-core","transcript":"claude3__1abbdf06","label":true,"kind":"fresh","why":"Slow test file over limit, ticket not checked or filed.","textHash":"3678f1dcdb4352e4","pA":0.8,"pB":0.69}
+{"id":"f-1818","repo":"workflow-core","transcript":"claude3__1abbdf06","label":true,"kind":"fresh","why":"Slow test file over limit, ticket not checked or filed.","textHash":"3678f1dcdb4352e4","pA":0.8,"pB":0.69,"drawn":["A"]}
 {"id":"f-1819","repo":"workflow-core","transcript":"claude2__5078c5d7","label":null,"kind":"fresh","why":"","textHash":"6f817f30fc6cb549","pA":0.09,"pB":0.07}
 {"id":"f-1820","repo":"workflow-core","transcript":"claude3__23658853","label":null,"kind":"fresh","why":"","textHash":"b206d81e246aa956","pA":0.79,"pB":0.81}
-{"id":"f-1821","repo":"workflow-core","transcript":"claude3__f08e33f5","label":true,"kind":"fresh","why":"Missed scheduled sweeps reported as outside task, no issue number.","textHash":"bf4c242212c45d34","pA":0.84,"pB":0.82}
+{"id":"f-1821","repo":"workflow-core","transcript":"claude3__f08e33f5","label":true,"kind":"fresh","why":"Missed scheduled sweeps reported as outside task, no issue number.","textHash":"bf4c242212c45d34","pA":0.84,"pB":0.82,"drawn":["A"]}
 {"id":"f-1822","repo":"workflow-core","transcript":"claude3__8d973b31","label":null,"kind":"fresh","why":"","textHash":"2232d6130ed4a41e","pA":0.64,"pB":0.23}
 {"id":"f-1823","repo":"workflow-core","transcript":"claude2__f88346f8","label":null,"kind":"fresh","why":"","textHash":"5b6bbc1ea82fbc9a","pA":0.22,"pB":0.11}
 {"id":"f-1824","repo":"workflow-core","transcript":"claude2__efdd3837","label":null,"kind":"fresh","why":"","textHash":"ef1a0366dd424e9a","pA":0.55,"pB":0.65}
@@ -1836,7 +1836,7 @@
 {"id":"f-1835","repo":"workflow-core","transcript":"claude3__ad89d495","label":null,"kind":"fresh","why":"","textHash":"ffc5fd631b47cd2b","pA":0.57,"pB":0.39}
 {"id":"f-1836","repo":"workflow-core","transcript":"claude3__c74ec567","label":null,"kind":"fresh","why":"","textHash":"89caa86c61469bd8","pA":0.02,"pB":0.02}
 {"id":"f-1837","repo":"workflow-core","transcript":"claude2__13b8bbbb","label":null,"kind":"fresh","why":"","textHash":"74b86587dac0d2cd","pA":0.04,"pB":0.03}
-{"id":"f-1838","repo":"workflow-core","transcript":"claude2__a12c9e2a","label":false,"kind":"fresh","why":"Remaining gap reads as stated scope limit; findings fixed or declined.","textHash":"c84ea66a158286f0","pA":0.83,"pB":0.86}
+{"id":"f-1838","repo":"workflow-core","transcript":"claude2__a12c9e2a","label":false,"kind":"fresh","why":"Remaining gap reads as stated scope limit; findings fixed or declined.","textHash":"c84ea66a158286f0","pA":0.83,"pB":0.86,"drawn":["A"]}
 {"id":"f-1839","repo":"workflow-core","transcript":"claude3__ed7ebeaa","label":null,"kind":"fresh","why":"","textHash":"0ce67c127a8f610c","pA":0.04,"pB":0.07}
 {"id":"f-1840","repo":"workflow-core","transcript":"claude2-api__d0f6dca1","label":null,"kind":"fresh","why":"","textHash":"7161e1d3d8535dbe","pA":0.74,"pB":0.73}
 {"id":"f-1841","repo":"health-and-fitness","transcript":"claude3__fa9654ff","label":null,"kind":"fresh","why":"","textHash":"3085cc3806bd87f4","pA":0.2,"pB":0.12}
@@ -1872,7 +1872,7 @@
 {"id":"f-1871","repo":"workflow-core","transcript":"claude3__8acfe768","label":null,"kind":"fresh","why":"","textHash":"9da3edb81ff44485","pA":0.06,"pB":0.05}
 {"id":"f-1872","repo":"workflow-core","transcript":"claude2__b287ad81","label":null,"kind":"fresh","why":"","textHash":"b2f3b93b4cd7ed62","pA":0.02,"pB":0.04}
 {"id":"f-1873","repo":"workflow-core","transcript":"claude3__2032361d","label":null,"kind":"fresh","why":"","textHash":"6904c08f9be1ac1d","pA":0.22,"pB":0.07}
-{"id":"f-1874","repo":"workflow-core","transcript":"claude2__ba815a10","label":true,"kind":"fresh","why":"Missed scheduled sweeps noted, not investigated, no issue number.","textHash":"d20e310a8a385682","pA":0.82,"pB":0.8}
+{"id":"f-1874","repo":"workflow-core","transcript":"claude2__ba815a10","label":true,"kind":"fresh","why":"Missed scheduled sweeps noted, not investigated, no issue number.","textHash":"d20e310a8a385682","pA":0.82,"pB":0.8,"drawn":["A","B"]}
 {"id":"f-1875","repo":"health-and-fitness","transcript":"claude3__760d9294","label":null,"kind":"fresh","why":"","textHash":"db4da03b72cd3171","pA":0.08,"pB":0.06}
 {"id":"f-1876","repo":"workflow-core","transcript":"claude3__2c81ab9e","label":null,"kind":"fresh","why":"","textHash":"74ea10b6fa0a98a0","pA":0.18,"pB":0.1}
 {"id":"f-1877","repo":"workflow-core","transcript":"claude2-api__7c671b80","label":null,"kind":"fresh","why":"","textHash":"a7349ee18ff54acd","pA":0.02,"pB":0.02}
@@ -1902,7 +1902,7 @@
 {"id":"f-1901","repo":"workflow-core","transcript":"claude2__c5a3148e","label":null,"kind":"fresh","why":"","textHash":"bf85e3d8ca8179ea","pA":0.43,"pB":0.51}
 {"id":"f-1902","repo":"workflow-core","transcript":"claude2__41fb131d","label":null,"kind":"fresh","why":"","textHash":"09b5da0555489963","pA":0.14,"pB":0.07}
 {"id":"f-1903","repo":"workflow-core","transcript":"claude3__f527f5f0","label":null,"kind":"fresh","why":"","textHash":"7b5f98ec4a19ea35","pA":0.69,"pB":0.87}
-{"id":"f-1904","repo":"workflow-core","transcript":"claude3__90105439","label":false,"kind":"fresh","why":"Unbuilt specified command is planned work, not a defect.","textHash":"1a27589e54e1d377","pA":0.83,"pB":0.74}
+{"id":"f-1904","repo":"workflow-core","transcript":"claude3__90105439","label":false,"kind":"fresh","why":"Unbuilt specified command is planned work, not a defect.","textHash":"1a27589e54e1d377","pA":0.83,"pB":0.74,"drawn":["A"]}
 {"id":"f-1905","repo":"workflow-core","transcript":"claude2__e15728fd","label":null,"kind":"fresh","why":"","textHash":"12bfff64d9ca67c4","pA":0.04,"pB":0.04}
 {"id":"f-1906","repo":"workflow-core","transcript":"claude2__73136c9e","label":null,"kind":"fresh","why":"","textHash":"8fb15d3806bbfb75","pA":0.04,"pB":0.03}
 {"id":"f-1907","repo":"workflow-core","transcript":"claude3__554ace35","label":null,"kind":"fresh","why":"","textHash":"2101366fe4874646","pA":0.16,"pB":0.05}
@@ -1912,7 +1912,7 @@
 {"id":"f-1911","repo":"design-vault","transcript":"claude3__ca8b52e7","label":null,"kind":"fresh","why":"","textHash":"505ef614e4156298","pA":0.11,"pB":0.07}
 {"id":"f-1912","repo":"workflow-core","transcript":"claude3__666e8095","label":null,"kind":"fresh","why":"","textHash":"add650e0a0fa14f1","pA":0.25,"pB":0.08}
 {"id":"f-1913","repo":"workflow-core","transcript":"claude3__de49c316","label":null,"kind":"fresh","why":"","textHash":"729cc53c33ba40a8","pA":0.35,"pB":0.19}
-{"id":"f-1914","repo":"workflow-core","transcript":"claude2__f9888e6b","label":true,"kind":"fresh","why":"Out-of-date issue title left alone, not recorded.","textHash":"488e4306df0181bc","pA":0.89,"pB":0.37}
+{"id":"f-1914","repo":"workflow-core","transcript":"claude2__f9888e6b","label":true,"kind":"fresh","why":"Out-of-date issue title left alone, not recorded.","textHash":"488e4306df0181bc","pA":0.89,"pB":0.37,"drawn":["A"]}
 {"id":"f-1915","repo":"workflow-core","transcript":"claude3__ce22c702","label":null,"kind":"fresh","why":"","textHash":"41f31124ff4191b1","pA":0.11,"pB":0.05}
 {"id":"f-1916","repo":"workflow-core","transcript":"claude2__2ea2e02b","label":null,"kind":"fresh","why":"","textHash":"92beec63db04c767","pA":0.02,"pB":0.02}
 {"id":"f-1917","repo":"workflow-core","transcript":"claude2__68a0815a","label":null,"kind":"fresh","why":"","textHash":"3b4a0eed1afb6586","pA":0.13,"pB":0.05}
@@ -1923,7 +1923,7 @@
 {"id":"f-1922","repo":"workflow-core","transcript":"claude2__39b9a0ca","label":null,"kind":"fresh","why":"","textHash":"513ba86b974634d5","pA":0.46,"pB":0.3}
 {"id":"f-1923","repo":"workflow-core","transcript":"claude2__da3dd41b","label":null,"kind":"fresh","why":"","textHash":"57e874ab0e445b66","pA":0.76,"pB":0.5}
 {"id":"f-1924","repo":"workflow-core","transcript":"claude3__836d38c0","label":null,"kind":"fresh","why":"","textHash":"68ebdec037843c91","pA":0.38,"pB":0.21}
-{"id":"f-1925","repo":"workflow-core","transcript":"claude2__a6e9217b","label":true,"kind":"fresh","why":"Failing landing test noted without fix or issue.","textHash":"e99035a1fa6b7813","pA":0.78,"pB":0.87}
+{"id":"f-1925","repo":"workflow-core","transcript":"claude2__a6e9217b","label":true,"kind":"fresh","why":"Failing landing test noted without fix or issue.","textHash":"e99035a1fa6b7813","pA":0.78,"pB":0.87,"drawn":["B"]}
 {"id":"f-1926","repo":"workflow-core","transcript":"claude2__debf9db0","label":null,"kind":"fresh","why":"","textHash":"0caedc0f4e3728a4","pA":0.07,"pB":0.05}
 {"id":"f-1927","repo":"workflow-core","transcript":"claude3__5c650936","label":null,"kind":"fresh","why":"","textHash":"961b7136bf955263","pA":0.06,"pB":0.14}
 {"id":"f-1928","repo":"workflow-core","transcript":"claude3__d05ddaff","label":null,"kind":"fresh","why":"","textHash":"ada80357a794a444","pA":0.03,"pB":0.02}
@@ -1968,8 +1968,8 @@
 {"id":"f-1967","repo":"workflow-core","transcript":"claude3__5e2d3093","label":null,"kind":"fresh","why":"","textHash":"598dc9949761c4cf","pA":0.24,"pB":0.2}
 {"id":"f-1968","repo":"workflow-core","transcript":"claude2__51a157ec","label":null,"kind":"fresh","why":"","textHash":"c132254a77a701b1","pA":0.35,"pB":0.13}
 {"id":"f-1969","repo":"workflow-core","transcript":"claude3__a27290f0","label":null,"kind":"fresh","why":"","textHash":"2ce808c9a5df8827","pA":0.02,"pB":0.02}
-{"id":"f-1970","repo":"workflow-core","transcript":"claude3__66bacc79","label":true,"kind":"fresh","why":"Dropped scheduled sweeps fault noted without issue number.","textHash":"028b257e6d1c7853","pA":0.77,"pB":0.84}
-{"id":"f-1971","repo":"workflow-core","transcript":"claude2__730ea1e8","label":true,"kind":"fresh","why":"Missed scheduled sweeps reported and left untouched, no issue.","textHash":"aa1ceb2e1d017683","pA":0.8,"pB":0.86}
+{"id":"f-1970","repo":"workflow-core","transcript":"claude3__66bacc79","label":true,"kind":"fresh","why":"Dropped scheduled sweeps fault noted without issue number.","textHash":"028b257e6d1c7853","pA":0.77,"pB":0.84,"drawn":["B"]}
+{"id":"f-1971","repo":"workflow-core","transcript":"claude2__730ea1e8","label":true,"kind":"fresh","why":"Missed scheduled sweeps reported and left untouched, no issue.","textHash":"aa1ceb2e1d017683","pA":0.8,"pB":0.86,"drawn":["A"]}
 {"id":"f-1972","repo":"workflow-core","transcript":"claude2__488bc747","label":null,"kind":"fresh","why":"","textHash":"9b546efda5985805","pA":0.04,"pB":0.03}
 {"id":"f-1973","repo":"workflow-core","transcript":"claude3__33e0932b","label":null,"kind":"fresh","why":"","textHash":"4c1fafc40e1e5627","pA":0.04,"pB":0.06}
 {"id":"f-1974","repo":"workflow-core","transcript":"claude3__5c84515a","label":null,"kind":"fresh","why":"","textHash":"01f1d2248379421a","pA":0.12,"pB":0.07}
@@ -1985,7 +1985,7 @@
 {"id":"f-1984","repo":"workflow-core","transcript":"claude2__d42815d9","label":null,"kind":"fresh","why":"","textHash":"ffa234963038f916","pA":0.24,"pB":0.04}
 {"id":"f-1985","repo":"workflow-core","transcript":"claude2__742b4762","label":null,"kind":"fresh","why":"","textHash":"905beca0256d7186","pA":0.14,"pB":0.05}
 {"id":"f-1986","repo":"workflow-core","transcript":"claude2__8c5f4f7a","label":null,"kind":"fresh","why":"","textHash":"5d7041112906fa1e","pA":0.18,"pB":0.14}
-{"id":"f-1987","repo":"workflow-core","transcript":"claude3__9c121299","label":true,"kind":"fresh","why":"Close comment names wrong file, uncorrected; CI fault unticketed.","textHash":"0fa0f5453388077e","pA":0.83,"pB":0.88}
+{"id":"f-1987","repo":"workflow-core","transcript":"claude3__9c121299","label":true,"kind":"fresh","why":"Close comment names wrong file, uncorrected; CI fault unticketed.","textHash":"0fa0f5453388077e","pA":0.83,"pB":0.88,"drawn":["B"]}
 {"id":"f-1988","repo":"health-and-fitness","transcript":"claude3__0f721a49","label":null,"kind":"fresh","why":"","textHash":"3697f5541728d664","pA":0.15,"pB":0.15}
 {"id":"f-1989","repo":"workflow-core","transcript":"claude3__2fdf0273","label":null,"kind":"fresh","why":"","textHash":"7cb48eeeacd5ee3a","pA":0.02,"pB":0.05}
 {"id":"f-1990","repo":"workflow-core","transcript":"claude3__e8dd0cb1","label":null,"kind":"fresh","why":"","textHash":"61a58b50ee1f78d3","pA":0.32,"pB":0.07}
@@ -2008,7 +2008,7 @@
 {"id":"f-2007","repo":"design-vault","transcript":"claude2__db475e3b","label":null,"kind":"fresh","why":"","textHash":"5b547ca5ac4d47b0","pA":0.19,"pB":0.09}
 {"id":"f-2008","repo":"workflow-core","transcript":"claude3__8d3227f1","label":null,"kind":"fresh","why":"","textHash":"e4bad904e5fb0579","pA":0.32,"pB":0.22}
 {"id":"f-2009","repo":"workflow-core","transcript":"claude2__c6674bae","label":null,"kind":"fresh","why":"","textHash":"561f7c2fd5f18edf","pA":0.21,"pB":0.05}
-{"id":"f-2010","repo":"mantahostels","transcript":"claude2__83de554d","label":true,"kind":"fresh","why":"Oversized guard rule text blocks background calls, no issue number.","textHash":"183b747474ba1083","pA":0.84,"pB":0.54}
+{"id":"f-2010","repo":"mantahostels","transcript":"claude2__83de554d","label":true,"kind":"fresh","why":"Oversized guard rule text blocks background calls, no issue number.","textHash":"183b747474ba1083","pA":0.84,"pB":0.54,"drawn":["A"]}
 {"id":"f-2011","repo":"workflow-core","transcript":"claude2__6c29998b","label":null,"kind":"fresh","why":"","textHash":"3107f089c6742402","pA":0.11,"pB":0.07}
 {"id":"f-2012","repo":"workflow-core","transcript":"claude2__d80dea30","label":null,"kind":"fresh","why":"","textHash":"f531baa8ef7084c8","pA":0.35,"pB":0.08}
 {"id":"f-2013","repo":"workflow-core","transcript":"claude2__2535d47d","label":null,"kind":"fresh","why":"","textHash":"94c31ca94e16dfea","pA":0.09,"pB":0.05}
@@ -2016,7 +2016,7 @@
 {"id":"f-2015","repo":"workflow-core","transcript":"claude3__580f944a","label":null,"kind":"fresh","why":"","textHash":"625833ca66c3e278","pA":0.05,"pB":0.12}
 {"id":"f-2016","repo":"workflow-core","transcript":"claude2__be9e01d7","label":null,"kind":"fresh","why":"","textHash":"884784367f59b1ee","pA":0.06,"pB":0.04}
 {"id":"f-2017","repo":"mantahostels","transcript":"claude2__383124dd","label":null,"kind":"fresh","why":"","textHash":"2be1baab66f9e11a","pA":0.16,"pB":0.12}
-{"id":"f-2018","repo":"workflow-core","transcript":"claude3__f88fd808","label":true,"kind":"fresh","why":"Manual CI run failure has no ticket, left alone.","textHash":"ed8f490848158635","pA":0.81,"pB":0.87}
+{"id":"f-2018","repo":"workflow-core","transcript":"claude3__f88fd808","label":true,"kind":"fresh","why":"Manual CI run failure has no ticket, left alone.","textHash":"ed8f490848158635","pA":0.81,"pB":0.87,"drawn":["B"]}
 {"id":"f-2019","repo":"workflow-core","transcript":"claude2__6e7b66d2","label":null,"kind":"fresh","why":"","textHash":"a415ee2cdd56e0f0","pA":0.36,"pB":0.2}
 {"id":"f-2020","repo":"workflow-core","transcript":"claude2__91702fe8","label":null,"kind":"fresh","why":"","textHash":"152771ad9d0ff409","pA":0.16,"pB":0.13}
 {"id":"f-2021","repo":"workflow-core","transcript":"claude3__4abffdd2","label":null,"kind":"fresh","why":"","textHash":"518c46802fdbfae5","pA":0.3,"pB":0.14}
@@ -2030,7 +2030,7 @@
 {"id":"f-2029","repo":"workflow-core","transcript":"claude2__075b3fa4","label":null,"kind":"fresh","why":"","textHash":"94054279fb88fc5d","pA":0.53,"pB":0.08}
 {"id":"f-2030","repo":"workflow-core","transcript":"claude2__16d24ac7","label":null,"kind":"fresh","why":"","textHash":"b8dc08844c64eaf1","pA":0.58,"pB":0.5}
 {"id":"f-2031","repo":"workflow-core","transcript":"claude2__a7429364","label":null,"kind":"fresh","why":"","textHash":"ff2c1c0597a4e1ec","pA":0.61,"pB":0.13}
-{"id":"f-2032","repo":"workflow-core","transcript":"claude3__8c22003d","label":true,"kind":"fresh","why":"Red landing-quiet CI job on main not looked into, no issue.","textHash":"1d55c0b5187710bf","pA":0.86,"pB":0.84}
+{"id":"f-2032","repo":"workflow-core","transcript":"claude3__8c22003d","label":true,"kind":"fresh","why":"Red landing-quiet CI job on main not looked into, no issue.","textHash":"1d55c0b5187710bf","pA":0.86,"pB":0.84,"drawn":["B"]}
 {"id":"f-2033","repo":"mantahostels","transcript":"claude2__848b8be4","label":null,"kind":"fresh","why":"","textHash":"ed9a1c2e9e30f993","pA":0.74,"pB":0.75}
 {"id":"f-2034","repo":"workflow-core","transcript":"claude3__7a541b6e","label":null,"kind":"fresh","why":"","textHash":"0b2fa03cdb8272d2","pA":0.02,"pB":0.02}
 {"id":"f-2035","repo":"workflow-core","transcript":"claude3__d2c0b491","label":null,"kind":"fresh","why":"","textHash":"342ba9ce2968ed03","pA":0.02,"pB":0.02}
@@ -2072,7 +2072,7 @@
 {"id":"f-2071","repo":"workflow-core","transcript":"claude3__6a2b9120","label":null,"kind":"fresh","why":"","textHash":"770e5e555c50f5c3","pA":0.42,"pB":0.34}
 {"id":"f-2072","repo":"workflow-core","transcript":"claude3__8a88516a","label":null,"kind":"fresh","why":"","textHash":"463460cd50c940ec","pA":0.18,"pB":0.17}
 {"id":"f-2073","repo":"workflow-core","transcript":"claude2__f61f45d2","label":null,"kind":"fresh","why":"","textHash":"7cade76cac7d9c9d","pA":0.08,"pB":0.04}
-{"id":"f-2074","repo":"workflow-core","transcript":"claude3__582381e5","label":false,"kind":"fresh","why":"Remaining findings are the scope of the numbered gated ticket.","textHash":"8fdcb1b1f862b0ff","pA":0.8,"pB":0.35}
+{"id":"f-2074","repo":"workflow-core","transcript":"claude3__582381e5","label":false,"kind":"fresh","why":"Remaining findings are the scope of the numbered gated ticket.","textHash":"8fdcb1b1f862b0ff","pA":0.8,"pB":0.35,"drawn":["A"]}
 {"id":"f-2075","repo":"workflow-core","transcript":"claude3__ccfd54b5","label":null,"kind":"fresh","why":"","textHash":"f0f557d53408dcec","pA":0.03,"pB":0.05}
 {"id":"f-2076","repo":"workflow-core","transcript":"claude2__aa2b30da","label":null,"kind":"fresh","why":"","textHash":"3183b4229699340d","pA":0.03,"pB":0.03}
 {"id":"f-2077","repo":"workflow-core","transcript":"claude3__b7e21d47","label":null,"kind":"fresh","why":"","textHash":"26312d7504e7f97b","pA":0.07,"pB":0.06}
@@ -2095,8 +2095,8 @@
 {"id":"f-2094","repo":"health-and-fitness","transcript":"claude2__f9d3a1e9","label":null,"kind":"fresh","why":"","textHash":"4a0929a05c658be1","pA":0.47,"pB":0.39}
 {"id":"f-2095","repo":"workflow-core","transcript":"claude2__04acad6a","label":null,"kind":"fresh","why":"","textHash":"a4c6d678e27cd10c","pA":0.12,"pB":0.08}
 {"id":"f-2096","repo":"workflow-core","transcript":"claude3__7474cc00","label":null,"kind":"fresh","why":"","textHash":"33103f0dc2fb9eb4","pA":0.04,"pB":0.08}
-{"id":"f-2097","repo":"design-vault","transcript":"claude2__4b004d09","label":true,"kind":"fresh","why":"Out-of-step code-standards entries warned, no ticket opened.","textHash":"173d03a50a0a17a2","pA":0.95,"pB":0.9}
-{"id":"f-2098","repo":"workflow-core","transcript":"claude3__69fb71d9","label":true,"kind":"fresh","why":"Missed scheduled sweep slot noted and not touched.","textHash":"35d33c93a67418bd","pA":0.91,"pB":0.87}
+{"id":"f-2097","repo":"design-vault","transcript":"claude2__4b004d09","label":true,"kind":"fresh","why":"Out-of-step code-standards entries warned, no ticket opened.","textHash":"173d03a50a0a17a2","pA":0.95,"pB":0.9,"drawn":["A","B"]}
+{"id":"f-2098","repo":"workflow-core","transcript":"claude3__69fb71d9","label":true,"kind":"fresh","why":"Missed scheduled sweep slot noted and not touched.","textHash":"35d33c93a67418bd","pA":0.91,"pB":0.87,"drawn":["B"]}
 {"id":"f-2099","repo":"workflow-core","transcript":"claude3__680295d1","label":null,"kind":"fresh","why":"","textHash":"32d0bd219298fa49","pA":0.03,"pB":0.03}
 {"id":"f-2100","repo":"workflow-core","transcript":"claude3__01c5ff8d","label":null,"kind":"fresh","why":"","textHash":"4cd98dd61fedb395","pA":0.13,"pB":0.04}
 {"id":"f-2101","repo":"mantahostels","transcript":"claude__203b4c6f","label":null,"kind":"fresh","why":"","textHash":"cf1013bc57f08421","pA":0.12,"pB":0.05}
@@ -2133,12 +2133,12 @@
 {"id":"f-2132","repo":"workflow-core","transcript":"claude2__cf8ccafe","label":null,"kind":"fresh","why":"","textHash":"86472a2c5387c1b6","pA":0.22,"pB":0.11}
 {"id":"f-2133","repo":"workflow-core","transcript":"claude3__20be15ad","label":null,"kind":"fresh","why":"","textHash":"5b52475e8f63395d","pA":0.23,"pB":0.08}
 {"id":"f-2134","repo":"workflow-core","transcript":"claude3__64c20c13","label":null,"kind":"fresh","why":"","textHash":"3fc984f45357a86e","pA":0.05,"pB":0.03}
-{"id":"f-2135","repo":"health-and-fitness","transcript":"claude2__1294548b","label":true,"kind":"fresh","why":"Guide instruction gap causing future 404s left unmade, no issue.","textHash":"28bbce64b4163ee3","pA":0.91,"pB":0.84}
+{"id":"f-2135","repo":"health-and-fitness","transcript":"claude2__1294548b","label":true,"kind":"fresh","why":"Guide instruction gap causing future 404s left unmade, no issue.","textHash":"28bbce64b4163ee3","pA":0.91,"pB":0.84,"drawn":["A","B"]}
 {"id":"f-2136","repo":"workflow-core","transcript":"claude2__4eb21dc6","label":null,"kind":"fresh","why":"","textHash":"11443e6bd1282184","pA":0.68,"pB":0.43}
 {"id":"f-2137","repo":"workflow-core","transcript":"claude2__88e85a17","label":null,"kind":"fresh","why":"","textHash":"46d31e6a06eb2792","pA":0.03,"pB":0.04}
 {"id":"f-2138","repo":"health-and-fitness","transcript":"claude2__33b78b35","label":null,"kind":"fresh","why":"","textHash":"62848bc5c55667b4","pA":0.48,"pB":0.2}
 {"id":"f-2139","repo":"workflow-core","transcript":"claude2__38ab4439","label":null,"kind":"fresh","why":"","textHash":"a881c6b43cf72294","pA":0.15,"pB":0.07}
-{"id":"f-2140","repo":"design-vault","transcript":"claude3__90bb9242","label":true,"kind":"fresh","why":"Red CI on main with no ticket covering it.","textHash":"d3176ae41cac7f97","pA":0.86,"pB":0.81}
+{"id":"f-2140","repo":"design-vault","transcript":"claude3__90bb9242","label":true,"kind":"fresh","why":"Red CI on main with no ticket covering it.","textHash":"d3176ae41cac7f97","pA":0.86,"pB":0.81,"drawn":["A"]}
 {"id":"f-2141","repo":"workflow-core","transcript":"claude3__8f5f1ec9","label":null,"kind":"fresh","why":"","textHash":"d160b6d114c4f2ac","pA":0.35,"pB":0.19}
 {"id":"f-2142","repo":"workflow-core","transcript":"claude3__1bcf86f8","label":null,"kind":"fresh","why":"","textHash":"919e6b084400ebd9","pA":0.06,"pB":0.09}
 {"id":"f-2143","repo":"workflow-core","transcript":"claude2__dab5fb83","label":null,"kind":"fresh","why":"","textHash":"0179a23bed9dcf8d","pA":0.18,"pB":0.03}
@@ -2162,14 +2162,14 @@
 {"id":"f-2161","repo":"workflow-core","transcript":"claude3__29d5ac6e","label":null,"kind":"fresh","why":"","textHash":"357091458dad48bd","pA":0.32,"pB":0.11}
 {"id":"f-2162","repo":"workflow-core","transcript":"claude3__73991d98","label":null,"kind":"fresh","why":"","textHash":"3215ad4727fa045d","pA":0.05,"pB":0.06}
 {"id":"f-2163","repo":"workflow-core","transcript":"claude2__c7bbcf8b","label":null,"kind":"fresh","why":"","textHash":"8220f38cea4d6968","pA":0.24,"pB":0.14}
-{"id":"f-2164","repo":"workflow-core","transcript":"claude3__d88a56c0","label":true,"kind":"fresh","why":"Stale index lock and warnings left alone without issue numbers.","textHash":"1d349c6999fc216e","pA":0.88,"pB":0.82}
+{"id":"f-2164","repo":"workflow-core","transcript":"claude3__d88a56c0","label":true,"kind":"fresh","why":"Stale index lock and warnings left alone without issue numbers.","textHash":"1d349c6999fc216e","pA":0.88,"pB":0.82,"drawn":["B"]}
 {"id":"f-2165","repo":"workflow-core","transcript":"claude3__b29ae59f","label":null,"kind":"fresh","why":"","textHash":"8903b58ee5236b9a","pA":0.15,"pB":0.1}
 {"id":"f-2166","repo":"workflow-core","transcript":"claude2__7feb27c6","label":null,"kind":"fresh","why":"","textHash":"581dfe0ba0b8a4b5","pA":0.11,"pB":0.05}
 {"id":"f-2167","repo":"workflow-core","transcript":"claude2__d2586cbc","label":null,"kind":"fresh","why":"","textHash":"1d9eba4e5fa9f1ac","pA":0.38,"pB":0.68}
 {"id":"f-2168","repo":"workflow-core","transcript":"claude2__f0284103","label":null,"kind":"fresh","why":"","textHash":"f42d303b9f2c871b","pA":0.44,"pB":0.34}
 {"id":"f-2169","repo":"workflow-core","transcript":"claude2__e2d437e0","label":null,"kind":"fresh","why":"","textHash":"84db10d67e333ce0","pA":0.81,"pB":0.68}
 {"id":"f-2170","repo":"design-vault","transcript":"claude2__26ffa19d","label":null,"kind":"fresh","why":"","textHash":"28f1a74b27d32985","pA":0.11,"pB":0.05}
-{"id":"f-2171","repo":"workflow-core","transcript":"claude2__aad1c848","label":true,"kind":"fresh","why":"Main and landing split plus stalled lander left without issue numbers.","textHash":"862bf8ab987aeba7","pA":0.89,"pB":0.86}
+{"id":"f-2171","repo":"workflow-core","transcript":"claude2__aad1c848","label":true,"kind":"fresh","why":"Main and landing split plus stalled lander left without issue numbers.","textHash":"862bf8ab987aeba7","pA":0.89,"pB":0.86,"drawn":["B"]}
 {"id":"f-2172","repo":"workflow-core","transcript":"claude2__d3d39bb1","label":null,"kind":"fresh","why":"","textHash":"ef41a81807aa9cc3","pA":0.02,"pB":0.03}
 {"id":"f-2173","repo":"design-vault","transcript":"claude2__2db2ff33","label":null,"kind":"fresh","why":"","textHash":"63f32cd5604f8f95","pA":0.11,"pB":0.04}
 {"id":"f-2174","repo":"workflow-core","transcript":"claude3__8330999b","label":null,"kind":"fresh","why":"","textHash":"dc49514fd4494b7f","pA":0.03,"pB":0.05}
@@ -2188,7 +2188,7 @@
 {"id":"f-2187","repo":"workflow-core","transcript":"claude2__d23e5a08","label":null,"kind":"fresh","why":"","textHash":"6faf6636352603d6","pA":0.54,"pB":0.28}
 {"id":"f-2188","repo":"workflow-core","transcript":"claude3__69c774f7","label":null,"kind":"fresh","why":"","textHash":"15c72ced8e19c550","pA":0.1,"pB":0.05}
 {"id":"f-2189","repo":"workflow-core","transcript":"claude3__47ff1a3b","label":null,"kind":"fresh","why":"","textHash":"5de3ee7e92095348","pA":0.21,"pB":0.12}
-{"id":"f-2190","repo":"workflow-core","transcript":"claude3__b7470ba0","label":true,"kind":"fresh","why":"Dropped scheduled sweeps noted with no action and no issue.","textHash":"2770f220ddf4a692","pA":0.78,"pB":0.83}
+{"id":"f-2190","repo":"workflow-core","transcript":"claude3__b7470ba0","label":true,"kind":"fresh","why":"Dropped scheduled sweeps noted with no action and no issue.","textHash":"2770f220ddf4a692","pA":0.78,"pB":0.83,"drawn":["B"]}
 {"id":"f-2191","repo":"workflow-core","transcript":"claude2__e2c94e1e","label":null,"kind":"fresh","why":"","textHash":"8e1f63c87d95b9e3","pA":0.1,"pB":0.07}
 {"id":"f-2192","repo":"workflow-core","transcript":"claude2__fd0761a6","label":null,"kind":"fresh","why":"","textHash":"2cb16bbfe42ed042","pA":0.38,"pB":0.27}
 {"id":"f-2193","repo":"workflow-core","transcript":"claude2-api__b09b74d4","label":null,"kind":"fresh","why":"","textHash":"d81810c8fed4cd46","pA":0.08,"pB":0.02}
@@ -2206,7 +2206,7 @@
 {"id":"f-2205","repo":"workflow-core","transcript":"claude2__2c4ba9f3","label":null,"kind":"fresh","why":"","textHash":"abe3f62e1820c39e","pA":0.11,"pB":0.08}
 {"id":"f-2206","repo":"workflow-core","transcript":"claude2__033f7e80","label":null,"kind":"fresh","why":"","textHash":"b74c5204af7868b5","pA":0.55,"pB":0.36}
 {"id":"f-2207","repo":"health-and-fitness","transcript":"claude3__b268e9c7","label":null,"kind":"fresh","why":"","textHash":"465c171bc7dcc5de","pA":0.27,"pB":0.25}
-{"id":"f-2208","repo":"workflow-core","transcript":"claude3__4d8f9952","label":true,"kind":"fresh","why":"Missed CI run and orphaned wait loops left alone, no issue.","textHash":"4ed311506485415b","pA":0.93,"pB":0.81}
+{"id":"f-2208","repo":"workflow-core","transcript":"claude3__4d8f9952","label":true,"kind":"fresh","why":"Missed CI run and orphaned wait loops left alone, no issue.","textHash":"4ed311506485415b","pA":0.93,"pB":0.81,"drawn":["A"]}
 {"id":"f-2209","repo":"design-vault","transcript":"claude3__8d08e9ce","label":null,"kind":"fresh","why":"","textHash":"055e9a1d9046644f","pA":0.62,"pB":0.44}
 {"id":"f-2210","repo":"workflow-core","transcript":"claude3__b37294bd","label":null,"kind":"fresh","why":"","textHash":"66b4d4cce4869c2a","pA":0.03,"pB":0.02}
 {"id":"f-2211","repo":"workflow-core","transcript":"claude3__708862a5","label":null,"kind":"fresh","why":"","textHash":"8f2cbddbd950f789","pA":0.04,"pB":0.06}
@@ -2253,7 +2253,7 @@
 {"id":"f-2252","repo":"workflow-core","transcript":"claude2__cb27e283","label":null,"kind":"fresh","why":"","textHash":"a0573bebfd1ab920","pA":0.46,"pB":0.17}
 {"id":"f-2253","repo":"workflow-core","transcript":"claude3__08ff43a3","label":null,"kind":"fresh","why":"","textHash":"b9eafea82caba18b","pA":0.11,"pB":0.09}
 {"id":"f-2254","repo":"workflow-core","transcript":"claude2__62e07c5c","label":null,"kind":"fresh","why":"","textHash":"86d53a9e664994ff","pA":0.2,"pB":0.12}
-{"id":"f-2255","repo":"workflow-core","transcript":"claude3__7c2c370d","label":true,"kind":"fresh","why":"CI liveness fault and neighbour test failures left without issue.","textHash":"c86bf788302bc8d9","pA":0.85,"pB":0.9}
+{"id":"f-2255","repo":"workflow-core","transcript":"claude3__7c2c370d","label":true,"kind":"fresh","why":"CI liveness fault and neighbour test failures left without issue.","textHash":"c86bf788302bc8d9","pA":0.85,"pB":0.9,"drawn":["B"]}
 {"id":"f-2256","repo":"workflow-core","transcript":"claude2__8749639e","label":null,"kind":"fresh","why":"","textHash":"88ec0a7413cc91dd","pA":0.7,"pB":0.41}
 {"id":"f-2257","repo":"workflow-core","transcript":"claude2__694d9f02","label":null,"kind":"fresh","why":"","textHash":"37ec7f1ca222e491","pA":0.03,"pB":0.02}
 {"id":"f-2258","repo":"workflow-core","transcript":"claude2__7b3ed283","label":null,"kind":"fresh","why":"","textHash":"4519a0a735d70d52","pA":0.53,"pB":0.32}
@@ -2261,7 +2261,7 @@
 {"id":"f-2260","repo":"workflow-core","transcript":"claude2-api__74828944","label":null,"kind":"fresh","why":"","textHash":"baba4b11a010dde0","pA":0.7,"pB":0.56}
 {"id":"f-2261","repo":"workflow-core","transcript":"claude2__8189c396","label":null,"kind":"fresh","why":"","textHash":"f10fedc017218323","pA":0.66,"pB":0.38}
 {"id":"f-2262","repo":"workflow-core","transcript":"claude3__3052c834","label":null,"kind":"fresh","why":"","textHash":"a2a230e5b25bbbac","pA":0.07,"pB":0.03}
-{"id":"f-2263","repo":"workflow-core","transcript":"claude3__208e133c","label":true,"kind":"fresh","why":"Stranded uncommitted anchor changes left for others, no issue.","textHash":"18d26fa35bcad1e4","pA":0.83,"pB":0.67}
+{"id":"f-2263","repo":"workflow-core","transcript":"claude3__208e133c","label":true,"kind":"fresh","why":"Stranded uncommitted anchor changes left for others, no issue.","textHash":"18d26fa35bcad1e4","pA":0.83,"pB":0.67,"drawn":["A"]}
 {"id":"f-2264","repo":"workflow-core","transcript":"claude3__265a78ad","label":null,"kind":"fresh","why":"","textHash":"575e4d4a035c0e14","pA":0.71,"pB":0.74}
 {"id":"f-2265","repo":"workflow-core","transcript":"claude3__21b6d552","label":null,"kind":"fresh","why":"","textHash":"636c7d2698b3694b","pA":0.68,"pB":0.62}
 {"id":"f-2266","repo":"workflow-core","transcript":"claude3__b27460f7","label":null,"kind":"fresh","why":"","textHash":"b5b1634a3f71bc91","pA":0.29,"pB":0.04}
@@ -2280,7 +2280,7 @@
 {"id":"f-2279","repo":"workflow-core","transcript":"claude3__195871ad","label":null,"kind":"fresh","why":"","textHash":"84a34b8a8a3b19ff","pA":0.4,"pB":0.56}
 {"id":"f-2280","repo":"workflow-core","transcript":"claude3__00edaaf8","label":null,"kind":"fresh","why":"","textHash":"ba9ab729201ba32f","pA":0.03,"pB":0.02}
 {"id":"f-2281","repo":"workflow-core","transcript":"claude2__4cb17149","label":null,"kind":"fresh","why":"","textHash":"87ba701e32de895e","pA":0.13,"pB":0.08}
-{"id":"f-2282","repo":"workflow-core","transcript":"claude3__c5dbd359","label":true,"kind":"fresh","why":"Several red tests and CI alarm left without issue numbers.","textHash":"c81fd1f1f08a2639","pA":0.75,"pB":0.8}
+{"id":"f-2282","repo":"workflow-core","transcript":"claude3__c5dbd359","label":true,"kind":"fresh","why":"Several red tests and CI alarm left without issue numbers.","textHash":"c81fd1f1f08a2639","pA":0.75,"pB":0.8,"drawn":["B"]}
 {"id":"f-2283","repo":"workflow-core","transcript":"claude3__cf9b4c53","label":null,"kind":"fresh","why":"","textHash":"b3d1e603b664fad2","pA":0.23,"pB":0.19}
 {"id":"f-2284","repo":"workflow-core","transcript":"claude2__f9c1e593","label":null,"kind":"fresh","why":"","textHash":"2e06fade17022ac4","pA":0.14,"pB":0.04}
 {"id":"f-2285","repo":"workflow-core","transcript":"claude3__526fea97","label":null,"kind":"fresh","why":"","textHash":"20a427d5ebe970b6","pA":0.02,"pB":0.02}
@@ -2310,7 +2310,7 @@
 {"id":"f-2309","repo":"fantasy-books","transcript":"claude2__89fb37b9","label":null,"kind":"fresh","why":"","textHash":"9711481177908857","pA":0.54,"pB":0.26}
 {"id":"f-2310","repo":"health-and-fitness","transcript":"claude3__b7ac033a","label":null,"kind":"fresh","why":"","textHash":"eeb8bb67c7bdcb3e","pA":0.46,"pB":0.15}
 {"id":"f-2311","repo":"workflow-core","transcript":"claude2__c7009f7a","label":null,"kind":"fresh","why":"","textHash":"8b005ad2cbe859f3","pA":0.05,"pB":0.04}
-{"id":"f-2312","repo":"workflow-core","transcript":"claude2__2320e83e","label":true,"kind":"fresh","why":"Session crash left unexplained with no issue number attached.","textHash":"3f33a9ef146bdf28","pA":0.91,"pB":0.76}
+{"id":"f-2312","repo":"workflow-core","transcript":"claude2__2320e83e","label":true,"kind":"fresh","why":"Session crash left unexplained with no issue number attached.","textHash":"3f33a9ef146bdf28","pA":0.91,"pB":0.76,"drawn":["A"]}
 {"id":"f-2313","repo":"workflow-core","transcript":"claude3__e8a701e6","label":null,"kind":"fresh","why":"","textHash":"af1221567535dd0a","pA":0.32,"pB":0.47}
 {"id":"f-2314","repo":"workflow-core","transcript":"claude2__380bdac2","label":null,"kind":"fresh","why":"","textHash":"c184f7c5fe46f821","pA":0.37,"pB":0.27}
 {"id":"f-2315","repo":"health-and-fitness","transcript":"claude2__80bf4816","label":null,"kind":"fresh","why":"","textHash":"245e56ab04370931","pA":0.08,"pB":0.05}
@@ -2343,7 +2343,7 @@
 {"id":"f-2342","repo":"workflow-core","transcript":"claude3__a17d3159","label":null,"kind":"fresh","why":"","textHash":"ba0bbcd56949df05","pA":0.08,"pB":0.07}
 {"id":"f-2343","repo":"workflow-core","transcript":"claude2__35440ac0","label":null,"kind":"fresh","why":"","textHash":"57871891675dabe6","pA":0.22,"pB":0.04}
 {"id":"f-2344","repo":"workflow-core","transcript":"claude3__68cb0c97","label":null,"kind":"fresh","why":"","textHash":"a13a1145f5ffd9d9","pA":0.45,"pB":0.09}
-{"id":"f-2345","repo":"workflow-core","transcript":"claude2__5bec0f15","label":true,"kind":"fresh","why":"Review findings only planned for later fixing, none fixed or filed.","textHash":"42428f6f4915da1e","pA":0.91,"pB":0.7}
+{"id":"f-2345","repo":"workflow-core","transcript":"claude2__5bec0f15","label":true,"kind":"fresh","why":"Review findings only planned for later fixing, none fixed or filed.","textHash":"42428f6f4915da1e","pA":0.91,"pB":0.7,"drawn":["A"]}
 {"id":"f-2346","repo":"health-and-fitness","transcript":"claude3__0c84cc1f","label":null,"kind":"fresh","why":"","textHash":"f284229fdcae8466","pA":0.83,"pB":0.72}
 {"id":"f-2347","repo":"workflow-core","transcript":"claude3__1ba3bd77","label":null,"kind":"fresh","why":"","textHash":"e72e9320dae537a9","pA":0.03,"pB":0.03}
 {"id":"f-2348","repo":"workflow-core","transcript":"claude3__b6c76873","label":null,"kind":"fresh","why":"","textHash":"f452cdc0cedc8ced","pA":0.07,"pB":0.18}
@@ -2378,14 +2378,14 @@
 {"id":"f-2377","repo":"workflow-core","transcript":"claude3__1da152c8","label":null,"kind":"fresh","why":"","textHash":"0c1df477ad7bff56","pA":0.2,"pB":0.09}
 {"id":"f-2378","repo":"workflow-core","transcript":"claude2__487f9f89","label":null,"kind":"fresh","why":"","textHash":"5c485a0bec812c50","pA":0.02,"pB":0.01}
 {"id":"f-2379","repo":"workflow-core","transcript":"claude3__3237a76d","label":null,"kind":"fresh","why":"","textHash":"a67206692306beef","pA":0.03,"pB":0.09}
-{"id":"f-2380","repo":"design-vault","transcript":"claude2__02949eb0","label":true,"kind":"fresh","why":"Guard-registry fault on main blocking lander, no issue.","textHash":"cf9f11fbc07c67ba","pA":0.91,"pB":0.81}
+{"id":"f-2380","repo":"design-vault","transcript":"claude2__02949eb0","label":true,"kind":"fresh","why":"Guard-registry fault on main blocking lander, no issue.","textHash":"cf9f11fbc07c67ba","pA":0.91,"pB":0.81,"drawn":["B"]}
 {"id":"f-2381","repo":"design-vault","transcript":"claude3__42641f98","label":null,"kind":"fresh","why":"","textHash":"1649282b1a9ce2e6","pA":0.4,"pB":0.88}
 {"id":"f-2382","repo":"workflow-core","transcript":"claude3__3f4a79b0","label":null,"kind":"fresh","why":"","textHash":"b78b12a895ce462d","pA":0.45,"pB":0.4}
 {"id":"f-2383","repo":"workflow-core","transcript":"claude3__7d4e43ba","label":null,"kind":"fresh","why":"","textHash":"1022c53fb21f0532","pA":0.03,"pB":0.03}
 {"id":"f-2384","repo":"workflow-core","transcript":"claude2__dbfb5e9c","label":null,"kind":"fresh","why":"","textHash":"c0b5c52b890b9b32","pA":0.03,"pB":0.07}
 {"id":"f-2385","repo":"workflow-core","transcript":"claude2__7e9582c8","label":null,"kind":"fresh","why":"","textHash":"a191aa684469710c","pA":0.56,"pB":0.47}
 {"id":"f-2386","repo":"workflow-core","transcript":"claude3__f7874180","label":null,"kind":"fresh","why":"","textHash":"5a30103123ebb39a","pA":0.47,"pB":0.34}
-{"id":"f-2387","repo":"workflow-core","transcript":"claude3__072c0bba","label":true,"kind":"fresh","why":"Missing scheduled sweeps left untouched, no issue number.","textHash":"9832d74650b24f10","pA":0.86,"pB":0.77}
+{"id":"f-2387","repo":"workflow-core","transcript":"claude3__072c0bba","label":true,"kind":"fresh","why":"Missing scheduled sweeps left untouched, no issue number.","textHash":"9832d74650b24f10","pA":0.86,"pB":0.77,"drawn":["A"]}
 {"id":"f-2388","repo":"workflow-core","transcript":"claude3__2fd41a1a","label":null,"kind":"fresh","why":"","textHash":"a3186a2b8df4e910","pA":0.52,"pB":0.11}
 {"id":"f-2389","repo":"design-vault","transcript":"claude3__51f0c402","label":null,"kind":"fresh","why":"","textHash":"8a8fab59c1e5b9d2","pA":0.18,"pB":0.18}
 {"id":"f-2390","repo":"workflow-core","transcript":"claude2__c24d895f","label":null,"kind":"fresh","why":"","textHash":"825058033dfa8564","pA":0.09,"pB":0.04}
@@ -2431,7 +2431,7 @@
 {"id":"f-2430","repo":"workflow-core","transcript":"claude2__85a6206c","label":null,"kind":"fresh","why":"","textHash":"91f57c0046a2a8e7","pA":0.09,"pB":0.16}
 {"id":"f-2431","repo":"workflow-core","transcript":"claude2__887a8fc6","label":null,"kind":"fresh","why":"","textHash":"2e5fbfe89a6271ef","pA":0.42,"pB":0.26}
 {"id":"f-2432","repo":"design-vault","transcript":"claude2__597d3dce","label":null,"kind":"fresh","why":"","textHash":"63fcbe9e4fb6ebde","pA":0.45,"pB":0.34}
-{"id":"f-2433","repo":"workflow-core","transcript":"claude3__cba1f581","label":true,"kind":"fresh","why":"Stale CLAUDE.md copy in doc left alone, no issue.","textHash":"5c78fdecd7b5b7e2","pA":0.87,"pB":0.72}
+{"id":"f-2433","repo":"workflow-core","transcript":"claude3__cba1f581","label":true,"kind":"fresh","why":"Stale CLAUDE.md copy in doc left alone, no issue.","textHash":"5c78fdecd7b5b7e2","pA":0.87,"pB":0.72,"drawn":["A"]}
 {"id":"f-2434","repo":"workflow-core","transcript":"claude2__0c3ca88c","label":null,"kind":"fresh","why":"","textHash":"84ffb6a53b7b8838","pA":0.58,"pB":0.34}
 {"id":"f-2435","repo":"workflow-core","transcript":"claude3__0d7eed53","label":null,"kind":"fresh","why":"","textHash":"878fd6211c69b771","pA":0.02,"pB":0.02}
 {"id":"f-2436","repo":"workflow-core","transcript":"claude2__bb42b764","label":null,"kind":"fresh","why":"","textHash":"3ae0ad3b96afb595","pA":0.36,"pB":0.29}
@@ -2441,7 +2441,7 @@
 {"id":"f-2440","repo":"design-vault","transcript":"claude2__1905baa9","label":null,"kind":"fresh","why":"","textHash":"813fa876e7a724c7","pA":0.28,"pB":0.06}
 {"id":"f-2441","repo":"workflow-core","transcript":"claude2__a9ab04c1","label":null,"kind":"fresh","why":"","textHash":"259a9fa60747546c","pA":0.13,"pB":0.1}
 {"id":"f-2442","repo":"workflow-core","transcript":"claude3__33294b66","label":null,"kind":"fresh","why":"","textHash":"23df51329bec09cf","pA":0.16,"pB":0.05}
-{"id":"f-2443","repo":"workflow-core","transcript":"claude2__f6aac7d3","label":true,"kind":"fresh","why":"Missed CI sweep slot left open without issue number.","textHash":"8d76524d4f649100","pA":0.58,"pB":0.84}
+{"id":"f-2443","repo":"workflow-core","transcript":"claude2__f6aac7d3","label":true,"kind":"fresh","why":"Missed CI sweep slot left open without issue number.","textHash":"8d76524d4f649100","pA":0.58,"pB":0.84,"drawn":["B"]}
 {"id":"f-2444","repo":"workflow-core","transcript":"claude3__a76d311d","label":null,"kind":"fresh","why":"","textHash":"0da730dfcfb64619","pA":0.02,"pB":0.02}
 {"id":"f-2445","repo":"workflow-core","transcript":"claude3__1317ee5a","label":null,"kind":"fresh","why":"","textHash":"fd62bdae9c2529a8","pA":0.61,"pB":0.49}
 {"id":"f-2446","repo":"workflow-core","transcript":"claude3__d8805987","label":null,"kind":"fresh","why":"","textHash":"b87a84740b2ce7c4","pA":0.11,"pB":0.02}
@@ -2458,7 +2458,7 @@
 {"id":"f-2457","repo":"workflow-core","transcript":"claude3__e7bd2384","label":null,"kind":"fresh","why":"","textHash":"972d6ded79f3739e","pA":0.09,"pB":0.03}
 {"id":"f-2458","repo":"workflow-core","transcript":"claude3__c995c447","label":null,"kind":"fresh","why":"","textHash":"c677d9b4b2ab87d8","pA":0.5,"pB":0.23}
 {"id":"f-2459","repo":"workflow-core","transcript":"claude3__f598ea97","label":null,"kind":"fresh","why":"","textHash":"fd2b1106e09022af","pA":0.26,"pB":0.1}
-{"id":"f-2460","repo":"workflow-core","transcript":"claude2__366e5817","label":true,"kind":"fresh","why":"Three stale anchor rows left, explicitly no ticket filed.","textHash":"77d8dfc8d65aa3f4","pA":0.9,"pB":0.85}
+{"id":"f-2460","repo":"workflow-core","transcript":"claude2__366e5817","label":true,"kind":"fresh","why":"Three stale anchor rows left, explicitly no ticket filed.","textHash":"77d8dfc8d65aa3f4","pA":0.9,"pB":0.85,"drawn":["B"]}
 {"id":"f-2461","repo":"workflow-core","transcript":"claude2__b3d11aa0","label":null,"kind":"fresh","why":"","textHash":"2f61846e180c9136","pA":0.03,"pB":0.02}
 {"id":"f-2462","repo":"mantahostels","transcript":"claude__062c6c9d","label":null,"kind":"fresh","why":"","textHash":"833f557514533a50","pA":0.72,"pB":0.45}
 {"id":"f-2463","repo":"workflow-core","transcript":"claude2__3b4f5491","label":null,"kind":"fresh","why":"","textHash":"180799bf9648dd96","pA":0.15,"pB":0.04}
@@ -2471,7 +2471,7 @@
 {"id":"f-2470","repo":"workflow-core","transcript":"claude3__999626dd","label":null,"kind":"fresh","why":"","textHash":"f821da0368cda069","pA":0.18,"pB":0.05}
 {"id":"f-2471","repo":"workflow-core","transcript":"claude3__15ee86b5","label":null,"kind":"fresh","why":"","textHash":"9673b61ad96f596c","pA":0.13,"pB":0.35}
 {"id":"f-2472","repo":"workflow-core","transcript":"claude3__97871745","label":null,"kind":"fresh","why":"","textHash":"eebea48435dc55b3","pA":0.24,"pB":0.05}
-{"id":"f-2473","repo":"workflow-core","transcript":"claude2__c13ab6a6","label":false,"kind":"fresh","why":"Defects fixed; remaining type gap is an enforcement limit, mitigated by note.","textHash":"f897c1c5dd90a3f7","pA":0.84,"pB":0.65}
+{"id":"f-2473","repo":"workflow-core","transcript":"claude2__c13ab6a6","label":false,"kind":"fresh","why":"Defects fixed; remaining type gap is an enforcement limit, mitigated by note.","textHash":"f897c1c5dd90a3f7","pA":0.84,"pB":0.65,"drawn":["A"]}
 {"id":"f-2474","repo":"workflow-core","transcript":"claude3__86563c7c","label":null,"kind":"fresh","why":"","textHash":"34493750d16470b3","pA":0.17,"pB":0.06}
 {"id":"f-2475","repo":"workflow-core","transcript":"claude2__f8158850","label":null,"kind":"fresh","why":"","textHash":"958e46fb93b301ae","pA":0.8,"pB":0.56}
 {"id":"f-2476","repo":"workflow-core","transcript":"claude3__4c857687","label":null,"kind":"fresh","why":"","textHash":"109f1b812f71f193","pA":0.28,"pB":0.06}
