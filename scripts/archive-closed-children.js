@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5865
 
 const { runCheck, brokenError } = require("./lib/check");
 const { runLinkSync } = require("./lib/link-writer.js");

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5865
 
 const { spawnOutliving } = require("./lib/user-scope.js");
 const fs = require("node:fs");

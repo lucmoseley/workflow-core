@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5866
 
 const { spawnSync } = require("node:child_process");
 const { buildScriptFilerArgv } = require("./lib/script-filer-argv.js");

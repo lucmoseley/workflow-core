@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5865
 const path = require("node:path");
 const { ignoreFailure } = require("./lib/caught.js");
 const { isFounderTyping } = require("./lib/founder-typing");

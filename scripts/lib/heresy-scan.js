@@ -14,7 +14,7 @@ const REPORT_PROGRAM = /^scripts\/report-[^/]+$/;
  * @typedef {{ source: string, code: string }} Program
  * @typedef {{
  *   tag: string,
- *   sites: (program: Program, rel: string) => Site[],
+ *   sites: (program: Program, rel: string, root: string) => Site[],
  *   message: (rel: string, site: Site) => string,
  * }} Breach
  */
@@ -106,15 +106,15 @@ function saySites(ctx, phrase, fixes) {
 
 /**
  * @param {Ctx} ctx
- * @param {string} rel
+ * @param {{ rel: string, root: string }} at
  * @param {Program} program
  * @param {Breach[]} breaches
  */
-function failSites(ctx, rel, program, breaches) {
+function failSites(ctx, { rel, root }, program, breaches) {
 	for (const { tag, sites, message } of breaches) {
 		/** @type {Map<string, number>} */
 		const seen = new Map();
-		for (const site of sites(program, rel)) {
+		for (const site of sites(program, rel, root)) {
 			const n = (seen.get(site.text) ?? 0) + 1;
 			seen.set(site.text, n);
 			ctx.fail(tag, message(rel, site), {
@@ -130,6 +130,7 @@ function failSites(ctx, rel, program, breaches) {
  * @param {{
  *   name: string,
  *   dirs?: string[],
+ *   reads?: string[],
  *   include?: (rel: string) => boolean,
  *   skip?: string[],
  *   breaches: Breach[],
@@ -141,6 +142,7 @@ function failSites(ctx, rel, program, breaches) {
 function heresySpec({
 	name: checkName,
 	dirs = ["scripts"],
+	reads = [],
 	include = () => true,
 	skip = [],
 	breaches,
@@ -154,7 +156,7 @@ function heresySpec({
 		against: {
 			profile: checkName,
 			materialise: "blobs",
-			pathspecs: () => dirs,
+			pathspecs: () => [...dirs, ...reads],
 		},
 		run(/** @type {Ctx} */ ctx) {
 			const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
@@ -162,7 +164,12 @@ function heresySpec({
 			for (const rel of names) {
 				if (skip.includes(rel)) continue;
 				const source = fs.readFileSync(path.join(root, rel), "utf8");
-				failSites(ctx, rel, { source, code: blankComments(source) }, breaches);
+				failSites(
+					ctx,
+					{ rel, root },
+					{ source, code: blankComments(source) },
+					breaches,
+				);
 			}
 			if (summary)
 				saySites(ctx, `site(s) ${summary.phrase}`, [`Fix: ${summary.fix}`]);

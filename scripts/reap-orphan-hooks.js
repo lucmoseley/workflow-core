@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5865
 
 const { runCheck } = require("./lib/check");
 const { ignoreFailure, parseErrorText } = require("./lib/caught.js");

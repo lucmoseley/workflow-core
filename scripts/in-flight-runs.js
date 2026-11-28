@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// #5716
 const { writeFd } = require("./lib/write-fd.js");
 const idSeam = require("./lib/session-id.js");
 const { parseOrCode } = require("./lib/cli-args.js");
