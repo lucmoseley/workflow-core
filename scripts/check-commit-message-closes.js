@@ -2,13 +2,9 @@
 const fs = require("node:fs");
 const { closingMatch, closingRefusal } = require("./lib/closing-keyword.js");
 const { recordedLines } = require("./lib/commit-message.js");
-const { parseOrExit } = require("./lib/cli-args.js");
+const { runCheck } = require("./lib/check.js");
 
-const CLI = {
-	usage:
-		"usage: node check-commit-message-closes.js <message-file> [<context>]",
-	max: 2,
-};
+/** @typedef {import("./lib/check").Ctx} Ctx */
 
 /**
  * @param {string} raw
@@ -19,34 +15,33 @@ function messageText(raw) {
 		.join("\n");
 }
 
-/**
- * @param {string[]} argv
- * @returns {{ code: 0 | 1, stderr: string }}
- */
-function main(argv) {
-	const [file = "", context = "commit"] = argv;
+/** @param {Ctx} ctx */
+function run(ctx) {
+	if (ctx.args.length > 2) ctx.usageError("at most two arguments.");
+	const [file = "", context = "commit"] = ctx.args;
 	let raw;
 	try {
 		raw = fs.readFileSync(file, "utf8");
 	} catch {
-		return {
-			code: 1,
-			stderr: `${context}: cannot read the commit message file ('${file}').\n  Refusing rather than passing a message nothing has read (#138).\n`,
-		};
+		ctx.broken(
+			`${context}: cannot read the commit message file ('${file}').\n  Refusing rather than passing a message nothing has read (#138).`,
+		);
 	}
 	const match = closingMatch(messageText(raw));
-	if (match === null) return { code: 0, stderr: "" };
-	return {
-		code: 1,
-		stderr: `${context}: this commit message closes an issue server-side the moment it is pushed.\n\n${closingRefusal(match)}\n`,
-	};
+	if (match === null) return { okLine: "no closing keyword in the message." };
+	ctx.fail("closing-keyword", `the message closes an issue: ${match}`);
+	ctx.say(
+		`${context}: this commit message closes an issue server-side the moment it is pushed.\n\n${closingRefusal(match)}`,
+	);
+	return { noun: "closing keyword(s)" };
 }
 
-if (require.main === module) {
-	const { positionals } = parseOrExit(process.argv.slice(2), CLI);
-	const { code, stderr } = main(positionals);
-	if (stderr) process.stderr.write(stderr);
-	process.exitCode = code;
-}
+const SPEC = {
+	name: "commit-message-closes",
+	usage: "node check-commit-message-closes.js <message-file> [<context>]",
+	run,
+};
 
-module.exports = { main };
+module.exports = { SPEC };
+
+if (require.main === module) runCheck(SPEC);

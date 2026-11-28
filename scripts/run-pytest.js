@@ -74,7 +74,7 @@ async function runAndRecord(plan, root) {
 			sha: before?.head,
 			startedAtMs,
 			argv: args,
-			touchedBase: plan.touched?.touchedBase ?? null,
+			scope: touchedScope(plan.touched),
 		});
 
 	const after = readTreeSnapshot(root);
@@ -115,13 +115,9 @@ async function runAndRecord(plan, root) {
  * @param {string} root
  * @param {import("./lib/pytest-child.js").CeilingKill} kill
  * @param {{ sha: string|undefined, startedAtMs: number, argv: string[],
- *    touchedBase: import("./lib/touched-tests.js").TouchedBase|null }} run
+ *    scope: Partial<import("./lib/test-pass-marker.js").Scope>|null }} run
  */
-function recordCeilingKill(
-	root,
-	kill,
-	{ sha, startedAtMs, argv, touchedBase },
-) {
+function recordCeilingKill(root, kill, { sha, startedAtMs, argv, scope }) {
 	recordKill(
 		ceilingKillRow(kill, {
 			sha: sha ?? "",
@@ -129,7 +125,7 @@ function recordCeilingKill(
 			argv,
 			sessionId: idSeam.fromEnv() || null,
 			lander: idSeam.isLanderRun(),
-			touchedBase,
+			scope,
 		}),
 		{ root: repoRoot(root), say: (text) => writeFd(2, text) },
 	);
@@ -140,9 +136,15 @@ function recordCeilingKill(
  * @param {Plan["touched"]} touched
  */
 function runScope(scope, touched) {
-	return touched === null || !scope
-		? scope
-		: { ...scope, touched: true, ...touched };
+	return scope ? { ...scope, ...touchedScope(touched) } : scope;
+}
+
+/**
+ * @param {Plan["touched"]} touched
+ * @returns {Partial<import("./lib/test-pass-marker.js").Scope>|null}
+ */
+function touchedScope(touched) {
+	return touched === null ? null : { touched: true, ...touched };
 }
 
 /**

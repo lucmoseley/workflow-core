@@ -42,7 +42,6 @@ const { readTreeIds, isSameContent } = require("./content-ids.js");
  *   base?: string, refused?: boolean, refusedWhy?: string, refusedWord?: string,
  *   stalled?: boolean, stallMs?: number,
  *   ceilingKill?: boolean, ceilingMs?: number, neverStarted?: string[]|null,
- *   touchedBase?: TouchedBase,
  *   inflight?: {module: string, stage: string}[], finished?: string[],
  *   testsInFlight?: {nodeid: string, stage: string}[]|null,
  *   testsNeverStarted?: number|null, testsFinished?: number|null,
