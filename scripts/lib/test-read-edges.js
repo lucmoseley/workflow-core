@@ -2151,7 +2151,17 @@ const gitList = (root, args) =>
 
 /** @param {string} root */
 function readWorkingTree(root) {
-	const gone = new Set(gitList(root, ["ls-files", "-z", "--deleted"]));
+	const gone = new Set([
+		...gitList(root, ["ls-files", "-z", "--deleted"]),
+		// #5887
+		...gitList(root, [
+			"diff",
+			"--name-only",
+			"--no-renames",
+			"--diff-filter=A",
+			"-z",
+		]),
+	]);
 	return {
 		tracked: new Set(
 			gitList(root, ["ls-files", "-z"]).filter((p) => !gone.has(p)),

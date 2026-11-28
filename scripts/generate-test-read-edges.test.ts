@@ -350,10 +350,22 @@ describe("--check reads the index, the tree the commit carries (#557)", () => {
 		git("add", "-N", DOC2);
 		run();
 		git("add", OUT);
-		expect(readManifest()[DOC2]).toEqual(["scripts/reader.test.ts"]);
-		const { status, stderr } = runResult("--check");
-		expect(status).toBe(1);
-		expect(stderr).toContain(`${DOC2}: 1 -> 0 reader(s)`);
+		expect(readManifest()[DOC2]).toBeUndefined();
+		expect(runResult("--check").status).toBe(0);
+	});
+
+	it("attributes no edge to a new intent-to-add path a test's literal names, which no commit carries (#5887)", () => {
+		write("scripts/reader.test.ts", 'process.cwd(); git(["log", "-1"]);');
+		git("add", "-A");
+		run();
+		git("add", "-A");
+		git("commit", "-q", "-m", "initial");
+		const committed = fs.readFileSync(path.join(dir, OUT), "utf8");
+		write("log", "a stray file\n");
+		git("add", "-N", "log");
+		run();
+		expect(fs.readFileSync(path.join(dir, OUT), "utf8")).toBe(committed);
+		expect(runResult("--check").status).toBe(0);
 	});
 
 	it("converges on the regenerate a refused --check names over an intent-to-add entry re-added on a tracked path (#3419)", () => {
@@ -366,8 +378,22 @@ describe("--check reads the index, the tree the commit carries (#557)", () => {
 		git("rm", "-q", "--cached", DOC2);
 		git("add", "-N", DOC2);
 		const { stderr } = runResult("--check");
+		expect(stderr).toContain("Regenerate it:\n  npm run gen:test-read-edges\n");
+		run();
+		git("add", OUT);
+		expect(runResult("--check").status).toBe(0);
+	});
+
+	it("names an --only regenerate, which converges, where an unstaged edit leaves the working tree off the commit", () => {
+		run();
+		git("add", "-A");
+		git("commit", "-q", "-m", "initial");
+		write("scripts/late.test.ts", `process.cwd(); read("${DOC}");`);
+		git("add", "scripts/late.test.ts");
+		write("scripts/fixture.test.ts", `process.cwd(); read("${DOC}");`);
+		const { stderr } = runResult("--check");
 		const named = /-- --only (.+)\n/.exec(stderr)?.[1];
-		expect(named).toBe(`${DOC2} ${OUT}`);
+		expect(named).toBe(`scripts/late.test.ts ${OUT}`);
 		run("--only", ...(named ?? "").split(" "));
 		git("add", OUT);
 		expect(runResult("--check").status).toBe(0);
