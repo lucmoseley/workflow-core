@@ -87,7 +87,7 @@ class TransientFault extends Error {}
  *   | {readonly kind: "leave-withdrawn", readonly name: string,
  *     readonly sha: string}
  *   | {readonly kind: "retake-member", readonly member: Member,
- *     readonly was: string}
+ *     readonly was: string, readonly unread: boolean}
  *   | {readonly kind: "take-waiting", readonly members: readonly Member[]}
  *   | {readonly kind: "drop-member", readonly drop: Drop}
  *   | {readonly kind: "file-fix-ticket", readonly drop: Drop,
@@ -227,6 +227,14 @@ const exit = (reason) => ({ kind: "exit", reason });
 
 const LOCK_HELD = "another lander holds the lock";
 const HELD = "held: ";
+
+/**
+ * @param {Batch} b
+ * @param {Pick<QueueState, "unread">} s
+ */
+const unreadWhole = (b, s) =>
+	b.integration !== null &&
+	s.unread.some((u) => u.sha === b.integration && u.pass === 1);
 
 /** @param {Batch} b */
 const retakesMoved = (b) => b.phase === "merging";
@@ -1046,7 +1054,7 @@ const fastForward = (b, s, sha) =>
  * @returns {Extract<QueueAction, {kind: "retake-member"}>|null}
  */
 function retakeMoved(b, s, members) {
-	if (!retakesMoved(b)) return null;
+	if (!retakesMoved(b) && !unreadWhole(b, s)) return null;
 	for (const m of members) {
 		const r = s.queue.find((q) => q.name === m.name);
 		if (r && r.sha !== m.sha)
@@ -1054,6 +1062,7 @@ function retakeMoved(b, s, members) {
 				kind: "retake-member",
 				member: { name: r.name, sha: r.sha, pushedAt: r.pushedAt },
 				was: m.sha,
+				unread: b.phase !== "merging",
 			};
 	}
 	return null;
@@ -1135,11 +1144,7 @@ function followerAction(b, s, main, { prev, search }) {
 	if (merge || b.integration === null) return merge ?? WAIT;
 	const r = wholeRun(b.integration);
 	const ahead = ledgered(s, wholeRun(base));
-	if (
-		ahead?.kind === "red" ||
-		ledgered(s, r) !== null ||
-		s.unread.some((u) => u.sha === r.sha && u.pass === 1)
-	)
+	if (ahead?.kind === "red" || ledgered(s, r) !== null || unreadWhole(b, s))
 		return WAIT;
 	return askOrWait(s, r, { kind: "test-sha", sha: r.sha });
 }
@@ -2316,9 +2321,14 @@ async function act(deps, action, run) {
 		case "retake-member": {
 			const { member } = action;
 			const b = batchOf(run);
+			if (b.integration !== null)
+				dropRunsAt(deps, run, { sha: b.integration, slot: b.slot });
+			/** @type {Batch} */
 			const batch = {
 				...b,
 				members: b.members.map((m) => (m.name === member.name ? member : m)),
+				integration: null,
+				phase: "merging",
 			};
 			record.write(batch);
 			deps.logQueue("take", member);
@@ -2833,7 +2843,7 @@ function buildQueueActionLine(a) {
 		case "defer-member":
 			return `defer-member ${queueBranch(a.name)}`;
 		case "retake-member":
-			return `retake-member ${queueBranch(a.member.name)}@${short(a.member.sha)}: moved past its snapshot ${short(a.was)} before its batch merged`;
+			return `retake-member ${queueBranch(a.member.name)}@${short(a.member.sha)}: moved past its snapshot ${short(a.was)} before its batch ${a.unread ? "reached a verdict" : "merged"}`;
 		case "take-waiting":
 			return `take-waiting ${a.members.map((m) => `${queueBranch(m.name)}@${short(m.sha)}`).join(", ")}: the batch's base is stale, and a waiting ref may carry the re-anchor`;
 		case "leave-withdrawn":
