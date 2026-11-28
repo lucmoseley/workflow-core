@@ -3,9 +3,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { parseFailureLine, refillFrontier } = require("./refill-frontier.js");
+const {
+	parseFailureLine,
+	refillFrontier: buildFrontier,
+} = require("./refill-frontier.js");
 const { blockerGraph, pulledInOf } = require("./blocker-graph.js");
 const { decideTick } = require("./refill-decide.js");
 
@@ -19,6 +22,14 @@ beforeEach(() => {
 	other = path.join(home, "other");
 });
 afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
+
+const noBumps = async () => [];
+const refillFrontier = (
+	roots: string[],
+	goal: unknown,
+	readList: unknown,
+	readBumps: unknown = noBumps,
+) => buildFrontier(roots, goal, readList, readBumps);
 
 const row = (number: number, over: Record<string, unknown> = {}) => ({
 	number,
@@ -411,6 +422,125 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 		const m = await refillFrontier([served, third], null, s.fn);
 		expect(s.asked.filter((r) => r === other)).toHaveLength(1);
 		expect(m.frontier.map((r: { reach: number }) => r.reach)).toEqual([2]);
+	});
+});
+
+describe("a release bump in an unticked adopter (#5847)", () => {
+	const Bump = { labels: ["takes:implement", "urgent", "origin:release-bump"] };
+	const bumpsIn = (numbers: number[]) => async (roots: string[]) => {
+		expect(roots).toEqual([served]);
+		return [{ root: other, repo: "o/other", numbers }];
+	};
+
+	it("joins the frontier alone, the repo's other issues left out", async () => {
+		const s = shortlists({
+			[served]: list([2]),
+			[other]: {
+				...list([]),
+				rows: [row(20, { ...Bump, urgent: true }), row(21)],
+			},
+		});
+		const m = await refillFrontier([served], null, s.fn, bumpsIn([20]));
+		expect(s.asked).toEqual([served, other]);
+		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([
+			20, 2,
+		]);
+		expect(m.frontier[0]).toMatchObject({ root: other, urgent: true });
+		expect(launchesOf(m.frontier)).toContain("other#20");
+	});
+
+	it("costs no shortlist read where the repo holds no open bump", async () => {
+		const s = shortlists({ [served]: list([2]) });
+		const m = await refillFrontier([served], null, s.fn, bumpsIn([]));
+		expect(s.asked).toEqual([served]);
+		expect(m.failed).toEqual([]);
+	});
+
+	it("appears once where a blocker edge pulls it in too", async () => {
+		const s = shortlists({
+			[served]: { ...list([]), pulledIn: [pulled(20)] },
+			[other]: { ...list([]), rows: [row(20, Bump)] },
+		});
+		const m = await refillFrontier([served], null, s.fn, bumpsIn([20]));
+		expect(s.asked).toEqual([served, other]);
+		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([20]);
+		expect(m.frontier[0].reach).toBe(1);
+		expect(m.held).toEqual([]);
+	});
+
+	it("is held, naming it a release bump, where its shortlist leaves it out", async () => {
+		const s = shortlists({ [served]: list([]), [other]: list([]) });
+		const m = await refillFrontier([served], null, s.fn, bumpsIn([20]));
+		expect(m.frontier).toEqual([]);
+		expect(m.held).toEqual([
+			{
+				ref: "o/other#20",
+				why: "a release bump, not on o/other's shortlist",
+				holds: [],
+			},
+		]);
+	});
+
+	it("reports an unread bump query as a failed read, served work still read", async () => {
+		const s = shortlists({ [served]: list([2]) });
+		const m = await refillFrontier([served], null, s.fn, async () => [
+			{ root: other, error: "HTTP 502" },
+		]);
+		expect(m.failed).toEqual([
+			{ root: other, error: "release bumps unread: HTTP 502" },
+		]);
+		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([2]);
+	});
+
+	it("names the launch a release bump on the launch line", async () => {
+		const { buildLaunchLine } = require("./refill-loop.js");
+		const s = shortlists({
+			[served]: list([]),
+			[other]: { ...list([]), rows: [row(20, Bump)] },
+		});
+		const m = await refillFrontier([served], null, s.fn, bumpsIn([20]));
+		const { launches } = decideTick({
+			now: NOW,
+			runFrom: NOW - 3_600_000,
+			stopRequested: false,
+			frontier: m.frontier,
+			retroBundles: [],
+			running: [],
+			freeSlots: 3,
+			seats: [{ seat: "~/.claude2", week: 10, session: 10, fits: 9 }],
+			history: [],
+			lastActAt: {},
+		});
+		expect(launches).toMatchObject([{ root: other, releaseBump: true }]);
+		expect(buildLaunchLine(launches)).toMatch(
+			/^launch other \/implement 20 \(release bump\) on /,
+		);
+	});
+});
+
+describe("the unticked adopters' bump read (#5847)", () => {
+	const { readUntickedBumps } = require("./refill-frontier.js");
+	beforeEach(() => {
+		vi.stubEnv("HOME", home);
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+	const adopter = (name: string, config: Record<string, unknown>) => {
+		const root = path.join(home, name);
+		fs.mkdirSync(path.join(root, ".git"), { recursive: true });
+		fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(root, ".claude", "workflow-core.json"),
+			JSON.stringify(config),
+		);
+		return root;
+	};
+
+	it("asks nothing of a ticked or disabled adopter", async () => {
+		adopter("served", { tracker: "o/served" });
+		adopter("off", { tracker: "o/off", refillLoop: false });
+		expect(await readUntickedBumps([path.join(home, "served")])).toEqual([]);
 	});
 });
 

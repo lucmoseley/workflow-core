@@ -582,7 +582,7 @@ async function decide(io, input, scope) {
 		io.log(`shortlist failed in ${f.root}: ${f.error}`);
 	for (const h of merged.held)
 		io.log(
-			`held outside the loop: ${h.ref} (${h.why}), holding ${h.holds.join(", ")}`,
+			`held outside the loop: ${h.ref} (${h.why})${h.holds.length > 0 ? `, holding ${h.holds.join(", ")}` : ""}`,
 		);
 	const frontier = /** @type {import("./refill-decide.js").MergedRow[]} */ (
 		merged.frontier
