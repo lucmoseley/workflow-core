@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { main as scanCloses } from "../check-commit-message-closes.js";
+import { SPEC as CLOSES } from "../check-commit-message-closes.js";
 import { SPEC as WEAKENS } from "../check-weakens-line.js";
 import { checkInProcess } from "./check.js";
 import { initGitRepo, mkScratchDir } from "./git-fixture";
@@ -46,31 +46,17 @@ const spawned = (cmd: string, args: string[], cwd = SCRIPTS) => {
 };
 
 describe("the closing-keyword scan in-process equals check-commit-message-closes.js", () => {
+	const Scanner = path.join(SCRIPTS, "check-commit-message-closes.js");
 	it.each([
 		["a clean message", "Add the thing\n\nBody.\n"],
 		["a closing keyword", "Add the thing\n\nFixes #12\n"],
 		["a Revert line only", 'Revert "Fixes #77 old"\n\nThis reverts x.\n'],
-	])("on %s", (_name, body) => {
-		const file = message(body);
-		const r = scanCloses([file, "commit-msg"]);
-		expect({ exit: r.code, stdout: "", stderr: r.stderr }).toEqual(
-			spawned(process.execPath, [
-				path.join(SCRIPTS, "check-commit-message-closes.js"),
-				file,
-				"commit-msg",
-			]),
-		);
-	});
-
-	it("on an unreadable message file", () => {
-		const r = scanCloses(["/nonexistent/MSG", "commit-msg"]);
-		expect({ exit: r.code, stdout: "", stderr: r.stderr }).toEqual(
-			spawned(process.execPath, [
-				path.join(SCRIPTS, "check-commit-message-closes.js"),
-				"/nonexistent/MSG",
-				"commit-msg",
-			]),
-		);
+		["an unreadable message file", null],
+	])("on %s", async (_name, body) => {
+		const file = body === null ? "/nonexistent/MSG" : message(body);
+		expect(
+			await checkInProcess(CLOSES, [file, "commit-msg"], { script: Scanner }),
+		).toEqual(spawned(process.execPath, [Scanner, file, "commit-msg"]));
 	});
 });
 

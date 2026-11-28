@@ -284,6 +284,13 @@ describe("what counts as a generator", () => {
 		expect(refusal("yes >| x")).toBe(refused8("yes >| x"));
 	});
 
+	it("reads a typed parse-mark byte as typed (#5920)", () => {
+		for (const mark of ["\x01", "\x02", "\x03", "\x04", "\x05"]) {
+			expect(refusal(`yes ${mark}| head`)).toBeNull();
+			expect(refusal(`yes ${mark}`)).toContain(G);
+		}
+	});
+
 	it("reads a busy loop's body as builtins only", () => {
 		for (const body of [
 			"false",
