@@ -27,6 +27,7 @@ const { pidLock } = require("./pid-lock.js");
 const { refillPath } = require("./refill-dir.js");
 const { readControlChecked, readControlFile } = require("./refill-files.js");
 const { readState } = require("./refill-state.js");
+const staleRunRecord = require("./stale-run-record.js");
 const { readThroughputWindow } = require("./throughput-reads.js");
 const { REVIEW_LABEL, readReviewIssues } = require("./review-issues.js");
 const { freshReads, reviewReads } = require("./review-reads.js");
@@ -524,6 +525,18 @@ async function readIdle(started) {
 		: { why: read.missing };
 }
 
+/** @returns {import("./morning-review.js").StaleRunReading} */
+function readStaleRun() {
+	const file = staleRunRecord.recordPath();
+	const row = staleRunRecord.readNewestRow(file);
+	if (row === null) return { why: `no stale-ticket run recorded in ${file}` };
+	return {
+		date: row.date,
+		repoLines: row.repoLines,
+		owed: row.owed.map((o) => ({ text: o.text, url: o.url })),
+	};
+}
+
 /**
  * @param {Started} started
  * @returns {Promise<import("./morning-review.js").WslCurrencyReading>}
@@ -754,6 +767,7 @@ async function renderWindow({
 		concurrency: readConcurrency(now.getTime()),
 		idle: await readIdle(idle),
 		wslCurrency: await readWslCurrency(wslCurrency),
+		staleRun: readStaleRun(),
 	});
 }
 
