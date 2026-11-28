@@ -1409,6 +1409,31 @@ describe("the checkouts a live tick tends (#3284, #4247, #4248, #4318)", () => {
 		]);
 		expect(holdRoots).toEqual([[WFC, gone]]);
 	});
+
+	it("warms a refused launch's root that no landing root covers, once, so its next launch meets a store (#5908)", async () => {
+		const outside = "/home/u/watch-digest";
+		const warmed: string[] = [];
+		const { io } = fakeIo(
+			stateOf(),
+			{
+				startWarmPass: (root) => warmed.push(root),
+				launchBatch: (batch) => ({
+					launched: [],
+					refused: batch.map((launch) => ({ launch, reason: "no store" })),
+				}),
+				readFreeSlots: () => ({ slots: 3, admission: null }),
+			},
+			{
+				frontier: [
+					{ ...row(1), root: outside },
+					{ ...row(2), root: outside },
+					row(3),
+				],
+			},
+		);
+		await tickOf(io);
+		expect(warmed).toEqual([WFC, outside]);
+	});
 });
 
 describe("an overflow session's listed id (#3701)", () => {
