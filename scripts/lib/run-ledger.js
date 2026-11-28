@@ -8,10 +8,10 @@ const RUN_LEDGER = ".test-runs.jsonl";
 // guess, #2824
 const RETAIN_MS = 30 * DAY_MS;
 
-/** @typedef {import("./test-pass-marker.js").Marker} Marker */
+/** @typedef {import("./test-pass-marker.js").RunRow} RunRow */
 
 /**
- * @param {Marker} m
+ * @param {RunRow} m
  * @param {boolean} fullFlag
  */
 function ranFull({ scope }, fullFlag) {
@@ -58,7 +58,7 @@ function kindOfLaunch({
 }
 
 /**
- * @param {Marker} m
+ * @param {RunRow} m
  * @returns {string}
  */
 const kindOf = (m) =>
@@ -73,7 +73,7 @@ const kindOf = (m) =>
 	});
 
 /**
- * @param {Marker} m
+ * @param {RunRow} m
  * @returns {string|null}
  */
 function fullCauseOf({ argv, scope }) {
@@ -84,14 +84,14 @@ function fullCauseOf({ argv, scope }) {
 	return argv?.includes("--full") ? "bare --full" : null;
 }
 
-/** @param {Marker} m @param {boolean} green */
+/** @param {RunRow} m @param {boolean} green */
 function verdictOf(m, green) {
 	if (m.ceilingKill) return "killed";
 	if (m.stalled) return "stalled";
 	return green ? "green" : "red";
 }
 
-/** @param {Marker["scope"]} scope */
+/** @param {RunRow["scope"]} scope */
 const scopeFields = (scope) => ({
 	resolvedFiles: scope?.resolvedFiles ?? null,
 	leftOut: scope?.leftOut ?? null,
@@ -102,7 +102,7 @@ const scopeFields = (scope) => ({
 });
 
 /**
- * @param {Marker} m
+ * @param {RunRow} m
  * @param {{ green: boolean, root: string }} where
  */
 function buildLedgerLine(m, { green, root }) {
@@ -130,7 +130,7 @@ function buildLedgerLine(m, { green, root }) {
 	};
 }
 
-/** @param {string} root @param {Marker} marker @param {boolean} green */
+/** @param {string} root @param {RunRow} marker @param {boolean} green */
 function appendLedgerLine(root, marker, green) {
 	if (marker.refused) return;
 	ignoreFailure(() =>

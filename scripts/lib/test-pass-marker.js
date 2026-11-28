@@ -43,14 +43,14 @@ const { readTreeIds, isSameContent } = require("./content-ids.js");
  *   stalled?: boolean, stallMs?: number,
  *   ceilingKill?: boolean, ceilingMs?: number, neverStarted?: string[]|null,
  *   touchedBase?: TouchedBase,
- *   full?: string|null,
  *   inflight?: {module: string, stage: string}[], finished?: string[],
  *   testsInFlight?: {nodeid: string, stage: string}[]|null,
  *   testsNeverStarted?: number|null, testsFinished?: number|null,
  *   slowest?: import("./test-file-timings.js").SlowFile[],
  *   memory?: import("./run-memory.js").RunMemory|null,
  *   admission?: import("./part-suite-peak.js").PartAdmission}} Marker
- * @typedef {Marker & {sha: string, at: string, suite: string,
+ * @typedef {Omit<Marker, "scope"> & {scope?: Partial<Scope>}} RunRow
+ * @typedef {RunRow & {sha: string, at: string, suite: string,
  *   startedAt: string, durationMs: number, argv: string[]}} KillRow
  * @typedef {{closure: "*"|string[], selected?: string[],
  *   changedPaths?: string[]|null, base?: string|null,
@@ -117,7 +117,7 @@ const SUITES = [
 
 const DEFAULT_SUITE = "vitest";
 
-/** @param {Marker} m */
+/** @param {RunRow} m */
 const suiteOf = (m) => m.suite || DEFAULT_SUITE;
 
 /**
@@ -183,7 +183,7 @@ function record(entry, options) {
 }
 
 /**
- * @param {Marker} entry
+ * @param {RunRow} entry
  * @param {{root?: string|null, pruneAt?: number, keep?: number}} [options]
  * @returns {boolean}
  */
@@ -221,7 +221,7 @@ function failureRecoveryCommand(root, marker) {
 
 /**
  * @param {string} store
- * @param {Marker} entry
+ * @param {RunRow} entry
  * @param {{root?: string|null, pruneAt?: number, keep?: number}} [options]
  * @returns {boolean}
  */

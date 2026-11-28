@@ -313,7 +313,10 @@ describe("a ceiling kill in the fail store (#3237)", () => {
 
 	it("names a whole run killed with only its recorded `full` to show it whole", () => {
 		writeJsonl(store, marker({ durationMs: 1000 }));
-		writeJsonl(failStore, kill({ argv: [], full: "dependency-root" }));
+		writeJsonl(
+			failStore,
+			kill({ argv: [], scope: { full: "dependency-root" } }),
+		);
 		const out = run().out;
 		expect(out).toContain("a whole suite killed at the ceiling");
 	});

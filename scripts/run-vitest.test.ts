@@ -1283,7 +1283,11 @@ describe("the stall watchdog", () => {
 			inflight: [{ module: slow, stage: "running its tests" }],
 			finished: [done],
 		});
-		expect(reds[0].scope).toBeUndefined();
+		expect(reds[0].scope).toEqual({
+			full: "flag",
+			fullCause: "coverage",
+			resolvedFiles: 0,
+		});
 	});
 
 	it("is disabled by a zero ceiling", async () => {
@@ -1498,14 +1502,18 @@ describe("the suite ceiling", () => {
 			neverStarted: [left],
 		});
 		expect(reds[0].stalled).toBeUndefined();
-		expect(reds[0].scope).toBeUndefined();
+		expect(reds[0].scope).toEqual({
+			full: "flag",
+			fullCause: "coverage",
+			resolvedFiles: 0,
+		});
 		expect(typeof reds[0].startedAt).toBe("string");
 		expect(typeof reds[0].durationMs).toBe("number");
 		expect(reds[0].argv).toEqual(expect.any(Array));
 		expect(reds[0].machine).toMatchObject({ load1: expect.anything() });
 	});
 
-	it("records a whole run's `full` on its kill, which carries no scope (#3237)", async () => {
+	it("records a whole run's `full` in its kill's scope (#3237, #5875)", async () => {
 		const root = repo();
 		await run(root, printingChild(), { stall: 60_000, ceiling: 50 }, [
 			"--full=push-gate",
@@ -1514,7 +1522,10 @@ describe("the suite ceiling", () => {
 
 		const reds = readFailures({ root });
 		expect(reds).toHaveLength(1);
-		expect(reds[0]).toMatchObject({ ceilingKill: true, full: "flag" });
+		expect(reds[0]).toMatchObject({
+			ceilingKill: true,
+			scope: { full: "flag" },
+		});
 	});
 
 	it("settles at 1 where `close` never arrives, and lets go of the pipes", async () => {
@@ -6925,6 +6936,79 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 		]);
 	});
 
+	describe("a queued touched run killed on the fake clock (#5875)", () => {
+		// guess: one short kill window, the other never due, advanced twice past the first, #5875
+		const KillMs = 50;
+		const NeverMs = 1000 * KillMs;
+		const AdvanceMs = 2 * KillMs;
+
+		async function killedLedger(
+			timers: { stall: number; ceiling: number },
+			extra: Record<string, unknown> = {},
+		) {
+			const dir = touchedRepo();
+			fs.appendFileSync(path.join(dir, "lib/a.js"), "// edit\n");
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+			const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+			const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+			try {
+				let spawned: () => void = noop;
+				const up = new Promise<void>((resolve) => {
+					spawned = resolve;
+				});
+				const done = launch(dir, () => ({}), ["--queue"], {
+					gate: () => null,
+					queueDir: qdir(),
+					queueLog: path.join(qdir(), "exits.jsonl"),
+					spawnFn: () => {
+						spawned();
+						return parkedChild();
+					},
+					...timers,
+					...extra,
+				});
+				await up;
+				await vi.advanceTimersByTimeAsync(AdvanceMs);
+				await done;
+			} finally {
+				vi.useRealTimers();
+				stderr.mockRestore();
+				stdout.mockRestore();
+			}
+			return readJsonl(path.join(dir, ".claude/tmp/markers/.test-runs.jsonl"));
+		}
+
+		it.each([
+			["ceiling", "killed", { stall: NeverMs, ceiling: KillMs }],
+			["stall", "stalled", { stall: KillMs, ceiling: NeverMs }],
+		])(
+			"logs one killed at the %s as touched, not bare, with its session and files",
+			async (_why, verdict, timers) => {
+				const ledger = await killedLedger(timers, {
+					session: "killed-touched-5875",
+				});
+				expect(ledger).toMatchObject([
+					{
+						kind: "touched",
+						verdict,
+						session: "killed-touched-5875",
+						resolvedFiles: 1,
+						touchedBase: "merge-base",
+						wholeSlot: false,
+					},
+				]);
+			},
+		);
+
+		it("takes the killed run's session from the environment, as a finished marker does", async () => {
+			vi.stubEnv("CLAUDE_CODE_SESSION_ID", "env-touched-5875");
+			const ledger = await killedLedger({ stall: NeverMs, ceiling: KillMs });
+			expect(ledger).toMatchObject([
+				{ kind: "touched", session: "env-touched-5875" },
+			]);
+		});
+	});
+
 	it("carries no whole slot for a 200-file named run (#2935)", async () => {
 		const dir = touchedRepo();
 		const named = Array.from({ length: 200 }, (_, i) => `lib/t${i}.test.ts`);
@@ -7085,7 +7169,7 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 			});
 		});
 
-		it("records `head` on a gate run's ceiling kill, which carries no scope (#5321)", async () => {
+		it("records `head` in a gate run's ceiling kill's scope (#5321, #5875)", async () => {
 			const dir = branch();
 			tempRoot(process.pid);
 			await launch(dir, undefined, [], {
@@ -7095,7 +7179,7 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 			});
 			const { readFailures } = require("./lib/test-pass-marker.js");
 			expect(readFailures({ root: dir })).toMatchObject([
-				{ ceilingKill: true, touchedBase: "head" },
+				{ ceilingKill: true, scope: { touchedBase: "head" } },
 			]);
 		});
 
@@ -7109,7 +7193,7 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 			});
 			const { readFailures } = require("./lib/test-pass-marker.js");
 			expect(readFailures({ root: dir })).toMatchObject([
-				{ stalled: true, touchedBase: "head" },
+				{ stalled: true, scope: { touchedBase: "head" } },
 			]);
 		});
 
