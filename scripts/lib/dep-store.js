@@ -168,12 +168,17 @@ const storeKeyOf = (lockfile) =>
  */
 function buildNoStoreRefusal(key, lock, failed) {
 	const head = `no dependency store stands for this lockfile yet (${key}), and this cut builds none`;
-	const failure = readBuildFailure(failed);
-	const warmFailure =
-		failure ?? readBuildFailure(path.join(path.dirname(failed), WARM_FAILED));
-	if (warmFailure !== null)
+	const buildFailure = readBuildFailure(failed);
+	const warmFailure = readBuildFailure(
+		path.join(path.dirname(failed), WARM_FAILED),
+	);
+	const last =
+		buildFailure === null
+			? warmFailure !== null && `its last warm pass failed — ${warmFailure}`
+			: `its last build failed — ${buildFailure}`;
+	if (last)
 		return new CheckoutError(
-			`${head}; its last ${failure === null ? "warm pass" : "build"} failed — ${warmFailure} — so no tick launches this member until a warm pass (\`node ${scriptPath("session-checkout.js")} warm\`) builds it`,
+			`${head}; ${last} — so no tick launches this member until a warm pass (\`node ${scriptPath("session-checkout.js")} warm\`) builds it`,
 		);
 	const holder = readLockHolder(lock);
 	return new CheckoutError(
@@ -317,19 +322,20 @@ function warm(cwd) {
 	const failed = path.join(root, STORES, WARM_FAILED);
 	try {
 		fetchShared(root);
-		const made = ensureStore(root, buildStartSource(root), { noWait: true });
-		fs.rmSync(failed, { force: true });
-		return made;
 	} catch (err) {
 		const oneLine = caught(err)
 			.message.split("\n")
 			.map((line) => line.trim())
 			.filter(Boolean)
 			.join(" ");
-		fs.mkdirSync(path.dirname(failed), { recursive: true });
-		fs.writeFileSync(failed, `${oneLine}\n`);
+		ignoreFailure(() => {
+			fs.mkdirSync(path.dirname(failed), { recursive: true });
+			fs.writeFileSync(failed, `${oneLine}\n`);
+		});
 		throw err;
 	}
+	fs.rmSync(failed, { force: true });
+	return ensureStore(root, buildStartSource(root), { noWait: true });
 }
 
 /**
