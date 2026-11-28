@@ -15,8 +15,6 @@ const POLL_MS = 10_000;
 const TOGGLE_WAIT_MS = 5 * 60_000;
 // guess, #5804: the dump task's own limit
 const DUMP_WAIT_MS = 60 * 60_000;
-// guess, #5804: off the founder's working hours, as the 23:00 start
-const MORNING_HOUR = 7;
 
 /**
  * @typedef {"combining.log" | "dumps.log"} LogName
@@ -72,16 +70,6 @@ function act(ports, { task, log, waitMs, renew = false }) {
 }
 
 /**
- * @param {number} t
- */
-function nextMorning(t) {
-	const d = new Date(t);
-	d.setHours(MORNING_HOUR, 0, 0, 0);
-	if (d.getTime() <= t) d.setDate(d.getDate() + 1);
-	return d.getTime();
-}
-
-/**
  * @param {Ports} ports
  * @returns {number}
  */
@@ -90,11 +78,6 @@ function runNight(ports) {
 		ports.say("the Verifier pass has ended (ended.txt); combining stays off");
 		return 0;
 	}
-	const held = ports.hold();
-	if (held !== null) {
-		ports.say(`launches not held, so combining stays off: ${held}`);
-		return 1;
-	}
 	const line = act(ports, {
 		task: TASKS.on,
 		log: "combining.log",
@@ -102,16 +85,9 @@ function runNight(ports) {
 	});
 	if (line === null || !/ on PageCombining=True\b/.test(line)) {
 		ports.say(`combining did not turn on: ${line ?? "no log line"}`);
-		ports.release();
 		return 1;
 	}
 	ports.say(line);
-	const until = nextMorning(ports.now());
-	while (ports.now() < until) {
-		ports.sleep(Math.min(RENEW_MS, until - ports.now()));
-		const renewed = ports.hold();
-		if (renewed !== null) ports.say(`hold renewal failed: ${renewed}`);
-	}
 	return 0;
 }
 

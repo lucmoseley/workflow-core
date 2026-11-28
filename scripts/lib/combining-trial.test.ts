@@ -70,16 +70,13 @@ const DUMP =
 	"2026-11-28T07:01:10 ok path=C:\\diag\\5743\\dumps\\live-261128-0700.dmp bytes=2400000000";
 
 describe("runNight", () => {
-	it("turns combining on and renews the hold every 30 min until 07:00", () => {
+	it("turns combining on, holding no launches", () => {
 		const f = fake({
 			start: "2026-11-27T23:00:00",
 			writes: { [TASKS.on]: ["combining.log", ON] },
 		});
 		expect(runNight(f.ports)).toBe(0);
-		expect(f.calls[0]).toBe("hold");
-		expect(f.calls[1]).toBe(`start ${TASKS.on}`);
-		expect(f.calls.filter((c) => c === "hold")).toHaveLength(17);
-		expect(f.calls).not.toContain("release");
+		expect(f.calls).toEqual([`start ${TASKS.on}`]);
 	});
 
 	it("leaves combining off once the Verifier pass has ended", () => {
@@ -88,17 +85,7 @@ describe("runNight", () => {
 		expect(f.calls).toEqual([]);
 	});
 
-	it("leaves combining off where launches cannot be held", () => {
-		const f = fake({
-			start: "2026-11-27T23:00:00",
-			holdError: "refill-loop refused",
-			writes: {},
-		});
-		expect(runNight(f.ports)).toBe(1);
-		expect(f.calls).toEqual(["hold"]);
-	});
-
-	it("releases the hold where combining did not turn on", () => {
+	it("fails where combining did not turn on", () => {
 		const f = fake({
 			start: "2026-11-27T23:00:00",
 			writes: {
@@ -109,7 +96,6 @@ describe("runNight", () => {
 			},
 		});
 		expect(runNight(f.ports)).toBe(1);
-		expect(f.calls.at(-1)).toBe("release");
 	});
 });
 
