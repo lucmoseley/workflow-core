@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 const {
 	actComment,
 	bodyUnchanged,
+	buildHubBody,
 	buildRunRow,
 	hubAfter,
 	planStaleRun,
@@ -66,6 +67,9 @@ const snap = (repos: unknown[], over: Record<string, unknown> = {}) => ({
 
 const plan = (repos: unknown[], over: Record<string, unknown> = {}) =>
 	planStaleRun(snap(repos, over));
+
+const hubBody = (p: { hub: { parts?: unknown } }) =>
+	buildHubBody(p.hub.parts, { done: [], failed: [] });
 
 const texts = (p: { lines: { text: string }[] }) => p.lines.map((l) => l.text);
 const classOf = (p: { lines: { number: number; cls: string }[] }, n: number) =>
@@ -961,7 +965,7 @@ describe("planStaleRun: the hub issue", () => {
 	it("is refreshed while an undisposed session-owed line exists", () => {
 		const p = plan(listed);
 		expect(p.hub.action).toBe("refresh");
-		expect(p.hub.body).toContain("o/r#1 NO-TAKES (new)");
+		expect(hubBody(p)).toContain("o/r#1 NO-TAKES (new)");
 		expect(p.hubKeys).toEqual(["o/r#1:C5"]);
 	});
 
@@ -991,6 +995,21 @@ describe("planStaleRun: the hub issue", () => {
 		expect(changed.hub.action).toBe("refresh");
 	});
 
+	it("lists the acts done and gives a failed-acts section only when one failed", () => {
+		const parts = plan(listed).hub.parts;
+		const clean = buildHubBody(parts, { done: ["cleared: o/r#2"], failed: [] });
+		expect(clean).toContain("## Restored this run\n\n- cleared: o/r#2\n");
+		expect(clean).not.toContain("## Failed this run");
+		const failed = buildHubBody(parts, {
+			done: [],
+			failed: ["discharged: o/r#3 (met) — failed: refused"],
+		});
+		expect(failed).toContain("## Restored this run\n\nNone.\n");
+		expect(failed).toContain(
+			"## Failed this run\n\n- discharged: o/r#3 (met) — failed: refused\n",
+		);
+	});
+
 	it("closes an open hub issue once nothing undisposed is left", () => {
 		const p = plan([repo()], { hub: { number: 40, state: "open" } });
 		expect(p.hub).toEqual({ action: "close", number: 40 });
@@ -1006,7 +1025,7 @@ describe("planStaleRun: the hub issue", () => {
 				checkFindings: [{ tag: "NO-TAKES", number: 2 }],
 			}),
 		]);
-		expect(p.hub.body).not.toMatch(/founder|@/i);
+		expect(hubBody(p)).not.toMatch(/founder|@/i);
 	});
 });
 

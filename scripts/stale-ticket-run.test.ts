@@ -127,8 +127,9 @@ function writeStub(extra: Route[]) {
 const fs = require("node:fs");
 const argv = process.argv.slice(2).join(" ");
 fs.appendFileSync(${JSON.stringify(at("gh.log"))}, argv + "\\n");
+const command = argv.split(" --body ")[0];
 const hit = JSON.parse(fs.readFileSync(${JSON.stringify(at("routes.json"))}, "utf8")).find(
-	(r) => (r.is ? argv === r.is : argv.includes(r.when)) && (!r.cwd || process.cwd().endsWith(r.cwd)),
+	(r) => (r.is ? command === r.is : command.includes(r.when)) && (!r.cwd || process.cwd().endsWith(r.cwd)),
 );
 if (hit && hit.fail) {
 	process.stderr.write("gh refused\\n");
@@ -231,7 +232,7 @@ describe("stale-ticket-run", () => {
 		expect(row.hub.number).toBe(77);
 	});
 
-	it("warns of a failed act, records only the acts that landed, and still files the hub", async () => {
+	it("warns of a failed act, records only the acts that landed, and files the hub listing it as failed", async () => {
 		const r = await run([], {
 			routes: [{ when: "issue view 2 --repo o/a --json body", fail: true }],
 		});
@@ -242,6 +243,11 @@ describe("stale-ticket-run", () => {
 		const row = JSON.parse(fs.readFileSync(record(), "utf8").trim());
 		expect(row.acts).toEqual([]);
 		expect(row.hub.number).toBe(77);
+		const hub = r.log.slice(r.log.indexOf("issue create"));
+		expect(hub).toMatch(/## Restored this run\s+None\./);
+		expect(hub).toMatch(
+			/## Failed this run\s+- cleared: o\/a#2 gated on o\/a#8, which has closed — failed: /,
+		);
 	});
 
 	describe("a count gate's reading history", () => {

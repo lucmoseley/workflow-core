@@ -161,7 +161,8 @@ const CLASS_ORDER = /** @type {Cls[]} */ (Object.keys(CLASS_NAMES));
  *   | {kind: "release", root: string, repo: string, number: number, assignees: string[], sessionId: string}
  *   | {kind: "retag", root: string, repo: string, numbers: number[]}} Act
  * @typedef {{kind: "cause" | "data-route", tracker: string, root: string|null, title: string, body: string}} Filing
- * @typedef {{action: "refresh", body: string} | {action: "close", number: number} | {action: "none"}} HubNext
+ * @typedef {{repoLines: string[], lines: Line[], owed: OwedLine[], disposed: string[]}} HubParts
+ * @typedef {{action: "refresh", parts: HubParts} | {action: "close", number: number} | {action: "none"}} HubNext
  * @typedef {object} Plan
  * @property {string[]} repoLines
  * @property {Line[]} lines
@@ -960,16 +961,7 @@ function planHub(ctx) {
 	/** @type {HubNext} */
 	let hub = { action: "none" };
 	if (lines.some((l) => !disposedSet.has(l.key)))
-		hub = {
-			action: "refresh",
-			body: buildHubBody({
-				repoLines,
-				lines,
-				owed,
-				acts,
-				disposed: disposedSet,
-			}),
-		};
+		hub = { action: "refresh", parts: { repoLines, lines, owed, disposed } };
 	else if (snap.hub?.state === "open")
 		hub = { action: "close", number: snap.hub.number };
 	return {
@@ -1084,10 +1076,14 @@ const hubAfter = (hub, { filed, before }) =>
 	hub.action === "refresh" ? (filed ?? before) : null;
 
 /**
- * @param {{repoLines: string[], lines: Line[], owed: OwedLine[], acts: Act[],
- *   disposed: Set<string>}} parts
+ * @param {HubParts} parts
+ * @param {{done: string[], failed: string[]}} acts
  */
-function buildHubBody({ repoLines, lines, owed, acts, disposed }) {
+function buildHubBody(
+	{ repoLines, lines, owed, disposed: d },
+	{ done, failed },
+) {
+	const disposed = new Set(d);
 	const byClass = CLASS_ORDER.flatMap((cls) => {
 		const ls = lines.filter((l) => l.cls === cls);
 		return ls.length === 0
@@ -1115,8 +1111,11 @@ function buildHubBody({ repoLines, lines, owed, acts, disposed }) {
 		"",
 		"## Restored this run",
 		"",
-		...(acts.length === 0 ? ["None."] : acts.map((a) => `- ${actText(a)}`)),
+		...(done.length === 0 ? ["None."] : done.map((t) => `- ${t}`)),
 		"",
+		...(failed.length === 0
+			? []
+			: ["## Failed this run", "", ...failed.map((t) => `- ${t}`), ""]),
 		buildStandaloneLine(HUB_STANDALONE),
 	].join("\n");
 }
@@ -1152,6 +1151,7 @@ module.exports = {
 	actComment,
 	actText,
 	bodyUnchanged,
+	buildHubBody,
 	buildRunRow,
 	hubAfter,
 	planStaleRun,
