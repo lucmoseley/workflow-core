@@ -43,6 +43,15 @@ Researched: 2026-10-21
 - Never combine private data, untrusted content and outward communication in one agent. Prompt-level defences do not reliably stop injection. Simon Willison, "The lethal trifecta" (2025-06-16) [named expert]; Meta AI, "Agents Rule of Two" (2025-10-31) [named expert]
 - Deny beats ask beats allow, and no allow carves out of a deny; Bash argument patterns are fragile, so bound files and network with the sandbox; a Stop hook exits early on `stop_hook_active`. code.claude.com/docs/en/permissions; hooks guide [standard or field body]
 
+### End-of-turn checks on reply prose
+
+Researched 2026-11-27 (#5814's research comment).
+
+- Match a fixed form the agent writes on purpose (a marker, a lettered round) with a regex; judge meaning in free prose with a model classifier, validated on labelled examples before it is trusted. Anthropic, "Define success criteria and build evaluations" (code-based versus LLM-based grading); OpenAI, "A practical guide to building agents" (2025), pp. 24-27 (rules-based guardrails beside LLM classifiers); Sheikhaei et al., arXiv:2405.06806 (2024): no keyword set detects self-admitted technical debt across projects [named expert]
+- Deliver a flag to the reader who must act, at the moment of work. A warning sent only to a log is ignored. Sadowski et al., "Lessons from Building Static Analysis Tools at Google", CACM 61(4), 2018; Beyer et al., *Site Reliability Engineering*, ch. 6 [named expert]. In Claude Code a Stop hook's `hookSpecificOutput.additionalContext` continues the turn as "Stop hook feedback", with no error; `stop_hook_active` bounds it to one continuation. code.claude.com/docs/en/hooks §Stop [standard or field body]
+- An advisory check shown in flow may run up to 10% effective false positives, meaning fires after which the reader takes no positive action. A blocking check may run none. Above 10%, fix the check or switch it off. Sadowski et al. 2018; Johnson et al., ICSE 2013 [named expert]
+- Measure effective false positives on fires in real use, not on a balanced labelled set. A classifier that looks good on a set with equal positives and negatives fires mostly falsely where positives are rare. Sadowski et al. 2018 count developer responses to findings shown in production [named expert]. Husain's 30-50 examples per label measure TPR and TNR, not precision in use [named expert]. Measured here (#5827, #5833): the fix-or-file question had a TNR of 82-96% at thresholds 0.5-0.7 on a balanced set, but 25-58% effective false positives on 131 real end-of-turn replies, where about 7% are positive. It did not ship.
+
 ## Evaluation of agent rules
 
 - Build evals before writing long instructions. Start with 20-50 cases drawn from real failures, and include cases where the behaviour should not fire. Anthropic, "Demystifying evals for AI agents" (2026-01-09); Hamel Husain and Shreya Shankar, "Evals FAQ" (2026-09) [named expert]; agent-skills best practices [standard or field body]

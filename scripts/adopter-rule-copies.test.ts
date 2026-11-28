@@ -86,9 +86,10 @@ describe("the durable-fix rule in the adopter session rules (#1739)", () => {
 });
 
 describe("the working-pattern rules in the adopter session rules (#5294)", () => {
-	it("hold the contract's two bullets, as it words them, and nothing else", () => {
+	it("hold the contract's three bullets, as it words them, and nothing else", () => {
 		expect(adopterSection("Working patterns")).toEqual([
 			toAdopter(readContractLine("- Queue actionable items at the moment")),
+			toAdopter(readContractLine("- **Fix or file every problem you find")),
 			toAdopter(readContractLine("- **Test a blocker before it ends a turn**")),
 		]);
 	});

@@ -1728,6 +1728,22 @@
 		"route": null,
 		"consumes": null
 	},
+	"docs/data/fix-or-file-labels-2026-11-28/labels.jsonl": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "#5827's labelled set for the fix-or-file classifier: 48 replies that name a problem and leave it unfixed and unrecorded, 48 that do not, from #5814's look-back. Rows from private repos keep their label, transcript and text hash but no text. `node scripts/score-fix-or-file.js` scores it.",
+		"route": null,
+		"consumes": null
+	},
+	"docs/data/fix-or-file-labels-2026-11-28/natural.jsonl": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "#5827's natural sample: 133 random end-of-turn replies from 14 days of five repos' transcripts, each fire at 0.5 judged by hand, the rest unjudged. It gives the classifier's effective false-positive rate in use. Private-repo rows carry no text.",
+		"route": null,
+		"consumes": null
+	},
 	"docs/data/issue-title-search-2026-09-27/queries.json": {
 		"section": "Evidence & data",
 		"class": "source-of-truth",
