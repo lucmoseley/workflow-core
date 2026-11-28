@@ -49,8 +49,14 @@ const heldOp = (i) => String.fromCharCode(HELD_OP_BASE + i);
 
 const DETACHER_MARK = "\x1d";
 
+const TYPED_MARK = `${DETACHER_MARK}\x1e`;
+
 /** @param {string} text */
-const unmark = (text) => text.split(DETACHER_MARK).join("");
+const unmark = (text) =>
+	text
+		.replace(new RegExp(`${DETACHER_MARK}(?!\x1e)`, "g"), "")
+		.split(TYPED_MARK)
+		.join(DETACHER_MARK);
 
 const DETACHER_PATH = "([^\\x00-\\x20\\u2028\\u2029;|&()<>`]*/)?";
 
@@ -154,7 +160,7 @@ function stripDetachment(text, scriptSpans, stripScript, reread = false) {
 			? span.charAt(0) + stripQuotedScript(unmark(span), stripScript)
 			: stripSpan(span),
 	);
-	return trimStart(unmark(asWritten(stripBare(masked, reread), kept)));
+	return trimStart(asWritten(stripBare(masked, reread), kept));
 }
 
 const ESCAPED_DOLLAR = "\x12";
@@ -363,6 +369,7 @@ const TIMED_TEXT = `This suite is WRAPPED IN A SHELL \`timeout\`, which kills it
  * @typedef {object} ScriptRead
  * @property {import("./shell-words.js").Unwrapped} run
  * @property {string[]} words
+ * @property {number[]} wordIndices
  * @property {ReturnType<typeof literal>[]} literals
  * @property {string} body
  * @property {import("./shell-parse.js").Parsed} parsedBody
@@ -394,23 +401,30 @@ function readLaunches(parsed, ctx, launchPorts) {
 	/**
 	 * @param {import("./shell-parse.js").Command} cmd
 	 * @param {{ run: import("./shell-words.js").Unwrapped }[]} launches
+	 * @param {ScriptRead[]} scriptReads
 	 */
-	const noteDetachers = (cmd, launches) => {
-		const ats = launches.flatMap(({ run }) =>
-			run.typedWrappers.flatMap(([at]) =>
-				at !== undefined && isDetacherWord(cmd.words[at], "nohup|setsid")
-					? [at]
-					: [],
+	const noteDetachers = (cmd, launches, scriptReads) => {
+		const ats = [
+			...launches.flatMap(({ run }) =>
+				run.typedWrappers.flatMap(([at]) =>
+					at !== undefined && isDetacherWord(cmd.words[at], "nohup|setsid")
+						? [at]
+						: [],
+				),
 			),
-		);
-		if (isDetacherWord(cmd.words[0], "disown")) ats.push(0);
-		for (const at of ats)
+			...scriptReads.flatMap((script) => scriptDetacherAts(script, spans)),
+		];
+		const disownAt = cmd.words.findIndex((w) => !DISOWN_PREFIX.includes(w));
+		if (isDetacherWord(cmd.words[disownAt], "disown")) ats.push(disownAt);
+		for (const at of ats) {
+			const start = cmd.starts[at];
+			if (start === undefined) continue;
 			detachers.push({
 				segIdx: cmd.segIdx,
-				words: [...cmd.leading, ...cmd.words.slice(0, at + 1)].map((w) =>
-					asWritten(w, spans),
-				),
+				from: asWritten(cmd.segment.slice(0, start), spans).length,
+				word: asWritten(cmd.words[at] ?? "", spans),
 			});
+		}
 	};
 	/**
 	 * @param {string[]} leading
@@ -463,7 +477,16 @@ function readLaunches(parsed, ctx, launchPorts) {
 					inner.reread,
 				),
 		};
-		return { run, words, literals, body, parsedBody, inner, source };
+		return {
+			run,
+			words,
+			wordIndices,
+			literals,
+			body,
+			parsedBody,
+			inner,
+			source,
+		};
 	};
 	/**
 	 * @param {import("./shell-parse.js").Command} cmd
@@ -551,7 +574,7 @@ function readLaunches(parsed, ctx, launchPorts) {
 				(script) => readScript(cmd, script),
 			);
 			for (const { source } of scriptRuns) scripts.push(source);
-			noteDetachers(cmd, launches);
+			noteDetachers(cmd, launches, scriptRuns);
 			const [timeouts = []] = launches
 				.map(({ run, launch }) => typedTimeouts(cmd, run, launch))
 				.filter((t) => t.length > 0);
@@ -576,48 +599,66 @@ function readLaunches(parsed, ctx, launchPorts) {
 	};
 }
 
+const DISOWN_PREFIX = ["builtin", "command"];
+
 /** @param {string | undefined} word @param {string} names */
 const isDetacherWord = (word, names) =>
 	word !== undefined &&
 	new RegExp(`^\\\\?${DETACHER_PATH}(${names})$`).test(word);
 
 /**
- * @typedef {{ segIdx: number, words: string[] }} Detacher
+ * @param {ScriptRead} script
+ * @param {string[]} spans
+ * @returns {number[]}
+ */
+function scriptDetacherAts(
+	{ words, wordIndices, literals, body, parsedBody, inner },
+	spans,
+) {
+	const offsets = detacherOffsets(body, parsedBody, inner.detachers);
+	let start = 0;
+	return literals.flatMap((lit, j) => {
+		const at = start;
+		start += lit.text.length + 1;
+		const word = words[j] ?? "";
+		const bare = quotedSpanIndices(word, spans).length === 0;
+		return bare && offsets.includes(at) ? wordIndices.slice(j, j + 1) : [];
+	});
+}
+
+/**
+ * @typedef {{ segIdx: number, from: number, word: string }} Detacher
+ * @param {string} text
+ * @param {import("./shell-parse.js").Parsed} parsed
+ * @param {Detacher[]} detachers
+ * @returns {number[]}
+ */
+function detacherOffsets(text, parsed, detachers) {
+	const places = placeSegments(parsed, text);
+	return detachers.flatMap(({ segIdx, from, word }) => {
+		const textAt = places[segIdx]?.textAt ?? [];
+		const typed = textAt
+			.slice(from, from + word.length)
+			.map((i) => text.charAt(i))
+			.join("");
+		return typed === word ? textAt.slice(from, from + 1) : [];
+	});
+}
+
+/**
  * @param {string} text
  * @param {import("./shell-parse.js").Parsed} parsed
  * @param {Detacher[]} detachers
  */
 function markDetachers(text, parsed, detachers) {
-	const places = placeSegments(parsed, text);
-	const marks = new Set(
-		detachers.flatMap(({ segIdx, words }) => {
-			const place = places[segIdx];
-			if (!place) return [];
-			const typed = place.textAt.map((i) => text.charAt(i)).join("");
-			let from = 0;
-			let at = -1;
-			for (const word of words) {
-				at = wordAt(typed, word, from);
-				if (at < 0) return [];
-				from = at + word.length;
-			}
-			return place.textAt.slice(at, at + 1);
-		}),
-	);
-	return [...marks]
-		.sort((x, y) => y - x)
-		.reduce((t, at) => t.slice(0, at) + DETACHER_MARK + t.slice(at), text);
-}
-
-/** @param {string} typed @param {string} word @param {number} from */
-function wordAt(typed, word, from) {
-	for (
-		let at = typed.indexOf(word, from);
-		at >= 0;
-		at = typed.indexOf(word, at + 1)
-	)
-		if (at === 0 || /[ \t\n\v\f\r]/.test(typed.charAt(at - 1))) return at;
-	return -1;
+	const marks = new Set(detacherOffsets(text, parsed, detachers));
+	let out = "";
+	for (let i = 0; i < text.length; i++) {
+		const c = text.charAt(i);
+		if (marks.has(i)) out += DETACHER_MARK;
+		out += c === DETACHER_MARK ? TYPED_MARK : c;
+	}
+	return out;
 }
 
 /**
@@ -788,16 +829,21 @@ function decide(command, ctx) {
 	};
 	let fix = applyTimed({ text: hold.text, parsed }, timed, shift, ctx);
 	if (detached)
-		fix = stripDetachment(
-			markFix(fix, quiet, launchPorts),
-			buildScriptSpanMap(scripts, spans, (i, span) => {
-				const at = indexAfterDrops(i);
-				return [at, respanned.get(at) ?? span];
-			}),
-			stripScript,
-			reread,
+		fix = unmark(
+			stripDetachment(
+				markFix(fix, quiet, launchPorts),
+				buildScriptSpanMap(scripts, spans, (i, span) => {
+					const at = indexAfterDrops(i);
+					return [at, respanned.get(at) ?? span];
+				}),
+				stripScript,
+				reread,
+			),
 		);
-	fix = putBackRequoted(fix, detached ? requoted.map(stripScript) : requoted);
+	fix = putBackRequoted(
+		fix,
+		detached ? requoted.map((body) => unmark(stripScript(body))) : requoted,
+	);
 	fix = putBackHeredocs(trimStart(fix), hold.kept);
 	if (fix === "") {
 		ctx.log(
