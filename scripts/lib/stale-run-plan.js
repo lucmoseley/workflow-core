@@ -1,4 +1,5 @@
 const { WAITING_LABEL } = require("./frontier-order.js");
+const { WATCH_CLOSED_LABEL } = require("./watch-label.js");
 const { PARKED_LABEL } = require("./parked.js");
 const { takesLabel } = require("./takes-label.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
@@ -40,6 +41,7 @@ const LABEL_TAGS = new Set([
 ]);
 const EDGE_TAGS = new Set(["SHIPPED-GATED", "PROSE-BLOCKED"]);
 const CONTAINER_TAGS = new Set(["STALE-CONTAINER", "UNMARKED-CONTAINER"]);
+const PLACEMENT_TAGS = new Set(["UNDISCHARGED-MAP", "UNPLACED"]);
 const ABSENT_SOURCE =
 	/no such file|ENOENT|not found|does not exist|cannot open|cannot access/i;
 const QUESTION_CAUSES = new Set([undefined, "", "QUESTION"]);
@@ -99,6 +101,7 @@ const CLASS_ORDER = /** @type {Cls[]} */ (Object.keys(CLASS_NAMES));
  * @property {string[]} assignees
  * @property {EdgeRow[]} blockedBy
  * @property {EdgeRow[]} subIssues
+ * @property {{repo: string, number: number}|null} [parent]
  * @property {TimelineRow[]} [timeline]
  * @typedef {{number: number, state: string, reading: string, closed: boolean, detail?: string|null}} GateRow
  * @typedef {{issue: number, sessionId: string|null, claimedAt: string}} ClaimRecord
@@ -113,7 +116,7 @@ const CLASS_ORDER = /** @type {Cls[]} */ (Object.keys(CLASS_NAMES));
  * @property {SnapIssue[]} issues
  * @property {SnapIssue[]} watched
  * @property {GateRow[]} gates
- * @property {{tag: string, number: number}[]} labelFindings
+ * @property {{tag: string, number: number}[]} checkFindings
  * @property {number[]} containerRetags
  * @property {{number: number, ageDays: number, assignees: string[]}[]} staleClaims
  * @property {ClaimRecord[] | null} claims
@@ -228,6 +231,7 @@ const partyOf = (body) =>
  * @property {Filing[]} filings
  * @property {string[]} repoLines
  * @property {Map<string, number>} holdCount
+ * @property {Map<string, RepoCtx>} repoCtx
  * @typedef {object} RepoCtx
  * @property {Ctx} ctx
  * @property {SnapRepo} r
@@ -304,14 +308,19 @@ function planStaleRun(snap) {
 		filings: [],
 		repoLines: [],
 		holdCount: countHolds(snap),
+		repoCtx: new Map(),
 	};
+	/** @type {{rc: RepoCtx, listed: SnapIssue[]}[]} */
+	const planned = [];
 	for (const r of snap.repos) {
 		if (r.fault !== null || !r.tracker)
 			ctx.repoLines.push(
 				`${r.tracker ?? r.root}: 0 takeable, oldest 0 d, unserved because config or tracker fault: ${r.fault ?? "no tracker resolves"}`,
 			);
-		else planRepo(ctx, r, r.tracker);
+		else planned.push(planRepo(ctx, r, r.tracker));
 	}
+	planAllStuckBlockers(planned);
+	for (const { rc } of planned) flushLines(rc);
 	planCauses(ctx);
 	return { ...planHub(ctx), gates: ctx.gates };
 }
@@ -329,6 +338,7 @@ function planRepo(ctx, r, repo) {
 		excluded: new Set(),
 		closed: new Set(r.closedRefs.map((k) => k.toLowerCase())),
 	};
+	ctx.repoCtx.set(repo.toLowerCase(), rc);
 	ctx.repoLines.push(buildRepoLine(rc));
 	const open = r.gates.filter((g) => !planMetGate(rc, g));
 	for (const iss of r.issues) planClosedEdges(rc, iss);
@@ -349,7 +359,6 @@ function planRepo(ctx, r, repo) {
 	ctx.acts = ctx.acts.filter(
 		(a) => a.kind !== "unblock" || a.root !== r.root || held.has(a.number),
 	);
-	for (const iss of listed) planStuckBlockers(rc, iss);
 	if (r.containerRetags.length > 0)
 		ctx.acts.push({
 			kind: "retag",
@@ -358,12 +367,17 @@ function planRepo(ctx, r, repo) {
 			numbers: r.containerRetags,
 		});
 	planCycles(rc);
+	return { rc, listed };
+}
+
+/** @param {RepoCtx} rc */
+function flushLines(rc) {
 	for (const ls of rc.found.values()) {
 		const seen = new Set();
 		for (const l of ls) {
 			if (seen.has(l.text)) continue;
 			seen.add(l.text);
-			ctx.lines.push(l);
+			rc.ctx.lines.push(l);
 		}
 	}
 }
@@ -560,9 +574,10 @@ function planIssue(rc, iss) {
 			sig: "gated until, no reason",
 			text: `gated until ${gate.iso} with no reason stated`,
 		});
-	const tags = rc.r.labelFindings
+	const tags = rc.r.checkFindings
 		.filter((f) => f.number === n)
 		.map((f) => f.tag);
+	planPlacement(rc, iss, tags);
 	if (planContainer(rc, iss, tags)) return false;
 	for (const t of tags.filter((x) => LABEL_TAGS.has(x)))
 		add(rc, { n, cls: "C5", sig: t, text: t });
@@ -591,6 +606,21 @@ function planContainer(rc, iss, tags) {
 	for (const t of tags.filter((x) => CONTAINER_TAGS.has(x)))
 		add(rc, { n, cls: "C4", sig: t, text: t });
 	return true;
+}
+
+/** @param {RepoCtx} rc @param {SnapIssue} iss @param {string[]} tags */
+function planPlacement(rc, iss, tags) {
+	const n = iss.number;
+	for (const t of tags.filter((x) => PLACEMENT_TAGS.has(x)))
+		add(rc, { n, cls: "C4", sig: t, text: t });
+	const { parent } = iss;
+	if (parent && rc.closed.has(refKey(parent)))
+		add(rc, {
+			n,
+			cls: "C4",
+			sig: "parent closed",
+			text: `open under closed parent ${parent.repo}#${parent.number}`,
+		});
 }
 
 /**
@@ -736,19 +766,51 @@ function planUnclassified(rc, iss, owedDays) {
 	});
 }
 
-/** @param {RepoCtx} rc @param {SnapIssue} iss */
-function planStuckBlockers(rc, iss) {
-	for (const b of iss.blockedBy.filter((e) => e.state === "open")) {
-		const blocker = rc.byNumber.get(b.number);
-		const theirs = rc.found.get(b.number)?.[0]?.cls;
-		if ((b.repo ?? rc.repo) !== rc.repo || !blocker || !theirs) continue;
+/** @param {{rc: RepoCtx, listed: SnapIssue[]}[]} planned */
+function planAllStuckBlockers(planned) {
+	/** @type {Set<string>} */
+	const named = new Set();
+	let grew = true;
+	while (grew) {
+		grew = false;
+		for (const { rc, listed } of planned)
+			for (const iss of listed)
+				if (planStuckBlockers(rc, iss, named)) grew = true;
+	}
+}
+
+/**
+ * @param {RepoCtx} rc
+ * @param {SnapIssue} iss
+ * @param {Set<string>} named
+ * @returns {boolean}
+ */
+function planStuckBlockers(rc, iss, named) {
+	const refs = new Map(
+		[
+			...iss.blockedBy
+				.filter((e) => e.state === "open")
+				.map((b) => ({ repo: b.repo ?? rc.repo, number: b.number })),
+			...gateRefsOf(iss.body, rc.repo),
+		].map((ref) => [refKey(ref), ref]),
+	);
+	let grew = false;
+	for (const [key, ref] of refs) {
+		const edge = `${refKey({ repo: rc.repo, number: iss.number })}>${key}`;
+		const theirs = rc.ctx.repoCtx.get(ref.repo.toLowerCase());
+		const blocker = theirs?.byNumber.get(ref.number);
+		const cls = theirs?.found.get(ref.number)?.[0]?.cls;
+		if (named.has(edge) || !blocker || !cls) continue;
+		named.add(edge);
+		grew = true;
 		add(rc, {
 			n: iss.number,
 			cls: "C3",
 			sig: "stuck blocker",
-			text: `blocked by ${rc.repo}#${b.number} (${theirs}, ${daysSince(blocker.createdAt, rc.ctx.now)} d)`,
+			text: `blocked by ${theirs.repo}#${ref.number} (${cls}, ${daysSince(blocker.createdAt, rc.ctx.now)} d)`,
 		});
 	}
+	return grew;
 }
 
 /** @param {RepoCtx} rc */
@@ -857,6 +919,86 @@ function actText(a) {
 }
 
 /**
+ * @param {string} live
+ * @param {string} was
+ */
+const bodyUnchanged = (live, was) => live.trim() === was.trim();
+
+/**
+ * @param {Extract<Act, {kind: "discharge"}>} a
+ * @returns {string[][]}
+ */
+const reopenSteps = (a) =>
+	a.closed ? [["reopen"], ["edit", "--remove-label", WATCH_CLOSED_LABEL]] : [];
+
+const KEPT =
+	"The issue's body changed after this run read it, so the marker is left for a session to strip.";
+
+/**
+ * @param {Act} a
+ * @param {{stripped: boolean}} done
+ * @returns {{number: number, text: string}|null}
+ */
+function actComment(a, { stripped }) {
+	/** @param {string} text */
+	const on = (text) => ("number" in a ? { number: a.number, text } : null);
+	switch (a.kind) {
+		case "discharge":
+			return on(
+				`Discharged by the daily stale-ticket run: the gate's \`check:\` reads met — \`${a.reading}\`. ${stripped ? "The `**Gated on:**` marker is stripped." : KEPT}`,
+			);
+		case "unblock":
+			return on(
+				`Cleared by the daily stale-ticket run: blocker ${a.blocker.repo}#${a.blocker.number} has closed, so its \`blocked_by\` edge is removed.`,
+			);
+		case "strip-gate":
+			return stripped
+				? on(
+						`Cleared by the daily stale-ticket run: ${a.blocker} has closed, so the \`**Gated on:**\` marker waiting on it is stripped.`,
+					)
+				: null;
+		case "release":
+		case "retag":
+			return null;
+	}
+}
+
+/**
+ * @param {Plan} p
+ * @param {Snapshot} snap
+ * @param {{acts: string[], filings: string[], hub: number|null}} done
+ * @returns {RunRow}
+ */
+function buildRunRow(p, snap, done) {
+	const first = new Map(
+		(snap.previous?.listed ?? []).map((l) => [l.key, l.firstListed]),
+	);
+	return {
+		date: snap.now,
+		repoLines: p.repoLines,
+		listed: p.lines.map((l) => ({
+			key: l.key,
+			cls: l.cls,
+			firstListed: first.get(l.key) ?? snap.now,
+		})),
+		owed: p.owed,
+		acts: done.acts,
+		filings: done.filings,
+		hub: { number: done.hub, keys: p.hubKeys },
+		disposed: p.disposed,
+		gates: p.gates,
+	};
+}
+
+/**
+ * @param {HubNext} hub
+ * @param {{filed: number|null, before: number|null}} at
+ * @returns {number|null}
+ */
+const hubAfter = (hub, { filed, before }) =>
+	hub.action === "refresh" ? (filed ?? before) : null;
+
+/**
  * @param {{repoLines: string[], lines: Line[], owed: OwedLine[], acts: Act[],
  *   disposed: Set<string>}} parts
  */
@@ -927,6 +1069,11 @@ module.exports = {
 	HUB_TAKES,
 	HUB_TITLE,
 	STAMP_ALARM_DAYS,
+	actComment,
 	actText,
+	bodyUnchanged,
+	buildRunRow,
+	hubAfter,
 	planStaleRun,
+	reopenSteps,
 };

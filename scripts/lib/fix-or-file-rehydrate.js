@@ -2,13 +2,14 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { orFallback } = require("./caught.js");
-const { parseJsonlRow } = require("./jsonl.js");
+const { readJsonl } = require("./jsonl.js");
 
 // #5827
 /** @param {string} text */
 const textHash = (text) =>
 	crypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
 
+// #5827
 const SESSION_PREFIX_LEN = 8;
 
 /**
@@ -51,9 +52,7 @@ const transcriptFor = (index, id) =>
  * @returns {string|null}
  */
 function replyWithHash(file, hash) {
-	const text = orFallback(() => fs.readFileSync(file, "utf8"), "");
-	for (const line of text.split("\n")) {
-		const row = parseJsonlRow(line);
+	for (const row of readJsonl(file)?.rows ?? []) {
 		if (row?.type !== "assistant") continue;
 		const message = /** @type {{content?: unknown}|undefined} */ (row.message);
 		const content = message?.content;
@@ -96,4 +95,4 @@ function rehydrate(rows, index) {
 	return { rows: out, unresolved };
 }
 
-module.exports = { rehydrate, textHash, transcriptIndex };
+module.exports = { rehydrate, transcriptIndex };

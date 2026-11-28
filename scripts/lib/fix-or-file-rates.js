@@ -105,4 +105,4 @@ function report(scored) {
 	return lines;
 }
 
-module.exports = { readLabelRows, recordedScores, rates, report };
+module.exports = { readLabelRows, recordedScores, report };
