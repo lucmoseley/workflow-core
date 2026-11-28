@@ -99,3 +99,20 @@ describe("the pre-run freshen's render of an intent-to-add entry (#5891)", () =>
 		expect(r.status).toBe(3);
 	});
 });
+
+describe("the pre-run freshen's render of an untracked file (#5902)", () => {
+	it("leaves out one this session did not write, which no commit of its carries", () => {
+		expect(fresh(SESSION)).toBeUndefined();
+	});
+
+	it("keeps one this session wrote", () => {
+		store.recordWrite(path.join(sb.repo, DOC), SESSION);
+		expect(fresh(SESSION)).toEqual([READER]);
+		expect(fresh("a-neighbour")).toBeUndefined();
+	});
+
+	it("keeps every one where it cannot tell whose they are", () => {
+		expect(fresh(null)).toEqual([READER]);
+		expect(fresh(SESSION, { readWritesBy: () => null })).toEqual([READER]);
+	});
+});

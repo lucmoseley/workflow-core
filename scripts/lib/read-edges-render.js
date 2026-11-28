@@ -52,10 +52,16 @@ function readIsIntentToAdd(root, head) {
 		staged.get(file) === "D" || (!staged.has(file) && !headIds.has(file));
 }
 
-/** @param {string} root */
-function readIntentToAdd(root) {
+/**
+ * #5902
+ * @param {string} root
+ */
+function readNewFiles(root) {
 	const isIntentToAdd = readIsIntentToAdd(root);
-	return gitList(root, ["ls-files", "-z"]).filter(isIntentToAdd);
+	return [
+		...gitList(root, ["ls-files", "-z"]).filter(isIntentToAdd),
+		...gitList(root, ["ls-files", "-z", "--others", "--exclude-standard"]),
+	];
 }
 
 /** @param {string} root */
@@ -204,4 +210,4 @@ function render(
 const buildManifestText = (edges) =>
 	`${JSON.stringify({ $note: NOTE, edges }, null, "\t")}\n`;
 
-module.exports = { OUT, buildManifestText, hasHead, readIntentToAdd, render };
+module.exports = { OUT, buildManifestText, hasHead, readNewFiles, render };
