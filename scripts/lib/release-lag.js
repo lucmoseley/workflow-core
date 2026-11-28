@@ -1,7 +1,7 @@
 const { isTagRef, sameRelease } = require("./plugin-state.js");
 const { WIDE_SHA } = require("./git.js");
 const { scriptPath } = require("./script-path.js");
-const { describeAge, renderSurvey } = require("./level-main.js");
+const { describeAge, HOUR_MS } = require("./age-text.js");
 
 // guess, #4448
 const LAG_WARN_DAYS = 7;
@@ -59,7 +59,7 @@ function judgeInstalls(adopters) {
 
 /**
  * @typedef {{name: string} & (
- *   | {kind: "read", lag: import("./level-main.js").MainLag}
+ *   | {kind: "read", behind: number, fetchedAt: number|null, lines: string[]}
  *   | {kind: "unread", why: string})} MainReading
  */
 
@@ -72,19 +72,19 @@ function judgeMainLag(reading, now) {
 	if (reading.kind === "unread")
 		return {
 			finding: "MAIN-UNREAD",
-			line: `${reading.name}'s main checkout could not be measured against ${MAIN}: ${reading.why}`,
+			line: `${reading.name}'s main checkout could not be measured against ${MAIN}: ${reading.why}. Run \`git status\` and \`git rev-parse ${MAIN}\` there to see what git refuses; \`git fetch origin\` restores a missing ${MAIN}.`,
 		};
-	const { survey, behind, fetchedAt } = reading.lag;
+	const { behind, fetchedAt, lines } = reading;
 	if (behind === 0) return null;
 	const fetched =
 		fetchedAt === null
 			? "never fetched"
-			: `fetched ${describeAge(Math.max(0, now - fetchedAt))} ago`;
+			: `fetched ${describeAge(Math.max(0, now - fetchedAt), { minutesUnder: HOUR_MS })} ago`;
 	return {
 		finding: "MAIN-BEHIND",
 		line: [
 			`${reading.name}'s main checkout is ${behind} commit(s) behind ${MAIN} (${fetched}), so what runs from it is that old:`,
-			...renderSurvey(survey, now),
+			...lines,
 		].join("\n"),
 	};
 }

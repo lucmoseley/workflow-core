@@ -359,10 +359,10 @@ function survey(root, { now, lastWriter }) {
  * @returns {Moved}
  */
 function advance(root, { now, lastWriter, work, listSessions }, discarded) {
-	const judged = survey(root, { now, lastWriter });
-	if (judged.status !== "clear") return judged;
-	const { from, to, changed } = judged;
-	const failed = discardLanded(root, judged.landed, discarded);
+	const surveyed = survey(root, { now, lastWriter });
+	if (surveyed.status !== "clear") return surveyed;
+	const { from, to, changed } = surveyed;
+	const failed = discardLanded(root, surveyed.landed, discarded);
 	if (failed !== null) return { status: "refused", from, to, why: failed };
 	const moved = remarkAroundMove(
 		buildRemarkPorts(root, path.join(work, "canary"), listSessions),
@@ -388,19 +388,28 @@ function advance(root, { now, lastWriter, work, listSessions }, discarded) {
 
 /**
  * @param {string} root
- * @param {{ now: number, lastWriter?: LastWriter }} how
+ * @param {{ now: number, lastWriter: LastWriter }} how
  * @returns {MainLag}
  */
-function readMainLag(root, { now, lastWriter = () => null }) {
-	const judged = survey(root, { now, lastWriter });
+function readMainLag(root, how) {
+	const surveyed = survey(root, how);
 	const behind = Number(
 		git(["rev-list", "--count", `HEAD..${UPSTREAM}`], root).trim(),
 	);
 	const common = gitCommonDirOrThrow(root, { timeout: GIT_TIMEOUT_MS });
-	const fetched = fs.statSync(path.join(common, "FETCH_HEAD"), {
-		throwIfNoEntry: false,
-	});
-	return { survey: judged, behind, fetchedAt: fetched?.mtimeMs ?? null };
+	const stamps = [
+		"FETCH_HEAD",
+		path.join("logs", "refs", "remotes", ...UPSTREAM.split("/")),
+	].flatMap(
+		(rel) =>
+			fs.statSync(path.join(common, rel), { throwIfNoEntry: false })?.mtimeMs ??
+			[],
+	);
+	return {
+		survey: surveyed,
+		behind,
+		fetchedAt: stamps.length === 0 ? null : Math.max(...stamps),
+	};
 }
 
 /**
@@ -557,11 +566,7 @@ function renderLate(late) {
  * @returns {string[]}
  */
 function renderSurvey(s, now) {
-	if (s.status !== "clear")
-		return renderOutcome(
-			{ ...s, fetchError: null, discarded: [], install: { installed: false } },
-			now,
-		);
+	if (s.status !== "clear") return renderStatus(s, now);
 	const landed =
 		s.landed.length === 0
 			? ""
@@ -572,11 +577,11 @@ function renderSurvey(s, now) {
 }
 
 /**
- * @param {Outcome} o
+ * @param {Moved | { status: "busy", holder: number | null }} o
  * @param {number} now
  * @returns {string[]}
  */
-function renderOutcome(o, now) {
+function renderStatus(o, now) {
 	const short = (/** @type {string} */ sha) => sha.slice(0, SHORT_SHA);
 	const next = "then the next pass levels main";
 	/** @type {string[]} */
@@ -638,6 +643,17 @@ function renderOutcome(o, now) {
 			);
 			break;
 	}
+	return lines;
+}
+
+/**
+ * @param {Outcome} o
+ * @param {number} now
+ * @returns {string[]}
+ */
+function renderOutcome(o, now) {
+	const short = (/** @type {string} */ sha) => sha.slice(0, SHORT_SHA);
+	const lines = renderStatus(o, now);
 	for (const d of o.discarded)
 		lines.push(
 			`discarded ${d.path} from the main checkout: its blob ${short(d.blob)} is the file at ${short(d.commit)} on ${UPSTREAM}, so nothing was lost`,

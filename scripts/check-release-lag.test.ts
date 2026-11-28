@@ -9,6 +9,8 @@ import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-release-lag.js");
 const DAY = 86_400;
+const HOUR = 3600;
+const NOW_S = 1_800_000_000;
 const T0 = 1_790_000_000;
 
 let dir: string;
@@ -143,6 +145,7 @@ const run = (args: string[] = ["--json"]) =>
 			WFC_REPO_ROOT: repo,
 			HOME: home,
 			CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
+			WFC_NOW: new Date(NOW_S * 1000).toISOString(),
 		},
 	});
 
@@ -244,8 +247,6 @@ describe("unread or not applicable", () => {
 });
 
 describe("an adopter's main checkout behind origin/main (#5845)", () => {
-	const HourS = 3600;
-
 	const fallBehind = (name: string, commits: number) => {
 		const root = path.join(home, name);
 		const base = gitIn(root, ["rev-parse", "HEAD"]);
@@ -257,7 +258,7 @@ describe("an adopter's main checkout behind origin/main (#5845)", () => {
 		gitIn(root, ["reset", "-q", "--hard", base]);
 		const fetched = path.join(root, ".git", "FETCH_HEAD");
 		fs.writeFileSync(fetched, "");
-		const at = Date.now() / 1000 - 2 * HourS;
+		const at = NOW_S - 2 * HOUR;
 		fs.utimesSync(fetched, at, at);
 		return root;
 	};
@@ -274,7 +275,7 @@ describe("an adopter's main checkout behind origin/main (#5845)", () => {
 		addAdopter("stuck", "v1.0.0");
 		const root = fallBehind("stuck", 3);
 		fs.writeFileSync(path.join(root, "hook.js"), "half-written\n");
-		const old = Date.now() / 1000 - 5 * HourS;
+		const old = NOW_S - 5 * HOUR;
 		fs.utimesSync(path.join(root, "hook.js"), old, old);
 		const before = snapshot(root);
 
@@ -299,8 +300,24 @@ describe("an adopter's main checkout behind origin/main (#5845)", () => {
 
 		const r = run(["--notify"]);
 
+		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
 			"MAIN-BEHIND — lagging's main checkout is 2 commit(s) behind origin/main (fetched 2h ago), so what runs from it is that old:\nclear: no edit blocks the fast-forward, so the next levelling pass takes main to origin/main, after discarding hook.js, which origin/main holds byte for byte — `node scripts/level-main.js` runs one now",
+		);
+		expect(snapshot(root)).toEqual(before);
+	});
+
+	it("reports one behind with a clean tree as clear, naming no discard", () => {
+		buildCore({ lagDays: 1 });
+		addAdopter("clean", "v1.0.0");
+		const root = fallBehind("clean", 1);
+		const before = snapshot(root);
+
+		const r = run(["--notify"]);
+
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			"MAIN-BEHIND — clean's main checkout is 1 commit(s) behind origin/main (fetched 2h ago), so what runs from it is that old:\nclear: no edit blocks the fast-forward, so the next levelling pass takes main to origin/main — `node scripts/level-main.js` runs one now",
 		);
 		expect(snapshot(root)).toEqual(before);
 	});
@@ -322,8 +339,12 @@ describe("an adopter's main checkout behind origin/main (#5845)", () => {
 			"refs/remotes/origin/main",
 		]);
 		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
 			"MAIN-UNREAD — broken's main checkout could not be measured against origin/main:",
+		);
+		expect(r.stdout).toContain(
+			"`git fetch origin` restores a missing origin/main.",
 		);
 	});
 });

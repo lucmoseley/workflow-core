@@ -14,7 +14,7 @@ const {
 	resolveConfigDir,
 } = require("./lib/plugin-state.js");
 const store = require("./lib/arbiter-store");
-const { readMainLag } = require("./lib/level-main.js");
+const { readMainLag, renderSurvey } = require("./lib/level-main.js");
 const { homeDir, readAdopterCheckouts } = require("./lib/refill-repos.js");
 const {
 	LAG_WARN_DAYS,
@@ -71,13 +71,16 @@ function readAdopters(roots) {
 function readMain(root, at) {
 	const name = path.basename(root);
 	try {
+		const lag = readMainLag(root, {
+			now: at,
+			lastWriter: (rel) => store.readLastWriterOf(rel, { root }),
+		});
 		return {
 			name,
 			kind: "read",
-			lag: readMainLag(root, {
-				now: at,
-				lastWriter: (rel) => store.readLastWriterOf(rel, { root }),
-			}),
+			behind: lag.behind,
+			fetchedAt: lag.fetchedAt,
+			lines: renderSurvey(lag.survey, at),
 		};
 	} catch (e) {
 		return { name, kind: "unread", why: caught(e).message.trim() };
@@ -125,8 +128,8 @@ runCheck({
 		const installs = judgeInstalls(adopters);
 		if (installs !== null) findings.push(installs);
 		const at = now();
-		for (const adopter of roots) {
-			const behind = judgeMainLag(readMain(adopter, at), at);
+		for (const adopterRoot of roots) {
+			const behind = judgeMainLag(readMain(adopterRoot, at), at);
 			if (behind !== null) findings.push(behind);
 		}
 		if (findings.length === 0) return { okLine: lag.line, data };
