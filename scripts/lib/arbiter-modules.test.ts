@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { localRequires } from "./require-closure-testkit";
+import { localRequires } from "./local-requires.js";
 
 const LIB = __dirname;
 const families = fs
