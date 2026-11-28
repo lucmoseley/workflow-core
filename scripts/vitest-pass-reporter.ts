@@ -124,6 +124,14 @@ function fullRunFields(launch: import("./lib/suite-handoff.js").Launch) {
 	};
 }
 
+function touchedFields(launch: import("./lib/suite-handoff.js").Launch) {
+	return {
+		...(launch.leftOut ? { leftOut: launch.leftOut } : {}),
+		...(launch.boundedFrom === null ? {} : { boundedFrom: launch.boundedFrom }),
+		...(launch.touchedBase ? { touchedBase: launch.touchedBase } : {}),
+	};
+}
+
 function fileVerdicts(
 	testModules: TestModuleLike[],
 	paths: { inside: (file: string) => boolean; rel: (file: string) => string },
@@ -389,8 +397,7 @@ export default class TestPassReporter {
 				? {}
 				: { resolvedFiles: launch.resolvedFiles }),
 			...(launch.wholeSlot ? { wholeSlot: true } : {}),
-			...(launch.leftOut ? { leftOut: launch.leftOut } : {}),
-			...(launch.touchedBase ? { touchedBase: launch.touchedBase } : {}),
+			...touchedFields(launch),
 			...fullRunFields(launch),
 			...(failures.size > 0
 				? {

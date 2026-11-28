@@ -3360,6 +3360,7 @@ describe("the launch record each route hands the child (#1596)", () => {
 			viaChanged: true,
 			touched: false,
 			leftOut: null,
+			boundedFrom: null,
 			touchedBase: null,
 			full: null,
 			fullCause: null,
@@ -3406,6 +3407,7 @@ describe("the launch record each route hands the child (#1596)", () => {
 			viaChanged: false,
 			touched: false,
 			leftOut: null,
+			boundedFrom: null,
 			touchedBase: null,
 			full: "flag",
 			fullCause: "coverage",
@@ -3498,6 +3500,7 @@ describe("the launch record each route hands the child (#1596)", () => {
 			viaChanged: false,
 			touched: false,
 			leftOut: null,
+			boundedFrom: null,
 			touchedBase: null,
 			full: null,
 			fullCause: null,
@@ -6976,6 +6979,7 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 			const { out, spawned } = await launch(dir);
 			expect(out).not.toContain("LEFT TO THE LANDER");
 			expect(readLaunch(spawned[0].env).leftOut).toEqual([]);
+			expect(readLaunch(spawned[0].env).boundedFrom).toBeNull();
 		});
 
 		it("leaves a run naming its files as typed: the reader runs by name", async () => {

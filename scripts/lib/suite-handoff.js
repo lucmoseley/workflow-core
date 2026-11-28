@@ -21,6 +21,7 @@ const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
  *   resolvedFiles: number|null,
  *   wholeSlot: boolean,
  *   leftOut: string[]|null,
+ *   boundedFrom: number|null,
  *   touchedBase: import("./test-pass-marker.js").TouchedBase|null,
  *   changedPaths: string[]|null,
  *   base: string|null,
@@ -51,6 +52,10 @@ function validLaunch(raw) {
 				: null,
 		wholeSlot: raw.wholeSlot === true,
 		leftOut: stringsOrNull(raw.leftOut),
+		boundedFrom:
+			Number.isInteger(raw.boundedFrom) && Number(raw.boundedFrom) > 0
+				? Number(raw.boundedFrom)
+				: null,
 		touchedBase: /** @type {Launch["touchedBase"]} */ (
 			oneOf(TOUCHED_BASES, raw.touchedBase)
 		),

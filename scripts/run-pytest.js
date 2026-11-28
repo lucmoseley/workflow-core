@@ -147,7 +147,7 @@ function runScope(scope, touched) {
 
 /**
  * @typedef {{ args: string[], touched: { resolvedFiles: number,
- *    leftOut: string[],
+ *    leftOut: string[], boundedFrom?: number,
  *    touchedBase: import("./lib/touched-tests.js").TouchedBase }|null }} Plan
  */
 
@@ -173,7 +173,7 @@ function pytestPlan(argv, root) {
 			throw new Error(
 				"this session's own work could not be read: git would not say what is uncommitted, write the commit carrying it, or diff that commit",
 			);
-		const { files, leftOut, banner } = selectTouched(root, {
+		const { files, leftOut, boundedFrom, banner } = selectTouched(root, {
 			suite: "pytest",
 			from,
 			...(ownWork ? { ownWork } : {}),
@@ -182,13 +182,19 @@ function pytestPlan(argv, root) {
 		if (files.length > 0)
 			return {
 				args: files,
-				touched: { resolvedFiles: files.length, leftOut, touchedBase: from },
+				touched: {
+					resolvedFiles: files.length,
+					leftOut,
+					...(boundedFrom === null ? {} : { boundedFrom }),
+					touchedBase: from,
+				},
 			};
 		appendEmptyTouchedLine(repoRoot(root) || root, root, {
 			suite: "pytest",
 			sessionId: sessionId || null,
 			argv: [],
 			leftOut,
+			boundedFrom,
 			touchedBase: from,
 		});
 		return 0;

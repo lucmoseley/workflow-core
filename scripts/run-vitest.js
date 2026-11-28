@@ -106,7 +106,7 @@ const {
 } = require("./lib/changed-selection.js");
 /** @typedef {import("./lib/dirty-tree.js").ExecFn} ExecFn */
 /** @typedef {{ write: (s: string) => unknown }} Writer */
-/** @typedef {NonNullable<ReturnType<typeof expandChanged>> & { leftOut?: string[] }} Plan */
+/** @typedef {NonNullable<ReturnType<typeof expandChanged>> & { leftOut?: string[], boundedFrom?: number|null }} Plan */
 /** @typedef {import("./lib/cached-plan.js").Looked<Plan>} LookedPlan */
 /** @typedef {import("./lib/test-inflight.js").InflightRecord} InflightRecord */
 /** @typedef {import("./lib/changed-selection.js").ExpandFs} ExpandFs */
@@ -342,6 +342,7 @@ function finishAllCached(looked, { root, launch, out, session, execFn }) {
 			...launch,
 			admissible: plan?.admissible === true,
 			leftOut: plan?.leftOut ?? null,
+			boundedFrom: plan?.boundedFrom ?? null,
 		},
 		changedPaths: plan ? (plan.changed ?? []) : null,
 		base: readRunBase(launch, plan, root, execFn),
@@ -383,6 +384,7 @@ function vitestEnv({
 			...launch,
 			admissible: plan?.admissible === true,
 			leftOut: plan?.leftOut ?? null,
+			boundedFrom: plan?.boundedFrom ?? null,
 			changedPaths: plan ? (plan.changed ?? []) : null,
 			base,
 		}),
@@ -580,6 +582,7 @@ function runOnce(
 			sessionId: session,
 			argv: launch.argv ?? [],
 			leftOut: plan.leftOut ?? [],
+			boundedFrom: plan.boundedFrom,
 			touchedBase: launch.touchedBase ?? "merge-base",
 		});
 		return Promise.resolve(0);
@@ -1132,13 +1135,14 @@ function runTouched(route, options) {
  */
 function planTouched(rest, at, options) {
 	try {
-		const { base, changed, files, leftOut, banner } = selectTouched(at, {
-			...ownOptions(options),
-			from: options.launch?.touchedBase ?? "merge-base",
-			...(options.ownWork === undefined ? {} : { ownWork: options.ownWork }),
-			...(options.loadEdges ? { loadEdges: options.loadEdges } : {}),
-			...(options.renderEdges ? { renderEdges: options.renderEdges } : {}),
-		});
+		const { base, changed, files, leftOut, boundedFrom, banner } =
+			selectTouched(at, {
+				...ownOptions(options),
+				from: options.launch?.touchedBase ?? "merge-base",
+				...(options.ownWork === undefined ? {} : { ownWork: options.ownWork }),
+				...(options.loadEdges ? { loadEdges: options.loadEdges } : {}),
+				...(options.renderEdges ? { renderEdges: options.renderEdges } : {}),
+			});
 		return {
 			argv: [...rest, "--passWithNoTests", ...files],
 			files,
@@ -1150,6 +1154,7 @@ function planTouched(rest, at, options) {
 			base,
 			banner,
 			leftOut,
+			boundedFrom,
 		};
 	} catch (error) {
 		if (error instanceof SelectionFailed) throw error;

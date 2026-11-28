@@ -95,6 +95,7 @@ function verdictOf(m, green) {
 const scopeFields = (scope) => ({
 	resolvedFiles: scope?.resolvedFiles ?? null,
 	leftOut: scope?.leftOut ?? null,
+	...(scope?.boundedFrom ? { boundedFrom: scope.boundedFrom } : {}),
 	touchedBase: scope?.touchedBase ?? null,
 	wholeSlot: scope?.wholeSlot === true,
 	ranFiles: scope?.modulesRun ?? null,
@@ -145,13 +146,13 @@ function appendLedgerLine(root, marker, green) {
  * @param {string} root
  * @param {string} tree
  * @param {{ suite: string, sessionId?: string|null, argv: string[],
- *   leftOut: string[],
+ *   leftOut: string[], boundedFrom?: number|null,
  *   touchedBase: import("./test-pass-marker.js").TouchedBase }} run
  */
 function appendEmptyTouchedLine(
 	root,
 	tree,
-	{ suite, sessionId, argv, leftOut, touchedBase },
+	{ suite, sessionId, argv, leftOut, boundedFrom, touchedBase },
 ) {
 	const at = new Date().toISOString();
 	appendLedgerLine(
@@ -170,6 +171,7 @@ function appendEmptyTouchedLine(
 				touched: true,
 				resolvedFiles: 0,
 				leftOut,
+				...(boundedFrom ? { boundedFrom } : {}),
 				touchedBase,
 			},
 			sessionId,

@@ -588,6 +588,19 @@ describe("which command started the run (mantahostels#2303)", () => {
 		expect(await scopeWith({})).not.toHaveProperty("leftOut");
 	});
 
+	it("records a bounded touched run's pre-bound selection size, and none off an unbounded run (#5878)", async () => {
+		expect(
+			await scopeWith({
+				touched: true,
+				leftOut: ["lib/b.test.ts"],
+				boundedFrom: 121,
+			}),
+		).toMatchObject({ leftOut: ["lib/b.test.ts"], boundedFrom: 121 });
+		expect(
+			await scopeWith({ touched: true, leftOut: [], boundedFrom: null }),
+		).not.toHaveProperty("boundedFrom");
+	});
+
 	it("records the base a touched run's selection took, and none off any other run (#5320)", async () => {
 		expect(
 			await scopeWith({ touched: true, touchedBase: "head" }),
