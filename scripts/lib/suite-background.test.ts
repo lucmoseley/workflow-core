@@ -308,6 +308,52 @@ describe("lib/suite-background.js", () => {
 		}
 	});
 
+	it("strips a detacher word only where it detaches, never an argument spelling it (#5896)", () => {
+		for (const command of [
+			"npm run test; echo nohup x",
+			"npm run test; echo setsid -f x",
+			"npm run test; echo a disown b",
+			"nohup sleep 1; npm run test",
+			"npm run test; echo \x1dnohup x",
+			"npm run test; echo \x1ddisown",
+		])
+			expect(verdict(command), command).toBe("allow");
+		for (const [command, fix] of [
+			[
+				"nohup timeout 590 npm run test; echo nohup timeout 590 npm run test",
+				"npm run test; echo nohup timeout 590 npm run test",
+			],
+			[
+				"npm run test & echo disown nohup; disown",
+				"npm run test ; echo disown nohup;",
+			],
+			[
+				'flock /l -c "nohup npm run test; echo nohup x"',
+				'flock /l -c "npm run test; echo nohup x"',
+			],
+			[
+				'echo "$(nohup npm run test; echo nohup x)"',
+				'echo "$(npm run test; echo nohup x)"',
+			],
+			["> nohup.out nohup npm run test", "> nohup.out npm run test"],
+			["2> nohup.log nohup npm run test", "2> nohup.log npm run test"],
+			["> nohup nohup npm run test", "> nohup npm run test"],
+			["watch nohup npm run test", "watch npm run test"],
+			[
+				"watch -n 5 setsid npm run test; echo setsid",
+				"watch -n 5 npm run test; echo setsid",
+			],
+			["npm run test & builtin disown", "npm run test ; builtin"],
+			["npm run test & command disown", "npm run test ; command"],
+			["npm run test & echo \x1dnohup x", "npm run test ; echo \x1dnohup x"],
+		]) {
+			const reissue = readDenyReason(command)
+				.split("\n")[0]
+				.replace(FIX_OPENER, "");
+			expect(reissue, command).toBe(fix);
+		}
+	});
+
 	it("reads no detachment inside a quoted string, and re-issues it as typed (#5822)", () => {
 		for (const command of [
 			"npm run test -- -t 'a & b'",
