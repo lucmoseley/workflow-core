@@ -521,6 +521,7 @@ describe("lib/suite-background.js", () => {
 	it("strips a timeout whole when a flag value is quoted, and reads a script launch's wrappers from the walk (#5867)", () => {
 		for (const [command, fix] of [
 			['timeout -s "KILL" 60 npm run test', "npm run test"],
+			['"timeout" 60 npm run test', "npm run test"],
 			["timeout --kill-after '5' -s KILL 60 npm run test", "npm run test"],
 			[
 				'timeout -s "KILL" 60 flock /l -c "npm run test &"',

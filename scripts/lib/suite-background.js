@@ -273,8 +273,8 @@ function decide(command, ctx) {
 	 * @param {import("./shell-words.js").Unwrapped} first
 	 * @param {import("./suite-launch.js").Launch} launch
 	 */
-	const noteTimed = (cmd, { words, wrapperWords, wrappers }, launch) => {
-		const timeouts = wrappers.filter(
+	const noteTimed = (cmd, { words, wrapperWords, typedWrappers }, launch) => {
+		const timeouts = typedWrappers.filter(
 			([w = ""]) => afterSlash(literal(w, spans).text) === "timeout",
 		);
 		if (timeouts.length === 0 || !isUnbounded(launch, words, spans)) return;

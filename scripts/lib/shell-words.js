@@ -404,7 +404,7 @@ const WRAPPERS = new Map([
  * @typedef {object} Unwrapped
  * @property {string[]} words
  * @property {string[]} wrapperWords
- * @property {string[][]} wrappers
+ * @property {string[][]} typedWrappers
  * @property {Chdir[]} chdirs
  * @property {string[]} unread
  * @property {boolean} watched
