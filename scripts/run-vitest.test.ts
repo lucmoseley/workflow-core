@@ -1170,6 +1170,10 @@ describe("the stall watchdog", () => {
 		expect(code).toBe(1);
 	});
 
+	// guess: several beats per stall window, enough windows to outlast one by far, #5892
+	const BeatMs = 25;
+	const StallMs = 4 * BeatMs;
+
 	function beating(stall: number, beatFor: number) {
 		const root = repo();
 		const at = path.join(root, "run.inflight.json");
@@ -1180,7 +1184,7 @@ describe("the stall watchdog", () => {
 		const beat = setInterval(() => {
 			const t = new Date();
 			fs.utimesSync(at, t, t);
-		}, 25);
+		}, BeatMs);
 		const quiet = setTimeout(() => clearInterval(beat), beatFor);
 		const run = main(WHOLE, {
 			spawnFn: () => child,
@@ -1197,24 +1201,7 @@ describe("the stall watchdog", () => {
 		return { child, run, done };
 	}
 
-	it("does not fire while the in-flight record keeps being touched", async () => {
-		// guess, #5892
-		const stall = 400;
-		const sampleAt = 1200;
-		const { child, run, done } = beating(stall, sampleAt + stall);
-		await new Promise((r) => setTimeout(r, sampleAt));
-		const midway = [...child.signals];
-		child.stdout.end();
-		child.stderr.end();
-		child.emit("close", 0);
-		const code = await run;
-		done();
-
-		expect(midway).toEqual([]);
-		expect(code).toBe(0);
-	});
-
-	it("still fires once the beats stop", async () => {
+	async function onFakeClock(body: () => Promise<void>) {
 		vi.useFakeTimers({
 			toFake: [
 				"setTimeout",
@@ -1225,20 +1212,42 @@ describe("the stall watchdog", () => {
 			],
 		});
 		try {
-			const { child, run, done } = beating(100, 300);
-			await vi.advanceTimersByTimeAsync(299);
+			await body();
+		} finally {
+			vi.useRealTimers();
+		}
+	}
+
+	it("does not fire while the in-flight record keeps being touched", () =>
+		onFakeClock(async () => {
+			const sampleAt = 12 * StallMs;
+			const { child, run, done } = beating(StallMs, sampleAt + StallMs);
+			await vi.advanceTimersByTimeAsync(sampleAt);
 			const midway = [...child.signals];
-			await vi.advanceTimersByTimeAsync(200);
+			child.stdout.end();
+			child.stderr.end();
+			child.emit("close", 0);
+			const code = await run;
+			done();
+
+			expect(midway).toEqual([]);
+			expect(code).toBe(0);
+		}));
+
+	it("still fires once the beats stop", () =>
+		onFakeClock(async () => {
+			const beatFor = 3 * StallMs;
+			const { child, run, done } = beating(StallMs, beatFor);
+			await vi.advanceTimersByTimeAsync(beatFor - 1);
+			const midway = [...child.signals];
+			await vi.advanceTimersByTimeAsync(2 * StallMs);
 			const code = await run;
 			done();
 
 			expect(midway).toEqual([]);
 			expect(child.signals).toEqual(["SIGKILL"]);
 			expect(code).toBe(1);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
+		}));
 
 	it("says so when the kill cannot be recorded, rather than reading as no kill", async () => {
 		const root = repo();

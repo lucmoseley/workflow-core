@@ -317,6 +317,58 @@ describe("lib/suite-background.js", () => {
 		).toBe(`${SNAPSHOT_OPENER}flock /l -c "cd scripts && npm run test"`);
 	});
 
+	it("reads a detachment in a wrapper script nested in another (#5885)", () => {
+		for (const [command, fix] of [
+			[
+				`flock /l -c 'flock /m -c "npm run test &"'`,
+				`flock /l -c 'flock /m -c "npm run test"'`,
+			],
+			[
+				`flock /l -c "flock /m -c 'npm run test &'"`,
+				`flock /l -c "flock /m -c 'npm run test'"`,
+			],
+			[
+				`watch 'flock /m -c "nohup npm run test &"'`,
+				`watch 'flock /m -c "npm run test"'`,
+			],
+			[
+				`flock /k -c 'flock /l -c "flock /m -c \\"npm run test &\\""'`,
+				`flock /k -c 'flock /l -c "flock /m -c \\"npm run test\\""'`,
+			],
+			[
+				`flock /l -c "flock /m -c \\"flock /n -c 'npm run test &'\\""`,
+				`flock /l -c "flock /m -c \\"flock /n -c 'npm run test'\\""`,
+			],
+			[
+				`flock /l -c "flock /m -c 'flock /n -c \\"nohup npm run test\\"'"`,
+				`flock /l -c "flock /m -c 'flock /n -c \\"npm run test\\"'"`,
+			],
+			[
+				`flock /l -c "flock /m -c \\"watch 'npm run test &'\\""`,
+				`flock /l -c "flock /m -c \\"watch 'npm run test'\\""`,
+			],
+			[
+				`flock /l -c 'flock /m -c "echo \\"a & b\\"; npm run test &"'`,
+				`flock /l -c 'flock /m -c "echo \\"a & b\\"; npm run test"'`,
+			],
+			[
+				`flock /l -c "echo \\w; flock /m -c \\"flock /n -c 'npm run test &'\\""`,
+				`flock /l -c "echo \\\\w; flock /m -c \\"flock /n -c 'npm run test'\\""`,
+			],
+		]) {
+			expect(readDenyReason(command).split("\n")[0], command).toBe(
+				`${SNAPSHOT_OPENER}${fix}`,
+			);
+			expect(verdict(fix), fix).toBe("allow");
+		}
+		for (const command of [
+			`flock /l -c 'npm run test; flock /m -c "sleep 1 &"'`,
+			`flock /l -c 'flock /m -c "echo \\"a & b\\"; npm run test"'`,
+			`flock /l -c 'WFC_SUITE_DETACH=1 flock /m -c "npm run test &"'`,
+		])
+			expect(verdict(command), command).toBe("allow");
+	});
+
 	it("rewrites only the words a wrapper took its script from (#5846)", () => {
 		const fixOf = (command: string) =>
 			(readDenyReason(command).split("\n")[0] ?? "").slice(
@@ -332,6 +384,39 @@ describe("lib/suite-background.js", () => {
 				"watch -n 5 \"npm run test\" 'x ; y'",
 			],
 			["watch -n 5 npm run test '&' true", "watch -n 5 npm run test '' true"],
+		]) {
+			expect(fixOf(command), command).toBe(fix);
+			expect(verdict(fix), fix).toBe("allow");
+		}
+	});
+
+	it("reads an escaped `&` as a detachment only in a script a wrapper re-reads (#5884)", () => {
+		const fixOf = (command: string) =>
+			(readDenyReason(command).split("\n")[0] ?? "").slice(
+				SNAPSHOT_OPENER.length,
+			);
+		for (const command of [
+			"npm run test \\&",
+			"npm run test -- -t a\\&b",
+			"watch npm run test -- \\\\\\&",
+		])
+			expect(verdict(command), command).toBe("allow");
+		for (const [command, fix] of [
+			["watch npm run test -- $X \\&", "watch npm run test -- $X"],
+			[
+				"watch npm run test -- -t `date` \\&",
+				"watch npm run test -- -t `date`",
+			],
+			["watch npm run test -- \\\\\\& \\&", "watch npm run test -- \\\\\\&"],
+			["watch npm run test \\& \\; true", "watch npm run test \\; true"],
+			[
+				"watch timeout 300 npm run test \\& true",
+				"watch 'npm run test ; true'",
+			],
+			["watch npm run test\\&", "watch npm run test"],
+			["watch npm run test \\& true", "watch npm run test \\; true"],
+			["npm run test -- \\& &", "npm run test -- \\&"],
+			["npm run test \\\\&", "npm run test \\\\"],
 		]) {
 			expect(fixOf(command), command).toBe(fix);
 			expect(verdict(fix), fix).toBe("allow");
@@ -723,6 +808,10 @@ describe("lib/suite-background.js", () => {
 				`flock /l -c 'echo "x"; npm run test'`,
 			],
 			[
+				`flock /l -c 'flock /m -c "echo \\"hi\\"; timeout 590 npm run test &"'`,
+				`flock /l -c 'flock /m -c '\\''echo "hi"; npm run test'\\'''`,
+			],
+			[
 				'WFC_SUITE_DETACH=1 flock /l -c "echo \\"x\\"; timeout 590 npm run test &"',
 				`WFC_SUITE_DETACH=1 flock /l -c 'echo "x"; npm run test &'`,
 			],
@@ -863,6 +952,13 @@ describe("its deliberate limits", () => {
 		"tmux new-session -d 'npm run test'",
 	])("passes a detachment through `%s` unseen", (command) => {
 		expect(verdict(command)).toBe("allow");
+	});
+
+	it("strips a double-quoted script holding a quoted substitution as typed, so a detachment quoted deeper survives its re-issue (#5885)", () => {
+		const command = `flock /l -c "echo $(echo "x"); flock /m -c \\"flock /n -c 'npm run test &'\\""`;
+		expect(readDenyReason(command).split("\n")[0]).toBe(
+			`${SNAPSHOT_OPENER}${command}`,
+		);
 	});
 
 	it("reads a detachment past a tab-indented `<<-` terminator as heredoc body", () => {
