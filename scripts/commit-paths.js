@@ -1455,6 +1455,9 @@ function recordIntentAdds(toAdd) {
 		for (const p of toAdd) recordWrite(path.resolve(p), sessionId);
 	} catch (e) {
 		core.logError("record intent-add", e);
+		err(
+			`${NAME}: the intent-add of ${toAdd.join(", ")} was not recorded as this session's (${caught(e).message}), so the next test run's freshen leaves its read edges out until it is committed (#5891).\n`,
+		);
 	}
 }
 

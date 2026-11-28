@@ -160,26 +160,25 @@ function readCommitTree(root, only) {
 
 /**
  * @param {string} root
- * @param {{ index: boolean, only: string[] | undefined, at: string | undefined, without: string[] }} source
+ * @param {{ index: boolean, only: string[] | undefined, at: string | undefined }} source
  */
-function readTreeFor(root, { index, only, at, without }) {
+function readTreeFor(root, { index, only, at }) {
 	if (at) return blobTree(root, readTreeBlobIds(root, at));
 	if (only) return readCommitTree(root, only);
 	if (index) return readIndexTree(root);
-	const tree = readWorkingTree(root);
-	for (const p of without) tree.tracked.delete(p);
-	return tree;
+	return readWorkingTree(root);
 }
 
 /**
  * @param {string} root
- * @param {{ index?: boolean, only?: string[], at?: string, sites?: boolean, without?: string[] }} [opts]
+ * @param {{ index?: boolean, only?: string[], at?: string, sites?: boolean, leaveOut?: string[] }} [opts]
  */
 function render(
 	root,
-	{ index = false, only, at, sites = false, without = [] } = {},
+	{ index = false, only, at, sites = false, leaveOut = [] } = {},
 ) {
-	const tree = readTreeFor(root, { index, only, at, without });
+	const tree = readTreeFor(root, { index, only, at });
+	for (const p of leaveOut) tree.tracked.delete(p);
 	const read = new Set();
 	const { edges, anchored, tests, warnings, unseen } = buildManifest(
 		tree.tracked,

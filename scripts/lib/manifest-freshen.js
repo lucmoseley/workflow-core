@@ -118,10 +118,10 @@ function writeShared(home, text, { given, session, claimFn, err }) {
  */
 function renderFreshEdges(dir, home, { sessionId, ledger = arbiterStore }) {
 	const own = sessionId ? ledger.readWritesBy(sessionId, home) : null;
-	const without = own
+	const leaveOut = own
 		? readIntentToAdd(home).filter((p) => !own.includes(p))
 		: [];
-	return renderReadEdges(dir, { without }).edges;
+	return renderReadEdges(dir, { leaveOut }).edges;
 }
 
 /**
