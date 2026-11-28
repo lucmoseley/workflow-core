@@ -75,6 +75,7 @@ const throwingGit = (read, dir) => (args) => {
  * orphanedEdits: (root: string) => Blocker[],
  * level: (root: string) => LevelOutcome,
  * gitIn: (cwd: string) => import("./git.js").GitReader,
+ * mergeIn: (cwd: string) => import("./git.js").GitReader,
  * }} CutoverPorts
  * @typedef {(
  * | { status: "unlisted", why: string }
@@ -87,11 +88,12 @@ const throwingGit = (read, dir) => (args) => {
  */
 
 /**
+ * @param {import("./git.js").GitReader} merge
  * @param {import("./git.js").GitReader} read
  * @returns {{ files: string[], why: string } | null}
  */
-function mergeMain(read) {
-	const r = read(
+function mergeMain(merge, read) {
+	const r = merge(
 		[
 			"merge",
 			"--no-ff",
@@ -140,7 +142,7 @@ function cutover(root, ports) {
 		if (local.length > 0) {
 			const tip = git(["rev-parse", BRANCH]).slice(0, SHORT_SHA);
 			const { dir } = ports.cut(root, `cutover-main-${tip}`);
-			const unmerged = mergeMain(ports.gitIn(dir));
+			const unmerged = mergeMain(ports.mergeIn(dir), ports.gitIn(dir));
 			if (unmerged !== null)
 				return { status: "unmerged", dir, local: local.length, ...unmerged };
 			const { queue, head, lander } = ports.land(dir);
