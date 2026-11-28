@@ -28,18 +28,17 @@ const ISOLATED_PREFIX = "isolated-";
  * @param {string} cwd
  * @param {"pipe" | "ignore"} stderr
  */
-const isolatedGitOptions = (cwd, stderr) =>
-	gitSpawnOptions({
-		cwd,
-		env: scrubbedGitEnv(process.env),
-		encoding: /** @type {const} */ ("utf8"),
-		stdio: /** @type {["ignore", "pipe", "pipe" | "ignore"]} */ ([
-			"ignore",
-			"pipe",
-			stderr,
-		]),
-		timeout: GIT_TIMEOUT_MS,
-	});
+const isolatedGitOptions = (cwd, stderr) => ({
+	cwd,
+	env: scrubbedGitEnv(process.env),
+	encoding: /** @type {const} */ ("utf8"),
+	stdio: /** @type {["ignore", "pipe", "pipe" | "ignore"]} */ ([
+		"ignore",
+		"pipe",
+		stderr,
+	]),
+	timeout: GIT_TIMEOUT_MS,
+});
 
 const SHARED_ARTEFACTS = ["node_modules"];
 
@@ -114,7 +113,7 @@ function removeIsolated(
 		execFn(
 			gitBinary(),
 			["worktree", "remove", "--force", dir],
-			isolatedGitOptions(root, "ignore"),
+			gitSpawnOptions(isolatedGitOptions(root, "ignore")),
 		);
 	} catch (error) {
 		err.write(
@@ -194,7 +193,7 @@ function pruneWorktreeRegistrations(
 		execFn(
 			gitBinary(),
 			["worktree", "prune"],
-			isolatedGitOptions(root, "ignore"),
+			gitSpawnOptions(isolatedGitOptions(root, "ignore")),
 		);
 	} catch (error) {
 		err.write(
@@ -221,7 +220,7 @@ function createIsolated(
 	const dir = path.join(root, WORKTREES, `${ISOLATED_PREFIX}${String(pid)}`);
 	/** @type {(args: string[], cwd: string) => void} */
 	const run = (args, cwd) => {
-		execFn(gitBinary(), args, isolatedGitOptions(cwd, "pipe"));
+		execFn(gitBinary(), args, gitSpawnOptions(isolatedGitOptions(cwd, "pipe")));
 	};
 	try {
 		worktreeFs.mkdirSync(path.dirname(dir), { recursive: true });
