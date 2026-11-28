@@ -1,6 +1,7 @@
 const { AGE_UNIT_DAYS, WAITING_LABEL } = require("./frontier-order.js");
 const { WATCH_CLOSED_LABEL } = require("./watch-label.js");
 const { PARKED_LABEL } = require("./parked.js");
+const { isLoopNotice } = require("./refill-notice.js");
 const { takesLabel } = require("./takes-label.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 const { parseVerdict } = require("./gate-check.js");
@@ -759,10 +760,13 @@ function planOwed(rc, iss) {
 	return null;
 }
 
-/** @param {{event: string, created_at: string}[]} tl @param {string|null} since */
+/** @param {TimelineRow[]} tl @param {string|null} since */
 const answeredAfter = (tl, since) =>
 	since !== null &&
-	tl.some((e) => e.event === "commented" && e.created_at > since);
+	tl.some(
+		(e) =>
+			e.event === "commented" && e.created_at > since && !isLoopNotice(e.body),
+	);
 
 /** @param {RepoCtx} rc @param {SnapIssue} iss @param {number|null} owedDays */
 function planWaits(rc, iss, owedDays) {

@@ -1,3 +1,4 @@
+const { LOOP_NOTICE_PREFIX } = require("./refill-notice.js");
 const {
 	blockAct,
 	buildLimitParkWhy,
@@ -158,7 +159,7 @@ function reportLimitFailure(l, line, why, io) {
 	if (l.limitResumes?.failed === why) return;
 	io.comment(
 		l,
-		`Refill loop: ${line}: ${why.split(/\r?\n/)[0]}. It stays held on its seat, its conversation kept, and is judged again on a later tick.`,
+		`${LOOP_NOTICE_PREFIX}${line}: ${why.split(/\r?\n/)[0]}. It stays held on its seat, its conversation kept, and is judged again on a later tick.`,
 	);
 }
 
@@ -284,7 +285,7 @@ function settleInPlace(l, r, { now, io, tookSlot }) {
 	io.log(`resumed ${what}: same seat, ${how}`);
 	io.comment(
 		l,
-		`Refill loop: resumed this session after its ${limitText}: same seat, ${l.seat}, ${how}. ${LIMIT_LOSS_TEXT}`,
+		`${LOOP_NOTICE_PREFIX}resumed this session after its ${limitText}: same seat, ${l.seat}, ${how}. ${LIMIT_LOSS_TEXT}`,
 	);
 	return afterLimitTry(resumed, now);
 }
@@ -423,7 +424,7 @@ function settleMove(l, target, r, { now, io, tookSlot }) {
 	io.log(`moved ${what}: ${how}${charged}`);
 	io.comment(
 		l,
-		`Refill loop: moved this session after its ${limitText}: from ${l.seat} to ${buildTargetText(target)}, ${how}${charged}. ${LIMIT_LOSS_TEXT}`,
+		`${LOOP_NOTICE_PREFIX}moved this session after its ${limitText}: from ${l.seat} to ${buildTargetText(target)}, ${how}${charged}. ${LIMIT_LOSS_TEXT}`,
 	);
 	const tried = afterLimitTry(moved, now);
 	return { ...tried, limitResumes: { ...tried.limitResumes, nextAt: now } };

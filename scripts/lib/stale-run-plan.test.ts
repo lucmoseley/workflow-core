@@ -10,6 +10,7 @@ const {
 	reopenSteps,
 } = require("./stale-run-plan.js");
 const { UPSTREAM_TRACKER } = require("./workflow-core-config.js");
+const { LOOP_NOTICE_PREFIX } = require("./refill-notice.js");
 
 const NOW = "2026-11-28T06:00:00.000Z";
 const REPO = "o/r";
@@ -766,6 +767,52 @@ describe("planStaleRun: the catalogue", () => {
 			`o/r#3 asked ${daysAgo(10).slice(0, 10)}, 10 d, holds 0 issues`,
 		]);
 		expect(p.lines).toEqual([]);
+	});
+
+	const parkedRound = (after: { body: string; created_at: string }[]) =>
+		issue(1, {
+			labels: ["takes:implement", "parked"],
+			timeline: [
+				{
+					event: "commented",
+					created_at: daysAgo(9),
+					body: "❓ **Q1** which?",
+				},
+				{
+					event: "labeled",
+					created_at: daysAgo(8.9),
+					label: { name: "parked" },
+				},
+				{
+					event: "commented",
+					created_at: daysAgo(8.8),
+					body: `${LOOP_NOTICE_PREFIX}stopped QUESTION park on this issue's session.`,
+				},
+				...after.map((c) => ({ event: "commented", ...c })),
+			],
+		});
+	const parkedPlan = (after: { body: string; created_at: string }[]) =>
+		plan([
+			repo({
+				issues: [parkedRound(after)],
+				parkMarkers: [{ sessionId: "s", issues: [1], cause: "QUESTION" }],
+			}),
+		]);
+
+	it("C8: the loop's own park notice is no answer, so the parked question is owed", () => {
+		const p = parkedPlan([]);
+		expect(p.owed.map((o: { text: string }) => o.text)).toEqual([
+			`o/r#1 asked ${daysAgo(8.9).slice(0, 10)}, 8 d, holds 0 issues`,
+		]);
+		expect(p.lines).toEqual([]);
+	});
+
+	it("C5: a non-loop comment after the park label answers it", () => {
+		const p = parkedPlan([{ created_at: daysAgo(2), body: "B, go." }]);
+		expect(p.owed).toEqual([]);
+		expect(texts(p)).toEqual([
+			"o/r#1 parked, its question has a later comment",
+		]);
 	});
 
 	it("C8: an ask under the founder-owed floor is not listed", () => {
