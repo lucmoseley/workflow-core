@@ -511,7 +511,6 @@ function readWholeRunPeak(options) {
 }
 
 /**
- * #5877
  * @param {string[]} words
  * @returns {"part" | "whole" | null}
  */
@@ -524,7 +523,9 @@ function otherRunShape(words) {
 			.filter((inner) => inner.length > 0 && isQueueable(inner, ports));
 		if (runs.length === 0) return null;
 		if (runs.every(hasNamedTestFiles)) return "part";
-		return runs.every(isWholeNativeRun) ? "whole" : null;
+		return runs.every((r) => hasNamedTestFiles(r) || isWholeNativeRun(r))
+			? "whole"
+			: null;
 	} catch (e) {
 		log(`suite-launch reading threw — taken whole: ${caught(e).message}`);
 		return null;

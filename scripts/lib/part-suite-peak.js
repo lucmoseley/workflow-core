@@ -55,7 +55,7 @@ function nearestRank(values, p) {
  * @typedef {{ kind: PartKind, p99Mb: number, samples: number, bucket: string }} PartPeak
  */
 
-/** @typedef {import("./peak-tripwire.js").Fallback["cause"] | "thin" | "unread" | "unsized" | "untold" | "whole"} LadderCause */
+/** @typedef {import("./peak-tripwire.js").Fallback["cause"] | "thin" | "unread" | "unsized" | "untold"} LadderCause */
 
 /**
  * @typedef {{ mode: "peak", kind: PartKind, bucket: string, p99Mb: number, rungMb: number, climbMb: number, samples: number }

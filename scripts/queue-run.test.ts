@@ -471,15 +471,46 @@ describe("queue-run.js", () => {
 				caps.push(reads.capMb);
 				return null;
 			};
-			for (const command of [
-				"node --test a.test.js",
+			main(
+				["--", "node", "--test", "a.test.js"],
+				f.options({ gate: undefined, gateRead: read, gateLog }),
+			);
+			await tick();
+			expect(caps).toEqual([2340]);
+		});
+
+		it("hands it to a whole native run too, and to none through a wrapper (#5877)", async () => {
+			const f = fixture();
+			const gateLog = path.join(f.dir, "gate-runs.jsonl");
+			fs.writeFileSync(
+				gateLog,
+				[1201, 2340, 565, 577, 900]
+					.map(
+						(peakTreeMb) =>
+							`${JSON.stringify({ repo: gateRepoName(), command: "bash test/all.sh", outcome: "pass", runS: 300, peakTreeMb })}\n`,
+					)
+					.join(""),
+			);
+			const caps: unknown[] = [];
+			const read = (
+				_command: string,
+				_weight: unknown,
+				_climb: number,
+				reads: { capMb?: number },
+			) => {
+				caps.push(reads.capMb);
+				return null;
+			};
+			const commands = [
 				"pytest",
 				"python3 -m unittest discover tests",
 				"python3 -m unittest discover tests -k name",
 				"python3 -m pytest -q tests/",
 				"node --test",
+				"pytest tests/test_a.py && pytest",
 				"npm run test:py -- scripts",
-			]) {
+			];
+			for (const command of commands) {
 				main(
 					["--", ...command.split(" ")],
 					f.options({ gate: undefined, gateRead: read, gateLog }),
@@ -641,6 +672,7 @@ describe("queue-run.js", () => {
 			const gateLog = path.join(f.dir, "gate-runs.jsonl");
 			fs.writeFileSync(
 				gateLog,
+				// measured, lucmoseley/health-and-fitness#318
 				[550, 550, 550, 550, 550]
 					.map(
 						(peakTreeMb) =>
@@ -665,8 +697,8 @@ describe("queue-run.js", () => {
 						weights.push(weight);
 						reads.onAdmission?.({
 							mode: "ladder",
-							cause: "whole",
-							rungMb: 1650,
+							cause: "unsized",
+							rungMb: rungMb(550),
 							climbMb: 0,
 							capMb: reads.capMb,
 						});

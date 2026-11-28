@@ -75,38 +75,9 @@ function hasNamedTestFiles(words) {
 	return isNamedPythonRun(words);
 }
 
-/**
- * #5877
- * @param {string[]} words
- */
-function isWholeNativeRun(words) {
-	const a0 = afterSlash(words[0] ?? "");
-	const node = a0 === "node" || a0 === "nodejs";
-	const python = a0 === "python" || /^python[0-9]/.test(a0);
-	return (
-		(a0 === "pytest" ||
-			a0 === "py.test" ||
-			runsNativeRunner(words, node, python)) &&
-		!hasNamedTestFiles(words)
-	);
-}
-
-/**
- * @param {string[]} words
- * @param {boolean} node
- * @param {boolean} python
- */
-function runsNativeRunner(words, node, python) {
-	if (!node && !python) return false;
-	for (let i = 1; i < words.length; i++) {
-		const word = words[i] ?? "";
-		if (!word.startsWith("-")) return python && afterSlash(word) === "pytest";
-		if (node && word === "--test") return true;
-		if (python && word === "-m")
-			return words[i + 1] === "pytest" || words[i + 1] === "unittest";
-	}
-	return false;
-}
+/** @param {string[]} words */
+const isWholeNativeRun = (words) =>
+	isOtherRunner(words, () => []) && !hasNamedTestFiles(words);
 
 /**
  * @param {string[]} words
