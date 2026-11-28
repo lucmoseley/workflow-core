@@ -25,15 +25,16 @@ const {
 } = require("./lib/whole-suite-runs.js");
 
 /** @typedef {import("./lib/test-pass-marker.js").Marker} Marker */
-/** @typedef {import("./lib/whole-suite-runs.js").TimedMarker} TimedMarker */
+/** @typedef {import("./lib/whole-suite-runs.js").TimedRow} TimedRow */
+/** @typedef {import("./lib/test-pass-marker.js").RunRow} RunRow */
 
 /** @param {number} ms */
 const secs = (ms) => `${Math.round(ms / 1000)} s`;
 
 /**
  * @param {Marker[]} markers
- * @param {Marker[]} failures
- * @returns {{runs: TimedMarker[], unjudged: string[]}}
+ * @param {RunRow[]} failures
+ * @returns {{runs: TimedRow[], unjudged: string[]}}
  */
 function latestRuns(markers, failures) {
 	const all = [
@@ -44,14 +45,14 @@ function latestRuns(markers, failures) {
 	].sort(byAt);
 	const latest = all.findLast((m) => !m.ceilingKill) ?? all.at(-1);
 	if (!latest) return { runs: [], unjudged: [] };
-	/** @param {Marker} m */
+	/** @param {RunRow} m */
 	const countOf = (m) => shardOf(m)?.count ?? 0;
 	const count = countOf(latest);
 	const recent = all.slice(
 		all.findLastIndex((m) => !m.ceilingKill && countOf(m) !== count) + 1,
 	);
 	const shaped = recent.filter((m) => countOf(m) === count);
-	/** @type {TimedMarker[]} */
+	/** @type {TimedRow[]} */
 	const runs = [];
 	/** @type {string[]} */
 	const unjudged = [];
@@ -95,7 +96,7 @@ function slowRedFiles(failures, since) {
 		.sort((a, b) => b.seconds - a.seconds);
 }
 
-/** @param {Marker} m */
+/** @param {RunRow} m */
 const subjectOf = (m) => {
 	const shard = shardOf(m);
 	const what = shard
@@ -115,7 +116,7 @@ function machineLine(machine) {
 }
 
 /**
- * @param {Marker} m
+ * @param {RunRow} m
  * @returns {string[]}
  */
 function buildFileLines(m) {
@@ -138,7 +139,7 @@ function buildFileLines(m) {
 
 /**
  * @param {import("./lib/check.js").Ctx} ctx
- * @param {TimedMarker} marker
+ * @param {TimedRow} marker
  * @param {string} target
  */
 function reportBreach(ctx, marker, target) {

@@ -21,10 +21,12 @@ const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
  *   resolvedFiles: number|null,
  *   wholeSlot: boolean,
  *   leftOut: string[]|null,
+ *   boundedFrom: number|null,
  *   touchedBase: import("./test-pass-marker.js").TouchedBase|null,
  *   changedPaths: string[]|null,
  *   base: string|null,
  * }} Launch
+ * @typedef {import("./test-pass-marker.js").Scope} Scope
  */
 
 /** @param {unknown} v @returns {string[]|null} */
@@ -51,6 +53,10 @@ function validLaunch(raw) {
 				: null,
 		wholeSlot: raw.wholeSlot === true,
 		leftOut: stringsOrNull(raw.leftOut),
+		boundedFrom:
+			Number.isInteger(raw.boundedFrom) && Number(raw.boundedFrom) > 0
+				? Number(raw.boundedFrom)
+				: null,
 		touchedBase: /** @type {Launch["touchedBase"]} */ (
 			oneOf(TOUCHED_BASES, raw.touchedBase)
 		),
@@ -70,6 +76,29 @@ function readLaunch(env = process.env) {
 	const raw = orFallback(() => JSON.parse(env[LAUNCH_ENV] ?? ""), null);
 	return validLaunch(raw !== null && typeof raw === "object" ? raw : {});
 }
+
+/**
+ * @param {Launch} launch
+ * @returns {Partial<Scope>}
+ */
+const buildLaunchScope = (launch) => ({
+	...(launch.admissible ? { admissible: true } : {}),
+	...(launch.viaChanged ? { viaChanged: true } : {}),
+	...(launch.touched ? { touched: true } : {}),
+	...(launch.resolvedFiles === null
+		? {}
+		: { resolvedFiles: launch.resolvedFiles }),
+	...(launch.wholeSlot ? { wholeSlot: true } : {}),
+	...(launch.leftOut ? { leftOut: launch.leftOut } : {}),
+	...(launch.boundedFrom ? { boundedFrom: launch.boundedFrom } : {}),
+	...(launch.touchedBase ? { touchedBase: launch.touchedBase } : {}),
+	...(launch.full === null
+		? {}
+		: /** @type {Pick<Scope, "full"|"fullCause">} */ ({
+				full: launch.full,
+				fullCause: launch.fullCause,
+			})),
+});
 
 /** @typedef {Pick<Launch, "resolvedFiles"|"wholeSlot">} CarriedWeight */
 
@@ -138,6 +167,7 @@ function takeRunReport() {
 
 module.exports = {
 	launchEnv,
+	buildLaunchScope,
 	readLaunch,
 	readCarriedWeight,
 	fillRunReport,

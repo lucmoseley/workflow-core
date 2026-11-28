@@ -1,4 +1,3 @@
-// Unbuilt caller: scripts/lib/stale-run-plan.js (#5859)
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -340,6 +339,8 @@ function judgeBound(rows, counts, { basis, repo, now }) {
 module.exports = {
 	BOUND_DAYS,
 	MIN_REFUSE_DAYS,
+	RATE_WINDOW_DAYS,
+	citesOtherFounderRound,
 	judgeBound,
 	project,
 	parseCounts,

@@ -432,6 +432,51 @@ describe("a bare run", () => {
 		});
 	});
 
+	describe("with a selection over the touched run's bound (#5878)", () => {
+		const reader = (i: number) =>
+			`scripts/test_b${String(i).padStart(3, "0")}.py`;
+		const readers = Array.from({ length: 121 }, (_, i) => reader(i));
+		const boundTemplate = defineTemplate((dir) => {
+			pyRepo(dir);
+			for (const f of readers)
+				fs.writeFileSync(path.join(dir, f), "import scan\n");
+			for (const args of [
+				["add", "."],
+				["commit", "-qm", "readers"],
+			])
+				execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+		});
+
+		it("runs the 120 nearest, and its ledger line carries boundedFrom and every file left out", async () => {
+			const root = fs.realpathSync(
+				fs.mkdtempSync(path.join(os.tmpdir(), "runpy-")),
+			);
+			dirs.push(root);
+			boundTemplate.instantiate(root);
+			fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
+			const [python, readCalls] = fakePytest(
+				{ passed: true, scope: scope() },
+				0,
+			);
+			const r = await wrap(python, root, [], Bare);
+
+			const ran = readCalls()[0]?.args ?? [];
+			expect(ran).toContain("scripts/test_scan.py");
+			expect(ran).not.toContain(reader(119));
+			expect(r.stdout).toContain(
+				"this work selects 122 test files, over the touched run's bound of 120",
+			);
+			expect(readLedger(root)).toMatchObject([
+				{
+					kind: "touched",
+					resolvedFiles: 120,
+					boundedFrom: 122,
+					leftOut: [reader(119), reader(120)],
+				},
+			]);
+		});
+	});
+
 	describe("with a session id, in the shared tree", () => {
 		const sb = freshSandbox();
 		const Own = { ...Bare, CLAUDE_CODE_SESSION_ID: "me" };

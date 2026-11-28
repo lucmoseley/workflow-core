@@ -275,6 +275,85 @@ describe("lib/suite-background.js", () => {
 			).toBe(fix);
 	});
 
+	it("reads a detacher word only where its strip removes it (#5893)", () => {
+		for (const command of [
+			"echo nohup; npm run test",
+			'flock /l -c "echo nohup; npm run test"',
+			"npm run test; echo setsid|cat",
+			"echo x=nohup; npm run test",
+			"npm run test; echo \\&nohup x",
+			"npm run test \\&nohup",
+			"npm run test; echo \\&disown",
+		])
+			expect(verdict(command), command).toBe("allow");
+		for (const [command, fix] of [
+			["nohup>log npm run test", ">log npm run test"],
+			["true &&nohup npm run test", "true &&npm run test"],
+			["npm run test & disown;", "npm run test ;"],
+			["npm run test & echo disowned", "npm run test ; echo disowned"],
+			["./nohup npm run test", "npm run test"],
+			["bin/setsid npm run test", "npm run test"],
+			["~/bin/nohup npm run test", "npm run test"],
+			["$HOME/bin/nohup npm run test", "npm run test"],
+			["\\nohup npm run test", "npm run test"],
+			["nohup \\\n npm run test", "npm run test"],
+			["nohup setsid npm run test", "npm run test"],
+			["nohup -p>log npm run test", ">log npm run test"],
+		]) {
+			const reissue = readDenyReason(command)
+				.split("\n")[0]
+				.replace(FIX_OPENER, "");
+			expect(reissue, command).toBe(fix);
+			expect(verdict(reissue), reissue).toBe("allow");
+		}
+	});
+
+	it("strips a detacher word only where it detaches, never an argument spelling it (#5896)", () => {
+		for (const command of [
+			"npm run test; echo nohup x",
+			"npm run test; echo setsid -f x",
+			"npm run test; echo a disown b",
+			"nohup sleep 1; npm run test",
+			"npm run test; echo \x1dnohup x",
+			"npm run test; echo \x1ddisown",
+		])
+			expect(verdict(command), command).toBe("allow");
+		for (const [command, fix] of [
+			[
+				"nohup timeout 590 npm run test; echo nohup timeout 590 npm run test",
+				"npm run test; echo nohup timeout 590 npm run test",
+			],
+			[
+				"npm run test & echo disown nohup; disown",
+				"npm run test ; echo disown nohup;",
+			],
+			[
+				'flock /l -c "nohup npm run test; echo nohup x"',
+				'flock /l -c "npm run test; echo nohup x"',
+			],
+			[
+				'echo "$(nohup npm run test; echo nohup x)"',
+				'echo "$(npm run test; echo nohup x)"',
+			],
+			["> nohup.out nohup npm run test", "> nohup.out npm run test"],
+			["2> nohup.log nohup npm run test", "2> nohup.log npm run test"],
+			["> nohup nohup npm run test", "> nohup npm run test"],
+			["watch nohup npm run test", "watch npm run test"],
+			[
+				"watch -n 5 setsid npm run test; echo setsid",
+				"watch -n 5 npm run test; echo setsid",
+			],
+			["npm run test & builtin disown", "npm run test ; builtin"],
+			["npm run test & command disown", "npm run test ; command"],
+			["npm run test & echo \x1dnohup x", "npm run test ; echo \x1dnohup x"],
+		]) {
+			const reissue = readDenyReason(command)
+				.split("\n")[0]
+				.replace(FIX_OPENER, "");
+			expect(reissue, command).toBe(fix);
+		}
+	});
+
 	it("reads no detachment inside a quoted string, and re-issues it as typed (#5822)", () => {
 		for (const command of [
 			"npm run test -- -t 'a & b'",
@@ -700,6 +779,79 @@ describe("lib/suite-background.js", () => {
 				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
 				command,
 			).toBe(fix);
+	});
+
+	it("drops a timeout at its launch's own place, leaving the same text elsewhere as typed (#5890)", () => {
+		for (const [command, fix] of [
+			[
+				"echo timeout 590 npm run test -- -t foo; timeout 590 npm run test -- -t $(date)",
+				"echo timeout 590 npm run test -- -t foo; npm run test -- -t $(date)",
+			],
+			[
+				"echo timeout 590 npm run test -- -t foo; timeout 590 npm run test -- -t `date`",
+				"echo timeout 590 npm run test -- -t foo; npm run test -- -t `date`",
+			],
+			[
+				"echo x # timeout 590 npm run test\ntimeout 590 npm run test",
+				"echo x # timeout 590 npm run test\nnpm run test",
+			],
+			[
+				"a \\\n&& timeout 590 npm run test; echo timeout 590 npm run test",
+				"a \\\n&& npm run test; echo timeout 590 npm run test",
+			],
+			[
+				'echo "timeout 590 npm run test $(timeout 590 npm run test)"',
+				'echo "timeout 590 npm run test $(npm run test)"',
+			],
+			[
+				'timeout 590 npm run test -- -t "$(timeout 590 npm run test)"',
+				'npm run test -- -t "$(npm run test)"',
+			],
+			["timeout 590 npm \\\nrun test", "npm \\\nrun test"],
+			[
+				'echo "x $(echo a \\\n&& timeout 590 npm run test)"',
+				'echo "x $(echo a \\\n&& npm run test)"',
+			],
+			[
+				'echo "$(echo "y \\\n z"; timeout 590 npm run test)"',
+				'echo "$(echo "y \\\n z"; npm run test)"',
+			],
+			['echo "x $(timeout 590 \\\nnpm run test)"', 'echo "x $(npm run test)"'],
+			[
+				'timeout 590 npm run test -- -t "$(timeout 590 \\\nnpm run test)"',
+				'npm run test -- -t "$(npm run test)"',
+			],
+		])
+			expect(
+				readDenyReason(command)
+					.split("\nThis suite is ")[0]
+					.replace(FIX_OPENER, ""),
+				command,
+			).toBe(fix);
+	});
+
+	it.each([
+		[
+			"a launch it cannot place",
+			'echo "`timeout 590 npm run test -- -t \\$x`"',
+		],
+		[
+			"an edit overlapping another",
+			'timeout 590 npm run test -- -t "$(timeout 590 npm run test)"  --queue',
+		],
+	])("re-issues %s as typed, and logs it (#5890)", (_, command) => {
+		const { output, logs } = runCore(
+			"guard-suite-background",
+			toolCall("Bash", { command }),
+			{ root: dir },
+		);
+		expect(output?.permissionDecision).toBe("deny");
+		expect(logs).toContain(
+			"a timed launch has no place of its own in the typed command — the deny re-issues it as typed",
+		);
+		expect(output?.permissionDecisionReason?.split("\n")[0]).toContain(
+			"timeout 590",
+		);
 	});
 
 	it("re-issues a timed script as one single-quoted word where its own quotes cannot hold the rewrite (#5874)", () => {

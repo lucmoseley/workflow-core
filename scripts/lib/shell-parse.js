@@ -97,7 +97,7 @@ const FLATTEN_SHIELD = escapeShield("()&|;<>");
 // lucmoseley/mantahostels#2346
 const GUARDED_HEADS = ["git", "gh"];
 
-const IFS_SPLIT = /[ \t\n]+/;
+const IFS_WORD = /[^ \t\n]+/g;
 
 const REDIRECT_RE = /^((?:\\.|[^\\<>])*)([<>].*)$/s;
 
@@ -198,6 +198,7 @@ const isChainEnd = (joins, segIdx) =>
 /**
  * @typedef {object} CommandWords
  * @property {string[]} words
+ * @property {number[]} starts
  * @property {number} wi
  * @property {number} assignStart
  * @property {number} assignEnd
@@ -212,24 +213,28 @@ const isChainEnd = (joins, segIdx) =>
  * @property {string} target
  */
 
-/** @param {string[]} words @param {boolean} noRedirects */
-function stripRedirects(words, noRedirects) {
+/** @param {string[]} words @param {number[]} starts @param {boolean} noRedirects */
+function stripRedirects(words, starts, noRedirects) {
 	/** @type {RedirectEntry[]} */
 	const redirs = [];
 	if (!words.some((w) => /[<>]/.test(w)) || noRedirects)
-		return { words, redirs };
+		return { words, starts, redirs };
 	/** @type {string[]} */
 	const out = [];
+	/** @type {number[]} */
+	const outStarts = [];
 	let cond = isConditionalTail(words);
 	let i = 0;
 	while (i < words.length) {
+		const start = starts[i] ?? 0;
 		const w = words[i++] ?? "";
 		if (w === "[[") cond = true;
 		if (w === "]]") cond = false;
 		if (!cond) i = cutRedirects(w, words, i, { out, redirs });
 		else if (w) out.push(w);
+		while (outStarts.length < out.length) outStarts.push(start);
 	}
-	return { words: out, redirs };
+	return { words: out, starts: outStarts, redirs };
 }
 
 /** @param {string[]} words */
@@ -324,18 +329,36 @@ function parseTarget(rest, words, i) {
  */
 function commandWords(segment, { bare = false, noRedirects = false } = {}) {
 	const line = segment.split("\n")[0] ?? "";
-	const { words, redirs } = stripRedirects(
-		line.split(IFS_SPLIT).filter(Boolean),
+	const tokens = [...line.matchAll(IFS_WORD)];
+	const { words, starts, redirs } = stripRedirects(
+		tokens.map((t) => t[0]),
+		tokens.map((t) => t.index),
 		noRedirects,
 	);
 	if (words.length === 0)
-		return { words, wi: 0, assignStart: 0, assignEnd: 0, redirs, ran: false };
+		return {
+			words,
+			starts,
+			wi: 0,
+			assignStart: 0,
+			assignEnd: 0,
+			redirs,
+			ran: false,
+		};
 	const assignStart = bare ? 0 : skipReserved(words, 0);
 	let wi = assignStart;
 	while (wi < words.length && ASSIGNMENT_RE.test(words[wi] ?? "")) wi++;
 	const assignEnd = wi;
 	if (!bare) wi = skipExec(words, wi);
-	return { words, wi, assignStart, assignEnd, redirs, ran: wi < words.length };
+	return {
+		words,
+		starts,
+		wi,
+		assignStart,
+		assignEnd,
+		redirs,
+		ran: wi < words.length,
+	};
 }
 
 const RESERVED_WORDS = [
@@ -483,6 +506,159 @@ function liftSubstitutions(segment, spans) {
 		return { text: "", stepPast: true };
 	});
 	return lifted;
+}
+
+/**
+ * @typedef {{ from: number, to: number, backtick: boolean, textAt: number[] }} Place
+ */
+
+/**
+ * @param {Parsed} parsed
+ * @param {string} [text]
+ * @returns {(Place | null)[]}
+ */
+const placeSegments = (parsed, text = parsed.subject) =>
+	placeFrom(parsed, text, 0);
+
+/**
+ * @param {Parsed} parsed
+ * @param {string} text
+ * @param {number} start
+ * @returns {(Place | null)[]}
+ */
+function placeFrom(parsed, text, start) {
+	const { segments, lifted, spans } = parsed;
+	const firstLine = text.slice(0, start).split("\n").length - 1;
+	const skips = heredocSkips(
+		text,
+		parsed.heredocLines.map((n) => n + firstLine),
+	);
+	/** @type {(Place | null)[]} */
+	const places = [];
+	/** @type {number | null} */
+	let cursor = start;
+	let liftedFrom = 0;
+	segments.forEach((segment, i) => {
+		if (lifted[i]) return;
+		const liftedCount = i - liftedFrom;
+		liftedFrom = i + 1;
+		if (segment === SCOPE_OPEN || segment === SCOPE_CLOSE) {
+			places.push(...new Array(liftedCount + 1).fill(null));
+			return;
+		}
+		const place =
+			cursor === null
+				? null
+				: seekSegment(asWritten(segment, spans), text, cursor, skips);
+		places.push(
+			...placeLifted(segment, { spans, text }, place, liftedCount),
+			place,
+		);
+		cursor = place?.to ?? null;
+	});
+	return places;
+}
+
+/** @param {string} text @param {number[]} lines @returns {Map<number, number>} */
+function heredocSkips(text, lines) {
+	/** @type {Map<number, number>} */
+	const skips = new Map();
+	let start = 0;
+	text.split("\n").forEach((line, n) => {
+		if (lines.includes(n)) skips.set(start, start + line.length);
+		start += line.length + 1;
+	});
+	return skips;
+}
+
+/**
+ * @param {string} typed
+ * @param {string} text
+ * @param {number} from
+ * @param {Map<number, number>} skips
+ * @returns {Place | null}
+ */
+function seekSegment(typed, text, from, skips) {
+	/** @type {number | null} */
+	let at = from;
+	while (at !== null) {
+		const heredocEnd = skips.get(at);
+		if (heredocEnd !== undefined) {
+			at = heredocEnd;
+			continue;
+		}
+		const place = matchAt(typed, text, at);
+		if (place) return place;
+		at = pastJoin(text, at);
+	}
+	return null;
+}
+
+/** @param {string} text @param {number} at */
+function pastJoin(text, at) {
+	if (text.startsWith("\\\n", at)) return at + 2;
+	if (text.charAt(at) === "#") {
+		const eol = text.indexOf("\n", at);
+		return eol < 0 ? text.length : eol;
+	}
+	return at < text.length && ";&|()`\n".includes(text.charAt(at))
+		? at + 1
+		: null;
+}
+
+/** @param {string} typed @param {string} text @param {number} from @returns {Place | null} */
+function matchAt(typed, text, from) {
+	/** @type {number[]} */
+	const textAt = [];
+	let at = from;
+	for (let i = 0; i < typed.length; i++) {
+		while (text.startsWith("\\\n", at) && !typed.startsWith("\\\n", i)) at += 2;
+		if (typed.charAt(i) === text.charAt(at)) {
+			textAt.push(at++);
+			continue;
+		}
+		const opensBacktick =
+			i === typed.length - 1 &&
+			typed.charAt(i) === "$" &&
+			text.charAt(at) === "`";
+		return opensBacktick ? { from, to: at, backtick: true, textAt } : null;
+	}
+	return { from, to: at, backtick: false, textAt };
+}
+
+/**
+ * @param {string} segment
+ * @param {{ spans: string[], text: string }} source
+ * @param {Place | null} place
+ * @param {number} liftedCount
+ * @returns {(Place | null)[]}
+ */
+function placeLifted(segment, { spans, text }, place, liftedCount) {
+	/** @type {(Place | null)[]} */
+	const unplaced = new Array(liftedCount).fill(null);
+	if (place === null || liftedCount === 0) return unplaced;
+	/** @type {(Place | null)[]} */
+	const places = [];
+	let typedAt = 0;
+	readSentinels(segment, (lit, idx) => {
+		typedAt += lit.length;
+		const span = idx === null ? undefined : spans[idx];
+		if (span === undefined) return { text: "", stepPast: true };
+		for (const sub of quotedSubstitutions(span)) {
+			const inner = parseCommand(sub.text);
+			const bodyAt = place.textAt[typedAt + sub.from];
+			places.push(
+				null,
+				...(bodyAt === undefined
+					? inner.segments.map(() => null)
+					: placeFrom(inner, text, bodyAt)),
+				null,
+			);
+		}
+		typedAt += span.length + (isBareSpan(span) ? 0 : 1);
+		return { text: "", stepPast: true };
+	});
+	return places.length === liftedCount ? places : unplaced;
 }
 
 /**
@@ -854,7 +1030,9 @@ function resolveWord(word, scope) {
 /**
  * @typedef {object} Command
  * @property {string} segment
+ * @property {number} segIdx
  * @property {string[]} words
+ * @property {number[]} starts
  * @property {string[]} leading
  * @property {string} cwd
  * @property {import("./shell-dirs.js").Dirs} cwds
@@ -1148,7 +1326,7 @@ function walkCommands(parsed, fn, ports) {
 	const abs = (word) => absolutePath(walk, word);
 	eachSegment(
 		walk,
-		(segment, { words, wi, assignEnd, redirs, ran }, segIdx) => {
+		(segment, { words, starts, wi, assignEnd, redirs, ran }, segIdx) => {
 			settleCwdDoubt(walk, segIdx);
 			if (!ran && !(ports.bareRedirects && redirs.length > 0)) return;
 			const own = ran ? words.slice(wi) : [];
@@ -1159,7 +1337,9 @@ function walkCommands(parsed, fn, ports) {
 				absoluteIn(cwd, word, scope);
 			fn({
 				segment,
+				segIdx,
 				words: own,
+				starts: ran ? starts.slice(wi) : [],
 				leading,
 				cwd: cwdOf(walk),
 				cwds: walk.dirs.dirs,
@@ -3063,6 +3243,7 @@ module.exports = {
 	ghWords,
 	commitPathsArgs,
 	parseCommand,
+	placeSegments,
 	maskQuotes,
 	quotedSubstitutions,
 	escapeShield,

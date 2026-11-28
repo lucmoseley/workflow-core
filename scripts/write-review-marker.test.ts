@@ -71,7 +71,11 @@ const readMarkerText = () => fs.readFileSync(marker(), "utf8");
 const readTree = (args: string[], cwd = repo) => {
 	const r = runInProcess(COMMIT_PATHS, ["--tree", ...args], {
 		cwd,
-		env: { ...env, CLAUDE_PROJECT_DIR: repo },
+		env: {
+			...env,
+			CLAUDE_PROJECT_DIR: repo,
+			CLAUDE_CONFIG_DIR: path.join(repo, ".claude-config"),
+		},
 	});
 	if (r.status !== 0)
 		throw new Error(`commit-paths.js exited ${r.status}: ${r.stderr}`);

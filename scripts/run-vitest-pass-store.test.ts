@@ -183,6 +183,30 @@ describe("a planned launch the pass store partly caches", () => {
 });
 
 describe("a launch the pass store caches whole", () => {
+	it("carries a bounded plan's boundedFrom and left-out files onto its ledger line (#5878)", async () => {
+		const dir = repo();
+		passed(dir, [A, B]);
+		const ran = await launch(dir, ["--changed"], {
+			expand: () => ({
+				argv: [A, B],
+				files: [A, B],
+				own: [A, B],
+				added: [],
+				admissible: true,
+				changed: ["scripts/lib.js"],
+				base: null,
+				banner: "PLAN\n",
+				leftOut: ["lib/far.test.ts"],
+				boundedFrom: 121,
+			}),
+		});
+		expect(ran.calls).toEqual([]);
+		expect(lastLine(path.join(markersDir(dir), RUN_LEDGER))).toMatchObject({
+			boundedFrom: 121,
+			leftOut: ["lib/far.test.ts"],
+		});
+	});
+
 	it("spawns nothing, exits 0, and leaves a certificate and ledger line naming what it cached", async () => {
 		const dir = repo();
 		passed(dir, [A, B]);

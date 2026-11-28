@@ -15,6 +15,7 @@ const {
 } = require("./test-pass-marker.js");
 const runMemory = require("./run-memory.js");
 const { DAY_MS } = require("./retained-jsonl.js");
+const { appendEmptyTouchedLine } = require("./run-ledger.js");
 
 // #5722
 const NOW = Date.parse("2026-10-24T12:00:00Z");
@@ -71,6 +72,37 @@ describe("the ledger beside the marker stores (#2824)", () => {
 		).toEqual(["lib/b.test.ts"]);
 		expect(lineFor({ scope: { ...scope, leftOut: [] } }).leftOut).toEqual([]);
 		expect(lineFor({ scope }).leftOut).toBeNull();
+	});
+
+	it("carries a bounded touched run's pre-bound selection size, and no such field off an unbounded run (#5878)", () => {
+		const scope = { touched: true, resolvedFiles: 120, modulesRun: 120 };
+		expect(
+			lineFor({
+				scope: { ...scope, leftOut: ["lib/b.test.ts"], boundedFrom: 121 },
+			}),
+		).toMatchObject({ boundedFrom: 121, leftOut: ["lib/b.test.ts"] });
+		expect(lineFor({ scope: { ...scope, leftOut: [] } })).not.toHaveProperty(
+			"boundedFrom",
+		);
+	});
+
+	it("carries boundedFrom on the empty-touched-run line where one is given, and none where it is null (#5878)", () => {
+		const root = sandbox();
+		const run = {
+			suite: "vitest",
+			sessionId: "s-1",
+			argv: [],
+			leftOut: ["lib/b.test.ts"],
+			touchedBase: "merge-base",
+		};
+		appendEmptyTouchedLine(root, root, { ...run, boundedFrom: 130 });
+		appendEmptyTouchedLine(root, root, { ...run, boundedFrom: null });
+		const [bounded, unbounded] = read(root);
+		expect(bounded).toMatchObject({
+			boundedFrom: 130,
+			leftOut: ["lib/b.test.ts"],
+		});
+		expect(unbounded).not.toHaveProperty("boundedFrom");
 	});
 
 	it("writes one line for a certificate and one for a red marker", () => {

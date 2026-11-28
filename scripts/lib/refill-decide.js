@@ -8,6 +8,7 @@ const { loneCommandOf, TAKES_PREFIX } = require("./takes-label.js");
 const { withoutStamps } = require("./stamp-paths.js");
 const { buildRowPrompt } = require("./unclosed-launch.js");
 const { RELEASE_BUMP_LABEL } = require("./issue-origin.js");
+const { UUID } = require("./session-uuid.js");
 const {
 	BREAKER_OPEN,
 	buildLaunchRoom,
@@ -35,7 +36,8 @@ const CHECKOUTS_HELD = "every launchable checkout is held";
 const OVERFLOW_SPENT = "every plan seat is weekly-full";
 const PLAN_RESETS = "a plan resets";
 const PAUSED = "paused by";
-const LAUNCH_HELD = "launches held by a manual /pick-next";
+const LAUNCH_HELD = "launches held by";
+const PICK_NEXT_HOLDER = "a manual /pick-next";
 const PROBE_HOLD_WAIT = "a probe hold stops every launch";
 const ALREADY_RUNNING = "already running";
 const CLASH_PREFIX = "clashes on ";
@@ -156,9 +158,16 @@ const liveLaunchHold = (hold, now) =>
 const isLaunchBarred = ({ paused, launchHold }, now) =>
 	paused !== undefined || liveLaunchHold(launchHold, now) !== undefined;
 
+/** @param {string|null} holder */
+const buildHolderName = (holder) =>
+	holder === null || UUID.test(holder) ? PICK_NEXT_HOLDER : holder;
+
 /** @param {LaunchHold} hold */
-const buildLaunchHoldIdle = ({ until }) =>
-	buildIdle(LAUNCH_HELD, ` until ${new Date(until).toISOString()}`);
+const buildLaunchHoldIdle = ({ holder, until }) =>
+	buildIdle(
+		LAUNCH_HELD,
+		` ${buildHolderName(holder)} until ${new Date(until).toISOString()}`,
+	);
 
 /** @param {LaunchHold} hold */
 const buildLaunchHoldText = (hold) => buildIdleText(buildLaunchHoldIdle(hold));
@@ -1124,6 +1133,7 @@ function readParkers(frontier, readMarkers) {
 }
 
 module.exports = {
+	LAUNCH_HELD,
 	readParkers,
 	startedAt,
 	EXPLICIT_STOP_DETAIL,
