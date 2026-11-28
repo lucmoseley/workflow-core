@@ -16,7 +16,7 @@ import { shellQuote } from "./lib/sh-quote.js";
 import { copyLibs, readProgramLibs } from "./lib-closure-fixture";
 
 const hookBlock = createRequire(__filename)("./lib/hook-block.js");
-const guard = createRequire(__filename)("./guard-jev-advisory.js");
+const gateway = createRequire(__filename)("./lib/jev-gateway.js");
 
 const GUARD = path.join(__dirname, "guard-jev-advisory.js");
 const REPORTER = path.join(__dirname, "check-jev-flags.js");
@@ -998,7 +998,7 @@ describe("a malformed reply", () => {
 			},
 		],
 	])("classifies %s as an answer, not an outage", (_name, err) => {
-		expect(guard.gateway.isMalformedReply(err)).toBe(true);
+		expect(gateway.isMalformedReply(err)).toBe(true);
 	});
 
 	it.each([
@@ -1021,13 +1021,13 @@ describe("a malformed reply", () => {
 		["a rate limit", { name: "GatewayInternalServerError", statusCode: 429 }],
 		["nothing at all", undefined],
 	])("classifies %s as an outage", (_name, err) => {
-		expect(guard.gateway.isMalformedReply(err)).toBe(false);
+		expect(gateway.isMalformedReply(err)).toBe(false);
 	});
 
 	it("does not hang on an error whose cause chain loops", () => {
 		const err: Record<string, unknown> = { name: "GatewayResponseError" };
 		err.cause = err;
-		expect(guard.gateway.isMalformedReply(err)).toBe(false);
+		expect(gateway.isMalformedReply(err)).toBe(false);
 	});
 });
 

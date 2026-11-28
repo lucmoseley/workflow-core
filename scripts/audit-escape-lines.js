@@ -165,7 +165,7 @@ function scanItems(dirs, deps) {
  * @typedef {object} JudgeRun
  * @property {string} root
  * @property {string} key
- * @property {typeof import("./guard-jev-advisory").gateway} gw
+ * @property {typeof import("./lib/jev-gateway")} gw
  * @property {number} gapMs
  * @property {{asked: number, answered: number, failed: number}} counts
  */
@@ -246,7 +246,7 @@ async function judge({ root, dirs, gapMs = GAP_MS }) {
 		const { unique, unreadable } = scanItems(dirs, deps);
 		audit.writeItems(root, unique, unreadable);
 
-		const { gateway: gw } = require("./guard-jev-advisory");
+		const gw = require("./lib/jev-gateway");
 		const key = gw.readKey();
 		if (!key || gw.sdkMissing())
 			return {

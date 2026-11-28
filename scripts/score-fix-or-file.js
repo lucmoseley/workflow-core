@@ -4,7 +4,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
-const advisory = require("./guard-jev-advisory.js");
+const gateway = require("./lib/jev-gateway.js");
 const {
 	readLabelRows,
 	recordedScores,
@@ -49,13 +49,13 @@ async function scoreAll({ rows, key }) {
 			process.stderr.write(`${row.id}: no text, its source repo is private\n`);
 			continue;
 		}
-		if (advisory.gateway.sweepRefusal({ message: row.text })) {
+		if (gateway.sweepRefusal({ message: row.text })) {
 			process.stderr.write(
 				`${row.id}: not sent, the redaction sweep refused it\n`,
 			);
 			continue;
 		}
-		const { probability: p } = await advisory.gateway.askJev({
+		const { probability: p } = await gateway.askJev({
 			key,
 			message: row.text,
 			questions: { [QUESTION_KEY]: QUESTION },
@@ -91,7 +91,7 @@ async function main() {
 		process.stdout.write(`${report(recordedScores(rows)).join("\n")}\n`);
 		return 0;
 	}
-	const key = advisory.gateway.readKey();
+	const key = gateway.readKey();
 	if (!key) {
 		process.stderr.write("no AI_GATEWAY_API_KEY: nothing can be scored.\n");
 		return 2;
