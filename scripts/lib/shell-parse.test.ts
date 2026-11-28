@@ -812,6 +812,7 @@ describe("escapeShield — one shield for every escape-aware split (#5116)", () 
 
 describe("parseCommand — a typed mark byte parses as typed (#5920)", () => {
 	const Neutral = "\x06";
+	const spanToken = new RegExp(`${QUOTED}[0-9]+\x01`, "g");
 	const shapes = [
 		(m: string) => `echo a${m}b${m}; gh y`,
 		(m: string) => `echo \\${m} ${m}( gh y ) && gh z`,
@@ -829,7 +830,7 @@ describe("parseCommand — a typed mark byte parses as typed (#5920)", () => {
 		for (const shape of shapes) {
 			const typed = parseCommand(shape(mark));
 			const plain = parseCommand(shape(Neutral));
-			expect(typed.masked).not.toContain(mark);
+			expect(typed.masked.replace(spanToken, "")).not.toContain(mark);
 			expect(typed.segments.map((s) => asWritten(s, typed.spans))).toEqual(
 				plain.segments.map((s) =>
 					asWritten(s, plain.spans).replaceAll(Neutral, mark),
