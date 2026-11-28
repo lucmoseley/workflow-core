@@ -315,7 +315,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 				chdirs: [],
 				unread: [],
 				watched: false,
-				scripted: false,
+				scriptWords: null,
 			},
 		]);
 	});
@@ -371,7 +371,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 			chdirs: [],
 			unread: [],
 			watched: false,
-			scripted: false,
+			scriptWords: null,
 		});
 	});
 
@@ -382,7 +382,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 			chdirs: [],
 			unread: [],
 			watched: false,
-			scripted: false,
+			scriptWords: null,
 		});
 	});
 
@@ -411,7 +411,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 			chdirs: [],
 			unread: [],
 			watched: false,
-			scripted: false,
+			scriptWords: null,
 		});
 	});
 
@@ -546,7 +546,7 @@ describe("unwrap reads a wrapper as the shell hands it over (#4046)", () => {
 			chdirs: [],
 			unread: [],
 			watched: false,
-			scripted: false,
+			scriptWords: null,
 		});
 	});
 
@@ -640,8 +640,22 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 			chdirs: [{ dir: "/d", read: true, holds: "always" }],
 			unread: [],
 			watched: false,
-			scripted: true,
+			scriptWords: [7],
 		});
+	});
+
+	it.each([
+		['flock "x &" -c "x &"', [3]],
+		['env -C /d flock -n /l --command "npm test"', [7]],
+		[`flock /l -c "flock /m -c 'npm test'"`, [3]],
+		["watch -n 5 \"npm run test\" 'x & y'", [3, 4]],
+		["watch -n 5 npm run test", [3, 4, 5]],
+		[`env -S "flock /l -c 'npm test'"`, [2]],
+		["nohup npm test", null],
+	])("names the words %s took its script from (#5846)", (command, at) => {
+		const got = one(command, (c, spans) => unwrap(c.words, spans));
+		expect(got.length).toBeGreaterThan(0);
+		expect(got.map((run) => run.scriptWords)).toEqual(got.map(() => at));
 	});
 
 	it.each([
