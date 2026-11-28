@@ -47,6 +47,7 @@ import {
 	updateControl,
 	weekAt,
 	writeKeyCostTable,
+	writeSeatFile,
 	writesWokenRecord,
 } from "./lib/refill-loop-run-testkit";
 import { createPanel } from "./lib/refill-panel.js";
@@ -58,7 +59,6 @@ import {
 } from "./lib/repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
-import { buildUsageCache } from "./lib/usage-probe-fake";
 
 refillSandbox();
 
@@ -984,10 +984,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 		const seedMove = () => {
 			seed(Session, false);
 			fs.mkdirSync(target());
-			fs.writeFileSync(
-				path.join(target(), ".claude.json"),
-				JSON.stringify(buildUsageCache({ session: 10, week: 10 }, Date.now())),
-			);
+			writeSeatFile(target(), 10);
 			weekAt(100);
 			fs.mkdirSync(path.dirname(oldTranscript()), { recursive: true });
 			fs.writeFileSync(

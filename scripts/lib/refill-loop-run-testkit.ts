@@ -300,11 +300,16 @@ export const polled = async (isDone: () => boolean, neverMessage: string) => {
 export const ticked = (n: number) =>
 	polled(() => readLines(at("ticks")).length >= n, `tick ${n} never ran`);
 
-export const weekAt = (week: number) =>
+export const writeSeatFile = (configDir: string, week: number) =>
 	fs.writeFileSync(
-		path.join(seat, ".claude.json"),
-		JSON.stringify(buildUsageCache({ session: 10, week }, Date.now())),
+		path.join(configDir, ".claude.json"),
+		JSON.stringify({
+			...buildUsageCache({ session: 10, week }, Date.now()),
+			projects: { "/": { hasTrustDialogAccepted: true } },
+		}),
 	);
+
+export const weekAt = (week: number) => writeSeatFile(seat, week);
 
 export const loopControlFile = () => at(".refill-loop-control.json");
 
