@@ -68,7 +68,7 @@ const { treeOrHost } = require("./tree-or.js");
  * @property {(pid: number | null) => import("./suite-handoff.js").CarriedWeight | null} carriedOf
  * @property {() => import("./suite-ladder.js").GateSeats} gateSeats
  * @property {import("./suite-handoff.js").CarriedWeight | null} [launchWeight]
- * @property {number} [partCapMb] - #5802
+ * @property {number} [wholeRunCapMb] - #5802
  * @property {(run: { kind: import("./part-suite-peak.js").PartKind, files: number }) => { peak: import("./part-suite-peak.js").PartPeak | null } | { why: string }} partPeak
  * @property {() => import("./peak-tripwire.js").Fallback | null} tripwire
  * @property {(admission: PartAdmission) => void} [noteAdmission]
@@ -638,7 +638,7 @@ function peakChargeOf(st, s) {
 	const bucket = s.files === null ? null : bucketOf(s.files);
 	if (s.files === null || bucket === null)
 		return (
-			(st.ctx.partCapMb === undefined ? null : wireCause(st)) ?? {
+			(st.ctx.wholeRunCapMb === undefined ? null : wireCause(st)) ?? {
 				cause: "unsized",
 			}
 		);
@@ -680,7 +680,7 @@ function wireCause(st) {
 function rungOf(st, s, busy, { unsized, peakRead }) {
 	if (peakRead) return { rung: rungMb(peakRead.p99Mb), capMb: null };
 	const rung = suiteRungMb(busy + s.workers);
-	const cap = st.ctx.partCapMb;
+	const cap = st.ctx.wholeRunCapMb;
 	return unsized && cap !== undefined && rungMb(cap) < rung
 		? { rung: rungMb(cap), capMb: cap }
 		: { rung, capMb: null };
@@ -857,7 +857,7 @@ function countVerdict(st, j) {
 function rungClause(j) {
 	if (j.peak) return ` for ${peakClause(j.peak)}`;
 	if (j.capMb !== null)
-		return ` for a part-suite charged no more than its repo's measured whole-run peak of ${j.capMb} MB (#5802)`;
+		return ` for a run charged no more than its repo's measured whole-run peak of ${j.capMb} MB (#5802)`;
 	if (j.s.part)
 		return ` for the ${j.s.workers} vitest worker(s) its named files can occupy, beside ${j.busy} running`;
 	if (j.busy > j.whole * WHOLE_SUITE_WORKERS)

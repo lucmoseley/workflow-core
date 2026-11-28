@@ -75,6 +75,10 @@ function hasNamedTestFiles(words) {
 	return isNamedPythonRun(words);
 }
 
+/** @param {string[]} words */
+const isWholeNativeRun = (words) =>
+	isOtherRunner(words, () => []) && !hasNamedTestFiles(words);
+
 /**
  * @param {string[]} words
  */
@@ -330,6 +334,7 @@ module.exports = {
 	isQueueable,
 	isWholePytestRun,
 	hasNamedTestFiles,
+	isWholeNativeRun,
 	pytestPathWords,
 	TEST_PY_WORKERS,
 	buildCallsWrapperScript,
