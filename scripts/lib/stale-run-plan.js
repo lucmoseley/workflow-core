@@ -8,7 +8,7 @@ const {
 	BOUND_DAYS,
 	MIN_REFUSE_DAYS,
 	RATE_WINDOW_DAYS,
-	hasFounderRound,
+	citesOtherFounderRound,
 	parseCounts,
 	project,
 } = require("./gate-projection.js");
@@ -555,7 +555,7 @@ function planCount(rc, g, iss, basis) {
 	const shown = oneLine(g.reading);
 	const stall = p.verdict === "unreachable" ? countStall(p, shown) : null;
 	if (stall === null) return "unjudged";
-	if (stall.projected && hasFounderRound(basis)) return "fresh";
+	if (stall.projected && citesOtherFounderRound(basis, rc.repo)) return "fresh";
 	add(rc, {
 		n: g.number,
 		cls: "C1",

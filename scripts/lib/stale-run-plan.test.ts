@@ -9,6 +9,7 @@ const {
 	planStaleRun,
 	reopenSteps,
 } = require("./stale-run-plan.js");
+const { UPSTREAM_TRACKER } = require("./workflow-core-config.js");
 
 const NOW = "2026-11-28T06:00:00.000Z";
 const REPO = "o/r";
@@ -70,8 +71,8 @@ const texts = (p: { lines: { text: string }[] }) => p.lines.map((l) => l.text);
 const classOf = (p: { lines: { number: number; cls: string }[] }, n: number) =>
 	p.lines.filter((l) => l.number === n).map((l) => l.cls);
 
-const GATE = (cond: string) =>
-	`**Gated on:** ${cond} — check: \`echo x\` — abandon if: never\n**Gate basis:** basis`;
+const GATE = (cond: string, basis = "basis") =>
+	`**Gated on:** ${cond} — check: \`echo x\` — abandon if: never\n**Gate basis:** ${basis}`;
 
 describe("planStaleRun: repo lines", () => {
 	it("writes a served repo's takeable count and oldest age", () => {
@@ -612,11 +613,12 @@ describe("planStaleRun: the catalogue", () => {
 		reading: string,
 		history: unknown[],
 		body = GATE("x reaches 50"),
-		previous: unknown = null,
+		{ previous = null as unknown, tracker = REPO } = {},
 	) =>
 		plan(
 			[
 				repo({
+					tracker,
 					issues: [issue(1, { createdAt: daysAgo(20), body })],
 					gates: [
 						{ number: 1, state: "READING", reading, closed: false, history },
@@ -672,8 +674,7 @@ describe("planStaleRun: the catalogue", () => {
 	});
 
 	it("a projection past its bound on a basis citing a founder round lists nothing; unmoved still lists", () => {
-		const ruled =
-			"**Gated on:** x reaches 50 — check: `echo x` — abandon if: never\n**Gate basis:** the wait set at #12 Q2";
+		const ruled = GATE("x reaches 50", "the wait set at #12 Q2");
 		const projected = countGate(
 			"5 of 50",
 			[row(8, 1, 8), row(2, 4, 2), row(0, 5, 0)],
@@ -685,6 +686,18 @@ describe("planStaleRun: the catalogue", () => {
 		expect(classOf(unmoved, 1)).toEqual(["C1", "C7"]);
 	});
 
+	it("a basis citing only the bound's own round lists on workflow-core's own tracker, and reads as a founder round in an adopter", () => {
+		const bound = GATE("x reaches 50", "the wait set at #5687 Q1");
+		const history = [row(8, 1, 8), row(2, 4, 2), row(0, 5, 0)];
+		const own = countGate("5 of 50", history, bound, {
+			tracker: UPSTREAM_TRACKER,
+		});
+		expect(classOf(own, 1)).toEqual(["C1", "C7"]);
+		const adopter = countGate("5 of 50", history, bound);
+		expect(adopter.lines).toEqual([]);
+		expect(adopter.filings).toEqual([]);
+	});
+
 	it("a flat count reading on under a week of history lists nothing", () => {
 		const p = countGate("3 of 50", [row(1.5, 3, 1.5), row(0, 3, 1.5)]);
 		expect(p.lines).toEqual([]);
@@ -692,14 +705,11 @@ describe("planStaleRun: the catalogue", () => {
 	});
 
 	it("a count reading with no history falls back to the run record's unmoved line", () => {
-		const p = countGate(
-			"3 of 50",
-			[],
-			GATE("x reaches 50"),
-			prevRow({
+		const p = countGate("3 of 50", [], GATE("x reaches 50"), {
+			previous: prevRow({
 				gates: { "o/r#1": { reading: "3 of 50", since: daysAgo(8) } },
 			}),
-		);
+		});
 		expect(texts(p)).toEqual(["o/r#1 gate READING: 3 of 50; unmoved 8 d"]);
 		expect(p.filings).toEqual([]);
 	});
