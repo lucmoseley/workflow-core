@@ -602,6 +602,63 @@ describe("planStaleRun: the catalogue", () => {
 		]);
 	});
 
+	const countGate = (reading: string, history: unknown[]) =>
+		plan([
+			repo({
+				issues: [
+					issue(1, { createdAt: daysAgo(20), body: GATE("x reaches 50") }),
+				],
+				gates: [
+					{ number: 1, state: "READING", reading, closed: false, history },
+				],
+			}),
+		]);
+	const row = (d: number, a: number, since: number) => ({
+		repo: REPO,
+		issue: 1,
+		command: "echo x",
+		at: Date.parse(daysAgo(d)),
+		counts: [{ a, b: 50, since: Date.parse(daysAgo(since)) }],
+	});
+
+	it("C1/C7: a count reading unmoved over its window is data not accruing", () => {
+		const p = countGate("3 of 50", [row(9, 3, 9), row(0, 3, 9)]);
+		expect(texts(p)).toEqual([
+			"o/r#1 gate READING: 3 of 50; unmoved 9 d",
+			"o/r#1 data not accruing (3 of 50, 9 d)",
+		]);
+		expect(p.filings).toMatchObject([
+			{
+				kind: "data-route",
+				tracker: REPO,
+				root: "/h/r",
+				title: "Gate data not accruing: #1",
+			},
+		]);
+		expect(p.filings[0].body).toContain("has not moved for 9 d");
+	});
+
+	it("C1/C7: a count reading projected past its bound is data not accruing", () => {
+		const p = countGate("5 of 50", [row(8, 1, 8), row(2, 4, 2), row(0, 5, 0)]);
+		expect(texts(p)).toEqual([
+			"o/r#1 gate READING: 5 of 50; projected met 2027-02-26",
+			"o/r#1 data not accruing (5 of 50, 7 d)",
+		]);
+		expect(p.filings).toMatchObject([
+			{ kind: "data-route", title: "Gate data not accruing: #1" },
+		]);
+	});
+
+	it("a count reading moving fast enough lists nothing and files nothing", () => {
+		const p = countGate("40 of 50", [
+			row(7, 5, 7),
+			row(3, 25, 3),
+			row(0, 40, 0),
+		]);
+		expect(p.lines).toEqual([]);
+		expect(p.filings).toEqual([]);
+	});
+
 	it("C8: an unanswered round, a takes:human and a parked question are owed", () => {
 		const p = plan([
 			repo({
