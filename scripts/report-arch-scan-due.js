@@ -476,7 +476,7 @@ function fileRun() {
 	const figure = `Growth ${reading.growth} against ${reading.threshold} (${reading.source}), since ${buildSinceText(reading.start)}`;
 	if (reading.growth < reading.threshold)
 		return `${figure}: under the threshold, nothing filed.`;
-	return `${figure}. ${fileOrRefresh({ title: TITLE, labels: [LABEL], body: body(reading) })}`;
+	return `${figure}. ${fileOrRefresh({ title: TITLE, labels: [LABEL], body: body(reading) }).text}`;
 }
 
 function daily() {

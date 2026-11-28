@@ -119,7 +119,7 @@ function fileRun(root, because) {
 	const body = buildBody(reading.tag, verdict.why);
 	const refused = takesRefusal([LABEL], body);
 	if (refused) throw new Error(refused);
-	const filed = fileOrRefresh({ title: CUT_TITLE, labels: [LABEL], body });
+	const filed = fileOrRefresh({ title: CUT_TITLE, labels: [LABEL], body }).text;
 	if (because) {
 		const number = /(?:issues\/|#)(\d+)/.exec(filed)?.[1];
 		if (number)

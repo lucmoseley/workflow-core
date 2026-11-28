@@ -190,13 +190,15 @@ function main({ flags, positionals }) {
 	try {
 		writeFd(
 			1,
-			`${fileOrRefresh({
-				title: TITLE,
-				label: LABEL,
-				labels: [LABEL],
-				takes: TAKES,
-				body: body(rows),
-			})}\n`,
+			`${
+				fileOrRefresh({
+					title: TITLE,
+					label: LABEL,
+					labels: [LABEL],
+					takes: TAKES,
+					body: body(rows),
+				}).text
+			}\n`,
 		);
 	} catch (e) {
 		writeFd(

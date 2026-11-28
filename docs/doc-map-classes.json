@@ -1732,7 +1732,7 @@
 		"section": "Evidence & data",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "#5833's fresh sample: 2,500 end-of-turn replies, one per transcript, from 35 days of seven repos' transcripts (watch-digest had none), seed 5833. pA scores #5814's question and pB #5833's sharper one, both on jev. `drawn` names each candidate whose random 60 fires took the row; of those 106 rows, 105 are blind-judged and one was left undecidable. No row carries text; the score script fills it in memory from the local transcript its hash matches.",
+		"role": "#5833's fresh sample: 2,500 end-of-turn replies, one per transcript, from 35 days of seven repos' transcripts, seed 5833. pA scores #5814's question and pB #5833's sharper one, both on jev. `drawn` names each candidate whose random 60 fires took the row; of those 106 rows, 105 are blind-judged and one was left undecidable. No row carries text; the score script fills it in memory from the local transcript its hash matches.",
 		"route": null,
 		"consumes": null
 	},

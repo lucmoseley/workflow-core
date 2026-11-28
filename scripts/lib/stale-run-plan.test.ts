@@ -1,7 +1,14 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-const { planStaleRun } = require("./stale-run-plan.js");
+const {
+	actComment,
+	bodyUnchanged,
+	buildRunRow,
+	hubAfter,
+	planStaleRun,
+	reopenSteps,
+} = require("./stale-run-plan.js");
 
 const NOW = "2026-11-28T06:00:00.000Z";
 const REPO = "o/r";
@@ -34,7 +41,7 @@ const repo = (over: Record<string, unknown> = {}) => ({
 	frontier: [],
 	issues: [],
 	gates: [],
-	labelFindings: [],
+	checkFindings: [],
 	containerRetags: [],
 	staleClaims: [],
 	claims: [],
@@ -187,7 +194,7 @@ describe("planStaleRun: selection", () => {
 					}),
 					issue(2, { createdAt: daysAgo(2) }),
 				],
-				labelFindings: [{ tag: "NO-TAKES", number: 1 }],
+				checkFindings: [{ tag: "NO-TAKES", number: 1 }],
 			}),
 		]);
 		expect(texts(p)).toEqual(["o/r#1 container held by 1 open child: o/r#2"]);
@@ -300,7 +307,7 @@ describe("planStaleRun: the catalogue", () => {
 					issue(1, { blockedBy: [{ repo: null, number: 2, state: "open" }] }),
 					issue(2, { createdAt: daysAgo(20) }),
 				],
-				labelFindings: [{ tag: "NO-TAKES", number: 2 }],
+				checkFindings: [{ tag: "NO-TAKES", number: 2 }],
 			}),
 		]);
 		expect(texts(p)).toContain("o/r#1 blocked by o/r#2 (C5, 20 d)");
@@ -310,7 +317,7 @@ describe("planStaleRun: the catalogue", () => {
 		const p = plan([
 			repo({
 				issues: [issue(1), issue(2)],
-				labelFindings: [
+				checkFindings: [
 					{ tag: "SHIPPED-GATED", number: 1 },
 					{ tag: "PROSE-BLOCKED", number: 2 },
 				],
@@ -384,11 +391,102 @@ describe("planStaleRun: the catalogue", () => {
 		expect(texts(p)).toEqual([]);
 	});
 
+	it("C3: a Gated on whose open issue is stuck names that issue", () => {
+		const p = plan([
+			repo({
+				issues: [
+					issue(1, { body: GATE("#2 closes") }),
+					issue(2, { createdAt: daysAgo(20) }),
+				],
+				checkFindings: [{ tag: "NO-TAKES", number: 2 }],
+			}),
+		]);
+		expect(texts(p)).toContain("o/r#1 blocked by o/r#2 (C5, 20 d)");
+	});
+
+	it("C3: a stuck blocker on another tracker is named with its own class", () => {
+		const p = plan([
+			repo({
+				issues: [
+					issue(1, {
+						blockedBy: [{ repo: "o/other", number: 5, state: "open" }],
+					}),
+				],
+			}),
+			repo({
+				root: "/h/other",
+				tracker: "o/other",
+				issues: [issue(5, { createdAt: daysAgo(15) })],
+				checkFindings: [{ tag: "MANY-TAKES", number: 5 }],
+			}),
+		]);
+		expect(texts(p)).toContain("o/r#1 blocked by o/other#5 (C5, 15 d)");
+	});
+
+	it("C4: an undischarged map, an unplaced issue and a child under a closed parent", () => {
+		const p = plan([
+			repo({
+				issues: [
+					issue(1),
+					issue(2),
+					issue(3, { parent: { repo: REPO, number: 9 } }),
+					issue(4, { parent: { repo: REPO, number: 8 } }),
+				],
+				checkFindings: [
+					{ tag: "UNDISCHARGED-MAP", number: 1 },
+					{ tag: "UNPLACED", number: 2 },
+				],
+				closedRefs: ["o/r#9"],
+			}),
+		]);
+		expect(texts(p)).toEqual([
+			"o/r#1 UNDISCHARGED-MAP",
+			"o/r#2 UNPLACED",
+			"o/r#3 open under closed parent o/r#9",
+		]);
+		expect(classOf(p, 3)).toEqual(["C4"]);
+	});
+
+	it("C3: names a stuck blocker whatever order its chain is read in", () => {
+		const p = plan([
+			repo({
+				issues: [
+					issue(1, { blockedBy: [{ repo: null, number: 2, state: "open" }] }),
+					issue(2, { blockedBy: [{ repo: null, number: 3, state: "open" }] }),
+					issue(3),
+				],
+				checkFindings: [{ tag: "NO-TAKES", number: 3 }],
+			}),
+		]);
+		expect(texts(p)).toContain("o/r#2 blocked by o/r#3 (C5, 10 d)");
+		expect(texts(p)).toContain("o/r#1 blocked by o/r#2 (C3, 10 d)");
+	});
+
+	it("C4: a container under a closed parent, and a container that is an undischarged map", () => {
+		const p = plan([
+			repo({
+				issues: [
+					issue(1, {
+						labels: ["takes:children"],
+						parent: { repo: REPO, number: 9 },
+					}),
+					issue(2, { labels: ["takes:children"] }),
+				],
+				checkFindings: [{ tag: "UNDISCHARGED-MAP", number: 2 }],
+				closedRefs: ["o/r#9"],
+			}),
+		]);
+		expect(texts(p)).toEqual([
+			"o/r#1 open under closed parent o/r#9",
+			"o/r#2 UNDISCHARGED-MAP",
+		]);
+	});
+
 	it("C4: a stale-container finding and the retag act", () => {
 		const p = plan([
 			repo({
 				issues: [issue(1, { labels: ["takes:children"] })],
-				labelFindings: [{ tag: "STALE-CONTAINER", number: 1 }],
+				checkFindings: [{ tag: "STALE-CONTAINER", number: 1 }],
 				containerRetags: [1],
 			}),
 		]);
@@ -415,7 +513,7 @@ describe("planStaleRun: the catalogue", () => {
 						],
 					}),
 				],
-				labelFindings: [
+				checkFindings: [
 					{ tag: "MANY-TAKES", number: 1 },
 					{ tag: "HUMAN-UNREVIEWED", number: 3 },
 				],
@@ -614,16 +712,16 @@ describe("planStaleRun: filings", () => {
 
 	it("files nothing for one issue and one cause ticket for two, across repos", () => {
 		const one = plan([
-			repo({ issues: [issue(1)], labelFindings: [noTakes(1)] }),
+			repo({ issues: [issue(1)], checkFindings: [noTakes(1)] }),
 		]);
 		expect(one.filings).toEqual([]);
 		const two = plan([
-			repo({ issues: [issue(1)], labelFindings: [noTakes(1)] }),
+			repo({ issues: [issue(1)], checkFindings: [noTakes(1)] }),
 			repo({
 				root: "/h/q",
 				tracker: "o/q",
 				issues: [issue(5)],
-				labelFindings: [noTakes(5)],
+				checkFindings: [noTakes(5)],
 			}),
 		]);
 		expect(two.filings).toMatchObject([
@@ -640,7 +738,7 @@ describe("planStaleRun: filings", () => {
 		const repos = [
 			repo({
 				issues: [issue(1), issue(2)],
-				labelFindings: [noTakes(1), noTakes(2)],
+				checkFindings: [noTakes(1), noTakes(2)],
 			}),
 		];
 		expect(plan(repos).filings[0].title).toBe(
@@ -730,7 +828,7 @@ describe("planStaleRun: the hub issue", () => {
 	const listed = [
 		repo({
 			issues: [issue(1)],
-			labelFindings: [{ tag: "NO-TAKES", number: 1 }],
+			checkFindings: [{ tag: "NO-TAKES", number: 1 }],
 		}),
 	];
 
@@ -758,7 +856,7 @@ describe("planStaleRun: the hub issue", () => {
 			[
 				repo({
 					issues: [issue(1)],
-					labelFindings: [{ tag: "SHIPPED-GATED", number: 1 }],
+					checkFindings: [{ tag: "SHIPPED-GATED", number: 1 }],
 				}),
 			],
 			{ previous: prevRow({ disposed: closed.disposed }) },
@@ -777,11 +875,100 @@ describe("planStaleRun: the hub issue", () => {
 			repo({
 				issues: [
 					issue(1, { labels: ["takes:human"] }),
-					issue(2, { labelFindings: [] }),
+					issue(2, { checkFindings: [] }),
 				],
-				labelFindings: [{ tag: "NO-TAKES", number: 2 }],
+				checkFindings: [{ tag: "NO-TAKES", number: 2 }],
 			}),
 		]);
 		expect(p.hub.body).not.toMatch(/founder|@/i);
+	});
+});
+
+describe("the executor's decisions", () => {
+	const discharge = (closed: boolean) => ({
+		kind: "discharge",
+		root: "/h/r",
+		repo: REPO,
+		number: 3,
+		reading: "3 of 3",
+		seen: "3 of 3",
+		closed,
+		body: "",
+		wasBody: "",
+	});
+
+	it("reopens a closed discharge and drops its watch label, and leaves an open one", () => {
+		expect(reopenSteps(discharge(true))).toEqual([
+			["reopen"],
+			["edit", "--remove-label", "watch:closed"],
+		]);
+		expect(reopenSteps(discharge(false))).toEqual([]);
+	});
+
+	it("writes a body only while it still reads as the plan saw it", () => {
+		expect(bodyUnchanged("a\n", "a")).toBe(true);
+		expect(bodyUnchanged("a, edited", "a")).toBe(false);
+	});
+
+	it("comments a kept marker on a discharge whose body changed, and nothing on a kept strip", () => {
+		expect(actComment(discharge(false), { stripped: false })?.text).toContain(
+			"the marker is left for a session to strip",
+		);
+		expect(actComment(discharge(false), { stripped: true })?.text).toContain(
+			"marker is stripped",
+		);
+		const strip = {
+			kind: "strip-gate",
+			root: "/h/r",
+			repo: REPO,
+			number: 2,
+			blocker: "o/r#8",
+			body: "",
+			wasBody: "x",
+		};
+		expect(actComment(strip, { stripped: false })).toBeNull();
+		expect(actComment(strip, { stripped: true })).toMatchObject({ number: 2 });
+		expect(
+			actComment(
+				{ kind: "retag", root: "/h/r", repo: REPO, numbers: [1] },
+				{ stripped: false },
+			),
+		).toBeNull();
+	});
+
+	it("keeps a line's first-listed date across runs and stamps a new one today", () => {
+		const listed = [
+			repo({
+				issues: [issue(1), issue(2)],
+				checkFindings: [
+					{ tag: "NO-TAKES", number: 1 },
+					{ tag: "NO-TAKES", number: 2 },
+				],
+			}),
+		];
+		const s = snap(listed, {
+			previous: prevRow({
+				listed: [{ key: "o/r#1:C5", cls: "C5", firstListed: daysAgo(4) }],
+			}),
+		});
+		const row = buildRunRow(planStaleRun(s), s, {
+			acts: [],
+			filings: [],
+			hub: 40,
+		});
+		expect(row.listed).toEqual([
+			{ key: "o/r#1:C5", cls: "C5", firstListed: daysAgo(4) },
+			{ key: "o/r#2:C5", cls: "C5", firstListed: NOW },
+		]);
+		expect(row.hub).toEqual({ number: 40, keys: ["o/r#1:C5", "o/r#2:C5"] });
+	});
+
+	it("records the hub a refresh names, else the one open before; none after a close", () => {
+		const refresh = { action: "refresh", body: "" };
+		expect(hubAfter(refresh, { filed: 77, before: 40 })).toBe(77);
+		expect(hubAfter(refresh, { filed: null, before: 40 })).toBe(40);
+		expect(
+			hubAfter({ action: "close", number: 40 }, { filed: null, before: 40 }),
+		).toBeNull();
 	});
 });
