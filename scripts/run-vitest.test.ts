@@ -1198,8 +1198,9 @@ describe("the stall watchdog", () => {
 	}
 
 	it("does not fire while the in-flight record keeps being touched", async () => {
-		const { child, run, done } = beating(400, 2400);
-		await new Promise((r) => setTimeout(r, 1200));
+		const sampleAt = 1200;
+		const { child, run, done } = beating(400, sampleAt * 2);
+		await new Promise((r) => setTimeout(r, sampleAt));
 		const midway = [...child.signals];
 		child.stdout.end();
 		child.stderr.end();
