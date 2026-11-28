@@ -6,10 +6,9 @@ const { runCheck } = require("./lib/check");
 const { exemptHint, exemptMarker } = require("./lib/exempt-markers.js");
 const { dataOrThrow, readText } = require("./lib/file-read.js");
 const { parseLineSites, heresySpec } = require("./lib/heresy-scan.js");
+const { relativeUnder } = require("./lib/is-under.js");
 const { escapeRe } = require("./lib/regex-group.js");
 const { blankComments } = require("./lib/strip-comments.js");
-
-/** @typedef {import("./lib/heresy-scan.js").Program} Program */
 
 // measured 12 lines in lib/pending-tasks.js, #3452
 const WINDOW = 12;
@@ -22,11 +21,11 @@ const MAPPED = new RegExp(
 	`\\.(?:flatMap|map)\\((?:(${CALLEE})\\s*[,)]|(?:\\w+|\\([\\w, ]*\\)) ?=> ?(${CALLEE})\\()`,
 	"g",
 );
-const CALL = new RegExp(`(?<![\\w$.])(${CALLEE})\\s*\\(`, "g");
+const CALL = new RegExp(`(?<![\\w$.])(${CALLEE})\\s*\\(([^)]*)`, "g");
 const SPECIFIER = `(["'])(\\.{1,2}/[^"']+)\\2`;
 const IMPORTS = [
 	new RegExp(
-		`\\b(?:const|let|var)\\s+(\\{[^}]*\\}|${IDENT})\\s*=\\s*require\\(\\s*${SPECIFIER}\\s*\\)`,
+		`\\b(?:const|let|var)\\s+(\\{[^}]*\\}|${IDENT})\\s*=\\s*require\\(\\s*${SPECIFIER}\\s*\\)(?:\\.(${IDENT}))?`,
 		"g",
 	),
 	new RegExp(
@@ -40,42 +39,45 @@ const KEYWORDS = new Set(["catch", "for", "function", "if", "switch", "while"]);
 const LITERAL = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
 // guess, #5869
 const BODY_CAP = 200;
-// #5888
-const HOPS = 1;
 const EXEMPT = exemptMarker("jsonl-read");
 const READER = "scripts/lib/jsonl.js";
 
 const FIX = `read it through readJsonl (a file), parseJsonl (text) or parseJsonlRow (one streamed line) in ${READER}, as scripts/lib/dispatch-ledger.js's readCountedRows does; or mark it ${exemptHint("jsonl-read")}, an issue saying the text is no JSONL (#3452).`;
 
 /** @typedef {{ lines: string[], bindings: Map<string, { at: string, name: string | null }> }} Unit */
+/** @typedef {{ file: string, body: string, params: string[] }} Definition */
 
 /**
+ * @param {string} root
  * @param {string} from
  * @param {string} specifier
  */
-function resolveModule(from, specifier) {
+function resolveModule(root, from, specifier) {
 	const base = path.resolve(path.dirname(from), specifier);
-	return EXTENSIONS.map((ext) => `${base}${ext}`).find((at) =>
-		fs.statSync(at, { throwIfNoEntry: false })?.isFile(),
+	return EXTENSIONS.map((ext) => `${base}${ext}`).find(
+		(at) =>
+			relativeUnder(root, at) !== null &&
+			fs.statSync(at, { throwIfNoEntry: false })?.isFile(),
 	);
 }
 
 /**
+ * @param {string} root
  * @param {string} at
  * @param {string} code
  * @returns {Unit}
  */
-function toUnit(at, code) {
+function parseUnit(root, at, code) {
 	/** @type {Unit["bindings"]} */
 	const bindings = new Map();
 	for (const m of IMPORTS.flatMap((re) => [...code.matchAll(re)])) {
-		const [, binding = "", , specifier = ""] = m;
-		const target = resolveModule(at, specifier);
+		const [, binding = "", , specifier = "", member] = m;
+		const target = resolveModule(root, at, specifier);
 		if (!target) continue;
 		if (!binding.startsWith("{")) {
 			bindings.set(binding.replace(/^\*\s*as\s+/, ""), {
 				at: target,
-				name: null,
+				name: member ?? null,
 			});
 			continue;
 		}
@@ -93,43 +95,59 @@ function toUnit(at, code) {
 /**
  * @param {string[]} lines
  * @param {string} name
- * @returns {string[] | null}
+ * @returns {{ body: string, params: string[] }[]}
  */
-function definitionBody(lines, name) {
-	if (KEYWORDS.has(name)) return null;
+function readDefinitions(lines, name) {
+	if (KEYWORDS.has(name)) return [];
 	const n = escapeRe(name);
+	const head = `(?:async\\s+)?(?:function\\b\\s*(?:${IDENT})?\\s*)?`;
 	const definition = new RegExp(
 		[
 			`\\bfunction\\s+${n}\\s*\\(`,
 			`\\b(?:const|let|var)\\s+${n}\\s*=`,
 			`\\b(?:module\\.)?exports\\.${n}\\s*=`,
-			`^\\s*(?:static\\s+)?(?:async\\s+)?${n}\\s*\\([^)]*\\)\\s*\\{`,
+			`^\\s*(?:static\\s+)?(?:async\\s+)?${n}\\s*\\(.*\\)\\s*\\{`,
 			`^\\s*${n}\\s*:\\s*(?:async\\b|function\\b|\\(|${IDENT}\\s*=>)`,
 		].join("|"),
 	);
-	const start = lines.findIndex((l) => definition.test(l));
-	if (start === -1) return null;
-	let depth = 0;
-	const body = [];
-	for (const line of lines.slice(start, start + BODY_CAP)) {
-		body.push(line);
-		const bare = line.replace(LITERAL, '""');
-		depth += (bare.match(/[{(]/g) ?? []).length;
-		depth -= (bare.match(/[})]/g) ?? []).length;
-		if (depth <= 0 && /[;},]\s*$/.test(bare)) break;
-	}
-	return body;
+	const signature = new RegExp(
+		`${n}\\s*(?:[=:]\\s*${head})?\\(([^)]*)\\)|${n}\\s*[=:]\\s*(?:async\\s+)?(${IDENT})\\s*=>`,
+	);
+	return lines.flatMap((line, start) => {
+		if (!definition.test(line)) return [];
+		let depth = 0;
+		const body = [];
+		for (const next of lines.slice(start, start + BODY_CAP)) {
+			body.push(next);
+			const bare = next.replace(LITERAL, '""');
+			depth += (bare.match(/[{(]/g) ?? []).length;
+			depth -= (bare.match(/[})]/g) ?? []).length;
+			if (depth <= 0 && /[;},]\s*$/.test(bare)) break;
+		}
+		const sig = line.match(signature);
+		const params = [
+			...(sig?.[1] ?? sig?.[2] ?? "").matchAll(new RegExp(IDENT, "g")),
+		].map((m) => m[0]);
+		return [{ body: body.join("\n"), params }];
+	});
 }
 
-/** @param {Program} program */
-function scanner({ at, code }) {
+/**
+ * @param {import("./lib/heresy-scan.js").Program} program
+ * @param {string} rel
+ */
+function buildParseNear({ code, root }, rel) {
+	const at = path.join(root, rel);
 	/** @type {Map<string, Unit | null>} */
-	const units = new Map([[at, toUnit(at, code)]]);
+	const units = new Map([[at, parseUnit(root, at, code)]]);
 	/** @param {string} file */
-	const unitAt = (file) => {
+	const readUnit = (file) => {
 		if (!units.has(file)) {
 			const text = dataOrThrow(readText(file));
-			units.set(file, text === null ? null : toUnit(file, blankComments(text)));
+			units.set(
+				file,
+				text === null ? null : parseUnit(root, file, blankComments(text)),
+			);
 		}
 		return units.get(file) ?? null;
 	};
@@ -137,43 +155,44 @@ function scanner({ at, code }) {
 	/**
 	 * @param {string} file
 	 * @param {string} callee
-	 * @returns {{ file: string, body: string[] } | null}
+	 * @returns {Definition[]}
 	 */
-	function definition(file, callee) {
-		const unit = unitAt(file);
-		if (!unit) return null;
+	function findDefinitions(file, callee) {
+		const unit = readUnit(file);
+		if (!unit) return [];
 		const dot = callee.lastIndexOf(".");
 		const owner = callee.slice(0, Math.max(dot, 0));
 		const name = callee.slice(dot + 1);
 		const bound = unit.bindings.get(owner || name);
-		const home =
-			bound && !SELF.has(owner) && (owner ? bound.name === null : true)
-				? bound
-				: null;
-		const where = home?.at ?? file;
-		const lines = unitAt(where)?.lines;
-		const body = lines && definitionBody(lines, home?.name ?? name);
-		return body ? { file: where, body } : null;
+		const imported = owner ? bound?.name === null : bound !== undefined;
+		const declared = new RegExp(
+			`\\b(?:(?:const|let|var)\\s+${escapeRe(owner)}\\s*=(?!\\s*(?:require|await)\\b)|class\\s+${escapeRe(owner)}\\b)`,
+		);
+		const local =
+			!owner || SELF.has(owner) || unit.lines.some((l) => declared.test(l));
+		if (!imported && !local) return [];
+		const where = imported && bound ? bound.at : file;
+		const lines = readUnit(where)?.lines ?? [];
+		return readDefinitions(lines, (imported && bound?.name) || name).map(
+			(d) => ({ file: where, ...d }),
+		);
 	}
 
 	/**
 	 * @param {string} file
 	 * @param {string} callee
-	 * @param {number} hops
-	 * @returns {boolean}
 	 */
-	function parses(file, callee, hops) {
-		const found = definition(file, callee);
-		if (!found) return false;
-		const text = found.body.join("\n");
-		if (PARSE.test(text)) return true;
-		if (hops === 0) return false;
-		const name = callee.slice(callee.lastIndexOf(".") + 1);
-		return [...text.matchAll(CALL)]
-			.map((m) => m[1] ?? "")
-			.filter((c) => c !== callee && c !== name)
-			.some((c) => parses(found.file, c, hops - 1));
-	}
+	const isParsingHelper = (file, callee) =>
+		findDefinitions(file, callee).some(
+			({ file: home, body, params }) =>
+				PARSE.test(body) ||
+				[...body.matchAll(CALL)].some(
+					([, c = "", args = ""]) =>
+						c !== callee &&
+						params.some((p) => new RegExp(`\\b${escapeRe(p)}\\b`).test(args)) &&
+						findDefinitions(home, c).some((d) => PARSE.test(d.body)),
+				),
+		);
 
 	/** @param {string[]} nearby */
 	return (nearby) =>
@@ -181,7 +200,7 @@ function scanner({ at, code }) {
 			(l) =>
 				PARSE.test(l) ||
 				[...l.matchAll(MAPPED)].some((m) =>
-					parses(at, m[1] ?? m[2] ?? "", HOPS),
+					isParsingHelper(at, m[1] ?? m[2] ?? ""),
 				),
 		);
 }
@@ -193,8 +212,8 @@ const SPEC = heresySpec({
 	breaches: [
 		{
 			tag: "JSONL-READ",
-			sites: (program) => {
-				const parseNear = scanner(program);
+			sites: (program, rel) => {
+				const parseNear = buildParseNear(program, rel);
 				return parseLineSites(
 					program,
 					(line, i, lines) =>

@@ -12,7 +12,7 @@ const REPORT_PROGRAM = /^scripts\/report-[^/]+$/;
 
 /**
  * @typedef {{ line: number, text: string }} Site
- * @typedef {{ source: string, code: string, at: string }} Program
+ * @typedef {{ source: string, code: string, root: string }} Program
  */
 /**
  * @template [C=undefined]
@@ -189,7 +189,7 @@ function heresySpec({
 				failSites(
 					ctx,
 					{ rel, context },
-					{ source, code: blankComments(source), at: path.join(root, rel) },
+					{ source, code: blankComments(source), root },
 					breaches,
 				);
 			}
