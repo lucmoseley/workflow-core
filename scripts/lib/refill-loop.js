@@ -6,6 +6,7 @@ const { isTerminalAgent } = require("./agent-liveness.js");
 const {
 	EXPLICIT_STOP_DETAIL,
 	buildIdleText,
+	isUntrustedSkip,
 	startedAt,
 	UNREAD,
 } = require("./refill-decide.js");
@@ -431,6 +432,26 @@ const buildFrontierReadText = (read) =>
 /** @param {import("./refill-decide.js").Skip} s */
 const buildSkipText = (s) => `${path.basename(s.root)} #${s.number} ${s.why}`;
 
+const HELD_NUMBERS = 3;
+
+/**
+ * @param {import("./refill-decide.js").Skip[]} skipped
+ */
+function buildUntrustedTexts(skipped) {
+	/** @type {Map<string, {root: string, numbers: number[]}>} */
+	const byWhy = new Map();
+	for (const s of skipped.filter(isUntrustedSkip)) {
+		const held = byWhy.get(s.why) ?? { root: s.root, numbers: [] };
+		held.numbers.push(s.number);
+		byWhy.set(s.why, held);
+	}
+	return [...byWhy].map(([why, { root, numbers }]) => {
+		const more = numbers.length - HELD_NUMBERS;
+		const shown = numbers.slice(0, HELD_NUMBERS).map((n) => `#${n}`);
+		return `held ${path.basename(root)} ${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}: ${why}`;
+	});
+}
+
 /**
  * @param {LoopLaunch[]} launches
  * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
@@ -511,6 +532,7 @@ module.exports = {
 	buildSeatText,
 	buildFrontierReadText,
 	buildSkipText,
+	buildUntrustedTexts,
 	isReviewRunDue,
 	reviewStep,
 	limitHoldsOf,

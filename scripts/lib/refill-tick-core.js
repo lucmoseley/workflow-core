@@ -191,6 +191,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *   readFrontier: (roots: string[], goal: import("./refill-loop.js").Scope["goal"]) =>
  *     Promise<Awaited<ReturnType<typeof import("./refill-frontier.js").refillFrontier>>>,
  *   readParkMarkers: (root: string) => import("./parked.js").ParkMarkerRead[],
+ *   isUntrusted: (seat: string, root: string) => boolean,
  *   readOmittedDirs: (declared: DeclaredSeats) => string[],
  * }} TickReads
  * @typedef {{
@@ -565,9 +566,26 @@ function settleRoom(
  * @param {string[]} warmed
  */
 function warmRefusedRoots(io, refused, warmed) {
-	const roots = refused.filter((r) => !r.untrusted).map((r) => r.launch.root);
-	for (const root of new Set(roots))
+	for (const root of new Set(refused.map((r) => r.launch.root)))
 		if (!warmed.includes(root) && io.hasConfig(root)) io.startWarmPass(root);
+}
+
+/**
+ * @param {Pick<import("./refill-decide.js").TickInput, "seats"|"overflow">} input
+ * @param {string[]} roots
+ * @param {TickIo["isUntrusted"]} isUntrusted
+ * @returns {import("./refill-decide.js").SeatRoot[]}
+ */
+function readUntrusted({ seats, overflow = [] }, roots, isUntrusted) {
+	const dirs = new Set([
+		...seats.map((s) => s.seat),
+		...overflow.flatMap((o) => (o.seat === null ? [] : [o.seat])),
+	]);
+	return [...dirs].flatMap((seat) =>
+		[...new Set(roots)]
+			.filter((root) => isUntrusted(seat, root))
+			.map((root) => ({ seat, root })),
+	);
 }
 
 /**
@@ -608,6 +626,11 @@ async function decide(io, input, scope) {
 		retroBundles: merged.retroBundles,
 		failedShortlists: merged.failed,
 		parkers,
+		untrusted: readUntrusted(
+			input,
+			[...frontier, ...(input.judgements ?? [])].map((r) => r.root),
+			io.isUntrusted,
+		),
 	});
 	return { decision, read };
 }

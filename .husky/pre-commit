@@ -57,6 +57,8 @@ if ! lander_batch && { staged_cmd="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/wo
   sh -c "$staged_cmd" || exit 1
 fi
 
+pc_judged="$(index_tree)" || exit "$?"
+
 hook_bound "${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1
 
 if armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md)$' &&
@@ -272,6 +274,8 @@ if [ -z "$mh_stamp" ] || ! mh_why="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/co
   fi
   command node "${WFC_PLUGIN_ROOT:-.}"/scripts/mutation-hold-gate.js || exit "$?"
 fi
+
+index_held "$pc_judged" || exit "$?"
 
 if [ -f .husky/pre-commit.local ]; then
   wfc_local_hook_refuse_missing .husky/pre-commit.local \

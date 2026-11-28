@@ -4028,6 +4028,22 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			expect(fs.existsSync(made.dir)).toBe(false);
 		});
 
+		it("checks a snapshot out into its own index, not the one a git hook exports (#5889)", () => {
+			const dir = repoWithDeps();
+			fs.writeFileSync(path.join(dir, "stray"), "untracked\n");
+			const tree = gitTrimmedIn(dir, "write-tree");
+			gitIn(dir, "add", "stray");
+			const snapshot = gitTrimmedIn(dir, "write-tree");
+			gitIn(dir, "rm", "-q", "--cached", "stray");
+			vi.stubEnv("GIT_INDEX_FILE", path.join(dir, ".git", "index"));
+			const made = createIsolated(dir, { pid: 4271, tree: snapshot });
+			vi.stubEnv("GIT_INDEX_FILE", undefined);
+			expect(made.error).toBe(null);
+			if (made.dir === null) return;
+			removeIsolated(dir, made.dir, { err: sink() });
+			expect(gitTrimmedIn(dir, "write-tree")).toBe(tree);
+		});
+
 		function declaring(dir: string, links: string[], onDisk: string[]) {
 			fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
 			fs.writeFileSync(

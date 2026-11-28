@@ -4,6 +4,7 @@ const {
 	buildResumeWaitLine,
 	decideTick,
 	isClashSkip,
+	isUntrustedSkip,
 	isParkRoutingMode,
 	isLaunchBarred,
 } = require("./refill-decide.js");
@@ -13,6 +14,7 @@ const {
 	buildFrontierReadText,
 	buildLaunchLine,
 	buildSkipText,
+	buildUntrustedTexts,
 	handedOffSince,
 	launchesSince,
 	summaryOf,
@@ -163,9 +165,10 @@ const buildLaunchesLine = (launches) => launches.map(launchName).join("; ");
  */
 function frontierNotes(d, read) {
 	if (read === null) return [];
+	const skipped = d.skipped.filter((s) => !isUntrustedSkip(s));
 	/** @type {Map<string, number>} */
 	const counts = new Map();
-	for (const s of d.skipped) {
+	for (const s of skipped) {
 		const why = isClashSkip(s) ? CLASH_COUNT : s.why;
 		counts.set(why, (counts.get(why) ?? 0) + 1);
 	}
@@ -174,7 +177,7 @@ function frontierNotes(d, read) {
 		...(counts.size > 0
 			? [
 					`skipped ${[...counts].map(([why, n]) => `${n} ${why}`).join(", ")}`,
-					`first ${d.skipped.slice(0, LINE_SKIPS).map(buildSkipText).join(", ")}`,
+					`first ${skipped.slice(0, LINE_SKIPS).map(buildSkipText).join(", ")}`,
 				]
 			: []),
 	];
@@ -234,6 +237,7 @@ function buildTickLine(
 			: []),
 		...(d.launches.length > 0 && read ? [buildFrontierReadText(read)] : []),
 		...(d.launches.length > 0 ? clashNotes(d.skipped) : []),
+		...buildUntrustedTexts(d.skipped),
 		...(probes.length > 0
 			? [`probed ${probes.map((p) => `${p.seat}: ${p.outcome}`).join(", ")}`]
 			: []),

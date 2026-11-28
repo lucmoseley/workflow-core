@@ -30,10 +30,12 @@ const {
 	pickSeat,
 	seatHold,
 	isClashSkip,
+	isUntrustedSkip,
 } = require("./refill-decide.js");
 const {
 	buildSeatText,
 	buildSkipText,
+	buildUntrustedTexts,
 	controlInMode,
 	controlWithoutOptedOut,
 	scopeRoots,
@@ -875,12 +877,14 @@ function buildControlLines(control, state, opts) {
 /** @param {NonNullable<LoopState["lastTick"]>} t */
 function buildLastTickLines(t) {
 	const all = t.skipped ?? [];
+	const listed = all.filter((s) => !isUntrustedSkip(s));
 	const skipped = [
-		...all.filter(isClashSkip),
-		...all.filter((s) => !isClashSkip(s)),
+		...listed.filter(isClashSkip),
+		...listed.filter((s) => !isClashSkip(s)),
 	];
 	return [
 		`last tick: ${iso(t.at)}  ${t.summary}`,
+		...buildUntrustedTexts(all).map((line) => `  ${line}`),
 		...skipped
 			.slice(0, STATUS_SKIPS)
 			.map((s) => `  skipped ${buildSkipText(s)}`),

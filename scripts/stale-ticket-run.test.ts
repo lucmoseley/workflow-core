@@ -246,9 +246,47 @@ describe("stale-ticket-run", () => {
 		const hub = r.log.slice(r.log.indexOf("issue create"));
 		expect(hub).toMatch(/## Restored this run\s+None\./);
 		expect(hub).toMatch(
-			/## Failed this run\s+- cleared: o\/a#2 gated on o\/a#8, which has closed — failed: /,
+			/## Failed this run\s+The next run tries[^\n]*\s+- cleared: o\/a#2 gated on o\/a#8, which has closed — failed: /,
 		);
 		expect(hub).not.toContain("gh refused");
+	});
+
+	it("refreshes an open hub it would have closed when an act failed, every line disposed (#5931)", async () => {
+		const disposed = ["o/a#4:C1", "o/a#6:C5"];
+		fs.mkdirSync(at("refill"), { recursive: true });
+		fs.writeFileSync(
+			record(),
+			`${JSON.stringify({
+				date: NOW,
+				repoLines: [],
+				listed: [],
+				owed: [],
+				acts: [],
+				filings: [],
+				hub: { number: 40, keys: [] },
+				disposed,
+				gates: {},
+			})}\n`,
+		);
+		const r = await run([], {
+			routes: [
+				{ when: "issue view 2 --repo o/a --json body", fail: true },
+				{
+					when: "issue view 40 --repo o/core --json state",
+					out: JSON.stringify({ state: "OPEN" }),
+				},
+			],
+		});
+		expect(r.status).toBe(0);
+		expect(r.stderr).not.toContain("hub state unread");
+		expect(r.stdout).toContain("hub: refresh");
+		expect(r.log).not.toMatch(/issue close 40/);
+		expect(r.log).toMatch(/## Failed this run/);
+		const rows = fs.readFileSync(record(), "utf8").trim().split("\n");
+		const row = JSON.parse(rows.at(-1) ?? "{}");
+		expect(row.disposed).toEqual(disposed);
+		expect(row.hub.number).not.toBeNull();
+		expect(row.hub.keys).toEqual(disposed);
 	});
 
 	describe("a count gate's reading history", () => {

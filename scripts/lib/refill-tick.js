@@ -662,7 +662,6 @@ const launchOrResume = (batch, served) =>
 			});
 		},
 		admitResume,
-		isUntrusted,
 		stagger: staggerResume,
 		recordLaunch,
 		launchFresh: launchBatch,
@@ -876,6 +875,7 @@ const productionIo = {
 	readTickHolds,
 	readFrontier: refillFrontier,
 	readParkMarkers,
+	isUntrusted,
 	launchBatch: launchOrResume,
 	runReview,
 	updateState: (transition) => updateState(transition, log),

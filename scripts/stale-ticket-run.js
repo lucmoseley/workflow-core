@@ -663,21 +663,28 @@ function file(labelled, { title, body, repo }) {
 
 /**
  * @param {import("./lib/stale-run-plan.js").Plan} p
- * @param {string} coreTracker
+ * @param {import("./lib/stale-run-plan.js").Snapshot} snap
  * @param {Set<string>} labelled
  * @param {import("./lib/stale-run-plan.js").ActOutcomes} acts
- * @returns {number|null}
  */
-function applyHub(p, coreTracker, labelled, acts) {
-	if (p.hub.action === "close") issue(coreTracker, p.hub.number, ["close"]);
-	if (p.hub.action !== "refresh") return null;
-	const { number, text } = file(labelled, {
-		title: plan.HUB_TITLE,
-		body: plan.buildHubBody(p, acts),
-		repo: coreTracker,
+function applyHub(p, snap, labelled, acts) {
+	const hub = plan.hubNext(p, snap.hub, acts);
+	say(`hub: ${hub.action}`);
+	if (hub.action === "close") issue(snap.coreTracker, hub.number, ["close"]);
+	let filed = null;
+	if (hub.action === "refresh") {
+		const written = file(labelled, {
+			title: plan.HUB_TITLE,
+			body: plan.buildHubBody(p, acts),
+			repo: snap.coreTracker,
+		});
+		say(written.text);
+		filed = written.number;
+	}
+	return plan.hubAfter(p, hub, {
+		filed,
+		before: snap.hub?.state === "open" ? snap.hub.number : null,
 	});
-	say(text);
-	return number;
 }
 
 /**
@@ -703,10 +710,7 @@ function apply(p, snap) {
 			return [];
 		}
 	});
-	const hub = plan.hubAfter(p.hub, {
-		filed: applyHub(p, snap.coreTracker, labelled, acts),
-		before: snap.hub?.state === "open" ? snap.hub.number : null,
-	});
+	const hub = applyHub(p, snap, labelled, acts);
 	return { acts: acts.done, filings, hub };
 }
 
@@ -717,7 +721,6 @@ function printPlan(p) {
 	for (const o of p.owed) say(`owed  ${o.text}`);
 	for (const a of p.acts) say(`would: ${plan.actText(a)}`);
 	for (const f of p.filings) say(`would file or refresh: ${f.title}`);
-	say(`hub: ${p.hub.action}`);
 }
 
 /** @param {{dryRun: boolean}} opts @returns {Promise<number>} */
@@ -731,6 +734,7 @@ async function runStaleTicket({ dryRun }) {
 	const p = plan.planStaleRun(snap);
 	printPlan(p);
 	if (dryRun) {
+		say(`hub: ${plan.hubNext(p, snap.hub, plan.NO_OUTCOMES).action}`);
 		say("--dry-run: nothing written.");
 		return 0;
 	}

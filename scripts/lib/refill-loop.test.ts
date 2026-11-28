@@ -2391,3 +2391,22 @@ describe("a resume the tick's step left held (#3855)", () => {
 		expect(left.lines.join("\n")).toMatch(/left with a resume due.*j1 held/);
 	});
 });
+
+describe("buildUntrustedTexts (#5921)", () => {
+	const { buildUntrustedTexts } = require("./refill-loop.js");
+	const why =
+		"workspace untrusted on s1: run `cd /r/dv && CLAUDE_CONFIG_DIR=/s1 claude` once and accept the trust prompt";
+	it("names each held repo's trust act once, its numbers capped, and leaves other skips out", () => {
+		const skipped = [1, 2, 3, 4, 5].map((number) => ({
+			root: "/r/dv",
+			number,
+			why,
+		}));
+		expect(
+			buildUntrustedTexts([
+				...skipped,
+				{ root: "/r/wfc", number: 9, why: "already running" },
+			]),
+		).toEqual([`held dv #1, #2, #3 and 2 more: ${why}`]);
+	});
+});

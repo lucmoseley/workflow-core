@@ -220,6 +220,7 @@ function fakeIo(
 			goal: null,
 		})) as unknown as TickIo["readFrontier"],
 		readParkMarkers: () => [],
+		isUntrusted: () => false,
 		launchBatch: recorded("launchBatch", (batch) => ({
 			launched: batch.map((l) => ({
 				...l,
@@ -1477,28 +1478,45 @@ describe("the checkouts a live tick tends (#3284, #4247, #4248, #4318)", () => {
 		await tickOf(io);
 		expect(warmed).toEqual([WFC, outside]);
 	});
+});
 
-	it("warms no root whose launch was held on an untrusted workspace (#5918)", async () => {
-		const outside = "/home/u/watch-digest";
-		const warmed: string[] = [];
-		const { io } = fakeIo(
+describe("a workspace its seat does not trust, through the tick (#5921)", () => {
+	const outside = "/home/u/watch-digest";
+
+	it("gives the untrusted repo's slot to the next row and names the trust act once", async () => {
+		const asked: string[][] = [];
+		const batches: unknown[] = [];
+		const { io, lines } = fakeIo(
 			stateOf(),
 			{
-				startWarmPass: (root) => warmed.push(root),
-				launchBatch: (batch) => ({
-					launched: [],
-					refused: batch.map((launch) => ({
-						launch,
-						reason: "workspace untrusted",
-						untrusted: true as const,
-					})),
-				}),
-				readFreeSlots: () => ({ slots: 3, admission: null }),
+				isUntrusted: (seat, root) => {
+					asked.push([seat, root]);
+					return root === outside;
+				},
+				launchBatch: (batch) => {
+					batches.push(batch.map((l) => [l.root, l.issues]));
+					return { launched: [], refused: [] };
+				},
 			},
-			{ frontier: [{ ...row(1), root: outside }] },
+			{
+				frontier: [
+					{ ...row(11), root: outside },
+					{ ...row(12), root: outside },
+					row(3),
+				],
+			},
 		);
 		await tickOf(io);
-		expect(warmed).toEqual([WFC]);
+		expect(asked).toEqual([
+			[SEAT, outside],
+			[SEAT, WFC],
+		]);
+		expect(batches).toEqual([[[WFC, [3]]]]);
+		const trust = lines.join("\n").split("workspace untrusted on").length - 1;
+		expect(trust).toBe(1);
+		expect(lines.join("\n")).toContain(
+			`cd ${outside} && CLAUDE_CONFIG_DIR=${SEAT} claude`,
+		);
 	});
 });
 

@@ -170,8 +170,6 @@ const CLASS_ORDER = /** @type {Cls[]} */ (Object.keys(CLASS_NAMES));
  * @property {OwedLine[]} owed
  * @property {Act[]} acts
  * @property {Filing[]} filings
- * @property {HubNext} hub
- * @property {string[]} hubKeys
  * @property {string[]} disposed
  * @property {Record<string, GateSeen>} gates
  */
@@ -337,7 +335,7 @@ function planStaleRun(snap) {
 	planAllStuckBlockers(planned);
 	for (const { rc } of planned) flushLines(rc);
 	planCauses(ctx);
-	return { ...planHub(ctx), gates: ctx.gates };
+	return { ...planDisposal(ctx), gates: ctx.gates };
 }
 
 /** @param {Ctx} ctx @param {SnapRepo} r @param {string} repo */
@@ -942,10 +940,9 @@ function planCauses(ctx) {
 }
 
 /** @param {Ctx} ctx */
-function planHub(ctx) {
+function planDisposal(ctx) {
 	const { snap, lines, owed, acts, filings, repoLines } = ctx;
-	const keys = [...lines.map((l) => l.key), ...owed.map((o) => o.key)];
-	const current = new Set(keys);
+	const current = new Set(hubKeys(ctx));
 	const prevHub = snap.previous?.hub ?? { number: null, keys: [] };
 	const closedNow =
 		snap.hub?.state === "closed" && prevHub.number === snap.hub.number;
@@ -957,22 +954,28 @@ function planHub(ctx) {
 	]
 		.filter((k) => current.has(k))
 		.sort();
-	const disposedSet = new Set(disposed);
-	/** @type {HubNext} */
-	let hub = { action: "none" };
-	if (lines.some((l) => !disposedSet.has(l.key))) hub = { action: "refresh" };
-	else if (snap.hub?.state === "open")
-		hub = { action: "close", number: snap.hub.number };
-	return {
-		repoLines,
-		lines,
-		owed,
-		acts,
-		filings,
-		hub,
-		hubKeys: hub.action === "refresh" ? keys : [],
-		disposed,
-	};
+	return { repoLines, lines, owed, acts, filings, disposed };
+}
+
+/** @param {Pick<Plan, "lines" | "owed">} p */
+const hubKeys = (p) => [...p.lines, ...p.owed].map((l) => l.key);
+
+/** @type {ActOutcomes} */
+const NO_OUTCOMES = Object.freeze({ done: [], failed: [] });
+
+/**
+ * @param {Plan} p
+ * @param {Snapshot["hub"]} hub
+ * @param {ActOutcomes} outcomes
+ * @returns {HubNext}
+ */
+function hubNext(p, hub, outcomes) {
+	const disposed = new Set(p.disposed);
+	if (outcomes.failed.length > 0 || p.lines.some((l) => !disposed.has(l.key)))
+		return { action: "refresh" };
+	return hub?.state === "open"
+		? { action: "close", number: hub.number }
+		: { action: "none" };
 }
 
 /**
@@ -1042,7 +1045,7 @@ function actComment(a, { stripped }) {
 /**
  * @param {Plan} p
  * @param {Snapshot} snap
- * @param {{acts: string[], filings: string[], hub: number|null}} done
+ * @param {{acts: string[], filings: string[], hub: RunRow["hub"]}} done
  * @returns {RunRow}
  */
 function buildRunRow(p, snap, done) {
@@ -1060,19 +1063,22 @@ function buildRunRow(p, snap, done) {
 		owed: p.owed,
 		acts: done.acts,
 		filings: done.filings,
-		hub: { number: done.hub, keys: p.hubKeys },
+		hub: done.hub,
 		disposed: p.disposed,
 		gates: p.gates,
 	};
 }
 
 /**
+ * @param {Plan} p
  * @param {HubNext} hub
  * @param {{filed: number|null, before: number|null}} at
- * @returns {number|null}
+ * @returns {RunRow["hub"]}
  */
-const hubAfter = (hub, { filed, before }) =>
-	hub.action === "refresh" ? (filed ?? before) : null;
+const hubAfter = (p, hub, { filed, before }) =>
+	hub.action === "refresh"
+		? { number: filed ?? before, keys: hubKeys(p) }
+		: { number: null, keys: [] };
 
 /**
  * @param {Act} a
@@ -1124,7 +1130,14 @@ function buildHubBody({ repoLines, lines, owed, disposed }, { done, failed }) {
 		"",
 		...(failed.length === 0
 			? []
-			: ["## Failed this run", "", ...failed.map((t) => `- ${t}`), ""]),
+			: [
+					"## Failed this run",
+					"",
+					"The next run tries each of these again; one listed here two runs running needs a session to fix its cause.",
+					"",
+					...failed.map((t) => `- ${t}`),
+					"",
+				]),
 		buildStandaloneLine(HUB_STANDALONE),
 	].join("\n");
 }
@@ -1156,6 +1169,7 @@ module.exports = {
 	OWED_FLOOR_DAYS,
 	HUB_TAKES,
 	HUB_TITLE,
+	NO_OUTCOMES,
 	STAMP_ALARM_DAYS,
 	actComment,
 	actText,
@@ -1164,6 +1178,7 @@ module.exports = {
 	buildRunRow,
 	failedText,
 	hubAfter,
+	hubNext,
 	planStaleRun,
 	reopenSteps,
 };

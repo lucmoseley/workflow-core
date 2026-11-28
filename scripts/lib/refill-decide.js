@@ -3,7 +3,13 @@ const { LAST_RESUME_OFFSET_MS } = require("./block-act.js");
 const { WAITING_LABEL } = require("./frontier-order.js");
 const { buildAgeText } = require("./hold-age.js");
 const { newestMarkerListing, PARKED_LABEL } = require("./parked.js");
-const { buildSeatLabel, isSameSeat, seatIdOf } = require("./refill-seats.js");
+const {
+	buildSeatLabel,
+	buildSeatName,
+	isSameSeat,
+	seatIdOf,
+} = require("./refill-seats.js");
+const { shellQuote } = require("./sh-quote.js");
 const { loneCommandOf, TAKES_PREFIX } = require("./takes-label.js");
 const { withoutStamps } = require("./stamp-paths.js");
 const { buildRowPrompt } = require("./unclosed-launch.js");
@@ -33,6 +39,7 @@ const RESUME_DUE_WAIT = "every seat is spent; a resume is due";
 const RESUMES_TAKE_SLOTS = "resumes take every free slot";
 const UNPROVEN_CAP = `${UNPROVEN_LIMIT} launches since the last act are running`;
 const CHECKOUTS_HELD = "every launchable checkout is held";
+const UNTRUSTED_HELD = "every launchable repo is untrusted on its seat";
 const OVERFLOW_SPENT = "every plan seat is weekly-full";
 const PLAN_RESETS = "a plan resets";
 const PAUSED = "paused by";
@@ -43,6 +50,12 @@ const ALREADY_RUNNING = "already running";
 const CLASH_PREFIX = "clashes on ";
 /** @param {Skip} s */
 const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
+const UNTRUSTED_PREFIX = "workspace untrusted on ";
+/** @param {Skip} s */
+const isUntrustedSkip = (s) => s.why.startsWith(UNTRUSTED_PREFIX);
+/** @param {SeatRoot} at */
+const buildUntrustedWhy = ({ seat, root }) =>
+	`${UNTRUSTED_PREFIX}${buildSeatName(seat)}: run \`cd ${shellQuote(root)} && CLAUDE_CONFIG_DIR=${shellQuote(seat)} claude\` once and accept the trust prompt`;
 
 /**
  * @typedef {import("./frontier-order.js").FrontierRow & {root: string,
@@ -129,7 +142,10 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {HeldResume[]} [resumable]
  * @property {TickHold[]} [holds]
  * @property {BillingStop[]} [billingStops]
+ * @property {SeatRoot[]} [untrusted]
  */
+
+/** @typedef {{seat: string, root: string}} SeatRoot */
 
 /** @typedef {{seat: string, since: number}} BillingStop */
 
@@ -700,6 +716,10 @@ function takeResumes(input, slots, room) {
 	return { resumes, capHeld, seatsLeft };
 }
 
+/** @param {{parkedRoute?: Launch["parkedRoute"]}} next */
+const resumeOf = ({ parkedRoute }) =>
+	parkedRoute && "resume" in parkedRoute ? parkedRoute.resume : null;
+
 /**
  * @param {TickInput} input
  * @param {{seat: string, keyVar?: string, reason: SeatReason}} on
@@ -717,7 +737,13 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 		parkers,
 		history,
 		typedSeat,
+		untrusted = [],
 	} = input;
+	/** @param {string} on @param {string} root */
+	const buildTrustHoldWhy = (on, root) =>
+		untrusted.some((u) => u.seat === on && u.root === root)
+			? buildUntrustedWhy({ seat: on, root })
+			: null;
 	/** @type {Launch[]} */
 	const launches = [];
 	/** @type {Skip[]} */
@@ -764,11 +790,14 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 	const nextOf = (row) => {
 		const why = buildHeldWhy(row.root, row.number);
 		if (why !== null) return { why };
-		return routedLaunch(
+		const next = routedLaunch(
 			row,
 			{ retroBundles, mode, seats: seatsLeft, parkers, history, typedSeat },
 			(n) => taken.has(key(row.root, n)),
 		);
+		if ("why" in next) return next;
+		const hold = buildTrustHoldWhy(resumeOf(next)?.seat ?? seat, row.root);
+		return hold === null ? next : { why: hold };
 	};
 	/** @type {Map<string, number>} */
 	const writtenBy = new Map();
@@ -781,10 +810,7 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 	 * @param {MergedRow} row
 	 * @param {Exclude<ReturnType<typeof nextOf>, {why: string}>} next */
 	const buildClashWhy = (row, next) => {
-		const resumer =
-			next.parkedRoute && "resume" in next.parkedRoute
-				? next.parkedRoute.resume.sessionId
-				: null;
+		const resumer = resumeOf(next)?.sessionId ?? null;
 		const by = row.heldBy;
 		const [held] = by && by.sessionId !== resumer ? by.paths : [];
 		if (held !== undefined)
@@ -802,8 +828,8 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 	 * @param {MergedRow} row
 	 * @param {Exclude<ReturnType<typeof nextOf>, {why: string}>} next */
 	const launchRow = (row, next) => {
-		if (next.parkedRoute && "resume" in next.parkedRoute)
-			seatsLeft = spendSeatFit(seatsLeft, next.parkedRoute.resume.seat);
+		const resume = resumeOf(next);
+		if (resume) seatsLeft = spendSeatFit(seatsLeft, resume.seat);
 		for (const p of substrateOf(row)) {
 			const at = pathKey(row.root, p);
 			if (!writtenBy.has(at)) writtenBy.set(at, row.number);
@@ -837,7 +863,8 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 	walk(parked.filter((r) => !hasQueuedJudgement(r)));
 	for (const j of judgements) {
 		if (launches.length >= slots) break;
-		const why = buildHeldWhy(j.root, j.number);
+		const why =
+			buildHeldWhy(j.root, j.number) ?? buildTrustHoldWhy(seat, j.root);
 		if (why === null) launch(j.root, [j.number], j.prompt, { gate: true });
 		else skipped.push({ root: j.root, number: j.number, why });
 	}
@@ -1052,18 +1079,21 @@ function buildUnlaunchedIdle(input, skipped) {
 				.map((f) => `${path.basename(f.root)}: ${f.error}`)
 				.join(`; ${SHORTLIST_FAILED} `)}`,
 		);
-	if (
-		skipped.length === 0 ||
-		!skipped.every((s) => CHECKOUT_SKIPS.includes(s.why))
-	)
+	const rest = skipped.filter((s) => !isUntrustedSkip(s));
+	if (rest.length === 0 && skipped.length > 0)
+		return buildIdle(
+			UNTRUSTED_HELD,
+			`: ${[...new Set(skipped.map((s) => path.basename(s.root)))].join(", ")}`,
+		);
+	if (rest.length === 0 || !rest.every((s) => CHECKOUT_SKIPS.includes(s.why)))
 		return buildIdle(NOTHING_LAUNCHABLE);
-	if (skipped.every((s) => s.why === PROBE_HELD))
+	if (rest.every((s) => s.why === PROBE_HELD))
 		return buildIdle(
 			PROBE_HOLD_WAIT,
 			buildProbeHoldDetail(input.holds ?? [], input.now),
 		);
-	const byRoot = new Map(skipped.map((s) => [s.root, s.why]));
-	if (skipped.every((s) => s.why === UNPROVEN_HELD))
+	const byRoot = new Map(rest.map((s) => [s.root, s.why]));
+	if (rest.every((s) => s.why === UNPROVEN_HELD))
 		return buildUnprovenIdle(input.lastActAt, [...byRoot.keys()]);
 	return buildIdle(
 		CHECKOUTS_HELD,
@@ -1171,6 +1201,8 @@ module.exports = {
 	decideTick,
 	isFrontierDependent,
 	isClashSkip,
+	isUntrustedSkip,
+	UNTRUSTED_HELD,
 	fitsLaunch,
 	hasRoom,
 	isParked,
