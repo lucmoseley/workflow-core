@@ -617,7 +617,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 			[parked(1), parked(2), member(3)],
 			ok,
 			true,
-			() => (reads++ === 0 ? null : "no free slot"),
+			{ admitResume: () => (reads++ === 0 ? null : "no free slot") },
 		);
 		expect(reads).toBe(2);
 		expect(resumed).toHaveLength(1);
