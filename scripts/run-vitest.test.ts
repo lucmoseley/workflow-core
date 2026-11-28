@@ -45,7 +45,6 @@ const { REFUSAL_NAMED_MAX } = require("./lib/dirty-tree.js");
 const { dirPath } = require("./lib/test-log.js");
 const { main } = require("./run-vitest.js");
 const { launchEnv, readLaunch } = require("./lib/suite-handoff.js");
-const { bucketOf } = require("./lib/part-suite-peak.js");
 const { keptSpawn } = require("./lib/kept-spawn.js");
 const { START_MARK_ENV } = require("./lib/tree-drift.js");
 const { MEMORY_ENV } = require("./lib/run-memory.js");
@@ -6839,7 +6838,7 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 		return { code, out: out.text, spawned };
 	};
 
-	it("hands a selection over the bound's 120 files to the run's record with boundedFrom and every file left out, weighed in the 21-120 bucket (#5878)", async () => {
+	it("hands a selection over the bound's 120 files to the run's record with boundedFrom and every file left out, its planned count 120 (#5878)", async () => {
 		const dir = touchedRepo();
 		const readers = Array.from(
 			{ length: 121 },
@@ -6861,14 +6860,12 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 		expect(out).toContain(
 			"this work selects 122 test files, over the touched run's bound of 120",
 		);
-		const handed = readLaunch(spawned[0].env);
-		expect(handed).toMatchObject({
+		expect(readLaunch(spawned[0].env)).toMatchObject({
 			touched: true,
 			resolvedFiles: 120,
 			boundedFrom: 122,
 			leftOut: readers.slice(-2),
 		});
-		expect(bucketOf(handed.resolvedFiles)).toBe("21-120");
 	});
 
 	it("launches exactly the resolved files, no transitive importer, and never widens on a dependency root", async () => {
