@@ -660,7 +660,7 @@ function projectGate(gate, reading, { refusals, warnings }) {
 		warnings.push(
 			`The count gate \`${gate.command}\` has under ${MIN_REFUSE_DAYS} days of reading history and its basis states no expected time, so nothing projects its met date yet; the daily stale-ticket run projects it once it has a day of readings (#5861).`,
 		);
-	else if (bound.verdict === "stated")
+	else if (bound.verdict === "stated-past-bound")
 		refusals.push(
 			`the count gate \`${gate.command}\` on the \`**Gated on:**\` line has a \`**Gate basis:**\` whose pass clause expects ${bound.days} days, past ${BOUND_CITE}. ${WAYS_OUT}. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`,
 		);

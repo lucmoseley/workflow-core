@@ -1,3 +1,4 @@
+// Unbuilt caller: scripts/lib/stale-run-plan.js (#5859)
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -6,6 +7,7 @@ const { parseErrorFirstLine } = require("./first-line.js");
 const { now: clockNow } = require("./clock.js");
 const { readJsonl } = require("./jsonl.js");
 const { refillPath } = require("./refill-dir.js");
+const { UPSTREAM_TRACKER } = require("./workflow-core-config.js");
 
 // #5687
 const BOUND_DAYS = 7;
@@ -254,17 +256,28 @@ const reachableFloor = (a, ratePerDay) =>
 	a + Math.floor(Math.max(0, ratePerDay) * BOUND_DAYS);
 
 const BOUND_RULING = "#5687 Q1";
-const FOUNDER_ROUND_RE = /#\d+\s+Q\d+\b/g;
+const BOUND_ROUND = { issue: 5687, round: 1 };
+const FOUNDER_ROUND_RE = /#(\d+)\s+Q(\d+)\b/g;
 const PASS_CLAUSE_RE = /\bpass\s*=([^;]*)/i;
 const STATED_TIME_RES = [
 	/\((?:about\s+)?(\d+(?:\.\d+)?)\s+(days?|weeks?)\s+at\b/gi,
 	/\babout\s+(\d+(?:\.\d+)?)\s+(days?|weeks?)\b/gi,
 ];
 
+/** @param {string} before */
+const isUpstreamRef = (before) => {
+	const word = before.split(/\s/).at(-1) ?? "";
+	const repo = word.replace(/^\W+/, "");
+	return !repo.includes("/") || repo.toLowerCase() === UPSTREAM_TRACKER;
+};
+
 /** @param {string} basis */
 const hasFounderRound = (basis) =>
 	[...basis.matchAll(FOUNDER_ROUND_RE)].some(
-		([m]) => m.replace(/\s+/, " ") !== BOUND_RULING,
+		({ 1: issue, 2: round, index }) =>
+			!isUpstreamRef(basis.slice(0, index)) ||
+			Number(issue) !== BOUND_ROUND.issue ||
+			Number(round) !== BOUND_ROUND.round,
 	);
 
 /**
@@ -282,9 +295,9 @@ function parseStatedDays(basis) {
 }
 
 /**
- * @typedef {Extract<Projection, {metAt: unknown}>} Unreachable
- * @typedef {{verdict: "pass"} | {verdict: "unreachable", projection: Unreachable}
- *   | {verdict: "stated", days: number} | {verdict: "unprojected"}} BoundVerdict
+ * @typedef {Extract<Projection, {metAt: unknown}>} DatedProjection
+ * @typedef {{verdict: "pass"} | {verdict: "unreachable", projection: DatedProjection}
+ *   | {verdict: "stated-past-bound", days: number} | {verdict: "unprojected"}} BoundVerdict
  */
 
 /**
@@ -306,7 +319,7 @@ function judgeBound(rows, counts, basis, now) {
 			: pass;
 	const days = parseStatedDays(basis);
 	if (days === null) return { verdict: "unprojected" };
-	return days > BOUND_DAYS ? { verdict: "stated", days } : pass;
+	return days > BOUND_DAYS ? { verdict: "stated-past-bound", days } : pass;
 }
 
 module.exports = {
