@@ -87,12 +87,12 @@ function findFirstSite(code, re) {
 /**
  * @param {string} prefix
  * @param {(program: Program, rel: string, hooked: Set<string>) => Site[]} keeps
- * @returns {(program: Program, rel: string, context: unknown) => Site[]}
+ * @returns {(program: Program, rel: string, hooked: Set<string> | undefined) => Site[]}
  */
-const outsidePrefix = (prefix, keeps) => (program, rel, context) =>
+const outsidePrefix = (prefix, keeps) => (program, rel, hooked) =>
 	path.basename(rel).startsWith(prefix) || hasOpeningPointer(program.source)
 		? []
-		: keeps(program, rel, /** @type {Set<string>} */ (context));
+		: keeps(program, rel, hooked ?? new Set());
 
 /**
  * @param {string} contract

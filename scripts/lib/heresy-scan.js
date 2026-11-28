@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { readText } = require("./file-read.js");
+const { dataOrThrow, readText } = require("./file-read.js");
 const { worktreeRoot } = require("./host-root.js");
 const { blankComments } = require("./strip-comments.js");
 const { isJsTestFile } = require("./test-kind.js");
@@ -13,9 +13,12 @@ const REPORT_PROGRAM = /^scripts\/report-[^/]+$/;
 /**
  * @typedef {{ line: number, text: string }} Site
  * @typedef {{ source: string, code: string }} Program
+ */
+/**
+ * @template [C=undefined]
  * @typedef {{
  *   tag: string,
- *   sites: (program: Program, rel: string, context: unknown) => Site[],
+ *   sites: (program: Program, rel: string, context: C | undefined) => Site[],
  *   message: (rel: string, site: Site) => string,
  * }} Breach
  */
@@ -97,9 +100,8 @@ function readBeside(root, paths) {
 	/** @type {Map<string, string>} */
 	const texts = new Map();
 	for (const rel of paths) {
-		const read = readText(path.join(root, rel));
-		if (read.state === "unreadable") throw read.error;
-		if (read.state === "read") texts.set(rel, read.data);
+		const text = dataOrThrow(readText(path.join(root, rel)));
+		if (text !== null) texts.set(rel, text);
 	}
 	return texts;
 }
@@ -122,10 +124,11 @@ function saySites(ctx, phrase, fixes) {
 }
 
 /**
+ * @template C
  * @param {Ctx} ctx
- * @param {{ rel: string, context: unknown }} at
+ * @param {{ rel: string, context: C | undefined }} at
  * @param {Program} program
- * @param {Breach[]} breaches
+ * @param {Breach<C>[]} breaches
  */
 function failSites(ctx, { rel, context }, program, breaches) {
 	for (const { tag, sites, message } of breaches) {
@@ -144,13 +147,14 @@ function failSites(ctx, { rel, context }, program, breaches) {
 }
 
 /**
+ * @template [C=undefined]
  * @param {{
  *   name: string,
  *   dirs?: string[],
- *   reads?: { paths: string[], parse: (texts: ReadonlyMap<string, string>) => unknown },
+ *   reads?: { paths: string[], parse: (texts: ReadonlyMap<string, string>) => C },
  *   include?: (rel: string) => boolean,
  *   skip?: string[],
- *   breaches: Breach[],
+ *   breaches: Breach<C>[],
  *   summary?: { phrase: string, fix: string },
  *   finish: (ctx: Ctx, scanned: number) => { okLine: string, noun: string },
  * }} spec
@@ -159,7 +163,7 @@ function failSites(ctx, { rel, context }, program, breaches) {
 function heresySpec({
 	name: checkName,
 	dirs = ["scripts"],
-	reads = { paths: [], parse: () => undefined },
+	reads,
 	include = () => true,
 	skip = [],
 	breaches,
@@ -173,12 +177,12 @@ function heresySpec({
 		against: {
 			profile: checkName,
 			materialise: "blobs",
-			pathspecs: () => [...dirs, ...reads.paths],
+			pathspecs: () => [...dirs, ...(reads?.paths ?? [])],
 		},
 		run(/** @type {Ctx} */ ctx) {
 			const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 			const names = readPrograms(root, dirs, include);
-			const context = reads.parse(readBeside(root, reads.paths));
+			const context = reads?.parse(readBeside(root, reads.paths));
 			for (const rel of names) {
 				if (skip.includes(rel)) continue;
 				const source = fs.readFileSync(path.join(root, rel), "utf8");
