@@ -127,7 +127,7 @@ function fullRunFields(launch: import("./lib/suite-handoff.js").Launch) {
 function touchedFields(launch: import("./lib/suite-handoff.js").Launch) {
 	return {
 		...(launch.leftOut ? { leftOut: launch.leftOut } : {}),
-		...(launch.boundedFrom === null ? {} : { boundedFrom: launch.boundedFrom }),
+		...(launch.boundedFrom ? { boundedFrom: launch.boundedFrom } : {}),
 		...(launch.touchedBase ? { touchedBase: launch.touchedBase } : {}),
 	};
 }

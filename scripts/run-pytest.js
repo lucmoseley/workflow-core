@@ -185,7 +185,7 @@ function pytestPlan(argv, root) {
 				touched: {
 					resolvedFiles: files.length,
 					leftOut,
-					...(boundedFrom === null ? {} : { boundedFrom }),
+					...(boundedFrom ? { boundedFrom } : {}),
 					touchedBase: from,
 				},
 			};

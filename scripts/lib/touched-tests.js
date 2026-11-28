@@ -23,6 +23,7 @@ const { gitRead, readUntrackedFiles } = require("./dirty-tree.js");
 const { readOwnWork } = require("./own-work.js");
 const { readMergeParents } = require("./merge-heads.js");
 const { caught } = require("./caught.js");
+const { byCodeUnit } = require("./by-code-unit.js");
 const { readGateSeats } = require("./suite-queue.js");
 const idSeam = require("./session-id.js");
 const { EDGES_FILE, shortSha } = require("./test-pass-marker.js");
@@ -215,7 +216,7 @@ function readSiblingTests(root, changed, isSibling) {
 	return out;
 }
 
-// #5878
+// guess, #5878
 const TOUCHED_BOUND = 120;
 
 /** @typedef {{ from: number, out: string[], own: number }} Bounded */
@@ -230,17 +231,17 @@ function boundNearest(files, { own, selecting, siblings }) {
 	if (files.length <= TOUCHED_BOUND) return { files, bounded: null };
 	const inRun = new Set(files);
 	/** @type {Map<string, number>} */
-	const specificity = new Map();
+	const fewestReaders = new Map();
 	/** @type {Map<string, number>} */
-	const paths = new Map();
+	const selectingPaths = new Map();
 	for (const tests of selecting.values()) {
 		const readers = [...new Set(tests)].filter((t) => inRun.has(t));
 		for (const t of readers) {
-			specificity.set(
+			fewestReaders.set(
 				t,
-				Math.min(specificity.get(t) ?? readers.length, readers.length),
+				Math.min(fewestReaders.get(t) ?? readers.length, readers.length),
 			);
-			paths.set(t, (paths.get(t) ?? 0) + 1);
+			selectingPaths.set(t, (selectingPaths.get(t) ?? 0) + 1);
 		}
 	}
 	const kept = files.filter((f) => own.has(f));
@@ -249,9 +250,9 @@ function boundNearest(files, { own, selecting, siblings }) {
 		.sort(
 			(a, b) =>
 				Number(siblings.has(b)) - Number(siblings.has(a)) ||
-				(specificity.get(a) ?? inRun.size) -
-					(specificity.get(b) ?? inRun.size) ||
-				(paths.get(b) ?? 0) - (paths.get(a) ?? 0) ||
+				(fewestReaders.get(a) ?? inRun.size) -
+					(fewestReaders.get(b) ?? inRun.size) ||
+				(selectingPaths.get(b) ?? 0) - (selectingPaths.get(a) ?? 0) ||
 				byCodeUnit(a, b),
 		);
 	const room = Math.max(0, TOUCHED_BOUND - kept.length);
@@ -602,12 +603,6 @@ function touchedBanner(
 	if (coda) lines.push(coda);
 	return `${lines.join("\n")}\n`;
 }
-
-/** @param {string} a @param {string} b */
-const byCodeUnit = (a, b) => {
-	if (a === b) return 0;
-	return a < b ? -1 : 1;
-};
 
 /** @param {string[][]} lists */
 const sortedUnion = (...lists) => [...new Set(lists.flat())].sort();
