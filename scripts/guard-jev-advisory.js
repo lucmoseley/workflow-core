@@ -78,9 +78,9 @@ const KEEP_LEAVES_TEXT_AT = 0.5;
 // #5833 measured 3 false of 60 judged fires at 0.8
 const FIX_THRESHOLD = 0.8;
 
-const FIX_PREFIX = ".fix-or-file-told-";
+const FIX_PREFIX = ".fix-or-file-nagged-";
 
-const PENDING_PREFIX = ".fix-or-file-pending-";
+const PENDING_PREFIX = ".fix-or-file-pending-nagged-";
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 

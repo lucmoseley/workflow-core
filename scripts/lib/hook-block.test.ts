@@ -104,8 +104,8 @@ const gitignore = new Set(
 );
 
 describe("the counter prefixes, read from hook-block.js's call sites", () => {
-	it("still finds the twenty-four call sites", () => {
-		expect(total("calls")).toBe(24);
+	it("still finds the twenty-five call sites", () => {
+		expect(total("calls")).toBe(25);
 	});
 
 	it("reads a prefix for every reachable use", () => {

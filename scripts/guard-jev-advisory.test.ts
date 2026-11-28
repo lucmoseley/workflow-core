@@ -258,7 +258,7 @@ describe("the round-marker gate", () => {
 
 	it("never calls the vendor on a round-marked message once the notices are spent", async () => {
 		fs.writeFileSync(
-			marker(`.fix-or-file-told-${sid}`),
+			marker(`.fix-or-file-nagged-${sid}`),
 			`${hookBlock.MAX_BLOCKS}\n`,
 		);
 		const { res, asks } = await ask(ROUND, 0.99);
@@ -1204,7 +1204,7 @@ describe("the fix-or-file question (#5833)", () => {
 
 	it("goes quiet once the session's budget is spent", async () => {
 		fs.writeFileSync(
-			marker(`.fix-or-file-told-${sid}`),
+			marker(`.fix-or-file-nagged-${sid}`),
 			`${hookBlock.MAX_BLOCKS}\n`,
 		);
 		const { res } = await ask(PLAIN, 0.1, {}, 0.99);
