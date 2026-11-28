@@ -101,13 +101,14 @@ function claimIssue(issue, me) {
 /**
  * @param {number|string} issue
  * @param {{sessionId: string|null}} me
+ * @param {string} [root]
  */
-function releaseIssue(issue, me) {
+function releaseIssue(issue, me, root) {
 	const n = issueNumber(issue);
 	if (n === null) return { status: "invalid" };
 	if (!me?.sessionId) return { status: "unidentified" };
 	try {
-		fs.unlinkSync(core.paths.issueClaim(n, me.sessionId));
+		fs.unlinkSync(core.paths.issueClaim(n, me.sessionId, root));
 		return { status: "released" };
 	} catch (e) {
 		if (caught(e).code === "ENOENT") return { status: "none" };

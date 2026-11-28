@@ -52,7 +52,7 @@ function fileRun(nowMs) {
 	const verdict = readVerdict(nowMs);
 	const figure = `Last sweep: ${verdict.last}; ${verdict.why}`;
 	if (!verdict.due) return `${figure}: nothing filed.`;
-	return `${figure}. ${fileOrRefresh({ title: SWEEP_TITLE, labels: [LABEL], body: buildBody(verdict) })}`;
+	return `${figure}. ${fileOrRefresh({ title: SWEEP_TITLE, labels: [LABEL], body: buildBody(verdict) }).text}`;
 }
 
 function daily() {

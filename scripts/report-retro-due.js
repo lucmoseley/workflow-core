@@ -172,7 +172,7 @@ function main() {
 			label: LABEL,
 			labels: [LABEL],
 			body: text,
-		});
+		}).text;
 	} catch (e) {
 		const hint =
 			parseGhFailureReason(e) === "unreachable"

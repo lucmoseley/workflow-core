@@ -391,7 +391,7 @@ function fileDrift(issue, days, write) {
 		return `Not filed: --days ${days} is not the ${DEFAULT_DAYS}-day window the baseline was read over.`;
 	if (!write) return "Not filed: `--write` files or refreshes its tracker.";
 	try {
-		return fileOrRefresh({ ...issue, label: LABEL, labels: [LABEL] });
+		return fileOrRefresh({ ...issue, label: LABEL, labels: [LABEL] }).text;
 	} catch (e) {
 		return `Filing failed: ${String(caught(e).message || e).split("\n")[0]}`;
 	}
