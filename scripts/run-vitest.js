@@ -37,6 +37,7 @@ const {
 	driftClause,
 	freshenManifest,
 	renderDrift,
+	renderFreshEdges,
 } = require("./lib/manifest-freshen.js");
 const {
 	dirPath,
@@ -105,7 +106,6 @@ const {
 	expandChanged,
 	isChangedOnlyArgv,
 	readDefaultChangedBase,
-	liveEdges,
 	selectionFlagClash,
 } = require("./lib/changed-selection.js");
 /** @typedef {import("./lib/dirty-tree.js").ExecFn} ExecFn */
@@ -1493,13 +1493,21 @@ function namedList(paths) {
 /**
  * @param {string} dir
  * @param {string} home
- * @param {RouteOptions} options
+ * @param {RouteOptions & { ledger?: Ledger }} options
  */
 function freshenSnapshot(dir, home, options) {
-	freshenManifest(options.renderEdges ?? (() => liveEdges(dir)), {
+	const session = options.sessionId || idSeam.fromEnv();
+	const render =
+		options.renderEdges ??
+		(() =>
+			renderFreshEdges(dir, home, {
+				sessionId: session,
+				...(options.ledger ? { ledger: options.ledger } : {}),
+			}));
+	freshenManifest(render, {
 		root: dir,
 		home,
-		session: options.sessionId || idSeam.fromEnv(),
+		session,
 		claimFn: options.claimFn,
 		snapshot: options.renderSnapshot,
 		out: options.out ?? process.stdout,
