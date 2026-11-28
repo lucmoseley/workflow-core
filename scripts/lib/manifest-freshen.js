@@ -109,7 +109,6 @@ function writeShared(home, text, { given, session, claimFn, err }) {
 }
 
 /**
- * #5891
  * @param {string} dir
  * @param {string} home
  * @param {{ sessionId: string|null,
