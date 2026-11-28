@@ -373,6 +373,38 @@ describe("--check reads the index, the tree the commit carries (#557)", () => {
 		expect(runResult("--check").status).toBe(0);
 	});
 
+	it("attributes no edge to an untracked file a test's literal names, and one once it is intent-added (#5887)", () => {
+		write("scripts/reader.test.ts", 'process.cwd(); git(["log", "-1"]);');
+		run();
+		git("add", "-A");
+		git("commit", "-q", "-m", "initial");
+		write("log", "a stray file\n");
+		run();
+		expect(readManifest().log).toBeUndefined();
+		git("add", "-N", "log");
+		run();
+		expect(readManifest().log).toEqual(["scripts/reader.test.ts"]);
+	});
+
+	it("reads a run's edge to a new intent-to-add file as drift once the manifest is staged, naming a regenerate that converges (#5887)", () => {
+		write("scripts/reader.test.ts", 'process.cwd(); git(["log", "-1"]);');
+		run();
+		git("add", "-A");
+		git("commit", "-q", "-m", "initial");
+		write("log", "a stray file\n");
+		git("add", "-N", "log");
+		run();
+		git("add", OUT);
+		const { status, stderr } = runResult("--check");
+		expect(status).toBe(1);
+		expect(stderr).toContain("log: 1 -> 0 reader(s)");
+		const named = /-- --only (.+)\n/.exec(stderr)?.[1];
+		expect(named).toBe(OUT);
+		run("--only", ...(named ?? "").split(" "));
+		git("add", OUT);
+		expect(runResult("--check").status).toBe(0);
+	});
+
 	it("keeps a named new intent-to-add path's edges under --only, as the commit carries its disk bytes", () => {
 		git("commit", "-q", "-m", "initial");
 		write(DOC2, "a new document\n");
