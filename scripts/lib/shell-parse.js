@@ -2728,6 +2728,7 @@ function stripRun(run, { spans, judged, pending }) {
 	return {
 		words: st.ws,
 		wrapperWords: st.wrapperWords,
+		wrappers: st.wrappers,
 		chdirs: st.chdirs,
 		unread: st.unread,
 		watched: st.watched,
@@ -2738,10 +2739,23 @@ function stripRun(run, { spans, judged, pending }) {
 /** @param {Strip} st @param {string[]} spans */
 function stripWrappers(st, spans) {
 	for (let first = st.ws[0]; first !== undefined; first = st.ws[0]) {
+		const from = st.ws;
+		const outer = st.outer;
+		st.from = from;
 		const step = stripOne(st, first, spans);
+		if (outer && st.outer) noteWrapper(st, from);
 		if (step === "cut") st.ws = [];
 		if (step !== "next") break;
 	}
+}
+
+/** @param {Strip} st @param {string[]} from */
+function noteWrapper(st, from) {
+	const n = from.length - st.ws.length;
+	const tail = n >= 0 && st.ws.every((w, i) => w === from[n + i]);
+	if (tail && n === 0) return;
+	st.wrappers = [...st.wrappers, tail ? from.slice(0, n) : from];
+	if (!tail) st.outer = false;
 }
 
 /** @param {string[]} words @param {string[]} spans */
@@ -2771,6 +2785,7 @@ function wrapperScript(words, spans) {
 const buildBareRun = (words) => ({
 	words,
 	wrapperWords: [],
+	wrappers: [],
 	chdirs: [],
 	unread: [],
 	watched: false,
@@ -2792,6 +2807,9 @@ const buildStrip = (run, judged, pending) => ({
 	awaitsScript: false,
 	script: null,
 	wrapperWords: [...run.wrapperWords],
+	wrappers: run.wrappers,
+	from: run.words,
+	outer: !run.scripted,
 	chdirs: [...run.chdirs],
 	unread: [...run.unread],
 	watched: run.watched,
@@ -2814,6 +2832,9 @@ const resetsEnv = (w, flags) =>
  * @property {boolean} inEnv
  * @property {boolean} envReset
  * @property {string[]} wrapperWords
+ * @property {string[][]} wrappers
+ * @property {string[]} from
+ * @property {boolean} outer
  * @property {Chdir[]} chdirs
  * @property {string[]} unread
  * @property {boolean} watched
@@ -2899,10 +2920,13 @@ function stepAfterFlags(st, wrapper, spans) {
 
 /** @param {Strip} st @param {string} script @param {string[]} spans */
 function runScript(st, script, spans) {
+	if (st.outer) st.wrappers = [...st.wrappers, st.from];
+	st.outer = false;
 	/** @type {Unwrapped[]} */
 	const runs = parseScript(script, spans).map((cmd) => ({
 		words: cmd.words,
 		wrapperWords: [...st.wrapperWords, ...cmd.leading],
+		wrappers: st.wrappers,
 		chdirs: [
 			...st.chdirs,
 			...cmd.chdirs.map((cd) => (st.envReset ? { ...cd, envReset: true } : cd)),

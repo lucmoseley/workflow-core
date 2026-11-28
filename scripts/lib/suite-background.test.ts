@@ -518,6 +518,25 @@ describe("lib/suite-background.js", () => {
 			).toBe(fix);
 	});
 
+	it("strips a timeout whole when a flag value is quoted, and reads a script launch's wrappers from the walk (#5867)", () => {
+		for (const [command, fix] of [
+			['timeout -s "KILL" 60 npm run test', "npm run test"],
+			["timeout --kill-after '5' -s KILL 60 npm run test", "npm run test"],
+			[
+				'timeout -s "KILL" 60 flock /l -c "npm run test &"',
+				'flock /l -c "npm run test"',
+			],
+			[
+				'timeout 590 flock /l -c "npm run test -- --full=pre-push --queue"',
+				'flock /l -c "npm run test -- --full=pre-push --queue"',
+			],
+		])
+			expect(
+				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
+				command,
+			).toBe(fix);
+	});
+
 	it("says why the shell timeout is refused and names its escape", () => {
 		const reason = readDenyReason("timeout 590 npm run test");
 		expect(reason).toContain("This suite is WRAPPED IN A SHELL `timeout`");

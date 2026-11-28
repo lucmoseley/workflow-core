@@ -194,36 +194,26 @@ function putBackHeredocs(s, kept) {
 	return trimEndRun(out, "\n");
 }
 
-const TIMEOUT_VALUE_FLAGS = ["-k", "--kill-after", "-s", "--signal"];
-
-/** @param {string} seg @param {string} commandWord */
-function stripTimeout(seg, commandWord) {
+/** @param {string} seg @param {string[][]} timeouts */
+function stripTimeout(seg, timeouts) {
 	const segWords = (seg.split("\n")[0] ?? "").split(/[ \t]+/).filter(Boolean);
-	const nwrap = segWords.findIndex(
-		(w) => w === commandWord || w.includes(QUOTED),
-	);
-	if (nwrap < 0) return null;
-	const kept = keptWrappers(segWords.slice(0, nwrap));
+	/** @type {string[] | null} */
+	let kept = segWords;
+	for (const drop of timeouts) kept = kept && without(kept, drop);
+	if (kept === null) return null;
 	const lead = /^[ \t\n\v\f\r]*/.exec(seg)?.[0] ?? "";
 	const trail = endRun(seg, BASH_SPACE);
-	return lead + [...kept, ...segWords.slice(nwrap)].join(" ") + trail;
+	return lead + kept.join(" ") + trail;
 }
 
-/** @param {string[]} wrappers */
-function keptWrappers(wrappers) {
-	/** @type {string[]} */
-	const kept = [];
-	for (let i = 0; i < wrappers.length; i++) {
-		const word = wrappers[i] ?? "";
-		if (afterSlash(word) !== "timeout") {
-			kept.push(word);
-			continue;
-		}
-		while (i + 1 < wrappers.length && (wrappers[i + 1] ?? "").startsWith("-"))
-			i += TIMEOUT_VALUE_FLAGS.includes(wrappers[i + 1] ?? "") ? 2 : 1;
-		i += 1;
-	}
-	return kept;
+/** @param {string[]} words @param {string[]} drop */
+function without(words, drop) {
+	const at = words.findIndex((_, i) =>
+		drop.every((w, j) => words[i + j] === w),
+	);
+	return at < 0
+		? null
+		: [...words.slice(0, at), ...words.slice(at + drop.length)];
 }
 
 /** @param {boolean} snapshot */
@@ -283,14 +273,13 @@ function decide(command, ctx) {
 	 * @param {import("./shell-words.js").Unwrapped} first
 	 * @param {import("./suite-launch.js").Launch} launch
 	 */
-	const noteTimed = (cmd, { words, wrapperWords }, launch) => {
-		const nwrap = cmd.words.length - words.length;
-		const isTimed =
-			nwrap > 0 &&
-			cmd.words.slice(0, nwrap).some((w) => afterSlash(w) === "timeout");
-		if (!isTimed || !isUnbounded(launch, words, spans)) return;
+	const noteTimed = (cmd, { words, wrapperWords, wrappers }, launch) => {
+		const timeouts = wrappers.filter(
+			([w = ""]) => afterSlash(literal(w, spans).text) === "timeout",
+		);
+		if (timeouts.length === 0 || !isUnbounded(launch, words, spans)) return;
 		if (carriesVar("WFC_SUITE_TIMEOUT", cmd.leading, wrapperWords)) return;
-		let stripped = stripTimeout(cmd.segment, words[0] ?? "");
+		let stripped = stripTimeout(cmd.segment, timeouts);
 		if (stripped === null) {
 			ctx.log(
 				"stripTimeout could not place the wrappers — the deny re-issues the segment as typed",
