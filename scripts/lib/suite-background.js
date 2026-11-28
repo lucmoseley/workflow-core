@@ -19,7 +19,6 @@ const {
 	buildIsWrapperScript,
 	isSnapshotLaunch,
 } = require("./suite-launch.js");
-const { noop } = require("./noop.js");
 const { launchTestFileCount } = require("./suite-bounded.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
 const {
@@ -583,7 +582,7 @@ function decide(command, ctx) {
 
 	const shift = spanShift(timed);
 	const { indexAfterDrops, respanned } = shift;
-	const quiet = { ...ctx, log: noop };
+	const quiet = { ...ctx, log: () => undefined };
 	/** @param {string} body @returns {string} */
 	const stripScript = (body) => {
 		const inner = parseCommand(body);
