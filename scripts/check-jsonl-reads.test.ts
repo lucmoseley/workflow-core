@@ -39,6 +39,24 @@ const DOLLAR_HELPER =
 const PLAIN_HELPER =
 	'const open = (l) => l.startsWith("{");\nconst flags = raw.split("\\n").map(open);\n';
 const IDENTITY_MAP = 'const lines = raw.split("\\n").map((l) => l);\n';
+const ROWS_MODULE =
+	"function parseRow(line) {\n\treturn safe(line);\n}\nfunction safe(line) {\n\ttry {\n\t\treturn JSON.parse(line);\n\t} catch {\n\t\treturn null;\n\t}\n}\nmodule.exports = { parseRow, safe };\n";
+const IMPORTED =
+	'const { safe } = require("./lib/rows.js");\nconst rows = text.split("\\n").map(safe);\n';
+const RENAMED =
+	'import { safe as tryRow } from "./lib/rows.js";\nconst rows = text.split("\\n").map(tryRow);\n';
+const NAMESPACE =
+	'const h = require("./lib/rows");\nconst rows = text.split("\\n").map(h.safe);\n';
+const EXPORTS_MEMBER =
+	'exports.parseRow = (l) => JSON.parse(l);\nconst rows = text.split("\\n").map(exports.parseRow);\n';
+const TWO_HOP =
+	'const { parseRow } = require("./lib/rows.js");\nconst rows = text.split("\\n").map((l) => parseRow(l));\n';
+const THREE_HOP =
+	'const { parseRow } = require("./lib/rows.js");\nconst a = (l) => parseRow(l);\nconst rows = text.split("\\n").map(a);\n';
+const PLAIN_MODULE =
+	'const open = (l) => l.startsWith("{");\nconst cfg = JSON.parse("{}");\nmodule.exports = { open, cfg };\n';
+const IMPORTED_PLAIN =
+	'const { open } = require("./lib/plain.js");\nconst flags = raw.split("\\n").map(open);\n';
 const ON_READER =
 	'const { readJsonl } = require("./lib/jsonl.js");\nconst rows = readJsonl(file)?.rows ?? [];\n';
 
@@ -87,6 +105,30 @@ describe("check-jsonl-reads", () => {
 		expect(r.out).toContain(
 			"3 site(s) hand-parse JSONL: scripts/arrow.js:3, scripts/dollar.js:2, scripts/helper.js:3.",
 		);
+	});
+
+	it("FAILs a split mapped through a helper it imports, renames, reaches as a member or calls one hop on (#5888)", () => {
+		program("lib/rows.js", ROWS_MODULE);
+		program("imported.js", IMPORTED);
+		program("renamed.mjs", RENAMED);
+		program("namespace.js", NAMESPACE);
+		program("member.js", EXPORTS_MEMBER);
+		program("hop.js", TWO_HOP);
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain(
+			"5 site(s) hand-parse JSONL: scripts/hop.js:2, scripts/imported.js:2, scripts/member.js:2, scripts/namespace.js:2, scripts/renamed.mjs:2.",
+		);
+	});
+
+	it("passes a split mapped through an imported helper that parses no JSON, one whose parse sits two hops off, and a readJsonl caller (#5888)", () => {
+		program("lib/rows.js", ROWS_MODULE);
+		program("lib/plain.js", PLAIN_MODULE);
+		program("imported-plain.js", IMPORTED_PLAIN);
+		program("far-hop.js", THREE_HOP);
+		program("on.js", ON_READER);
+		const r = run();
+		expect(r.status).toBe(0);
 	});
 
 	it("passes a split mapped through a helper that parses no JSON, its body holding a brace in a string, with a parse past its end, and an identity map beside an unrelated parse (#5869)", () => {
