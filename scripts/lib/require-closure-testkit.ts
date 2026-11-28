@@ -1,16 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { requiredGroup } from "./regex-group.js";
-import { stripComments } from "./strip-comments.js";
+import { localRequires } from "./program-libs.js";
 
-const LOCAL_REQUIRE = /\brequire\(\s*["'](\.\.?\/[^"']+)["']\s*\)/g;
 const NAMED_SCRIPT = /(?<![\w.-])scripts\/[\w./-]+\.(?:js|sh)\b/g;
-
-export function localRequires(text: string): string[] {
-	return [...stripComments(text).matchAll(LOCAL_REQUIRE)].map((m) =>
-		requiredGroup(m, 1, LOCAL_REQUIRE),
-	);
-}
 
 export function launchedScripts(text: string): string[] {
 	const code = text

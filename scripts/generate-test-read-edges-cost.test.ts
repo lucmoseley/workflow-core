@@ -72,6 +72,7 @@ describe("generate-test-read-edges.js --check's per-call cost (#5746)", () => {
 			"lib/line-scan.js",
 			"lib/main-checkout.js",
 			"lib/outcome-error.js",
+			"lib/program-libs.js",
 			"lib/qualify-citations.js",
 			"lib/read-edges-render.js",
 			"lib/regex-group.js",

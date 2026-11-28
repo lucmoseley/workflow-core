@@ -15,7 +15,8 @@ import {
 	readRun,
 } from "./notify-report.js";
 import { runRecordFile } from "./notify-report-testkit";
-import { copyRequireClosure, localRequires } from "./require-closure-testkit";
+import { localRequires } from "./program-libs.js";
+import { copyRequireClosure } from "./require-closure-testkit";
 import { runInProcess, runInProcessAsync } from "./run-in-process";
 
 const LIB = path.resolve(__dirname, "check.js");
