@@ -375,6 +375,14 @@ describe("a count gate projected from its reading history (#5861)", () => {
 		},
 	);
 
+	it("refuses a basis citing the round its own refusal names as the bound", () => {
+		seed(8, "0 of 15 commits");
+		const printed =
+			judge("15 commits, #5687").refusals[0]?.match(/#\d+ Q\d+/)?.[0];
+		expect(printed).toBeDefined();
+		expect(judge(`15 commits, past ${printed}`).refusals).toHaveLength(1);
+	});
+
 	it("passes a round of the same number on another repo", () => {
 		seed(8, "0 of 15 commits");
 		expect(judge("15 commits, set by o/r#5687 Q1").refusals).toEqual([]);
