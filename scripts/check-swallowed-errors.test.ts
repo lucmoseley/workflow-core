@@ -1,5 +1,7 @@
 // @vitest-environment node
 
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -70,6 +72,7 @@ describe("check-swallowed-errors in an adopter", () => {
 		);
 		const { code, output } = check(repo({ [PY]: swallow() }, { [PY]: twice }));
 		expect(output).toMatch(/1 of these 2 were already in HEAD/);
+		expect(output).toMatch(WAY_OUT);
 		expect(code).toBe(1);
 	});
 
@@ -98,6 +101,42 @@ describe("check-swallowed-errors in an adopter", () => {
 		const r = repo({ [PY]: swallow(), "tools/b.py": swallow("b") }, {});
 		const { code, output } = check(r, ["--all"]);
 		expect(output).toMatch(/FAIL: 2 swallow/);
+		expect(output).toMatch(WAY_OUT);
 		expect(code).toBe(1);
 	});
+});
+
+describe("check-swallowed-errors in a linked worktree (#5821)", () => {
+	function linked() {
+		const main = repo({}, {}, { "tools/**/*.py": "test" });
+		const wt = path.join(
+			fs.mkdtempSync(path.join(os.tmpdir(), "swallowed-wt-")),
+			"wt",
+		);
+		temps.push(path.dirname(wt));
+		main.git("worktree", "add", "-q", "--detach", wt, "HEAD");
+		writeHostConfig(wt, { tracker: "acme/widgets", pythonRoutes: ROUTES });
+		fs.mkdirSync(path.join(wt, "tools"));
+		fs.writeFileSync(path.join(wt, PY), swallow());
+		main.git("-C", wt, "add", "--", PY);
+		return { main, wt };
+	}
+
+	it.each([
+		["the worktree", (_main: string, wt: string) => wt],
+		["the main checkout", (main: string) => main],
+	])(
+		"reads pythonRoutes from the worktree it checks, CLAUDE_PROJECT_DIR on %s",
+		(_, project) => {
+			const { main, wt } = linked();
+			const run = runInProcess(CHECKER, [], {
+				cwd: wt,
+				env: { ...process.env, CLAUDE_PROJECT_DIR: project(main.root, wt) },
+			});
+			const output = `${run.stdout}${run.stderr}`;
+			expect(output).toMatch(/tools\/fetch\.py: `except OSError` in fetch/);
+			expect(output).toMatch(WAY_OUT);
+			expect(run.status).toBe(1);
+		},
+	);
 });
