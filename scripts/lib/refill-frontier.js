@@ -316,4 +316,4 @@ async function refillFrontier(
 	};
 }
 
-module.exports = { parseFailureLine, refillFrontier };
+module.exports = { parseFailureLine, readShortlist, refillFrontier };

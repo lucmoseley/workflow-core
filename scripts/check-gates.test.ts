@@ -96,6 +96,51 @@ describe("the reading", () => {
 		expect(r.out).toContain("the /triage the refill loop launches");
 	});
 
+	it("adds each count reading to the gate history, and nothing for a reading with no count (#5861)", () => {
+		const history = path.join(dir, "gate-history.jsonl");
+		const r = runInProcess(SCRIPT, [], {
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: dir,
+				WFC_GATE_HISTORY: history,
+				...stubGh([
+					{ number: 7, body: gatedOn('echo "3 of 15 commits"') },
+					{ number: 8, body: gatedOn("echo 41 samples") },
+				]).env,
+			},
+		});
+		expect(r.status).toBe(0);
+		const rows = fs
+			.readFileSync(history, "utf8")
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			issue: 7,
+			counts: [{ a: 3, b: 15 }],
+		});
+	});
+
+	it("says which reading it could not add to the gate history, still printing the table", () => {
+		const history = path.join(dir, "gate-history.jsonl");
+		fs.writeFileSync(history, "");
+		fs.chmodSync(history, 0o444);
+		const r = runInProcess(SCRIPT, [], {
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: dir,
+				WFC_GATE_HISTORY: history,
+				...stubGh([{ number: 7, body: gatedOn('echo "3 of 15 commits"') }]).env,
+			},
+		});
+		expect(r.status).toBe(0);
+		expect(`${r.stdout}${r.stderr}`).toContain(
+			"#7: its reading was not added to the gate history (EACCES",
+		);
+		expect(`${r.stdout}${r.stderr}`).toContain("#7  [READING]");
+	});
+
 	it("runs a command wrapped in the backticks the tracker's examples put round it", () => {
 		const r = run([], stubGh([{ number: 7, body: gatedOn("`echo 41`") }]));
 		expect(r.out).toContain("[READING]");

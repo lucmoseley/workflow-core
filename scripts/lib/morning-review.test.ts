@@ -74,6 +74,7 @@ const renderWith = (overrides: object) =>
 		concurrency: concurrencyOver([], []),
 		idle: QUIET_IDLE,
 		wslCurrency: null,
+		staleRun: { why: "no stale-ticket run recorded" },
 		...overrides,
 	});
 
@@ -1384,5 +1385,53 @@ describe("an open repo hold (#3865)", () => {
 			"- wfc: `repair 'main'` — no issue filed yet — probe, which stops launches — age 5m — 0 attached — notice: raise sent, clear not sent",
 		);
 		expect(basisFaults(body)).toEqual([]);
+	});
+});
+
+describe("the stale tickets section (#5858)", () => {
+	const row = {
+		date: "2026-11-28T06:00:00.000Z",
+		repoLines: [
+			"o/r: 3 takeable, oldest 40 d, unserved because not in the served set",
+		],
+		listed: [],
+		owed: [
+			{
+				key: "o/r#5:owed",
+				repo: "o/r",
+				number: 5,
+				text: "o/r#5 asked 2026-11-10, 18 d, holds 2 issues",
+				url: "https://github.com/o/r/issues/5",
+				ageDays: 18,
+			},
+		],
+		acts: [],
+		filings: [],
+		hub: { number: null, keys: [] },
+		disposed: [],
+		gates: {},
+	};
+	const reading = (r: typeof row) => ({
+		date: r.date,
+		repoLines: r.repoLines,
+		owed: r.owed.map((o) => ({ text: o.text, url: o.url })),
+	});
+
+	it("renders each owed line with its age and link, then the repo lines", () => {
+		expect(renderWith({ staleRun: reading(row) })).toContain(
+			"## Stale tickets\n\nFrom the daily stale-ticket run of 2026-11-28T06:00:00.000Z: each act you owe over 7 days old, then each repo's line.\n\n- o/r#5 asked 2026-11-10, 18 d, holds 2 issues — https://github.com/o/r/issues/5\n\n- o/r: 3 takeable, oldest 40 d, unserved because not in the served set\n",
+		);
+	});
+
+	it("says so where nothing is owed", () => {
+		expect(renderWith({ staleRun: reading({ ...row, owed: [] }) })).toContain(
+			"Nothing owed over 7 days.",
+		);
+	});
+
+	it("names a record that could not be read", () => {
+		expect(renderWith({})).toContain(
+			"## Stale tickets\n\nNot read: `no stale-ticket run recorded`\n",
+		);
 	});
 });

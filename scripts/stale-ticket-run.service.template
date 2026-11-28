@@ -1,0 +1,9 @@
+[Unit]
+Description=Run the daily stale-ticket report over every adopter tracker (#5857)
+
+[Service]
+Type=oneshot
+@ENVIRONMENT@
+Nice=@NICE@
+WorkingDirectory=@ROOT@
+ExecStart=/usr/bin/env node @SCRIPT@

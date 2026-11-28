@@ -8,12 +8,12 @@ const issueBodyScript = () =>
 	process.env.WFC_ISSUE_BODY || path.join(__dirname, "..", "issue-body.js");
 
 /**
- * @param {{ title: string, label?: string }} spec
+ * @param {{ title: string, label?: string, repo?: string }} spec
  * @param {"open" | "closed" | "all"} state
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
  * @returns {{ number: number, title: string, labels: string[], closedAt: string | null, createdAt: string } | null}
  */
-function findTrackingIssue({ title, label }, state, opts = {}) {
+function findTrackingIssue({ title, label, repo }, state, opts = {}) {
 	/** @type {{ number: number, title: string, labels: { name: string }[], closedAt?: string | null, createdAt: string }[]} */
 	const rows = ghIssueListAll(
 		"issues",
@@ -21,6 +21,7 @@ function findTrackingIssue({ title, label }, state, opts = {}) {
 			"--state",
 			state,
 			...(label ? ["--label", label] : []),
+			...(repo ? ["--repo", repo] : []),
 			"--json",
 			"number,title,labels,closedAt,createdAt",
 		],
@@ -38,7 +39,7 @@ function findTrackingIssue({ title, label }, state, opts = {}) {
 }
 
 /**
- * @param {{ title: string, label?: string }} spec
+ * @param {{ title: string, label?: string, repo?: string }} spec
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
  */
 const openTrackingIssue = (spec, opts = {}) =>
@@ -47,8 +48,8 @@ const openTrackingIssue = (spec, opts = {}) =>
 const takesValues = (/** @type {string[]} */ labels) =>
 	labels.filter((l) => l.startsWith("takes:"));
 
-/** @param {number} number @param {string[]} current @param {string} wanted @returns {string} */
-function reconcileTakes(number, current, wanted) {
+/** @param {number} number @param {string[]} current @param {string} wanted @param {string} [repo] @returns {string} */
+function reconcileTakes(number, current, wanted, repo) {
 	const present = takesValues(current);
 	if (present.length === 1 && present[0] === wanted) return "";
 	const stale = present.filter((l) => l !== wanted);
@@ -57,6 +58,7 @@ function reconcileTakes(number, current, wanted) {
 			"issue",
 			"edit",
 			String(number),
+			...(repo ? ["--repo", repo] : []),
 			"--add-label",
 			wanted,
 			...stale.flatMap((l) => ["--remove-label", l]),
@@ -113,11 +115,12 @@ function refresh(number, wanted, { repo } = {}) {
 	}
 }
 
-/** @param {{ title: string, labels: string[], body: string }} spec @returns {string} */
-function createIssue({ title, labels, body }) {
+/** @param {{ title: string, labels: string[], body: string, repo?: string }} spec @returns {string} */
+function createIssue({ title, labels, body, repo }) {
 	return gh([
 		"issue",
 		"create",
+		...(repo ? ["--repo", repo] : []),
 		"--title",
 		title,
 		...labels.flatMap((l) => ["--label", l]),
@@ -127,19 +130,21 @@ function createIssue({ title, labels, body }) {
 }
 
 /**
- * @param {{ title: string, label?: string, labels: string[], takes?: string, body: string }} spec
+ * @param {{ title: string, label?: string, labels: string[], takes?: string, body: string, repo?: string }} spec
  * @returns {string}
  */
-function fileOrRefresh({ title, label, labels, takes, body }) {
-	const existing = openTrackingIssue({ title, label });
+function fileOrRefresh({ title, label, labels, takes, body, repo }) {
+	const existing = openTrackingIssue({ title, label, repo });
 	if (existing)
 		return (
-			refresh(existing.number, body) +
-			(takes ? reconcileTakes(existing.number, existing.labels, takes) : "")
+			refresh(existing.number, body, { repo }) +
+			(takes
+				? reconcileTakes(existing.number, existing.labels, takes, repo)
+				: "")
 		);
 
 	const wanted = takes && !labels.includes(takes) ? [...labels, takes] : labels;
-	return `Filed ${createIssue({ title, labels: wanted, body })}`;
+	return `Filed ${createIssue({ title, labels: wanted, body, repo })}`;
 }
 
 module.exports = {

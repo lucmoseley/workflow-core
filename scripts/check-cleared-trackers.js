@@ -17,6 +17,7 @@ const manual = require("./report-manual-staleness");
 const cycle = require("./report-cycle-review-due");
 const budget = require("./report-doc-map-budget");
 const redSuite = require("./report-red-suite");
+const staleRunStamp = require("./report-stale-run-stamp");
 const roadmapCeilings = require("./report-roadmap-ceilings");
 const retro = require("./report-retro-due");
 const bandDrift = require("./check-band-drift");
@@ -41,6 +42,18 @@ function parseFirstLine(text) {
 
 /** @type {Tracker[]} */
 const TRACKERS = [
+	{
+		script: "scripts/report-stale-run-stamp.js",
+		title: staleRunStamp.TITLE,
+		label: staleRunStamp.LABEL,
+		condition: () => {
+			const fault = staleRunStamp.readFault(Date.now());
+			return {
+				held: fault !== null,
+				detail: fault ?? "the run record is current",
+			};
+		},
+	},
 	{
 		script: "scripts/report-manual-staleness.js",
 		title: manual.TITLE,
