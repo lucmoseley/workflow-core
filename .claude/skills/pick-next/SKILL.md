@@ -117,7 +117,7 @@ urgent issue it holds and a child with its urgent parent
 (#3222); DEPTH is the longest chain to that tier. DEPTH and REACH count each
 open ancestor, and CLOSES the ancestors that close with the issue, each its
 parent's only open child (#3613). AGE is the issue's own full weeks since
-`createdAt`, never inherited, and is blank in the table at 0 (#5880).
+`createdAt`, blank in the table at 0 (#5880).
 
 The **GOAL** column reads `yes` for a goal-set member and `via` for an issue
 holding one out (#3222).
