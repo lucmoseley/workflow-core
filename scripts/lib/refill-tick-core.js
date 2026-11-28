@@ -477,21 +477,21 @@ function settleRoom(
 		acts,
 	},
 ) {
+	const readAdmission = () =>
+		io.readFreeSlots(admissionRoot(served, io.typecheckPeakMb));
 	if (seen.barred) {
 		acts.releaseEndedHolds(before, judged, seen.io);
 		return {
 			launches: judged,
 			slots: 0,
-			admission: null,
+			admission: control.paused ? null : readAdmission().admission,
 			liveChange: 0,
 			seats: [],
 			probes: [],
 			overflow: [],
 		};
 	}
-	const { slots: free, admission } = io.readFreeSlots(
-		admissionRoot(served, io.typecheckPeakMb),
-	);
+	const { slots: free, admission } = readAdmission();
 	const room = buildLaunchRoom({
 		history: judged,
 		lastActAt,
@@ -627,7 +627,8 @@ const dueResumes = (control, launches, seen) =>
  *   decision: import("./refill-decide.js").Decision, state: LoopState,
  *   launches: LoopLaunch[], probes: Probe[], read: FrontierRead|null,
  *   broken: string[], booted: ReturnType<typeof settleBootKilled>,
- *   control: Control, seen: Seen, served: string[], declared: DeclaredSeats,
+ *   control: Control, seen: Seen, served: string[], warmed: string[],
+ *   declared: DeclaredSeats,
  *   admission: import("./admission.js").AdmissionJson|null, limitChange: number,
  *   liftedSettled: ReturnType<typeof blocks.queueLifted>["settled"],
  *   managerRestart: Parameters<typeof withManagerRestart>[1]}} tick
@@ -646,6 +647,7 @@ function settleDecided(
 		control,
 		seen,
 		served,
+		warmed,
 		declared,
 		admission,
 		limitChange,
@@ -669,9 +671,9 @@ function settleDecided(
 		{
 			readControl: io.readControl,
 			launchBatch: (batch) => {
-				const r = io.launchBatch(batch, served);
-				warmRefusedRoots(io, r.refused, landingRoots(served, state.launches));
-				return r;
+				const outcome = io.launchBatch(batch, served);
+				warmRefusedRoots(io, outcome.refused, warmed);
+				return outcome;
 			},
 			resumeHeld: (resumes, held, isStopped, record) =>
 				blocks.resumeHeldLaunches(resumes, held, seen, { isStopped, record }),
@@ -982,6 +984,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		control,
 		seen,
 		served,
+		warmed: roots,
 		declared,
 		admission,
 		limitChange,
