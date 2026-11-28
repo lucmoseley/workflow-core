@@ -37,8 +37,12 @@ interface Agent {
 
 const ports = ({
 	agents = [],
+	shortMs = GIT_TIMEOUT_MS,
+	mergeMs = GIT_TIMEOUT_MS,
 }: {
 	agents?: Agent[] | { why: string };
+	shortMs?: number;
+	mergeMs?: number;
 } = {}) => ({
 	listed: () => (Array.isArray(agents) ? { agents } : agents),
 	cut: (root: string, name: string) => {
@@ -57,7 +61,8 @@ const ports = ({
 		readOrphanedEdits(root, Date.now(), () => null),
 	level: (root: string) =>
 		level(root, { install: () => undefined, now: Date.now() }),
-	gitIn: (dir: string) => gitReader(dir, GIT_TIMEOUT_MS),
+	gitIn: (dir: string) => gitReader(dir, shortMs),
+	mergeIn: (dir: string) => gitReader(dir, mergeMs),
 });
 
 const render = (r: ReturnType<typeof cutover>) =>
@@ -192,4 +197,35 @@ it("cuts over with nothing to land, and a second run only reports", () => {
 	);
 	expect(second).toMatchObject({ status: "cut-over", already: true });
 	expect(render(second)).toContain("main is level with origin/main");
+});
+
+const slowMergeGate = () => {
+	const hooks = path.join(main, ".git", "hooks");
+	fs.mkdirSync(hooks, { recursive: true });
+	fs.writeFileSync(
+		path.join(hooks, "pre-merge-commit"),
+		"#!/bin/sh\nsleep 2\n",
+		{ mode: 0o755 },
+	);
+	commitIn(main, { "local.md": "mine\n" }, "local only");
+	commitIn(other, { "b.md": "b\n" }, "a neighbour's");
+	git(other, "push", "-q", "origin", "HEAD:main");
+};
+
+it("refuses a merge whose gate outruns the merge port's limit, naming no files", () => {
+	slowMergeGate();
+	expect(cutover(main, ports({ shortMs: 1000, mergeMs: 1000 }))).toMatchObject({
+		status: "unmerged",
+		local: 1,
+		files: [],
+	});
+	expect(isCutOver(main)).toBe(false);
+});
+
+it("lands through a merge gate slower than the short git timeout, the merge running under its own limit", () => {
+	slowMergeGate();
+	expect(
+		cutover(main, ports({ shortMs: 1000, mergeMs: 60_000 })),
+	).toMatchObject({ status: "cut-over", landed: { count: 1 } });
+	expect(isCutOver(main)).toBe(true);
 });
