@@ -343,10 +343,20 @@ describe("lib/suite-background.js", () => {
 			(readDenyReason(command).split("\n")[0] ?? "").slice(
 				SNAPSHOT_OPENER.length,
 			);
-		for (const command of ["npm run test \\&", "npm run test -- -t a\\&b"])
+		for (const command of [
+			"npm run test \\&",
+			"npm run test -- -t a\\&b",
+			"watch npm run test -- \\\\\\&",
+		])
 			expect(verdict(command), command).toBe("allow");
 		for (const [command, fix] of [
 			["watch npm run test -- $X \\&", "watch npm run test -- $X"],
+			["watch npm run test -- \\\\\\& \\&", "watch npm run test -- \\\\\\&"],
+			["watch npm run test \\& \\; true", "watch npm run test \\; true"],
+			[
+				"watch timeout 300 npm run test \\& true",
+				"watch 'npm run test ; true'",
+			],
 			["watch npm run test\\&", "watch npm run test"],
 			["watch npm run test \\& true", "watch npm run test \\; true"],
 			["npm run test -- \\& &", "npm run test -- \\&"],

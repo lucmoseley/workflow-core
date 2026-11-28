@@ -43,9 +43,28 @@ const DETACHER = /(^|[^A-Za-z0-9_-])(nohup|setsid|disown)([^A-Za-z0-9_.-]|$)/m;
 
 const ESCAPED_AMP = "\x0f";
 
+/**
+ * @param {string} text
+ * @param {(at: number, backslashPairsBefore: number) => string} to
+ */
+function mapEscapedAmps(text, to) {
+	let pairs = 0;
+	let end = -1;
+	return text.replace(/\\[^\n]/g, (m, at) => {
+		if (at !== end) pairs = 0;
+		end = at + m.length;
+		if (m === "\\\\") {
+			pairs++;
+			return m;
+		}
+		const out = m === "\\&" ? to(at, pairs) : m;
+		pairs = 0;
+		return out;
+	});
+}
+
 /** @param {string} text @param {string} to */
-const holdEscapedAmps = (text, to) =>
-	text.replace(/\\[^\n]/g, (m) => (m === "\\&" ? to : m));
+const holdEscapedAmps = (text, to) => mapEscapedAmps(text, () => to);
 
 /** @param {string} masked */
 function hasBareDetachment(masked) {
@@ -61,8 +80,8 @@ function hasBareDetachment(masked) {
  * @returns {string}
  */
 const stripScriptEscapedAmps = (script) =>
-	script.replace(/\\[^\n]/g, (m, at) => {
-		if (m !== "\\&") return m;
+	mapEscapedAmps(script, (at, pairs) => {
+		if (pairs % 2 === 1) return "\\&";
 		return /^ *(\\;|$)/.test(script.slice(at + 2)) ? "" : "\\;";
 	});
 
@@ -431,8 +450,13 @@ function readLaunches(parsed, ctx, launchPorts) {
 		for (const { wordIndices } of scriptRuns) {
 			const words = wordIndices.flatMap((i) => cmd.words.slice(i, i + 1));
 			const put = stripScriptEscapedAmps(words.join(" ")).split(" ");
-			if (put.join(" ") !== words.join(" "))
-				seg = swapWords(seg, [[words, put.filter(Boolean)]]) ?? seg;
+			if (put.join(" ") === words.join(" ")) continue;
+			const swapped = swapWords(seg, [[words, put.filter(Boolean)]]);
+			if (swapped === null)
+				ctx.log(
+					"swapWords could not place the script's escaped `&` — the deny re-issues it as typed",
+				);
+			seg = swapped ?? seg;
 		}
 		if (seg !== segment)
 			unescaped.push({
