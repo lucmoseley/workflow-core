@@ -155,7 +155,7 @@ describe("an unseeded adopter's first commit after upgrade (#1671)", () => {
 		fs.writeFileSync(path.join(dir, ownGuard), "#!/usr/bin/env bash\n", {
 			mode: 0o755,
 		});
-		fs.writeFileSync(path.join(dir, ownChecker), "// nothing calls this\n");
+		fs.writeFileSync(path.join(dir, ownChecker), "runCheck(SPEC);\n");
 		git("add", "-A");
 		git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "before upgrade");
 		const tree = `${dir}-session`;
