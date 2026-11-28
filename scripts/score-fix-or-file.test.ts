@@ -1,14 +1,27 @@
 // @vitest-environment node
 
-import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const { rates, report } = createRequire(__filename)("./score-fix-or-file.js");
+const { readLabelRows, recordedScores, rates, report } = createRequire(
+	__filename,
+)("./lib/fix-or-file-rates.js");
 
 const ROOT = path.resolve(__dirname, "..");
-const DATA = path.join(ROOT, "docs", "data", "fix-or-file-labels-2026-11-28");
+const LABELS = path.join(
+	ROOT,
+	"docs/data/fix-or-file-labels-2026-11-28/labels.jsonl",
+);
+const NATURAL = path.join(
+	ROOT,
+	"docs/data/fix-or-file-labels-2026-11-28/natural.jsonl",
+);
+
+const PRIVATE_REPOS = ["mantahostels", "health-and-fitness", "fantasy-books"];
+
+// #5814
+const PER_LABEL = { min: 30, max: 50 };
 
 const scored = [
 	{ id: "a", label: true, kind: "lost", p: 0.9 },
@@ -51,34 +64,41 @@ describe("the fix-or-file scorer's rates (#5827)", () => {
 	});
 });
 
-describe("the committed label set (#5827)", () => {
-	const rows = (name: string) =>
-		fs
-			.readFileSync(path.join(DATA, name), "utf8")
-			.split("\n")
-			.filter((l) => l.trim())
-			.map((l) => JSON.parse(l));
-
-	it.each(["labels.jsonl", "natural.jsonl"])(
+describe("the committed fix-or-file data (#5827)", () => {
+	it.each([LABELS, NATURAL])(
 		"%s carries no reply text from a private repo",
-		(name) => {
-			const leaked = rows(name).filter(
-				(r) =>
-					["mantahostels", "health-and-fitness", "fantasy-books"].includes(
-						r.repo,
-					) && "text" in r,
+		(file) => {
+			const leaked = readLabelRows(file).filter(
+				(r: { repo: string; text?: string }) =>
+					PRIVATE_REPOS.includes(r.repo) && r.text !== undefined,
 			);
 			expect(leaked).toEqual([]);
 		},
 	);
 
 	it("holds 30 to 50 examples of each label", () => {
-		const labels = rows("labels.jsonl").map((r) => r.label);
-		const pos = labels.filter((l) => l === true).length;
-		const neg = labels.filter((l) => l === false).length;
-		expect(pos).toBeGreaterThanOrEqual(30);
-		expect(pos).toBeLessThanOrEqual(50);
-		expect(neg).toBeGreaterThanOrEqual(30);
-		expect(neg).toBeLessThanOrEqual(50);
+		const labels = readLabelRows(LABELS).map(
+			(r: { label: boolean | null }) => r.label,
+		);
+		for (const want of [true, false]) {
+			const n = labels.filter((l: boolean | null) => l === want).length;
+			expect(n).toBeGreaterThanOrEqual(PER_LABEL.min);
+			expect(n).toBeLessThanOrEqual(PER_LABEL.max);
+		}
+	});
+
+	it("reproduces the labelled set's published TNR from its recorded scores", () => {
+		const s = recordedScores(readLabelRows(LABELS));
+		expect(s).toHaveLength(93);
+		expect(Math.round(rates(s, 0.5).tnr * 100)).toBe(82);
+		expect(Math.round(rates(s, 0.7).tnr * 100)).toBe(96);
+	});
+
+	it("reproduces the natural sample's published effective false positives", () => {
+		const s = recordedScores(readLabelRows(NATURAL));
+		expect(s).toHaveLength(131);
+		expect(
+			[0.5, 0.6, 0.7].map((t) => Math.round(rates(s, t).effectiveFp * 100)),
+		).toEqual([58, 56, 25]);
 	});
 });
