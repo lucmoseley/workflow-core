@@ -41,6 +41,7 @@ const row = (number: number, over: Record<string, unknown> = {}) => ({
 	asksQuestions: false,
 	depth: 0,
 	closes: 0,
+	agePoints: 0,
 	reach: 0,
 	collision: "comment-only",
 	takes: ["implement"],
@@ -335,6 +336,33 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 			20, 2,
 		]);
 		expect(m.frontier[0]).toMatchObject({ urgent: true, depth: 2, reach: 1 });
+	});
+
+	it("keeps its own repo's age points while depth, closes and reach come from what it holds (#5880)", async () => {
+		const s = shortlists({
+			[served]: {
+				rows: [row(2, { depth: 2 })],
+				retroBundles: [],
+				pulledIn: [pulled(20, { depth: 0, reach: 0 })],
+			},
+			[other]: {
+				rows: [row(20, { depth: 7, closes: 3, reach: 9, agePoints: 3 })],
+				retroBundles: [],
+				pulledIn: [],
+				pulledInUnread: [],
+			},
+		});
+		const m = await refillFrontier([served], null, s.fn);
+		expect(m.frontier[0]).toMatchObject({
+			number: 20,
+			agePoints: 3,
+			depth: 0,
+			closes: 0,
+			reach: 0,
+		});
+		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([
+			20, 2,
+		]);
 	});
 
 	it("joins the tiers and keeps the deepest chain across the served repos that pull it in (#3222)", async () => {

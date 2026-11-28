@@ -607,6 +607,7 @@ function frontierJson(i) {
 		stallDays: i.stallDays,
 		depth: i.depth,
 		closes: i.closes,
+		agePoints: i.agePoints,
 		reach: i.reach,
 		collision: i.collision ? "writes repo files" : "comment-only",
 		takes: i.takes,
@@ -964,7 +965,7 @@ function goalCell(i) {
 /** @param {State} state */
 function renderShortlist(state) {
 	const { shown } = state;
-	const header = `${pad("#", 6)}${pad("URG", 5)}${pad("GOAL", 6)}${pad("WAIT", 6)}${pad("DEPTH", 7)}${pad("CLOSES", 8)}${pad("REACH", 7)}${pad("COLL", 6)}${pad("GROUP", 16)}${pad("TAKES", 12)}`;
+	const header = `${pad("#", 6)}${pad("URG", 5)}${pad("GOAL", 6)}${pad("WAIT", 6)}${pad("DEPTH", 7)}${pad("CLOSES", 8)}${pad("AGE", 5)}${pad("REACH", 7)}${pad("COLL", 6)}${pad("GROUP", 16)}${pad("TAKES", 12)}`;
 	writeFd(1, `${header}TITLE\n`);
 	writeFd(1, `${"-".repeat(header.length + 42)}\n`);
 	for (const i of shown)
@@ -973,7 +974,7 @@ function renderShortlist(state) {
 			`${pad(`#${i.number}`, 6)}${pad(urgentCell(i), 5)}${pad(
 				goalCell(i),
 				6,
-			)}${pad(waitCell(i), 6)}${pad(i.depth, 7)}${pad(i.closes, 8)}${pad(i.reach, 7)}${pad(
+			)}${pad(waitCell(i), 6)}${pad(i.depth, 7)}${pad(i.closes, 8)}${pad(i.agePoints || "", 5)}${pad(i.reach, 7)}${pad(
 				i.collision ? "w" : "-",
 				6,
 			)}${pad(i.group, 16)}${pad(takesCell(i.takes), 12)}${String(i.title).slice(0, 42)}\n`,

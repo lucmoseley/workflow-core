@@ -22,6 +22,7 @@ interface FxIssue {
 	parent?: number;
 	openSubIssues?: number;
 	depsUnknown?: string;
+	ageDays?: number;
 }
 interface Fx {
 	issues: FxIssue[];
@@ -61,7 +62,7 @@ async function verdictOf(fx: Fx) {
 		state: "open",
 		title: `issue ${i.number}`,
 		url: `http://example/${i.number}`,
-		createdAt: daysAgo(30),
+		createdAt: daysAgo(i.ageDays ?? 30),
 		assignees: i.assignees ?? [],
 		labels: i.labels ?? [],
 		body: i.body ?? "",
@@ -482,6 +483,31 @@ describe("the frontier's order", () => {
 		expect(v.of(2).asksQuestions).toBe(false);
 		expect(v.of(7).asksQuestions).toBe(false);
 		expect(v.of(6).asksQuestions).toBe(false);
+	});
+
+	it("puts an aged leaf above a younger, slightly deeper row (#5880)", async () => {
+		const v = await verdictOf({
+			issues: [
+				{ number: 1, ageDays: 30 },
+				{ number: 2, ageDays: 1, parent: 5 },
+				{ number: 5, ageDays: 1 },
+			],
+		});
+		expect(v.of(1).agePoints).toBe(4);
+		expect(v.of(2)).toMatchObject({ agePoints: 0, closes: 1 });
+		expect(v.order).toEqual([1, 2]);
+	});
+
+	it("gives a blocker of an aged issue only its own age, none inherited (#5880)", async () => {
+		const v = await verdictOf({
+			issues: [
+				{ number: 3, ageDays: 70 },
+				{ number: 4, ageDays: 1 },
+			],
+			deps: { 3: [{ number: 4, state: "open" }] },
+		});
+		expect(v.of(3).agePoints).toBe(10);
+		expect(v.of(4).agePoints).toBe(0);
 	});
 
 	it("falls back to issue number when every other level ties", async () => {
