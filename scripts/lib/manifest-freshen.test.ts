@@ -119,4 +119,11 @@ describe("the pre-run freshen's render of an untracked file (#5902)", () => {
 		unreadableLedger();
 		expect(freshIn(snapshot, SESSION)).toEqual([READER]);
 	});
+
+	it("keeps one HEAD carries, which a git rm --cached left on disk", () => {
+		git("add", DOC);
+		git("commit", "-qm", "doc");
+		git("rm", "-q", "--cached", DOC);
+		expect(fresh(SESSION)).toEqual([READER]);
+	});
 });
