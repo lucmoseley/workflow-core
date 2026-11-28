@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {
 	findInstallRecord,
+	releaseSha,
 	resolveConfigDir,
 	sameRelease,
 } = require("./plugin-state.js");
@@ -35,13 +36,16 @@ function readDirectoryGit(pluginRoot) {
  * @returns {string|null}
  */
 function installedSha({ root, pluginName, marketplace, version, configDir }) {
+	const pluginsDir = path.join(resolveConfigDir(configDir), "plugins");
 	const row = findInstallRecord(
-		path.join(resolveConfigDir(configDir), "plugins"),
+		pluginsDir,
 		pluginName,
 		marketplace,
 		path.resolve(root),
 	);
-	return row && sameRelease(row.version, version) ? row.gitCommitSha : null;
+	if (row && sameRelease(row.version, version) && row.gitCommitSha)
+		return row.gitCommitSha;
+	return releaseSha(pluginsDir, pluginName, marketplace, version);
 }
 
 /**

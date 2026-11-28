@@ -107,6 +107,17 @@ function describePluginRecord(at) {
 }
 
 /**
+ * #5826
+ * @param {string} block
+ * @param {string} ref
+ * @returns {string|null}
+ */
+function recordedUrlSha(block, ref) {
+	const line = block.match(/^- url source, ref (\S+), HEAD (\S+)$/m);
+	return line && line[1] === ref ? (line[2] ?? null) : null;
+}
+
+/**
  * @param {import("./plugin-record.js").PluginRecord} at
  * @returns {string}
  */
@@ -558,6 +569,7 @@ module.exports = {
 	renderReference,
 	describePluginRecord,
 	renderPluginRecord,
+	recordedUrlSha,
 	renderConfig,
 	renderClaudeMd,
 	renderAgentsMd,
