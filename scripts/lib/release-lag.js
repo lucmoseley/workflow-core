@@ -72,7 +72,7 @@ function judgeMainLag(reading, now) {
 	if (reading.kind === "unread")
 		return {
 			finding: "MAIN-UNREAD",
-			line: `${reading.name}'s main checkout could not be measured against ${MAIN}: ${reading.why}. Run \`git status\` and \`git rev-parse ${MAIN}\` there to see what git refuses; \`git fetch origin\` restores a missing ${MAIN}.`,
+			line: `${reading.name}'s main checkout could not be measured against ${MAIN}: ${reading.why}. \`git fetch origin\` restores a missing ${MAIN}.`,
 		};
 	const { behind, fetchedAt, lines } = reading;
 	if (behind === 0) return null;
@@ -83,7 +83,7 @@ function judgeMainLag(reading, now) {
 	return {
 		finding: "MAIN-BEHIND",
 		line: [
-			`${reading.name}'s main checkout is ${behind} commit(s) behind ${MAIN} (${fetched}), so what runs from it is that old:`,
+			`${reading.name}'s main checkout is ${behind} commit(s) behind ${MAIN} (${fetched}):`,
 			...lines,
 		].join("\n"),
 	};

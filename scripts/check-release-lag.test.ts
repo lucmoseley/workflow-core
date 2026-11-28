@@ -283,7 +283,7 @@ describe("an adopter's main checkout behind origin/main (#5845)", () => {
 
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
-			"MAIN-BEHIND — stuck's main checkout is 3 commit(s) behind origin/main (fetched 2h ago), so what runs from it is that old:\nrefused: 1 edit(s) in the main checkout sit on paths",
+			"MAIN-BEHIND — stuck's main checkout is 3 commit(s) behind origin/main (fetched 2h ago):\nrefused: 1 edit(s) in the main checkout sit on paths",
 		);
 		expect(r.stdout).toContain("move each to its session's own worktree");
 		expect(r.stdout).toMatch(/\n {2}hook\.js — 5h old; last writer unknown/);
@@ -302,7 +302,7 @@ describe("an adopter's main checkout behind origin/main (#5845)", () => {
 
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
-			"MAIN-BEHIND — lagging's main checkout is 2 commit(s) behind origin/main (fetched 2h ago), so what runs from it is that old:\nclear: no edit blocks the fast-forward, so the next levelling pass takes main to origin/main, after discarding hook.js, which origin/main holds byte for byte — `node scripts/level-main.js` runs one now",
+			"MAIN-BEHIND — lagging's main checkout is 2 commit(s) behind origin/main (fetched 2h ago):\nclear: the next levelling pass takes main to origin/main, after discarding hook.js, which origin/main holds byte for byte — `node scripts/level-main.js` runs one now",
 		);
 		expect(snapshot(root)).toEqual(before);
 	});
@@ -317,7 +317,7 @@ describe("an adopter's main checkout behind origin/main (#5845)", () => {
 
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
-			"MAIN-BEHIND — clean's main checkout is 1 commit(s) behind origin/main (fetched 2h ago), so what runs from it is that old:\nclear: no edit blocks the fast-forward, so the next levelling pass takes main to origin/main — `node scripts/level-main.js` runs one now",
+			"MAIN-BEHIND — clean's main checkout is 1 commit(s) behind origin/main (fetched 2h ago):\nclear: the next levelling pass takes main to origin/main — `node scripts/level-main.js` runs one now",
 		);
 		expect(snapshot(root)).toEqual(before);
 	});
