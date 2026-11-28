@@ -471,17 +471,22 @@ describe("queue-run.js", () => {
 				caps.push(reads.capMb);
 				return null;
 			};
-			main(
-				["--", "node", "--test", "a.test.js"],
-				f.options({ gate: undefined, gateRead: read, gateLog }),
-			);
-			await tick();
-			main(
-				["--", "pytest"],
-				f.options({ gate: undefined, gateRead: read, gateLog }),
-			);
-			await tick();
-			expect(caps).toEqual([2340, undefined]);
+			for (const command of [
+				"node --test a.test.js",
+				"pytest",
+				"python3 -m unittest discover tests",
+				"python3 -m unittest discover tests -k name",
+				"python3 -m pytest -q tests/",
+				"node --test",
+				"npm run test:py -- scripts",
+			]) {
+				main(
+					["--", ...command.split(" ")],
+					f.options({ gate: undefined, gateRead: read, gateLog }),
+				);
+				await tick();
+			}
+			expect(caps).toEqual([2340, 2340, 2340, 2340, 2340, 2340, undefined]);
 		});
 
 		it("records a capped run in the test run store, so a kill beside it trips the peak tripwire (#5812)", async () => {
@@ -629,6 +634,59 @@ describe("queue-run.js", () => {
 			);
 			await tick();
 			expect(caps).toEqual([undefined]);
+		});
+
+		it("records a capped whole run in the test run store as whole (#5877)", async () => {
+			const f = fixture();
+			const gateLog = path.join(f.dir, "gate-runs.jsonl");
+			fs.writeFileSync(
+				gateLog,
+				[550, 550, 550, 550, 550]
+					.map(
+						(peakTreeMb) =>
+							`${JSON.stringify({ repo: gateRepoName(), command: "sh scripts/test.sh", outcome: "pass", runS: 30, peakTreeMb })}\n`,
+					)
+					.join(""),
+			);
+			const runStore = path.join(f.dir, "runs");
+			const weights: unknown[] = [];
+			const done = main(
+				["--", "python3", "-m", "unittest", "discover", "tests"],
+				f.options({
+					gate: undefined,
+					gateLog,
+					runStore,
+					gateRead: (
+						_c: string,
+						weight: unknown,
+						_m: number,
+						reads: { capMb?: number; onAdmission?: (a: object) => void },
+					) => {
+						weights.push(weight);
+						reads.onAdmission?.({
+							mode: "ladder",
+							cause: "whole",
+							rungMb: 1650,
+							climbMb: 0,
+							capMb: reads.capMb,
+						});
+						return null;
+					},
+				}),
+			);
+			await tick();
+			const child = f.spawned[0].child;
+			child.emit("spawn");
+			expect(weights).toEqual([null]);
+			expect(readRunFiles(runStore).runs).toEqual([
+				expect.objectContaining({
+					kind: "whole",
+					argv: ["python3", "-m", "unittest", "discover", "tests"],
+					admission: expect.objectContaining({ capMb: 550 }),
+				}),
+			]);
+			child.emit("exit", 0, null);
+			expect(await done).toBe(0);
 		});
 
 		it("still joins a run naming no file whole", async () => {

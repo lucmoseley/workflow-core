@@ -23,6 +23,7 @@ const {
 const {
 	hasNamedTestFiles,
 	isQueueable,
+	isWholeNativeRun,
 	suiteLaunchKind,
 } = require("./lib/suite-launch.js");
 const {
@@ -130,6 +131,8 @@ function tscGate(climbMb, peakMb) {
 const SEAT_WEIGHT = { resolvedFiles: 1, wholeSlot: false };
 
 const NAMED_FILES_WEIGHT = { resolvedFiles: null, wholeSlot: false };
+
+const PART_GATE = { gateWeight: NAMED_FILES_WEIGHT, part: true };
 
 /**
  * @param {string[]} words
@@ -419,32 +422,30 @@ function buildOtherWait(options, words) {
 	});
 	const chargeMb = charges.length > 0 ? Math.max(...charges) : undefined;
 	const charged = chargeMb === undefined ? options : { ...options, chargeMb };
-	const part = isNamedFilesRun(words);
-	const capMb = part ? readWholeRunPeak(options) : null;
+	const shape = otherRunShape(words);
+	const part = shape === "part";
+	const capMb = shape === null ? null : readWholeRunPeak(options);
 	/** @type {import("./lib/part-suite-peak.js").PartAdmission | undefined} */
 	let admission;
+	const capped = {
+		...(capMb === null ? {} : { gateCapMb: capMb }),
+		onAdmission: (
+			/** @type {import("./lib/part-suite-peak.js").PartAdmission} */ a,
+		) => {
+			admission = a;
+		},
+	};
 	return {
 		queue: options,
 		join: part ? { ...charged, weight: NAMED_FILES_WEIGHT } : charged,
 		wait: waitOn(
-			part
-				? {
-						gateWeight: NAMED_FILES_WEIGHT,
-						part: true,
-						...(capMb === null ? {} : { gateCapMb: capMb }),
-						onAdmission: (
-							/** @type {import("./lib/part-suite-peak.js").PartAdmission} */ a,
-						) => {
-							admission = a;
-						},
-					}
-				: {},
+			shape === null ? {} : { ...(part ? PART_GATE : {}), ...capped },
 		),
 		refused: refusedRun,
 		sayPlace: sayNoPlace,
 		start: (startWords, launch) =>
 			isCapped(admission)
-				? startCapped(startWords, launch, admission)
+				? startCapped(startWords, launch, admission, part ? "named" : "whole")
 				: spawnCommand(startWords, { handed: null, ...launch }),
 	};
 }
@@ -453,8 +454,9 @@ function buildOtherWait(options, words) {
  * @param {string[]} words
  * @param {Launch} launch
  * @param {import("./lib/part-suite-peak.js").PartAdmission} admission
+ * @param {"named" | "whole"} kind
  */
-function startCapped(words, launch, admission) {
+function startCapped(words, launch, admission, kind) {
 	const { startSampler } = require("./lib/run-memory.js");
 	const { runStore } = launch.options;
 	let memory;
@@ -462,7 +464,7 @@ function startCapped(words, launch, admission) {
 		memory = startSampler(
 			{
 				session: sessionOf(launch.options),
-				kind: "named",
+				kind,
 				argv: words,
 				files: [],
 				fileCount: 0,
@@ -503,26 +505,29 @@ function readWholeRunPeak(options) {
 	const runs = readGateRunsAt(file);
 	if (runs !== null) return wholeRunPeakMb(runs, gateRepoName());
 	logger(LABEL)(
-		`the gate-run record ${file} would not read — a part-suite charged the ladder's rung uncapped (#5802)`,
+		`the gate-run record ${file} would not read — the run charged the ladder's rung uncapped (#5802)`,
 	);
 	return null;
 }
 
 /**
+ * #5877
  * @param {string[]} words
- * @returns {boolean}
+ * @returns {"part" | "whole" | null}
  */
-function isNamedFilesRun(words) {
+function otherRunShape(words) {
 	const log = logger(LABEL);
 	try {
 		const ports = buildLaunchPorts({ root: hostRoot(), log });
 		const runs = unwrapArgv(words)
 			.map(({ words: inner }) => inner)
 			.filter((inner) => inner.length > 0 && isQueueable(inner, ports));
-		return runs.length > 0 && runs.every(hasNamedTestFiles);
+		if (runs.length === 0) return null;
+		if (runs.every(hasNamedTestFiles)) return "part";
+		return runs.every(isWholeNativeRun) ? "whole" : null;
 	} catch (e) {
 		log(`suite-launch reading threw — taken whole: ${caught(e).message}`);
-		return false;
+		return null;
 	}
 }
 

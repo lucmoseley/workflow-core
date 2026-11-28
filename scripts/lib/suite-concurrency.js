@@ -68,7 +68,7 @@ const { treeOrHost } = require("./tree-or.js");
  * @property {(pid: number | null) => import("./suite-handoff.js").CarriedWeight | null} carriedOf
  * @property {() => import("./suite-ladder.js").GateSeats} gateSeats
  * @property {import("./suite-handoff.js").CarriedWeight | null} [launchWeight]
- * @property {number} [partCapMb] - #5802
+ * @property {number} [wholeRunCapMb] - #5802, #5877
  * @property {(run: { kind: import("./part-suite-peak.js").PartKind, files: number }) => { peak: import("./part-suite-peak.js").PartPeak | null } | { why: string }} partPeak
  * @property {() => import("./peak-tripwire.js").Fallback | null} tripwire
  * @property {(admission: PartAdmission) => void} [noteAdmission]
@@ -638,7 +638,7 @@ function peakChargeOf(st, s) {
 	const bucket = s.files === null ? null : bucketOf(s.files);
 	if (s.files === null || bucket === null)
 		return (
-			(st.ctx.partCapMb === undefined ? null : wireCause(st)) ?? {
+			(st.ctx.wholeRunCapMb === undefined ? null : wireCause(st)) ?? {
 				cause: "unsized",
 			}
 		);
@@ -657,14 +657,31 @@ function peakChargeOf(st, s) {
 
 /**
  * @param {St} st
+ * @param {Subject} s
+ */
+const testChargeOf = (st, s) =>
+	s.vitestPart ? peakChargeOf(st, s) : wholeChargeOf(st);
+
+/**
+ * @param {St} st
+ * @returns {{ cause: import("./part-suite-peak.js").LadderCause } | null}
+ */
+function wholeChargeOf(st) {
+	if (st.ctx.wholeRunCapMb === undefined) return null;
+	return wireCause(st, "a whole run") ?? { cause: "whole" };
+}
+
+/**
+ * @param {St} st
+ * @param {string} [judged]
  * @returns {{ cause: import("./peak-tripwire.js").Fallback["cause"] } | null}
  */
-function wireCause(st) {
+function wireCause(st, judged = "a part-suite") {
 	const wire = st.ctx.tripwire();
 	if (!wire) return null;
 	if (wire.cause !== "tripped")
 		st.ctx.log(
-			`${wire.cause === "journal-unread" ? "earlyoom's journal" : "the peak tripwire's state"} unreadable — a part-suite judged on the ladder (#5366)`,
+			`${wire.cause === "journal-unread" ? "earlyoom's journal" : "the peak tripwire's state"} unreadable — ${judged} judged on the ladder (#5366)`,
 			wire.why,
 		);
 	return { cause: wire.cause };
@@ -674,14 +691,16 @@ function wireCause(st) {
  * @param {St} st
  * @param {Subject} s
  * @param {number} busy
- * @param {{ unsized: boolean, peakRead: import("./part-suite-peak.js").PartPeak | null }} charge
+ * @param {ReturnType<typeof testChargeOf>} charge
  * @returns {{ rung: number, capMb: number | null }}
  */
-function rungOf(st, s, busy, { unsized, peakRead }) {
-	if (peakRead) return { rung: rungMb(peakRead.p99Mb), capMb: null };
+function rungOf(st, s, busy, charge) {
+	if (charge && "p99Mb" in charge)
+		return { rung: rungMb(charge.p99Mb), capMb: null };
+	const cappable = charge?.cause === "unsized" || charge?.cause === "whole";
 	const rung = suiteRungMb(busy + s.workers);
-	const cap = st.ctx.partCapMb;
-	return unsized && cap !== undefined && rungMb(cap) < rung
+	const cap = st.ctx.wholeRunCapMb;
+	return cappable && cap !== undefined && rungMb(cap) < rung
 		? { rung: rungMb(cap), capMb: cap }
 		: { rung, capMb: null };
 }
@@ -694,12 +713,9 @@ function rungOf(st, s, busy, { unsized, peakRead }) {
  */
 function chargeOf(st, s, { busy, queued }) {
 	const test = s.kind === "test";
-	const charge = test && s.vitestPart ? peakChargeOf(st, s) : null;
+	const charge = test ? testChargeOf(st, s) : null;
 	const peakRead = charge && "p99Mb" in charge ? charge : null;
-	const { rung, capMb } = rungOf(st, s, busy, {
-		unsized: charge !== null && "cause" in charge && charge.cause === "unsized",
-		peakRead,
-	});
+	const { rung, capMb } = rungOf(st, s, busy, charge);
 	const climbScope = test && !peakRead && capMb === null ? "off-rung" : "all";
 	const climbMb = queued ? 0 : st.readClimb(climbScope);
 	const reach = reachableRung(rung, st.ctx.totalMb());
@@ -857,7 +873,7 @@ function countVerdict(st, j) {
 function rungClause(j) {
 	if (j.peak) return ` for ${peakClause(j.peak)}`;
 	if (j.capMb !== null)
-		return ` for a part-suite charged no more than its repo's measured whole-run peak of ${j.capMb} MB (#5802)`;
+		return ` for a ${j.s.vitestPart ? "part-suite" : "whole run"} charged no more than its repo's measured whole-run peak of ${j.capMb} MB (#5802)`;
 	if (j.s.part)
 		return ` for the ${j.s.workers} vitest worker(s) its named files can occupy, beside ${j.busy} running`;
 	if (j.busy > j.whole * WHOLE_SUITE_WORKERS)

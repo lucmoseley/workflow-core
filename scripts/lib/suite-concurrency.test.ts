@@ -125,7 +125,7 @@ interface Over {
 		unread: string | null;
 	};
 	launchWeight?: Weight | null;
-	partCapMb?: number;
+	wholeRunCapMb?: number;
 	windows?: WindowsRead;
 	tscPeakMb?: number;
 	tscPeaks?: Record<string, number>;
@@ -161,7 +161,9 @@ function harness(over: Over = {}) {
 		gateSeats: () =>
 			over.gateSeats ?? { count: 0, part: 0, under: () => false, unread: null },
 		launchWeight: over.launchWeight ?? null,
-		...(over.partCapMb === undefined ? {} : { partCapMb: over.partCapMb }),
+		...(over.wholeRunCapMb === undefined
+			? {}
+			: { wholeRunCapMb: over.wholeRunCapMb }),
 		partPeak: over.partPeak ?? (() => ({ peak: null })),
 		tripwire: () => over.tripwire ?? null,
 		...(over.noteAdmission ? { noteAdmission: over.noteAdmission } : {}),
@@ -3013,7 +3015,7 @@ describe("charges a part-suite no more than its repo's measured whole-run peak (
 		const notes: PartAdmission[] = [];
 		const { verdict, text } = judge("npm run test", Between, oneWhole, {
 			launchWeight: Unsized,
-			partCapMb: DesignVaultPeak,
+			wholeRunCapMb: DesignVaultPeak,
 			noteAdmission: (a) => notes.push(a),
 			...over,
 		});
@@ -3038,7 +3040,7 @@ describe("charges a part-suite no more than its repo's measured whole-run peak (
 				capMb: DesignVaultPeak,
 			},
 		]);
-		expect(outcome(run({ partCapMb: undefined }).verdict)).toBe("deny");
+		expect(outcome(run({ wholeRunCapMb: undefined }).verdict)).toBe("deny");
 	});
 
 	it("charges it every neighbour's climb, as a measured peak is, naming the cap", () => {
@@ -3067,7 +3069,7 @@ describe("charges a part-suite no more than its repo's measured whole-run peak (
 
 	it("reads no tripwire for an unsized run offered no cap", () => {
 		const { notes } = run({
-			partCapMb: undefined,
+			wholeRunCapMb: undefined,
 			tripwire: { cause: "tripped" },
 		});
 		expect(notes[0]).toMatchObject({ cause: "unsized" });
@@ -3079,6 +3081,69 @@ describe("charges a part-suite no more than its repo's measured whole-run peak (
 			rungMb: suiteRungMb(WHOLE_SUITE_WORKERS),
 		});
 		expect(notes[0]).not.toHaveProperty("capMb");
+	});
+});
+
+describe("charges a whole non-vitest run no more than its repo's measured whole-run peak (#5877)", () => {
+	const HealthPeak = 550;
+	const CapRung = rungMb(HealthPeak);
+	const LadderRung = suiteRungMb(WHOLE_SUITE_WORKERS);
+	const Between = CapRung + 200;
+	const run = (over: Over = {}) => {
+		const notes: PartAdmission[] = [];
+		const { verdict, text } = judge(
+			"npm run test -- --full=flag",
+			Between,
+			psWith(0),
+			{
+				wholeRunCapMb: HealthPeak,
+				noteAdmission: (a) => notes.push(a),
+				...over,
+			},
+		);
+		return { verdict, text, notes };
+	};
+
+	it("sits between the two rungs, so the cases below tell them apart", () => {
+		expect(CapRung).toBeLessThan(Between);
+		expect(Between).toBeLessThan(LadderRung);
+	});
+
+	it("admits a whole run at its repo's measured peak with the vitest rung unmet", () => {
+		const { verdict, notes } = run();
+		expect(outcome(verdict)).toBe("allow");
+		expect(notes).toEqual([
+			{
+				mode: "ladder",
+				cause: "whole",
+				rungMb: CapRung,
+				climbMb: 0,
+				capMb: HealthPeak,
+			},
+		]);
+		const uncapped = run({ wholeRunCapMb: undefined });
+		expect(outcome(uncapped.verdict)).toBe("deny");
+		expect(uncapped.notes).toEqual([]);
+	});
+
+	it("names the cap where it still refuses", () => {
+		const { verdict, text } = run({ mb: CapRung - 1 });
+		expect(verdict?.gate).toMatchObject({ limb: "memory", rungMb: CapRung });
+		expect(text).toContain(
+			`for a whole run charged no more than its repo's measured whole-run peak of ${HealthPeak} MB`,
+		);
+	});
+
+	it("keeps the vitest rung while the peak tripwire is tripped or blind", () => {
+		for (const tripwire of [
+			{ cause: "tripped" as const },
+			{ cause: "journal-unread" as const, why: "journalctl: exit 1" },
+		]) {
+			const { verdict, notes } = run({ tripwire });
+			expect(outcome(verdict)).toBe("deny");
+			expect(notes[0]).toMatchObject({ cause: tripwire.cause });
+			expect(notes[0]).not.toHaveProperty("capMb");
+		}
 	});
 });
 
