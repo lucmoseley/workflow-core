@@ -198,8 +198,9 @@ function clashNotes(skipped) {
 const buildOutcomeLine = (o) =>
 	[
 		...(o.launched.length > 0 ? [buildLaunchLine(o.launched)] : []),
-		...o.refused.map(
-			(r) => `refused ${buildLaunchesLine([r.launch])}: ${r.reason}`,
+		...[...Map.groupBy(o.refused, (r) => r.reason)].map(
+			([reason, rs]) =>
+				`refused ${buildLaunchesLine(rs.map((r) => r.launch))}: ${reason}`,
 		),
 		...(o.unreached.length > 0
 			? [

@@ -7,7 +7,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { shellQuote } from "./sh-quote.js";
 
-const { addedCheckVerdict, runCheckCommand } = require("./gate-check.js");
+const {
+	addedCheckVerdict,
+	parseVerdict,
+	runCheckCommand,
+} = require("./gate-check.js");
 
 // guess, #3487
 const TIMEOUT_MS = 5000;
@@ -363,29 +367,29 @@ describe("a count gate projected from its reading history (#5861)", () => {
 		expect(judge("15 commits, set by #4925 Q2").refusals).toEqual([]);
 	});
 
-	it.each([
-		"15 commits, past #5687 Q1's week",
-		"15 commits, past #5687 Q01's week",
-		"15 commits, past lucmoseley/workflow-core-tracker#5687 Q1's week",
-	])(
-		"refuses a basis whose only round is the bound's own ruling: %s",
-		(basis) => {
-			seed(8, "0 of 15 commits");
-			expect(judge(basis).refusals).toHaveLength(1);
-		},
-	);
-
 	it("refuses a basis citing the round its own refusal names as the bound", () => {
 		seed(8, "0 of 15 commits");
-		const printed =
-			judge("15 commits, #5687").refusals[0]?.match(/#\d+ Q\d+/)?.[0];
+		const printed = judge("15 commits, #5687", false).refusals[0]?.match(
+			/#\d+ Q\d+/,
+		)?.[0];
 		expect(printed).toBeDefined();
-		expect(judge(`15 commits, past ${printed}`).refusals).toHaveLength(1);
+		expect(judge(`15 commits, past ${printed}`, false).refusals).toHaveLength(
+			1,
+		);
 	});
 
-	it("passes a round of the same number on another repo", () => {
+	it("refuses the bound's cite as an adopter's copy prints it, there too", () => {
+		const { qualifyProse } = require("./qualify-citations.js");
+		const { judgeBound } = require("./gate-projection.js");
 		seed(8, "0 of 15 commits");
-		expect(judge("15 commits, set by o/r#5687 Q1").refusals).toEqual([]);
+		const shipped = qualifyProse(judge("15 commits, #5687", false).refusals[0]);
+		const cite = shipped.match(/[\w-]+#\d+ Q\d+/)?.[0];
+		expect(cite).toBe("workflow-core#5687 Q1");
+		const rows = readHistory({ repo, issue: 1, command: COMMAND });
+		const adopter = { basis: `past ${cite}`, repo: "o/adopter", now: NOW };
+		expect(judgeBound(rows, [{ a: 1, b: 15 }], adopter).verdict).toBe(
+			"unreachable",
+		);
 	});
 
 	it("refuses a stated expected time past the bound under 7 days of history", () => {
@@ -452,5 +456,21 @@ describe("a count gate projected from its reading history (#5861)", () => {
 	it("adds its own run's reading to the issue's history", () => {
 		judge("15 commits, #5687");
 		expect(readHistory({ repo, issue: 1 })).toHaveLength(1);
+	});
+});
+
+describe("a reading's verdict (#5924)", () => {
+	it("reads a met line beside a count below its threshold as unmet", () => {
+		const reading = [
+			"met: lucmoseley/mantahostels pins v3.2.4, read from GitHub now, which carries 6da0d8f1",
+			"2 of 7 UTC days closed since mantahostels pinned v3.2.2 (c350d2e14, 2026-11-25 20:21 UTC)",
+		].join("\n");
+		expect(parseVerdict(reading)).toBe("unmet");
+	});
+
+	it("reads a met line beside a reached count as met", () => {
+		expect(parseVerdict("met: pins v3.2.4\n7 of 7 UTC days closed")).toBe(
+			"met",
+		);
 	});
 });

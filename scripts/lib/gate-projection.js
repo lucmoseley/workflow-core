@@ -6,7 +6,12 @@ const { parseErrorFirstLine } = require("./first-line.js");
 const { now: clockNow } = require("./clock.js");
 const { readJsonl } = require("./jsonl.js");
 const { refillPath } = require("./refill-dir.js");
-const { UPSTREAM_TRACKER } = require("./workflow-core-config.js");
+const { CITATION_REPO } = require("./exempt-markers.js");
+const { isSameRepo } = require("./issue-ref.js");
+const {
+	UPSTREAM_CODE_REPO,
+	UPSTREAM_TRACKER,
+} = require("./workflow-core-config.js");
 
 // ruled, #5687 Q1
 const BOUND_DAYS = 7;
@@ -262,18 +267,30 @@ const STATED_TIME_RES = [
 	/\babout\s+(\d+(?:\.\d+)?)\s+(days?|weeks?)\b/gi,
 ];
 
-/** @param {string} before */
-const isUpstreamRef = (before) => {
-	const word = before.split(/\s/).at(-1) ?? "";
-	const repo = word.replace(/^\W+/, "");
-	return !repo.includes("/") || repo.toLowerCase() === UPSTREAM_TRACKER;
-};
+/** @param {string} repo */
+const isUpstreamRepo = (repo) =>
+	isSameRepo(repo, UPSTREAM_TRACKER) || isSameRepo(repo, UPSTREAM_CODE_REPO);
 
-/** @param {string} basis */
-const hasFounderRound = (basis) =>
+/**
+ * @param {string} textBefore
+ * @param {string} gateRepo
+ */
+function isBoundRepoRef(textBefore, gateRepo) {
+	const word = (textBefore.split(/\s/).at(-1) ?? "").replace(/^\W+/, "");
+	const named = word.split("/").slice(-2);
+	if (named.length === 2) return isUpstreamRepo(named.join("/"));
+	if (word.toLowerCase() === CITATION_REPO) return true;
+	return gateRepo === "" || isUpstreamRepo(gateRepo);
+}
+
+/**
+ * @param {string} basis
+ * @param {string} gateRepo
+ */
+const citesOtherFounderRound = (basis, gateRepo) =>
 	[...basis.matchAll(FOUNDER_ROUND_RE)].some(
 		({ 1: issue, 2: round, index }) =>
-			!isUpstreamRef(basis.slice(0, index)) ||
+			!isBoundRepoRef(basis.slice(0, index), gateRepo) ||
 			Number(issue) !== BOUND_ROUND.issue ||
 			Number(round) !== BOUND_ROUND.round,
 	);
@@ -301,14 +318,13 @@ function parseStatedDays(basis) {
 /**
  * @param {HistoryRow[]} rows
  * @param {Count[]} counts
- * @param {string} basis
- * @param {number} now
+ * @param {{basis: string, repo: string, now: number}} gate
  * @returns {BoundVerdict}
  */
-function judgeBound(rows, counts, basis, now) {
+function judgeBound(rows, counts, { basis, repo, now }) {
 	/** @type {BoundVerdict} */
 	const pass = { verdict: "pass" };
-	if (counts.length === 0 || hasFounderRound(basis)) return pass;
+	if (counts.length === 0 || citesOtherFounderRound(basis, repo)) return pass;
 	const p = project(rows, counts, now);
 	if (p.verdict === "met") return pass;
 	if (p.verdict !== "no-history" && p.spanDays >= MIN_REFUSE_DAYS)
@@ -324,7 +340,7 @@ module.exports = {
 	BOUND_DAYS,
 	MIN_REFUSE_DAYS,
 	RATE_WINDOW_DAYS,
-	hasFounderRound,
+	citesOtherFounderRound,
 	judgeBound,
 	project,
 	parseCounts,

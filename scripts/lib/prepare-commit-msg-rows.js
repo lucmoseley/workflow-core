@@ -9,6 +9,7 @@ const {
 	routeName,
 	scanRefusal,
 } = require("./commit-route.js");
+const { checkInProcess } = require("./check.js");
 const { readText } = require("./file-read.js");
 const { spawnGitSync } = require("./git.js");
 const { readHookGitDir } = require("./hook-entry.js");
@@ -34,7 +35,7 @@ const HOOK = "prepare-commit-msg";
  * @typedef {import("./precommit-dispatch.js").RowResult} RowResult
  * @typedef {import("./precommit-dispatch.js").Row & {
  *   script: string,
- *   run: (ctx: PrepareCommitMsgContext) => RowResult,
+ *   run: (ctx: PrepareCommitMsgContext) => RowResult | Promise<RowResult>,
  * }} PrepareCommitMsgRow
  */
 
@@ -58,18 +59,21 @@ function readable(file) {
 	}
 }
 
+/** @param {unknown} v */
+const isFunction = (v) => typeof v === "function";
+
 /**
  * @param {string} file
  * @param {string} name
- * @returns {Function}
+ * @param {(value: unknown) => boolean} [shaped]
+ * @returns {unknown}
  */
-function exportOf(file, name) {
-	const fn = require(file)[name];
-	if (typeof fn !== "function") throw new Error(`${file} exports no ${name}`);
-	return fn;
+function exportOf(file, name, shaped = isFunction) {
+	const value = require(file)[name];
+	if (!shaped(value)) throw new Error(`${file} exports no ${name}`);
+	return value;
 }
 
-/** @typedef {(args: string[]) => { code: number, stderr: string }} ScannerMain */
 /** @typedef {(opts: { cwd: string, env: NodeJS.ProcessEnv, args?: string[] }) => RowResult} StepProgram */
 
 /** @param {string} route */
@@ -105,8 +109,8 @@ function shellStatus(r) {
 /** @type {RowResult} */
 const PASS = { exit: 0, stdout: "", stderr: "" };
 
-/** @param {PrepareCommitMsgContext} ctx @returns {RowResult} */
-function closingKeyword(ctx) {
+/** @param {PrepareCommitMsgContext} ctx @returns {Promise<RowResult>} */
+async function closingKeyword(ctx) {
 	const scanner = scriptAt(ctx, SCANNER);
 	if (!readable(scanner))
 		return {
@@ -114,9 +118,16 @@ function closingKeyword(ctx) {
 			stdout: "",
 			stderr: `${HOOK}: ${scanner} is missing, so the closing-keyword scan did not run.\n  Refusing rather than passing the message unread (#138).\n`,
 		};
-	const main = /** @type {ScannerMain} */ (exportOf(scanner, "main"));
-	const r = main([ctx.file, HOOK]);
-	return { exit: r.code === 0 ? 0 : 1, stdout: "", stderr: r.stderr };
+	const spec = /** @type {import("./check.js").CheckSpec} */ (
+		exportOf(
+			scanner,
+			"SPEC",
+			(v) =>
+				typeof v === "object" && v !== null && "run" in v && isFunction(v.run),
+		)
+	);
+	const r = await checkInProcess(spec, [ctx.file, HOOK], { script: scanner });
+	return { ...r, exit: r.exit === 0 ? 0 : 1 };
 }
 
 const GITLEAKS_STAGED = ["git", "--staged", "--redact"];
@@ -238,6 +249,7 @@ const ROWS = [
 		arm: { always: true },
 		when: { unlessRoutes: ["replay"], facts: ["message"] },
 		policy: "gate",
+		quietPass: true,
 		run: closingKeyword,
 	},
 	{

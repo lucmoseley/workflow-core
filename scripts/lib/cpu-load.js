@@ -5,7 +5,13 @@ const {
 	unwrap,
 	wrapperScript,
 } = require("./shell-parse.js");
-const { afterSlash, literal } = require("./shell-words.js");
+const {
+	afterSlash,
+	literal,
+	OP_MARK,
+	holdRedirectOps,
+	releaseRedirectOps,
+} = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 const ZERO = BigInt(0);
@@ -125,13 +131,11 @@ const SPLIT_SHIELD = escapeShield("&|;()<>$");
 
 /** @param {string} masked */
 function splitLines(masked) {
-	return masked
+	const shield = SPLIT_SHIELD(masked);
+	return shield.text
 		.split("\n")
 		.map((line) =>
-			SPLIT_SHIELD.shield(line)
-				.replace(/([<>])&/g, "$1\x03")
-				.replace(/&>/g, "\x03>")
-				.replace(/>\|/g, ">\x04")
+			holdRedirectOps(line)
 				.replace(
 					new RegExp(`for${WS}\\(\\(${WS};${WS};${WS}\\)\\)`, "g"),
 					"while true",
@@ -142,11 +146,11 @@ function splitLines(masked) {
 				)
 				.replace(/\$\(\([^()]*\)\)/g, "0")
 				.replace(/\(\([^()]*\)\)/g, "let")
-				.replace(/(&&|\|\||\|&|[;&|()])/g, "\x05$1\n"),
+				.replace(/(&&|\|\||\|&|[;&|()])/g, `${OP_MARK}$1\n`),
 		)
 		.join("\n")
 		.split("\n")
-		.map(SPLIT_SHIELD.unshield);
+		.map(shield.unshield);
 }
 
 /** @param {string} s */
@@ -494,11 +498,9 @@ const isRelevant = (words) =>
 
 /** @param {string} line */
 function readLine(line) {
-	const cut = line.indexOf("\x05");
+	const cut = line.indexOf(OP_MARK);
 	const sep = cut === -1 ? "\n" : line.slice(cut + 1);
-	const seg = (cut === -1 ? line : line.slice(0, cut))
-		.replaceAll("\x03", "&")
-		.replaceAll("\x04", "|");
+	const seg = releaseRedirectOps(cut === -1 ? line : line.slice(0, cut));
 	let words = ifsWords(seg);
 	while (words.length > 0 && RESERVED.includes(words[0] ?? ""))
 		words = words.slice(1);
@@ -568,7 +570,7 @@ function loopWord(st, words, sep) {
  */
 function readerAfter(lines, idx) {
 	const after = lines[idx + 1] ?? "";
-	const cut = after.indexOf("\x05");
+	const cut = after.indexOf(OP_MARK);
 	return afterSlash(
 		ifsWords(cut === -1 ? after : after.slice(0, cut))[0] ?? "",
 	);

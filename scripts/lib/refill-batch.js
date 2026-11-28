@@ -6,7 +6,8 @@ const {
 } = require("./refill-block-core.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { carriedOnto, parkedCarryOf } = require("./refill-carry.js");
-const { seatIdOf } = require("./refill-seats.js");
+const { buildSeatName, seatIdOf } = require("./refill-seats.js");
+const { shellQuote } = require("./sh-quote.js");
 const {
 	DEFAULT_STAGGER_SECONDS,
 	MEMBER_REFUSED_TAIL,
@@ -80,7 +81,8 @@ function buildWouldRunLine(call) {
 }
 
 /**
- * @typedef {{launch: import("./refill-decide.js").Launch, reason: string}} Refusal
+ * @typedef {{launch: import("./refill-decide.js").Launch, reason: string,
+ *   untrusted?: true}} Refusal
  * @typedef {{launched: import("./refill-loop.js").LoopLaunch[], refused: Refusal[],
  *   resumeRefused?: string|null}} BatchOutcome
  * @typedef {{resume: (l: import("./refill-decide.js").Launch,
@@ -88,6 +90,7 @@ function buildWouldRunLine(call) {
  *   import("./refill-blocks.js").Resumed,
  *   readActsBefore: import("./refill-blocks.js").ReadActsBefore,
  *   admitResume: (root: string) => string|null, stagger: () => void,
+ *   isUntrusted: (seat: string, root: string) => boolean,
  *   recordLaunch: typeof import("./dispatch-ledger.js").record,
  *   log: (line: string) => void, now: () => number}} ResumeIo
  */
@@ -129,6 +132,23 @@ function parseRefusalReason(out, prompt, failed) {
 		return lines.findLast(isSetHeader)?.trim() ?? `dispatcher ${failed}`;
 	return "no ledger entry written for it";
 }
+
+/**
+ * @param {import("./refill-decide.js").Launch} l
+ * @param {string} seat
+ * @returns {Refusal}
+ */
+const buildTrustRefusal = (l, seat) => ({
+	launch: l,
+	reason: `workspace untrusted on ${buildSeatName(seat)}: run \`cd ${shellQuote(l.root)} && CLAUDE_CONFIG_DIR=${shellQuote(seat)} claude\` once and accept the trust prompt`,
+	untrusted: true,
+});
+
+/** @param {import("./refill-decide.js").Launch} l */
+const runSeatOf = (l) =>
+	l.parkedRoute && "resume" in l.parkedRoute
+		? l.parkedRoute.resume.seat
+		: l.seat;
 
 /** @param {import("./refill-decide.js").Launch} l */
 const limitParksOf = (l) =>
@@ -344,6 +364,11 @@ function launchOrResume(batch, io) {
 	/** @type {string|null} */
 	let refusal = null;
 	for (const l of batch) {
+		const seat = runSeatOf(l);
+		if (io.isUntrusted(seat, l.root)) {
+			refused.push(buildTrustRefusal(l, seat));
+			continue;
+		}
 		if (refusal === null && l.parkedRoute && "resume" in l.parkedRoute)
 			refusal = io.admitResume(l.root);
 		if (refusal !== null) {
