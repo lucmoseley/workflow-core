@@ -64,6 +64,7 @@ const {
 	readTickRefusal,
 } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
+const { isUntrustedSkip } = require("./lib/refill-decide.js");
 const seatReading = require("./lib/seat-reading.js");
 const {
 	awaitLoopHold,
@@ -801,7 +802,9 @@ async function printDryRun() {
 			),
 		);
 	}
-	for (const s of d.skipped) say(`skipped ${loop.buildSkipText(s)}`);
+	for (const line of loop.buildUntrustedTexts(d.skipped)) say(line);
+	for (const s of d.skipped)
+		if (!isUntrustedSkip(s)) say(`skipped ${loop.buildSkipText(s)}`);
 	return 0;
 }
 

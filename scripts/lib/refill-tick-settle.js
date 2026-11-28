@@ -1,4 +1,3 @@
-const path = require("node:path");
 const { batchesOf } = require("./refill-batch.js");
 const { isLive, isStepResume, launchName } = require("./refill-block-core.js");
 const {
@@ -15,6 +14,7 @@ const {
 	buildFrontierReadText,
 	buildLaunchLine,
 	buildSkipText,
+	buildUntrustedTexts,
 	handedOffSince,
 	launchesSince,
 	summaryOf,
@@ -184,13 +184,6 @@ function frontierNotes(d, read) {
 }
 
 /** @param {import("./refill-decide.js").Skip[]} skipped */
-const untrustedNotes = (skipped) =>
-	[...Map.groupBy(skipped.filter(isUntrustedSkip), (s) => s.why)].map(
-		([why, ss]) =>
-			`held ${path.basename(ss[0]?.root ?? "")} ${ss.map((s) => `#${s.number}`).join(", ")}: ${why}`,
-	);
-
-/** @param {import("./refill-decide.js").Skip[]} skipped */
 function clashNotes(skipped) {
 	const clashes = skipped.filter(isClashSkip);
 	return clashes.length > 0
@@ -244,7 +237,7 @@ function buildTickLine(
 			: []),
 		...(d.launches.length > 0 && read ? [buildFrontierReadText(read)] : []),
 		...(d.launches.length > 0 ? clashNotes(d.skipped) : []),
-		...untrustedNotes(d.skipped),
+		...buildUntrustedTexts(d.skipped),
 		...(probes.length > 0
 			? [`probed ${probes.map((p) => `${p.seat}: ${p.outcome}`).join(", ")}`]
 			: []),

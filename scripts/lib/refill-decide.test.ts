@@ -10,6 +10,7 @@ const {
 	pickMoveSeat,
 	readParkers,
 	isFrontierDependent,
+	isUntrustedSkip,
 } = require("./refill-decide.js");
 
 const buildIdle = (reason: string, detail = "") => ({ reason, detail });
@@ -2177,7 +2178,7 @@ describe("a held checkout's gate judgement beside another's frontier (#5766)", (
 
 describe("decideTick on a workspace its seat does not trust (#5921)", () => {
 	const untrustedWhy = (d: { skipped: { number: number; why: string }[] }) =>
-		d.skipped.filter((s) => s.why.startsWith("workspace untrusted on "));
+		d.skipped.filter(isUntrustedSkip);
 
 	it("skips the untrusted repo's row before slots, giving its slot to the next row, the act named", () => {
 		const d = tick({
@@ -2238,5 +2239,25 @@ describe("decideTick on a workspace its seat does not trust (#5921)", () => {
 		});
 		expect(launched(d)).toEqual(["wfc#1"]);
 		expect(untrustedWhy(d).map((s) => s.number)).toEqual([532]);
+	});
+
+	it("idles naming the trust hold where it skipped every row, and keeps a checkout hold's idle beside one", () => {
+		const all = tick({
+			mode: "normal",
+			frontier: [row("dv", 1), row("dv", 2)],
+			seats: [seat("/s1", 10, 10)],
+			untrusted: [{ seat: "/s1", root: "dv" }],
+		});
+		expect(all.idle).toEqual(
+			buildIdle("every launchable repo is untrusted on its seat", ": dv"),
+		);
+		const beside = tick({
+			mode: "normal",
+			frontier: [row("dv", 1), row("wfc", 2)],
+			seats: [seat("/s1", 10, 10)],
+			untrusted: [{ seat: "/s1", root: "dv" }],
+			holds: [{ root: "wfc", kind: "probe" }],
+		});
+		expect(beside.idle?.reason).toBe("a probe hold stops every launch");
 	});
 });

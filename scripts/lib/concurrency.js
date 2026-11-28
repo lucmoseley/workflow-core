@@ -4,6 +4,7 @@ const { readJsonl, readLastJsonlRow } = require("./jsonl.js");
 const {
 	NOTHING_LAUNCHABLE,
 	PROBE_HOLD_WAIT,
+	UNTRUSTED_HELD,
 	buildIdleText,
 	buildPauseText,
 	buildLaunchHoldText,
@@ -97,6 +98,8 @@ function policyFailing(input, decision) {
 			limit: "empty frontier",
 			why: "nothing in the frontier is launchable",
 		});
+	if (decision.idle?.reason === UNTRUSTED_HELD)
+		out.push({ limit: "workspace trust", why: buildIdleText(decision.idle) });
 	if (decision.idle?.reason === PROBE_HOLD_WAIT)
 		out.push({ limit: "probe hold", why: buildIdleText(decision.idle) });
 	const pick = input.freeSlots > 0 ? pickSeat(input) : null;
