@@ -40,11 +40,14 @@ const HISTORY_FILE = ".gate-history.jsonl";
  */
 
 /** @param {string} reading @returns {Count[]} */
-const readCounts = (reading) =>
+const parseCounts = (reading) =>
 	[...reading.matchAll(/\b(\d+) of (\d+)\b/g)].map(([, a, b]) => ({
 		a: Number(a),
 		b: Number(b),
 	}));
+
+/** @param {unknown} e */
+const parseMessageLine = (e) => caught(e).message.split("\n")[0] ?? "";
 
 const historyPath = () =>
 	process.env.WFC_GATE_HISTORY || refillPath(HISTORY_FILE);
@@ -107,9 +110,8 @@ const newestOf = (rows, gate) =>
 		);
 
 /**
- * #5861
  * @param {{repo: string, issue?: number|null, command: string,
- *   reading: string, at?: number, file?: string}} reading
+ *   reading: string, at?: number}} reading
  * @returns {HistoryRow|null}
  */
 function appendReading({
@@ -118,9 +120,9 @@ function appendReading({
 	command,
 	reading,
 	at = clockNow(),
-	file = historyPath(),
 }) {
-	const counts = readCounts(reading);
+	const file = historyPath();
+	const counts = parseCounts(reading);
 	if (counts.length === 0) return null;
 	const rows = readAll(file);
 	const gate = { repo: repoKey(repo), issue, command };
@@ -153,7 +155,6 @@ function appendReading({
 }
 
 /**
- * #5861
  * @param {Parameters<typeof appendReading>[0]} reading
  * @returns {string|null}
  */
@@ -162,20 +163,16 @@ function recordReading(reading) {
 		appendReading(reading);
 		return null;
 	} catch (e) {
-		return caught(e).message.split("\n")[0] ?? "";
+		return parseMessageLine(e);
 	}
 }
 
 /**
- * #5861
- * @param {{repo: string, issue?: number|null, command?: string|null,
- *   file?: string}} gate
+ * @param {{repo: string, issue?: number|null, command?: string|null}} gate
  * @returns {HistoryRow[]}
  */
-function readHistory({ repo, issue = null, command = null, file }) {
-	const rows = readAll(file ?? historyPath()).filter(
-		(r) => r.repo === repoKey(repo),
-	);
+function readHistory({ repo, issue = null, command = null }) {
+	const rows = readAll(historyPath()).filter((r) => r.repo === repoKey(repo));
 	const own = issue === null ? [] : rows.filter((r) => r.issue === issue);
 	const chosen =
 		own.length > 0 ? own : rows.filter((r) => r.command === command);
@@ -196,8 +193,13 @@ function measureRate(points, a, now) {
 	const first = run[0] ?? { at: now, a };
 	const from = Math.max(now - RATE_WINDOW_DAYS * DAY_MS, first.at);
 	const base = run.filter((p) => p.at <= from).at(-1) ?? first;
+	const next = run.find((p) => p.at > from) ?? base;
+	const startA =
+		next.at > base.at
+			? base.a + ((next.a - base.a) * (from - base.at)) / (next.at - base.at)
+			: base.a;
 	const spanDays = (now - from) / DAY_MS;
-	return { ratePerDay: spanDays > 0 ? (a - base.a) / spanDays : 0, spanDays };
+	return { ratePerDay: spanDays > 0 ? (a - startA) / spanDays : 0, spanDays };
 }
 
 /**
@@ -226,7 +228,6 @@ function judgeCount(rows, c, i, now) {
 }
 
 /**
- * #5861
  * @param {HistoryRow[]} rows
  * @param {Count[]} counts
  * @param {number} now
@@ -248,7 +249,6 @@ function project(rows, counts, now) {
 }
 
 /**
- * #5861
  * @param {number} a
  * @param {number} ratePerDay
  * @returns {number}
@@ -256,11 +256,70 @@ function project(rows, counts, now) {
 const reachableFloor = (a, ratePerDay) =>
 	a + Math.floor(Math.max(0, ratePerDay) * BOUND_DAYS);
 
+const BOUND_RULING = "#5687 Q1";
+const FOUNDER_ROUND_RE = /#\d+\s+Q\d+\b/g;
+const PASS_CLAUSE_RE = /\bpass\s*=([^;]*)/i;
+const STATED_TIME_RES = [
+	/\((?:about\s+)?(\d+(?:\.\d+)?)\s+(days?|weeks?)\s+at\b/gi,
+	/\babout\s+(\d+(?:\.\d+)?)\s+(days?|weeks?)\b/gi,
+];
+
+/** @param {string} basis */
+const citesFounderRound = (basis) =>
+	[...basis.matchAll(FOUNDER_ROUND_RE)].some(
+		([m]) => m.replace(/\s+/, " ") !== BOUND_RULING,
+	);
+
+/**
+ * @param {string} basis
+ * @returns {number|null}
+ */
+function parseStatedDays(basis) {
+	const pass = PASS_CLAUSE_RE.exec(basis)?.[1] ?? "";
+	const days = STATED_TIME_RES.flatMap((re) =>
+		[...pass.matchAll(re)].map(
+			([, n, unit]) => Number(n) * (/^w/i.test(unit ?? "") ? 7 : 1),
+		),
+	);
+	return days.length > 0 ? Math.max(...days) : null;
+}
+
+/**
+ * @typedef {Extract<Projection, {metAt: unknown}>} Unreachable
+ * @typedef {{verdict: "pass"} | {verdict: "unreachable", projection: Unreachable}
+ *   | {verdict: "stated", days: number} | {verdict: "unprojected"}} BoundVerdict
+ */
+
+/**
+ * @param {HistoryRow[]} rows
+ * @param {Count[]} counts
+ * @param {string} basis
+ * @param {number} now
+ * @returns {BoundVerdict}
+ */
+function judgeBound(rows, counts, basis, now) {
+	/** @type {BoundVerdict} */
+	const pass = { verdict: "pass" };
+	if (counts.length === 0 || citesFounderRound(basis)) return pass;
+	const p = project(rows, counts, now);
+	if (p.verdict === "met") return pass;
+	if (p.verdict !== "no-history" && p.spanDays >= MIN_REFUSE_DAYS)
+		return p.verdict === "unreachable"
+			? { verdict: "unreachable", projection: /** @type {Unreachable} */ (p) }
+			: pass;
+	const days = parseStatedDays(basis);
+	if (days === null) return { verdict: "unprojected" };
+	return days > BOUND_DAYS ? { verdict: "stated", days } : pass;
+}
+
 module.exports = {
 	BOUND_DAYS,
+	BOUND_RULING,
 	MIN_REFUSE_DAYS,
+	judgeBound,
 	project,
-	readCounts,
+	parseCounts,
+	parseMessageLine,
 	readHistory,
 	reachableFloor,
 	recordReading,

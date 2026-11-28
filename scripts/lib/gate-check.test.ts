@@ -11,6 +11,9 @@ const { addedCheckVerdict, runCheckCommand } = require("./gate-check.js");
 
 // guess, #3487
 const TIMEOUT_MS = 5000;
+const DAY_MS = 864e5;
+const NOW = Date.parse("2026-11-28T00:00:00Z");
+const COMMAND = 'echo "1 of 15 commits"';
 const gate = (check: string) =>
 	`**Gated on:** it lands — check: ${check} — abandon if: it is dropped\n`;
 const verdictOf = (before: string, after: string, run = true) =>
@@ -312,13 +315,10 @@ describe("a check the write does not add", () => {
 });
 
 describe("a count gate projected from its reading history (#5861)", () => {
-	const DayMs = 864e5;
 	const { recordReading, readHistory } = require("./gate-projection.js");
 	const { readHostTracker } = require("./refill-repos.js");
 	const { hostRoot } = require("./host-root.js");
 	const repo = readHostTracker(hostRoot()) ?? "";
-	const Now = Date.parse("2026-11-28T00:00:00Z");
-	const Command = 'echo "1 of 15 commits"';
 	let dir: string;
 
 	beforeEach(() => {
@@ -332,18 +332,18 @@ describe("a count gate projected from its reading history (#5861)", () => {
 			recordReading({
 				repo,
 				issue,
-				command: Command,
+				command: COMMAND,
 				reading,
-				at: Now - days * DayMs,
+				at: NOW - days * DAY_MS,
 			}),
 		).toBeNull();
 	const body = (basis: string) =>
-		`**Gated on:** 15 commits — check: \`${Command}\` — abandon if: it is dropped\n**Gate basis:** ${basis}\n`;
+		`**Gated on:** 15 commits — check: \`${COMMAND}\` — abandon if: it is dropped\n**Gate basis:** ${basis}\n`;
 	const judge = (basis: string, run = true, issue: number | undefined = 1) =>
 		addedCheckVerdict("", body(basis), {
 			run,
 			issue,
-			now: Now,
+			now: NOW,
 			timeoutMs: TIMEOUT_MS,
 		});
 
@@ -352,15 +352,20 @@ describe("a count gate projected from its reading history (#5861)", () => {
 		const { refusals } = judge("15 commits, #5687");
 		expect(refusals).toHaveLength(1);
 		expect(refusals[0]).toContain("1 of 15 commits");
-		expect(refusals[0]).toContain("14 remaining are met on 2027-03-06");
+		expect(refusals[0]).toContain("14 remaining are met on 2027-03-20");
 		expect(refusals[0]).toContain("#5687 Q1");
-		expect(refusals[0]).toContain("it reaches 2 within 7 days");
+		expect(refusals[0]).toContain("it reaches 1 within 7 days");
 		expect(refusals[0]).toContain("§Gating an issue");
 	});
 
 	it("passes the same history where the basis cites a founder question round", () => {
 		seed(8, "0 of 15 commits");
 		expect(judge("15 commits, set by #4925 Q2").refusals).toEqual([]);
+	});
+
+	it("refuses a basis whose only round is the bound's own ruling", () => {
+		seed(8, "0 of 15 commits");
+		expect(judge("15 commits, past #5687 Q1's week").refusals).toHaveLength(1);
 	});
 
 	it("refuses a stated expected time past the bound under 7 days of history", () => {
@@ -386,7 +391,7 @@ describe("a count gate projected from its reading history (#5861)", () => {
 			addedCheckVerdict(
 				"",
 				`**Gated on:** 15 commits — check: \`${met}\` — abandon if: it is dropped\n**Gate basis:** 15 commits, #5687\n`,
-				{ run: true, issue: 1, now: Now, timeoutMs: TIMEOUT_MS },
+				{ run: true, issue: 1, now: NOW, timeoutMs: TIMEOUT_MS },
 			).refusals,
 		).toEqual([]);
 	});
@@ -397,7 +402,7 @@ describe("a count gate projected from its reading history (#5861)", () => {
 		const { refusals } = judge("15 commits, #5687", false, undefined);
 		expect(refusals).toHaveLength(1);
 		expect(refusals[0]).toContain("1 of 15");
-		expect(readHistory({ repo, command: Command })).toHaveLength(2);
+		expect(readHistory({ repo, command: COMMAND })).toHaveLength(2);
 	});
 
 	it("judges an issue with no rows of its own on its command's history, before adding its own reading", () => {
