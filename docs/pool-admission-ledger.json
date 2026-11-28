@@ -111,6 +111,12 @@
 		},
 		{
 			"file": "docs/working-contract.md",
+			"headline": "Fix or file every problem you find, whether or not your task owns it.",
+			"claim": "A session names a problem in a reply and leaves it neither fixed nor on an issue",
+			"route": "no-trigger"
+		},
+		{
+			"file": "docs/working-contract.md",
 			"headline": "Test a blocker before it ends a turn",
 			"claim": "A session ends a turn on an untested blocker",
 			"route": "no-trigger"

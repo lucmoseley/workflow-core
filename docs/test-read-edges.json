@@ -3258,6 +3258,12 @@
 		"docs/data/close-rounds-2026-10-09/separation-prompts.json": [
 			"scripts/report-close-check-reading.test.ts"
 		],
+		"docs/data/fix-or-file-labels-2026-11-28/labels.jsonl": [
+			"scripts/score-fix-or-file.test.ts"
+		],
+		"docs/data/fix-or-file-labels-2026-11-28/natural.jsonl": [
+			"scripts/score-fix-or-file.test.ts"
+		],
 		"docs/data/issue-title-search-2026-09-27/queries.json": [
 			"scripts/lib/file-issue-core.test.ts"
 		],
@@ -28679,6 +28685,35 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/fix-or-file-rates.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-dispatchers.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-msg-dispatch.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/post-commit-dispatch.test.ts",
+			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/score-fix-or-file.test.ts"
 		],
 		"scripts/lib/fix-ticket.js": [
 			"scripts/check-guard-errors.test.ts",
@@ -72511,6 +72546,24 @@
 			"scripts/scan-injection.test.ts"
 		],
 		"scripts/scan-injection.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/score-fix-or-file.js": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/score-fix-or-file.test.ts"
+		],
+		"scripts/score-fix-or-file.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
