@@ -313,7 +313,7 @@ describe("a check the write does not add", () => {
 
 describe("a count gate projected from its reading history (#5861)", () => {
 	const DayMs = 864e5;
-	const { appendReading, readHistory } = require("./gate-projection.js");
+	const { recordReading, readHistory } = require("./gate-projection.js");
 	const { readHostTracker } = require("./refill-repos.js");
 	const { hostRoot } = require("./host-root.js");
 	const repo = readHostTracker(hostRoot()) ?? "";
@@ -328,7 +328,7 @@ describe("a count gate projected from its reading history (#5861)", () => {
 	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 	const seed = (days: number, reading: string, issue: number | null = 1) =>
-		appendReading({
+		recordReading({
 			repo,
 			issue,
 			command: Command,

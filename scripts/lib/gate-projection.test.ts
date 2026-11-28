@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const DAY_MS = 864e5;
 const {
-	appendReading,
+	recordReading,
 	project,
 	readHistory,
 	reachableFloor,
@@ -156,7 +156,7 @@ describe("the history store", () => {
 	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 	const put = (at: number, reading: string, over: object = {}) =>
-		appendReading({
+		recordReading({
 			repo: "O/R",
 			issue: 1,
 			command: "c",

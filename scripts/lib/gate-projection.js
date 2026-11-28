@@ -259,7 +259,6 @@ const reachableFloor = (a, ratePerDay) =>
 module.exports = {
 	BOUND_DAYS,
 	MIN_REFUSE_DAYS,
-	appendReading,
 	project,
 	readCounts,
 	readHistory,
