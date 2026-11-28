@@ -702,6 +702,79 @@ describe("lib/suite-background.js", () => {
 			).toBe(fix);
 	});
 
+	it("drops a timeout at its launch's own place, leaving the same text elsewhere as typed (#5890)", () => {
+		for (const [command, fix] of [
+			[
+				"echo timeout 590 npm run test -- -t foo; timeout 590 npm run test -- -t $(date)",
+				"echo timeout 590 npm run test -- -t foo; npm run test -- -t $(date)",
+			],
+			[
+				"echo timeout 590 npm run test -- -t foo; timeout 590 npm run test -- -t `date`",
+				"echo timeout 590 npm run test -- -t foo; npm run test -- -t `date`",
+			],
+			[
+				"echo x # timeout 590 npm run test\ntimeout 590 npm run test",
+				"echo x # timeout 590 npm run test\nnpm run test",
+			],
+			[
+				"a \\\n&& timeout 590 npm run test; echo timeout 590 npm run test",
+				"a \\\n&& npm run test; echo timeout 590 npm run test",
+			],
+			[
+				'echo "timeout 590 npm run test $(timeout 590 npm run test)"',
+				'echo "timeout 590 npm run test $(npm run test)"',
+			],
+			[
+				'timeout 590 npm run test -- -t "$(timeout 590 npm run test)"',
+				'npm run test -- -t "$(npm run test)"',
+			],
+			["timeout 590 npm \\\nrun test", "npm \\\nrun test"],
+			[
+				'echo "x $(echo a \\\n&& timeout 590 npm run test)"',
+				'echo "x $(echo a \\\n&& npm run test)"',
+			],
+			[
+				'echo "$(echo "y \\\n z"; timeout 590 npm run test)"',
+				'echo "$(echo "y \\\n z"; npm run test)"',
+			],
+			['echo "x $(timeout 590 \\\nnpm run test)"', 'echo "x $(npm run test)"'],
+			[
+				'timeout 590 npm run test -- -t "$(timeout 590 \\\nnpm run test)"',
+				'npm run test -- -t "$(npm run test)"',
+			],
+		])
+			expect(
+				readDenyReason(command)
+					.split("\nThis suite is ")[0]
+					.replace(FIX_OPENER, ""),
+				command,
+			).toBe(fix);
+	});
+
+	it.each([
+		[
+			"a launch it cannot place",
+			'echo "`timeout 590 npm run test -- -t \\$x`"',
+		],
+		[
+			"an edit overlapping another",
+			'timeout 590 npm run test -- -t "$(timeout 590 npm run test)"  --queue',
+		],
+	])("re-issues %s as typed, and logs it (#5890)", (_, command) => {
+		const { output, logs } = runCore(
+			"guard-suite-background",
+			toolCall("Bash", { command }),
+			{ root: dir },
+		);
+		expect(output?.permissionDecision).toBe("deny");
+		expect(logs).toContain(
+			"a timed launch has no place of its own in the typed command — the deny re-issues it as typed",
+		);
+		expect(output?.permissionDecisionReason?.split("\n")[0]).toContain(
+			"timeout 590",
+		);
+	});
+
 	it("re-issues a timed script as one single-quoted word where its own quotes cannot hold the rewrite (#5874)", () => {
 		for (const [command, fix] of [
 			[
