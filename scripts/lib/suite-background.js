@@ -39,7 +39,14 @@ const SP = "[ \\t\\v\\f\\r]";
 
 const NOT_DETACHING = ["&&", "&>", "|&", ">&", "<&"];
 
-const DETACHER = /(^|[^A-Za-z0-9_-])(nohup|setsid|disown)([^A-Za-z0-9_.-]|$)/m;
+const DETACHER_LEAD = "[ \\t\\v\\f\\r;|&(`]";
+
+const DETACHER_PATH = "(/[^ \\t\\v\\f\\r]*/)?";
+
+const DETACHER = new RegExp(
+	`(^|${DETACHER_LEAD})(${DETACHER_PATH}(nohup|setsid)(${SP}|[<>]|$)|disown([^A-Za-z0-9_.-]|$))`,
+	"m",
+);
 
 const ESCAPED_AMP = "\x0f";
 
@@ -96,19 +103,21 @@ function hasDetachment(text, reread = false) {
 	);
 }
 
+const STRIP_LEAD = `[\\x02-\\x06${DETACHER_LEAD.slice(1)}`;
+
 const DETACH_REWRITES = /** @type {const} */ ([
 	[new RegExp(`${REREAD_AMP}${SP}*(\\\\;|;|$)`, "g"), "$1"],
 	[new RegExp(REREAD_AMP, "g"), "\\;"],
 	[
 		new RegExp(
-			`(^|[ \\t\\v\\f\\r;|&(])(/[^ \\t\\v\\f\\r]*/)?(nohup|setsid)(${SP}+-[^ \\t\\v\\f\\r]+)*(${SP}+|$)`,
+			`(^|${STRIP_LEAD})${DETACHER_PATH}(nohup|setsid)(${SP}+-[^ \\t\\v\\f\\r]+)*(${SP}+|$|(?=[<>]))`,
 			"g",
 		),
 		"$1",
 	],
 	[
 		new RegExp(
-			`(^|[ \\t\\v\\f\\r;|&(])disown(${SP}+[^ \\t\\v\\f\\r;|&]+)*${SP}*`,
+			`(^|${STRIP_LEAD})disown(?![A-Za-z0-9_.-])(${SP}+[^ \\t\\v\\f\\r;|&]+)*${SP}*`,
 			"g",
 		),
 		"$1",

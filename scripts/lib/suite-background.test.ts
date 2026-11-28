@@ -275,6 +275,28 @@ describe("lib/suite-background.js", () => {
 			).toBe(fix);
 	});
 
+	it("reads a detacher word only where its strip removes it (#5893)", () => {
+		for (const command of [
+			"echo nohup; npm run test",
+			'flock /l -c "echo nohup; npm run test"',
+			"npm run test; echo setsid|cat",
+			"echo x=nohup; npm run test",
+		])
+			expect(verdict(command), command).toBe("allow");
+		for (const [command, fix] of [
+			["nohup>log npm run test", ">log npm run test"],
+			["true &&nohup npm run test", "true &&npm run test"],
+			["npm run test & disown;", "npm run test ;"],
+			["npm run test & echo disowned", "npm run test ; echo disowned"],
+		]) {
+			const reissue = readDenyReason(command)
+				.split("\n")[0]
+				.replace(FIX_OPENER, "");
+			expect(reissue, command).toBe(fix);
+			expect(verdict(reissue), reissue).toBe("allow");
+		}
+	});
+
 	it("reads no detachment inside a quoted string, and re-issues it as typed (#5822)", () => {
 		for (const command of [
 			"npm run test -- -t 'a & b'",
