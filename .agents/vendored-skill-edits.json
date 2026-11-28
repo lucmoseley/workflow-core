@@ -115,9 +115,9 @@
 			"why": "a fact-finding sub-agent dispatch names an Artefact: line, one being supplied under .claude/tmp/agents/ where it is missing (#515, #928); v1.3.1's --- between questions in the round template declined, which scripts/guard-priced-options.js refuses (#879 Q3); the decisions-are-the-user's line split, a decision research settles being the session's to treat as settled and report with its source and only a house decision the user's, the frontier round asking house decisions alone (#1701, built at #1706); the frontmatter description removed, so the skill leaves the start listing (#2036); v1.3.2's \"Word each question so 'yes' accepts your recommended answer\" declined, since a yes-shaped question has no rival to price (#4633)"
 		},
 		".agents/skills/implement/SKILL.md": {
-			"editedHash": "53e195d6c3e956065d19ab38009eec46fbf4fb9e35bf06e009012017f201c209",
-			"issue": 4633,
-			"why": "the hand-off check after claiming (#2391, #4244, #4506); npm run test's narrowing and test selection (#1216, #2182, mantahostels#2095, #1147); a dispatched subagent's one batched test call (#1517); the /code-review line (#1165); upstream's tdd Skill-tool line omitted (#1777)"
+			"editedHash": "65ad1b4a5546ee137a07c52dad5d8dcc56b2758ee01aafeacf4205425225055c",
+			"issue": 5823,
+			"why": "the hand-off check after claiming (#2391, #4244, #4506); the test runs name the repo's commands.test and its resolver, and the narrowing and test selection are scoped to workflow-core's npm run test (#5823, #1216, #2182, mantahostels#2095, #1147); a dispatched subagent's one batched test call (#1517); the /code-review line (#1165); upstream's tdd Skill-tool line omitted (#1777)"
 		},
 		".agents/skills/prototype/SKILL.md": {
 			"editedHash": "eb787032b8449d81bb5d41022a26fefbd7bfa0e582b8834fe3e5ec4666a2687e",
