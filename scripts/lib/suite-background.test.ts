@@ -281,6 +281,9 @@ describe("lib/suite-background.js", () => {
 			'flock /l -c "echo nohup; npm run test"',
 			"npm run test; echo setsid|cat",
 			"echo x=nohup; npm run test",
+			"npm run test; echo \\&nohup x",
+			"npm run test \\&nohup",
+			"npm run test; echo \\&disown",
 		])
 			expect(verdict(command), command).toBe("allow");
 		for (const [command, fix] of [
@@ -288,6 +291,14 @@ describe("lib/suite-background.js", () => {
 			["true &&nohup npm run test", "true &&npm run test"],
 			["npm run test & disown;", "npm run test ;"],
 			["npm run test & echo disowned", "npm run test ; echo disowned"],
+			["./nohup npm run test", "npm run test"],
+			["bin/setsid npm run test", "npm run test"],
+			["~/bin/nohup npm run test", "npm run test"],
+			["$HOME/bin/nohup npm run test", "npm run test"],
+			["\\nohup npm run test", "npm run test"],
+			["nohup \\\n npm run test", "npm run test"],
+			["nohup setsid npm run test", "npm run test"],
+			["nohup -p>log npm run test", ">log npm run test"],
 		]) {
 			const reissue = readDenyReason(command)
 				.split("\n")[0]

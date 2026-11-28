@@ -35,16 +35,25 @@ const {
  * @typedef {import("./core-contract.js").CoreContext & BackgroundPorts} Ctx
  */
 
-const SP = "[ \\t\\v\\f\\r]";
+const BLANK = " \\t\\v\\f\\r";
+
+const SP = `[${BLANK}]`;
 
 const NOT_DETACHING = ["&&", "&>", "|&", ">&", "<&"];
 
-const DETACHER_LEAD = "[ \\t\\v\\f\\r;|&(`]";
+const HELD_OP_BASE = 2;
 
-const DETACHER_PATH = "(/[^ \\t\\v\\f\\r]*/)?";
+/** @param {number} i */
+const heldOp = (i) => String.fromCharCode(HELD_OP_BASE + i);
+
+const DETACHER_LEAD = `${BLANK};|&(\``;
+
+const DETACHER_PATH = "([^\\x00-\\x20\\u2028\\u2029;|&()<>`]*/)?";
+
+const DETACHER_TAIL = "[<>]|\\\\$";
 
 const DETACHER = new RegExp(
-	`(^|${DETACHER_LEAD})(${DETACHER_PATH}(nohup|setsid)(${SP}|[<>]|$)|disown([^A-Za-z0-9_.-]|$))`,
+	`(^|[${DETACHER_LEAD}])\\\\?(${DETACHER_PATH}(nohup|setsid)(${SP}|${DETACHER_TAIL}|$)|disown([^A-Za-z0-9_.-]|$))`,
 	"m",
 );
 
@@ -85,7 +94,8 @@ const holdEscapedAmps = (text, reread, literalTo, detachTo) =>
 
 /** @param {string} masked @param {boolean} reread */
 function hasBareDetachment(masked, reread) {
-	if (DETACHER.test(masked)) return true;
+	if (DETACHER.test(holdEscapedAmps(masked, reread, ESCAPED_AMP, "&")))
+		return true;
 	return NOT_DETACHING.reduce(
 		(t, op) => t.split(op).join("  "),
 		holdEscapedAmps(masked, reread, "  ", "&"),
@@ -103,24 +113,24 @@ function hasDetachment(text, reread = false) {
 	);
 }
 
-const STRIP_LEAD = `[\\x02-\\x06${DETACHER_LEAD.slice(1)}`;
+const STRIP_LEAD = `(?<=^|[${heldOp(0)}-${heldOp(NOT_DETACHING.length - 1)}${DETACHER_LEAD}])\\\\?`;
 
 const DETACH_REWRITES = /** @type {const} */ ([
 	[new RegExp(`${REREAD_AMP}${SP}*(\\\\;|;|$)`, "g"), "$1"],
 	[new RegExp(REREAD_AMP, "g"), "\\;"],
 	[
 		new RegExp(
-			`(^|${STRIP_LEAD})${DETACHER_PATH}(nohup|setsid)(${SP}+-[^ \\t\\v\\f\\r]+)*(${SP}+|$|(?=[<>]))`,
+			`${STRIP_LEAD}${DETACHER_PATH}(nohup|setsid)(${SP}+-[^${BLANK}<>]+)*(${SP}+|$|(?=${DETACHER_TAIL}))`,
 			"g",
 		),
-		"$1",
+		"",
 	],
 	[
 		new RegExp(
-			`(^|${STRIP_LEAD})disown(?![A-Za-z0-9_.-])(${SP}+[^ \\t\\v\\f\\r;|&]+)*${SP}*`,
+			`${STRIP_LEAD}disown(?![A-Za-z0-9_.-])(${SP}+[^${BLANK};|&]+)*${SP}*`,
 			"g",
 		),
-		"$1",
+		"",
 	],
 	[new RegExp(`&${SP}*(;|$)`, "g"), "$1"],
 	[/&/g, ";"],
@@ -221,7 +231,7 @@ function stripSpan(span) {
 /** @param {string} masked @param {boolean} reread */
 function stripBare(masked, reread) {
 	let s = NOT_DETACHING.reduce(
-		(t, op, i) => t.split(op).join(String.fromCharCode(2 + i)),
+		(t, op, i) => t.split(op).join(heldOp(i)),
 		holdEscapedAmps(masked, reread, ESCAPED_AMP, REREAD_AMP),
 	);
 	s = trimEndRun(
@@ -236,10 +246,7 @@ function stripBare(masked, reread) {
 			.join("\n"),
 		"\n",
 	);
-	return NOT_DETACHING.reduce(
-		(t, op, i) => t.split(String.fromCharCode(2 + i)).join(op),
-		s,
-	)
+	return NOT_DETACHING.reduce((t, op, i) => t.split(heldOp(i)).join(op), s)
 		.split(ESCAPED_AMP)
 		.join("\\&");
 }
