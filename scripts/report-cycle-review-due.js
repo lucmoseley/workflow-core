@@ -214,12 +214,14 @@ function main() {
 
 	writeFd(
 		1,
-		`${HEADLINE[v.kind]}. ${fileOrRefresh({
-			title: TITLE,
-			label: LABEL,
-			labels: [LABEL, AREA],
-			body: body(v, today, logPath),
-		})}\n`,
+		`${HEADLINE[v.kind]}. ${
+			fileOrRefresh({
+				title: TITLE,
+				label: LABEL,
+				labels: [LABEL, AREA],
+				body: body(v, today, logPath),
+			}).text
+		}\n`,
 	);
 }
 

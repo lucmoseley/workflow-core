@@ -107,12 +107,14 @@ function main() {
 
 	writeFd(
 		1,
-		`Operating manual is stale. ${fileOrRefresh({
-			title: TITLE,
-			label: LABEL,
-			labels: [LABEL, TAKES],
-			body: body(report),
-		})}\n`,
+		`Operating manual is stale. ${
+			fileOrRefresh({
+				title: TITLE,
+				label: LABEL,
+				labels: [LABEL, TAKES],
+				body: body(report),
+			}).text
+		}\n`,
 	);
 }
 

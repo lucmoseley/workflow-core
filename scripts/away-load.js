@@ -24,6 +24,11 @@ const { gitBinary, gitDirs, gitSpawnOptions } = require("./lib/git.js");
 const { runCommand } = require("./lib/run-command.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { systemctl } = require("./lib/systemd-bins.js");
+const {
+	enableUserUnits,
+	unquotableFault,
+	writeUserUnits,
+} = require("./lib/systemd-user-units.js");
 const { MinuteTail } = require("./lib/minute-tail.js");
 const { minuteLogPath } = require("./lib/windows-memory.js");
 const { readText } = require("./lib/file-read.js");
@@ -531,8 +536,6 @@ function status() {
 	return 0;
 }
 
-const PLAIN_PATH = /^[\w./@+-]+$/;
-
 function install() {
 	const shell = process.env.SHELL || "/bin/bash";
 	const script = __filename;
@@ -541,26 +544,17 @@ function install() {
 		writeFd(2, `install from the main checkout, not ${__dirname}\n`);
 		return 1;
 	}
-	for (const word of [shell, script])
-		if (!PLAIN_PATH.test(word)) {
-			writeFd(2, `the unit cannot quote this path: ${word}\n`);
-			return 1;
-		}
+	const fault = unquotableFault([shell, script]);
+	if (fault !== null) {
+		writeFd(2, `${fault}\n`);
+		return 1;
+	}
 	const text = fs
 		.readFileSync(path.join(__dirname, `${UNIT}.template`), "utf8")
 		.replaceAll("@SHELL@", () => shell)
 		.replaceAll("@SCRIPT@", () => script);
-	const dir = path.join(
-		process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
-		"systemd",
-		"user",
-	);
-	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(path.join(dir, UNIT), text);
-	const steps = [
-		runCommand(systemctl(), ["--user", "daemon-reload"]),
-		runCommand(systemctl(), ["--user", "enable", "--now", UNIT]),
-	];
+	const dir = writeUserUnits({ [UNIT]: text });
+	const steps = enableUserUnits([{ unit: UNIT, now: true }]);
 	const active = runCommand(systemctl(), ["--user", "is-active", UNIT]);
 	writeFd(1, `${path.join(dir, UNIT)}\nis-active: ${active.out}\n`);
 	const errors = [...steps, active].flatMap((r) => r.error ?? []);
