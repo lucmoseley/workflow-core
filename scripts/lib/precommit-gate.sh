@@ -244,7 +244,7 @@ lander_batch() { [ "${wfc_gates:-all}" = batch ]; }
 lander_tested() { [ "${wfc_gates:-all}" = tested ]; }
 
 index_tree() {
-  git write-tree 2>/dev/null && return 0
+  git write-tree && return 0
   echo "pre-commit: git could not write this commit's tree, so no gate's verdict can be held to it and the commit is refused." >&2
   return 2
 }

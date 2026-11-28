@@ -42,10 +42,12 @@ describe("the per-commit .husky hooks' starts on an ordinary commit (#5338)", ()
 			"git rev-parse",
 			"node run-budgeted.js node precommit-dispatch.js",
 			"node run-budgeted.js node workflow-core-config.js",
+			"git write-tree",
 			"node run-budgeted.js gitleaks git",
 			"git diff",
 			"node run-budgeted.js node test-gate.js",
 			"node mutation-hold-gate.js",
+			"git write-tree",
 			"git rev-parse",
 			"git write-tree",
 		]);
