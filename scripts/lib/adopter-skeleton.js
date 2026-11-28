@@ -98,7 +98,7 @@ function rewriteRuleCommands(text, pluginRoot) {
 function describePluginRecord(at) {
 	if (at.source === "url") {
 		return at.resolvedSha
-			? `url source, ref ${at.ref}, HEAD ${at.resolvedSha}`
+			? `${urlHead(at.ref)}${at.resolvedSha}`
 			: `url source, ref ${at.ref} (sha unknown)`;
 	}
 	if (at.headSha === null)
@@ -106,22 +106,32 @@ function describePluginRecord(at) {
 	return `directory source, HEAD ${at.headSha}${at.dirty ? " (dirty)" : ""}`;
 }
 
+/** @param {string} ref */
+const urlHead = (ref) => `url source, ref ${ref}, HEAD `;
+
 /**
  * #5826
- * @param {string} block
+ * @param {string} text
  * @param {string} ref
  * @returns {string|null}
  */
-function recordedUrlSha(block, ref) {
-	const [head] = describePluginRecord({
-		source: "url",
-		ref,
-		resolvedSha: "\0",
-	}).split("\0");
-	const line = block.split("\n").find((l) => l.startsWith(`- ${head}`));
-	const sha = line?.slice(`- ${head}`.length) ?? "";
+function recordedUrlSha(text, ref) {
+	const head = `- ${urlHead(ref)}`;
+	const line = text.split("\n").find((l) => l.startsWith(head));
+	const sha = line?.slice(head.length) ?? "";
 	return /^\S+$/.test(sha) ? sha : null;
 }
+
+/**
+ * #5826
+ * @param {string|null} reference
+ * @param {string|null} rules
+ * @returns {string|null}
+ */
+const provenanceHolder = (reference, rules) =>
+	reference === null || reference.startsWith(CORE_OWNED)
+		? (reference ?? rules)
+		: rules;
 
 /**
  * @param {import("./plugin-record.js").PluginRecord} at
@@ -576,6 +586,7 @@ module.exports = {
 	describePluginRecord,
 	renderPluginRecord,
 	recordedUrlSha,
+	provenanceHolder,
 	renderConfig,
 	renderClaudeMd,
 	renderAgentsMd,

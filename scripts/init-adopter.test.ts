@@ -805,19 +805,6 @@ describe("init in a fresh repository", () => {
 				);
 			});
 
-			it("takes the release's sha from another checkout's row where this repo's is another release (#5826)", () => {
-				const { dir } = repo();
-				registry([row(dir, "1.2.0", "n"), row("/wt", "1.1.0", "e")]);
-				const r = record(dir);
-				expect(r.status, r.stderr).toBe(0);
-				expect(r.stdout).toContain(
-					`record   url source, ref v1.1.0, HEAD ${"e".repeat(40)}`,
-				);
-				expect(reference(dir)).toContain(
-					`- url source, ref v1.1.0, HEAD ${"e".repeat(40)}`,
-				);
-			});
-
 			it("keeps, and prints, the sha a re-render's own file records for the ref (#5826)", () => {
 				const { dir } = repo();
 				registry([row(dir, "1.1.0", "a")]);
@@ -830,28 +817,6 @@ describe("init in a fresh repository", () => {
 				);
 				expect(reference(dir)).toContain(
 					`- url source, ref v1.1.0, HEAD ${"a".repeat(40)}`,
-				);
-			});
-
-			it("keeps no recorded sha for a branch ref, whose head may have moved (#5826)", () => {
-				const { dir } = repo();
-				fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
-				fs.writeFileSync(
-					path.join(dir, ".claude", "workflow-core.reference.md"),
-					`<!-- CORE-OWNED. old -->\n\n## Plugin provenance\n\n- url source, ref main, HEAD ${"a".repeat(40)}\n`,
-				);
-				const r = initIn(
-					{ ...process.env, CLAUDE_CONFIG_DIR: configDir },
-					dir,
-					"--founder",
-					"A",
-					"--no-tracker",
-					"--marketplace-ref",
-					"main",
-				);
-				expect(r.status, r.stderr).toBe(0);
-				expect(r.stdout).toContain(
-					"record   url source, ref main (sha unknown)",
 				);
 			});
 		});

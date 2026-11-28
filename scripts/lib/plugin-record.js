@@ -3,6 +3,7 @@ const path = require("node:path");
 const {
 	RULES_FILE,
 	REFERENCE_FILE,
+	provenanceHolder,
 	recordedUrlSha,
 } = require("./adopter-skeleton.js");
 const {
@@ -63,12 +64,13 @@ function installedSha({ root, pluginName, marketplace, version, configDir }) {
  */
 function recordedSha(root, ref) {
 	if (!isTagRef(ref)) return null;
-	for (const rel of [REFERENCE_FILE, RULES_FILE]) {
+	/** @param {string} rel */
+	const read = (rel) => {
 		const text = readText(path.join(root, rel));
-		if (text.state === "absent") continue;
-		return text.state === "read" ? recordedUrlSha(text.data, ref) : null;
-	}
-	return null;
+		return text.state === "read" ? text.data : null;
+	};
+	const text = provenanceHolder(read(REFERENCE_FILE), read(RULES_FILE));
+	return text === null ? null : recordedUrlSha(text, ref);
 }
 
 /**

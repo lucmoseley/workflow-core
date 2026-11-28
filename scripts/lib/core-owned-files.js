@@ -6,6 +6,7 @@ const {
 	renderSessionRules,
 	renderReference,
 	renderPluginRecord,
+	provenanceHolder,
 	renderHookShim,
 	withIgnoreBlock,
 	withStatusScript,
@@ -299,7 +300,10 @@ function bringRules(ctx) {
 				modules: config.modules,
 				founder: config.founder,
 				pluginRoot,
-			}) + (foreign ? provenance(ctx.record, existing) : ""),
+			}) +
+			(foreign
+				? provenance(ctx.record, provenanceHolder(reference, existing))
+				: ""),
 	});
 	if (foreign) {
 		out(
@@ -313,7 +317,7 @@ function bringRules(ctx) {
 			rel: REFERENCE_FILE,
 			body:
 				renderReference(pluginRoot) +
-				provenance(ctx.record, reference ?? existing),
+				provenance(ctx.record, provenanceHolder(reference, existing)),
 		}),
 	];
 }
