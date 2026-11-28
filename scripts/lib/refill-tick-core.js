@@ -482,7 +482,9 @@ function settleRoom(
 		return {
 			launches: judged,
 			slots: 0,
-			admission: null,
+			admission: control.paused
+				? null
+				: io.readFreeSlots(admissionRoot(served, io.typecheckPeakMb)).admission,
 			liveChange: 0,
 			seats: [],
 			probes: [],

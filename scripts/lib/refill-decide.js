@@ -35,7 +35,10 @@ const CHECKOUTS_HELD = "every launchable checkout is held";
 const OVERFLOW_SPENT = "every plan seat is weekly-full";
 const PLAN_RESETS = "a plan resets";
 const PAUSED = "paused by";
-const LAUNCH_HELD = "launches held by a manual /pick-next";
+const LAUNCH_HELD = "launches held by";
+const PICK_NEXT_HOLDER = "a manual /pick-next";
+const SESSION_ID =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PROBE_HOLD_WAIT = "a probe hold stops every launch";
 const ALREADY_RUNNING = "already running";
 const CLASH_PREFIX = "clashes on ";
@@ -156,9 +159,16 @@ const liveLaunchHold = (hold, now) =>
 const isLaunchBarred = ({ paused, launchHold }, now) =>
 	paused !== undefined || liveLaunchHold(launchHold, now) !== undefined;
 
+/** @param {string|null} holder */
+const holderName = (holder) =>
+	holder === null || SESSION_ID.test(holder) ? PICK_NEXT_HOLDER : holder;
+
 /** @param {LaunchHold} hold */
-const buildLaunchHoldIdle = ({ until }) =>
-	buildIdle(LAUNCH_HELD, ` until ${new Date(until).toISOString()}`);
+const buildLaunchHoldIdle = ({ holder, until }) =>
+	buildIdle(
+		LAUNCH_HELD,
+		` ${holderName(holder)} until ${new Date(until).toISOString()}`,
+	);
 
 /** @param {LaunchHold} hold */
 const buildLaunchHoldText = (hold) => buildIdleText(buildLaunchHoldIdle(hold));
