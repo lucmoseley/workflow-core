@@ -1,0 +1,884 @@
+const { parseVerdict } = require("./gate-check.js");
+const { gateRefsOf, resolveGate } = require("./issue-gate.js");
+const { refKey } = require("./issue-ref.js");
+const { isTagRef, sameRelease } = require("./plugin-state.js");
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+// guess, #5857
+const FLOOR_DAYS = 7;
+// guess, #5857
+const GATE_FRESH_DAYS = 7;
+// guess, #5857
+const OWED_FLOOR_DAYS = 7;
+// guess, #5857
+const EXTERNAL_DAYS = 14;
+// guess, #5857
+const URGENT_DAYS = 14;
+// guess, #5857
+const STAMP_ALARM_DAYS = 2;
+
+const HUB_TITLE = "Stale tickets: daily report";
+const HUB_TAKES = "takes:triage";
+const CAUSE_PREFIX = "Stale-ticket cause: ";
+const DATA_ROUTE_PREFIX = "Gate data not accruing: ";
+
+const CONTAINER_LABEL = "takes:children";
+const HUMAN_LABEL = "takes:human";
+const PARKED_LABEL = "parked";
+const URGENT_LABEL = "urgent";
+const EXTERNAL_LABEL = "waiting:external";
+const ROUND = /❓ \*\*Q/;
+const LABEL_TAGS = new Set([
+	"NO-TAKES",
+	"MANY-TAKES",
+	"CONTRADICTED",
+	"HUMAN-UNREVIEWED",
+]);
+const EDGE_TAGS = new Set(["SHIPPED-GATED", "PROSE-BLOCKED"]);
+const CONTAINER_TAGS = new Set(["STALE-CONTAINER", "UNMARKED-CONTAINER"]);
+const ABSENT_SOURCE =
+	/no such file|ENOENT|not found|does not exist|cannot open|cannot access/i;
+const QUESTION_CAUSES = new Set([undefined, "", "QUESTION"]);
+const ISSUE_REF = /^(?:[\w.-]+\/[\w.-]+)?#\d+$/;
+const CLOSURE_WORDS = new Set([
+	"and",
+	"closes",
+	"closed",
+	"is",
+	"has",
+	"lands",
+	"landed",
+]);
+
+/** @param {string} condition */
+const closesOnly = (condition) =>
+	condition
+		.split(/[\s,]+/)
+		.map((w) => w.replace(/\.$/, ""))
+		.every(
+			(w) =>
+				w === "" || ISSUE_REF.test(w) || CLOSURE_WORDS.has(w.toLowerCase()),
+		);
+
+const STALL_TITLES = [
+	"Landing queue stalled: main has not moved for 2 h",
+	"Landing alarm red: an off-machine queue alarm failed since main last moved",
+];
+
+/** @typedef {"C1"|"C2"|"C3"|"C4"|"C5"|"C6"|"C7"|"C8"|"C12"|"unclassified"} Cls */
+
+/** @type {Record<Cls, string>} */
+const CLASS_NAMES = {
+	C1: "C1 gate can never fire, wrong measure or data never accrues",
+	C2: "C2 met gate not discharged",
+	C3: "C3 edge missing, wrong, cyclic or a stuck blocker",
+	C4: "C4 container holds work",
+	C5: "C5 a label hides it",
+	C6: "C6 stale claim",
+	C7: "C7 data never collected",
+	C8: "C8 house decision unasked or unanswered",
+	C12: "C12 other waits",
+	unclassified: "Unclassified: takeable, over the floor, no class matches",
+};
+const CLASS_ORDER = /** @type {Cls[]} */ (Object.keys(CLASS_NAMES));
+
+/**
+ * @typedef {{repo: string|null, number: number, state: string}} EdgeRow
+ * @typedef {{event: string, created_at: string, body?: string, label?: {name: string}}} TimelineRow
+ * @typedef {object} SnapIssue
+ * @property {number} number
+ * @property {string} title
+ * @property {string[]} labels
+ * @property {string} body
+ * @property {string} createdAt
+ * @property {string} [updatedAt]
+ * @property {string[]} assignees
+ * @property {EdgeRow[]} blockedBy
+ * @property {EdgeRow[]} subIssues
+ * @property {TimelineRow[]} [timeline]
+ * @typedef {{number: number, state: string, reading: string, closed: boolean, detail?: string|null}} GateRow
+ * @typedef {{issue: number, sessionId: string|null, claimedAt: string}} ClaimRecord
+ * @typedef {object} SnapRepo
+ * @property {string} root
+ * @property {string|null} tracker
+ * @property {string|null} fault
+ * @property {boolean} served
+ * @property {string|null} pin
+ * @property {{number: number, assigned: boolean}[]} bumps
+ * @property {number[] | {error: string}} frontier
+ * @property {SnapIssue[]} issues
+ * @property {GateRow[]} gates
+ * @property {{tag: string, number: number}[]} labelFindings
+ * @property {number[]} containerRetags
+ * @property {{number: number, ageDays: number, assignees: string[]}[]} staleClaims
+ * @property {ClaimRecord[] | null} claims
+ * @property {{sessionId: string, issues: number[], cause?: string}[]} parkMarkers
+ * @property {string[]} closedRefs
+ * @property {{members: {repo: string, number: number}[]}[]} cycles
+ * @typedef {{reading: string, since: string}} GateSeen
+ * @typedef {object} RunRow
+ * @property {string} date
+ * @property {string[]} repoLines
+ * @property {{key: string, cls: Cls, firstListed: string}[]} listed
+ * @property {OwedLine[]} owed
+ * @property {string[]} acts
+ * @property {string[]} filings
+ * @property {{number: number|null, keys: string[]}} hub
+ * @property {string[]} disposed
+ * @property {Record<string, GateSeen>} gates
+ * @typedef {object} Snapshot
+ * @property {string} now
+ * @property {string} coreTracker
+ * @property {string|null} latestRelease
+ * @property {string[]|null} liveSessions
+ * @property {RunRow|null} previous
+ * @property {{number: number, state: "open"|"closed"}|null} hub
+ * @property {SnapRepo[]} repos
+ * @typedef {{key: string, repo: string, number: number, cls: Cls, sig: string,
+ *   text: string, restored: boolean}} Line
+ * @typedef {{key: string, repo: string, number: number, text: string, url: string,
+ *   ageDays: number}} OwedLine
+ * @typedef {{kind: "discharge", root: string, repo: string, number: number, reading: string,
+ *     closed: boolean, body: string, wasBody: string}
+ *   | {kind: "unblock", root: string, repo: string, number: number, blocker: {repo: string, number: number}}
+ *   | {kind: "strip-gate", root: string, repo: string, number: number, blocker: string, body: string, wasBody: string}
+ *   | {kind: "release", root: string, repo: string, number: number, assignees: string[], sessionId: string}
+ *   | {kind: "retag", root: string, repo: string, numbers: number[]}} Act
+ * @typedef {{kind: "cause" | "data-route", tracker: string, root: string|null, title: string, body: string}} Filing
+ * @typedef {{action: "refresh", body: string} | {action: "close", number: number} | {action: "none"}} HubNext
+ * @typedef {object} Plan
+ * @property {string[]} repoLines
+ * @property {Line[]} lines
+ * @property {OwedLine[]} owed
+ * @property {Act[]} acts
+ * @property {Filing[]} filings
+ * @property {HubNext} hub
+ * @property {string[]} hubKeys
+ * @property {string[]} disposed
+ * @property {Record<string, GateSeen>} gates
+ */
+
+/** @param {string} from @param {number} now */
+const daysSince = (from, now) => Math.floor((now - Date.parse(from)) / DAY_MS);
+
+/** @param {string} repo @param {number} n */
+const issueUrl = (repo, n) => `https://github.com/${repo}/issues/${n}`;
+
+/** @param {string} text */
+const oneLine = (text) => {
+	const first = text.split("\n").find((l) => l.trim()) ?? "";
+	return first.length > 120 ? `${first.slice(0, 119)}…` : first;
+};
+
+/**
+ * @param {TimelineRow[]} timeline
+ * @param {string} label
+ * @returns {string|null}
+ */
+function labelledAt(timeline, label) {
+	const at = timeline
+		.filter((e) => e.event === "labeled" && e.label?.name === label)
+		.map((e) => e.created_at)
+		.sort();
+	return at.at(-1) ?? null;
+}
+
+/**
+ * @param {SnapIssue} iss
+ * @returns {string|null}
+ */
+function openRoundAt(iss) {
+	const comments = (iss.timeline ?? [])
+		.filter((e) => e.event === "commented")
+		.sort((a, b) => a.created_at.localeCompare(b.created_at));
+	const last = comments.at(-1);
+	if (last) return ROUND.test(last.body ?? "") ? last.created_at : null;
+	return ROUND.test(iss.body) ? iss.createdAt : null;
+}
+
+/**
+ * @param {string} body
+ * @returns {string}
+ */
+function withoutGate(body) {
+	return body
+		.split("\n")
+		.filter((l) => !/\*\*Gated on:\*\*|\*\*Gate basis:\*\*/.test(l))
+		.join("\n");
+}
+
+/** @param {string} body */
+const partyOf = (body) =>
+	/\*\*Waiting on:\*\*\s*(.+)/.exec(body)?.[1]?.trim() ?? "an outside party";
+
+/**
+ * @typedef {object} Ctx
+ * @property {Snapshot} snap
+ * @property {number} now
+ * @property {Set<string>|null} live
+ * @property {Record<string, GateSeen>} gates
+ * @property {Line[]} lines
+ * @property {OwedLine[]} owed
+ * @property {Act[]} acts
+ * @property {Filing[]} filings
+ * @property {string[]} repoLines
+ * @property {Map<string, number>} holdCount
+ * @typedef {object} RepoCtx
+ * @property {Ctx} ctx
+ * @property {SnapRepo} r
+ * @property {string} repo
+ * @property {Map<number, SnapIssue>} byNumber
+ * @property {Set<number>|null} takeable
+ * @property {Map<number, Line[]>} found
+ * @property {Set<number>} excluded
+ * @property {Set<string>} closed
+ * @typedef {{n: number, cls: Cls, sig: string, text: string, restored?: boolean}} Finding
+ */
+
+/** @param {RepoCtx} rc @param {Finding} f */
+function add(rc, { n, cls, sig, text, restored = false }) {
+	const line = {
+		key: `${rc.repo}#${n}:${cls}`,
+		repo: rc.repo,
+		number: n,
+		cls,
+		sig: `${cls} ${sig}`,
+		text: `${rc.repo}#${n} ${text}`,
+		restored,
+	};
+	rc.found.set(n, [...(rc.found.get(n) ?? []), line]);
+}
+
+/** @param {RepoCtx} rc @param {number} n @param {string} text @param {number} ageDays */
+function owe(rc, n, text, ageDays) {
+	if (ageDays <= OWED_FLOOR_DAYS) return;
+	rc.ctx.owed.push({
+		key: `${rc.repo}#${n}:owed`,
+		repo: rc.repo,
+		number: n,
+		text: `${rc.repo}#${n} ${text}`,
+		url: issueUrl(rc.repo, n),
+		ageDays,
+	});
+}
+
+/** @param {Snapshot} snap @returns {Map<string, number>} */
+function countHolds(snap) {
+	/** @type {Map<string, number>} */
+	const held = new Map();
+	for (const r of snap.repos) {
+		const self = r.tracker;
+		if (!self) continue;
+		for (const iss of r.issues) {
+			const refs = [
+				...iss.blockedBy
+					.filter((b) => b.state === "open")
+					.map((b) => refKey({ repo: b.repo ?? self, number: b.number })),
+				...gateRefsOf(iss.body, self).map(refKey),
+			];
+			for (const k of new Set(refs)) held.set(k, (held.get(k) ?? 0) + 1);
+		}
+	}
+	return held;
+}
+
+/**
+ * @param {Snapshot} snap
+ * @returns {Plan}
+ */
+function planStaleRun(snap) {
+	/** @type {Ctx} */
+	const ctx = {
+		snap,
+		now: Date.parse(snap.now),
+		live: snap.liveSessions === null ? null : new Set(snap.liveSessions),
+		gates: {},
+		lines: [],
+		owed: [],
+		acts: [],
+		filings: [],
+		repoLines: [],
+		holdCount: countHolds(snap),
+	};
+	for (const r of snap.repos) {
+		if (r.fault !== null || !r.tracker)
+			ctx.repoLines.push(
+				`${r.tracker ?? r.root}: 0 takeable, oldest 0 d, unserved because config or tracker fault: ${r.fault ?? "no tracker resolves"}`,
+			);
+		else planRepo(ctx, r, r.tracker);
+	}
+	planCauses(ctx);
+	return { ...planHub(ctx), gates: ctx.gates };
+}
+
+/** @param {Ctx} ctx @param {SnapRepo} r @param {string} repo */
+function planRepo(ctx, r, repo) {
+	/** @type {RepoCtx} */
+	const rc = {
+		ctx,
+		r,
+		repo,
+		byNumber: new Map(r.issues.map((i) => [i.number, i])),
+		takeable: "error" in r.frontier ? null : new Set(r.frontier),
+		found: new Map(),
+		excluded: new Set(),
+		closed: new Set(r.closedRefs.map((k) => k.toLowerCase())),
+	};
+	ctx.repoLines.push(buildRepoLine(rc));
+	for (const g of r.gates) planGate(rc, g);
+	/** @type {SnapIssue[]} */
+	const listed = [];
+	for (const iss of r.issues) {
+		planClosedEdges(rc, iss);
+		if (planIssue(rc, iss)) listed.push(iss);
+	}
+	for (const iss of listed) planStuckBlockers(rc, iss);
+	if (r.containerRetags.length > 0)
+		ctx.acts.push({
+			kind: "retag",
+			root: r.root,
+			repo,
+			numbers: r.containerRetags,
+		});
+	planCycles(rc);
+	for (const ls of rc.found.values()) {
+		const seen = new Set();
+		for (const l of ls) {
+			if (seen.has(l.text)) continue;
+			seen.add(l.text);
+			ctx.lines.push(l);
+		}
+	}
+}
+
+/** @param {RepoCtx} rc */
+function buildRepoLine({ ctx, r, repo, byNumber, takeable }) {
+	const ages = [...(takeable ?? [])].flatMap((n) => {
+		const iss = byNumber.get(n);
+		return iss ? [daysSince(iss.createdAt, ctx.now)] : [];
+	});
+	const count = takeable === null ? "?" : String(takeable.size);
+	const head = `${repo}: ${count} takeable, oldest ${ages.length > 0 ? Math.max(...ages) : 0} d`;
+	return `${head}, ${servedText(ctx, r)}`;
+}
+
+/** @param {Ctx} ctx @param {SnapRepo} r */
+function servedText(ctx, r) {
+	if ("error" in r.frontier)
+		return `unserved because config or tracker fault: pick-next ${r.frontier.error}`;
+	if (r.served) return "served";
+	const latest = ctx.snap.latestRelease;
+	if (r.pin && isTagRef(r.pin) && latest && !sameRelease(r.pin, latest))
+		return `unserved because pin ${r.pin} is behind latest release ${latest}`;
+	const bump = r.bumps.find((b) => !b.assigned);
+	if (bump)
+		return `unserved because release bump #${bump.number} is open and unlaunched`;
+	return "unserved because not in the served set";
+}
+
+/** @param {RepoCtx} rc @param {GateRow} g */
+function planGate(rc, g) {
+	const { ctx, repo } = rc;
+	const key = `${repo}#${g.number}`;
+	const prev = ctx.snap.previous?.gates?.[key];
+	const changed = prev !== undefined && prev.reading !== g.reading;
+	const since = prev && !changed ? prev.since : ctx.snap.now;
+	ctx.gates[key] = { reading: g.reading, since };
+	const iss = rc.byNumber.get(g.number);
+	if (g.state === "READING" && parseVerdict(g.reading) === "met") {
+		discharge(rc, g, iss?.body ?? "");
+		return;
+	}
+	if (g.closed || !iss) return;
+	const d = daysSince(since, ctx.now);
+	if (g.state === "READING") planReading(rc, { g, iss, d, changed });
+	else planRepair(rc, g, iss, d);
+}
+
+/** @param {RepoCtx} rc @param {GateRow} g @param {string} body */
+function discharge(rc, g, body) {
+	rc.ctx.acts.push({
+		kind: "discharge",
+		root: rc.r.root,
+		repo: rc.repo,
+		number: g.number,
+		reading: oneLine(g.reading),
+		closed: g.closed,
+		body: withoutGate(body),
+		wasBody: body,
+	});
+	rc.excluded.add(g.number);
+}
+
+/** @param {RepoCtx} rc @param {GateRow} g @param {SnapIssue} iss @param {number} d */
+function planRepair(rc, g, iss, d) {
+	const shown = oneLine(g.reading);
+	const absent =
+		g.state === "DEAD" && ABSENT_SOURCE.test(`${g.reading} ${g.detail ?? ""}`);
+	if (!absent) {
+		add(rc, {
+			n: g.number,
+			cls: "C1",
+			sig: `gate ${g.state}`,
+			text: `gate ${g.state}: ${shown}`,
+		});
+		return;
+	}
+	add(rc, {
+		n: g.number,
+		cls: "C7",
+		sig: "check source absent",
+		text: `data not accruing (${shown}, ${d} d)`,
+	});
+	rc.ctx.filings.push({
+		kind: "data-route",
+		tracker: rc.repo,
+		root: rc.r.root,
+		title: `${DATA_ROUTE_PREFIX}#${g.number}`,
+		body: buildDataRouteBody(rc.repo, g, iss, d),
+	});
+}
+
+/** @param {RepoCtx} rc @param {{g: GateRow, iss: SnapIssue, d: number, changed: boolean}} at */
+function planReading(rc, { g, iss, d, changed }) {
+	const shown = oneLine(g.reading);
+	const n = g.number;
+	if (changed && parseVerdict(g.reading) === null)
+		add(rc, {
+			n,
+			cls: "C2",
+			sig: "changed, no verdict",
+			text: "gate reading changed, needs a judge",
+		});
+	else if (!resolveGate(iss.body, rc.ctx.now).basis)
+		add(rc, {
+			n,
+			cls: "C1",
+			sig: "gate states no basis",
+			text: `gate READING states no basis: ${shown}`,
+		});
+	else if (d < GATE_FRESH_DAYS) rc.excluded.add(n);
+	else
+		add(rc, {
+			n,
+			cls: "C1",
+			sig: "gate unmoved",
+			text: `gate READING: ${shown}; unmoved ${d} d`,
+		});
+}
+
+/** @param {RepoCtx} rc @param {SnapIssue} iss */
+function planClosedEdges(rc, iss) {
+	const { ctx, r, repo } = rc;
+	const n = iss.number;
+	for (const b of iss.blockedBy.filter((e) => e.state === "closed"))
+		ctx.acts.push({
+			kind: "unblock",
+			root: r.root,
+			repo,
+			number: n,
+			blocker: { repo: b.repo ?? repo, number: b.number },
+		});
+	if (
+		ctx.acts.some(
+			(a) => a.kind === "discharge" && a.root === r.root && a.number === n,
+		)
+	)
+		return;
+	const refs = gateRefsOf(iss.body, repo);
+	const gateOn = resolveGate(iss.body, ctx.now).gateOn;
+	if (!gateOn || gateOn.malformed || refs.length === 0) return;
+	if (!refs.every((ref) => rc.closed.has(refKey(ref)))) return;
+	if (!closesOnly(gateOn.condition)) return;
+	ctx.acts.push({
+		kind: "strip-gate",
+		root: r.root,
+		repo,
+		number: n,
+		blocker: refs.map((ref) => `${ref.repo}#${ref.number}`).join(", "),
+		body: withoutGate(iss.body),
+		wasBody: iss.body,
+	});
+}
+
+/**
+ * @param {RepoCtx} rc
+ * @param {SnapIssue} iss
+ * @returns {boolean}
+ */
+function planIssue(rc, iss) {
+	const { ctx } = rc;
+	const n = iss.number;
+	if (daysSince(iss.createdAt, ctx.now) <= FLOOR_DAYS || rc.excluded.has(n))
+		return false;
+	const { gate } = resolveGate(iss.body, ctx.now);
+	const dated = gate && !gate.malformed && gate.active;
+	if (dated && gate.reason) return false;
+	if (dated)
+		add(rc, {
+			n,
+			cls: "C1",
+			sig: "gated until, no reason",
+			text: `gated until ${gate.iso} with no reason stated`,
+		});
+	const tags = rc.r.labelFindings
+		.filter((f) => f.number === n)
+		.map((f) => f.tag);
+	if (planContainer(rc, iss, tags)) return false;
+	for (const t of tags.filter((x) => LABEL_TAGS.has(x)))
+		add(rc, { n, cls: "C5", sig: t, text: t });
+	for (const t of tags.filter((x) => EDGE_TAGS.has(x)))
+		add(rc, { n, cls: "C3", sig: t, text: t });
+	const owedDays = planOwed(rc, iss);
+	planWaits(rc, iss, owedDays);
+	const stale = rc.r.staleClaims.find((c) => c.number === n);
+	if (stale) planClaim(rc, iss, stale);
+	planUnclassified(rc, iss, owedDays);
+	return true;
+}
+
+/** @param {RepoCtx} rc @param {SnapIssue} iss @param {string[]} tags */
+function planContainer(rc, iss, tags) {
+	const n = iss.number;
+	const kids = iss.subIssues.filter((k) => k.state === "open");
+	if (!iss.labels.includes(CONTAINER_LABEL) && kids.length === 0) return false;
+	if (kids.length > 0)
+		add(rc, {
+			n,
+			cls: "C4",
+			sig: "container held",
+			text: `container held by ${kids.length} open children: ${kids.map((k) => `${k.repo ?? rc.repo}#${k.number}`).join(", ")}`,
+		});
+	for (const t of tags.filter((x) => CONTAINER_TAGS.has(x)))
+		add(rc, { n, cls: "C4", sig: t, text: t });
+	return true;
+}
+
+/**
+ * @param {RepoCtx} rc
+ * @param {SnapIssue} iss
+ * @returns {number|null}
+ */
+function planOwed(rc, iss) {
+	const n = iss.number;
+	const tl = iss.timeline ?? [];
+	const holds = rc.ctx.holdCount.get(refKey({ repo: rc.repo, number: n })) ?? 0;
+	/** @param {string} at */
+	const asked = (at) => {
+		const d = daysSince(at, rc.ctx.now);
+		owe(rc, n, `asked ${at.slice(0, 10)}, ${d} d, holds ${holds} issues`, d);
+		return d;
+	};
+	const roundAt = openRoundAt(iss);
+	if (roundAt) return asked(roundAt);
+	if (iss.labels.includes(HUMAN_LABEL))
+		return asked(labelledAt(tl, HUMAN_LABEL) ?? iss.createdAt);
+	if (!iss.labels.includes(PARKED_LABEL)) return null;
+	const marker = rc.r.parkMarkers.find((m) => m.issues.includes(n));
+	if (!marker)
+		add(rc, {
+			n,
+			cls: "C5",
+			sig: "parked, marker gone",
+			text: "parked, its park marker is gone",
+		});
+	else if (!QUESTION_CAUSES.has(marker.cause))
+		add(rc, {
+			n,
+			cls: "C12",
+			sig: `parked ${marker.cause}`,
+			text: `parked (${marker.cause})`,
+		});
+	else if (tl.some((e) => e.event === "commented"))
+		add(rc, {
+			n,
+			cls: "C5",
+			sig: "parked, answered",
+			text: "parked, its question has a later comment",
+		});
+	else return asked(labelledAt(tl, PARKED_LABEL) ?? iss.createdAt);
+	return null;
+}
+
+/** @param {RepoCtx} rc @param {SnapIssue} iss @param {number|null} owedDays */
+function planWaits(rc, iss, owedDays) {
+	const n = iss.number;
+	const tl = iss.timeline ?? [];
+	const ageOf = (/** @type {string} */ label) =>
+		daysSince(labelledAt(tl, label) ?? iss.createdAt, rc.ctx.now);
+	if (iss.labels.includes(EXTERNAL_LABEL)) {
+		const d = ageOf(EXTERNAL_LABEL);
+		if (d > EXTERNAL_DAYS)
+			owe(rc, n, `waiting on ${partyOf(iss.body)} ${d} d`, d);
+	}
+	if (iss.labels.includes(URGENT_LABEL) && owedDays !== null) {
+		const d = ageOf(URGENT_LABEL);
+		if (d > URGENT_DAYS)
+			add(rc, {
+				n,
+				cls: "C5",
+				sig: "urgent held outside",
+				text: `urgent, held on an answer ${d} d`,
+			});
+	}
+	if (STALL_TITLES.includes(iss.title))
+		add(rc, {
+			n,
+			cls: "C12",
+			sig: "lander stall",
+			text: "lander stall alarm open",
+		});
+}
+
+/**
+ * @param {RepoCtx} rc
+ * @param {SnapIssue} iss
+ * @param {{number: number, ageDays: number, assignees: string[]}} stale
+ */
+function planClaim(rc, iss, stale) {
+	const { ctx, r } = rc;
+	const n = iss.number;
+	const idle = Math.floor(stale.ageDays);
+	const named = (r.claims ?? []).filter((c) => c.issue === n && c.sessionId);
+	const [first] = named;
+	if (r.claims === null || !first?.sessionId) {
+		add(rc, {
+			n,
+			cls: "C6",
+			sig: "no arbiter record",
+			text: `claim has no arbiter record, idle ${idle} d`,
+		});
+		return;
+	}
+	const { live } = ctx;
+	if (live === null || named.some((c) => live.has(String(c.sessionId)))) {
+		add(rc, {
+			n,
+			cls: "C6",
+			sig: "claim live",
+			text: `claim live, idle ${idle} d`,
+		});
+		return;
+	}
+	ctx.acts.push({
+		kind: "release",
+		root: r.root,
+		repo: rc.repo,
+		number: n,
+		assignees: stale.assignees,
+		sessionId: first.sessionId,
+	});
+}
+
+/** @param {RepoCtx} rc @param {SnapIssue} iss @param {number|null} owedDays */
+function planUnclassified(rc, iss, owedDays) {
+	const n = iss.number;
+	if (rc.found.has(n) || owedDays !== null || !rc.r.served) return;
+	if (!rc.takeable?.has(n)) return;
+	const claims = (iss.timeline ?? []).filter(
+		(e) => e.event === "assigned",
+	).length;
+	const age = daysSince(iss.createdAt, rc.ctx.now);
+	add(rc, {
+		n,
+		cls: "unclassified",
+		sig: "never picked",
+		text: `takeable ${age} d, never picked (claims: ${claims})`,
+	});
+}
+
+/** @param {RepoCtx} rc @param {SnapIssue} iss */
+function planStuckBlockers(rc, iss) {
+	for (const b of iss.blockedBy.filter((e) => e.state === "open")) {
+		const blocker = rc.byNumber.get(b.number);
+		const theirs = rc.found.get(b.number)?.[0]?.cls;
+		if ((b.repo ?? rc.repo) !== rc.repo || !blocker || !theirs) continue;
+		add(rc, {
+			n: iss.number,
+			cls: "C3",
+			sig: "stuck blocker",
+			text: `blocked by ${rc.repo}#${b.number} (${theirs}, ${daysSince(blocker.createdAt, rc.ctx.now)} d)`,
+		});
+	}
+}
+
+/** @param {RepoCtx} rc */
+function planCycles(rc) {
+	for (const c of rc.r.cycles) {
+		const [first] = c.members;
+		if (!first || first.repo.toLowerCase() !== rc.repo.toLowerCase()) continue;
+		const path = [...c.members, first]
+			.map((m) => `${m.repo}#${m.number}`)
+			.join(" → ");
+		rc.found.set(first.number, [
+			...(rc.found.get(first.number) ?? []),
+			{
+				key: `${rc.repo}#${first.number}:C3`,
+				repo: rc.repo,
+				number: first.number,
+				cls: "C3",
+				sig: "C3 cycle",
+				text: `cycle: ${path}`,
+				restored: false,
+			},
+		]);
+	}
+}
+
+/** @param {Ctx} ctx */
+function planCauses(ctx) {
+	/** @type {Map<string, Line[]>} */
+	const causes = new Map();
+	for (const l of ctx.lines) {
+		if (l.cls === "unclassified" || l.restored) continue;
+		causes.set(l.sig, [...(causes.get(l.sig) ?? []), l]);
+	}
+	for (const [sig, ls] of causes)
+		if (ls.length > 1)
+			ctx.filings.push({
+				kind: "cause",
+				tracker: ctx.snap.coreTracker,
+				root: null,
+				title: `${CAUSE_PREFIX}${sig}`,
+				body: buildCauseBody(sig, ls),
+			});
+}
+
+/** @param {Ctx} ctx */
+function planHub(ctx) {
+	const { snap, lines, owed, acts, filings, repoLines } = ctx;
+	const keys = [...lines.map((l) => l.key), ...owed.map((o) => o.key)];
+	const current = new Set(keys);
+	const prevHub = snap.previous?.hub ?? { number: null, keys: [] };
+	const closedNow =
+		snap.hub?.state === "closed" && prevHub.number === snap.hub.number;
+	const disposed = [
+		...new Set([
+			...(snap.previous?.disposed ?? []),
+			...(closedNow ? prevHub.keys : []),
+		]),
+	]
+		.filter((k) => current.has(k))
+		.sort();
+	const disposedSet = new Set(disposed);
+	/** @type {HubNext} */
+	let hub = { action: "none" };
+	if (lines.some((l) => !disposedSet.has(l.key)))
+		hub = {
+			action: "refresh",
+			body: buildHubBody({
+				repoLines,
+				lines,
+				owed,
+				acts,
+				disposed: disposedSet,
+			}),
+		};
+	else if (snap.hub?.state === "open")
+		hub = { action: "close", number: snap.hub.number };
+	return {
+		repoLines,
+		lines,
+		owed,
+		acts,
+		filings,
+		hub,
+		hubKeys: hub.action === "refresh" ? keys : [],
+		disposed,
+	};
+}
+
+/**
+ * @param {Act} a
+ * @returns {string}
+ */
+function actText(a) {
+	switch (a.kind) {
+		case "discharge":
+			return `discharged: ${a.repo}#${a.number} (${a.reading})`;
+		case "unblock":
+			return `cleared: ${a.repo}#${a.number} blocked by ${a.blocker.repo}#${a.blocker.number}, which has closed`;
+		case "strip-gate":
+			return `cleared: ${a.repo}#${a.number} gated on ${a.blocker}, which has closed`;
+		case "release":
+			return `released: ${a.repo}#${a.number}, its holder session ${a.sessionId} has ended`;
+		case "retag":
+			return `retagged containers: ${a.numbers.map((n) => `${a.repo}#${n}`).join(", ")}`;
+	}
+}
+
+/**
+ * @param {{repoLines: string[], lines: Line[], owed: OwedLine[], acts: Act[],
+ *   disposed: Set<string>}} parts
+ */
+function buildHubBody({ repoLines, lines, owed, acts, disposed }) {
+	const byClass = CLASS_ORDER.flatMap((cls) => {
+		const ls = lines.filter((l) => l.cls === cls);
+		return ls.length === 0
+			? []
+			: [
+					`### ${CLASS_NAMES[cls]}`,
+					"",
+					...ls.map((l) => `- ${l.text}${disposed.has(l.key) ? "" : " (new)"}`),
+					"",
+				];
+	});
+	return [
+		"Rewritten once a day by `scripts/stale-ticket-run.js`; edits to this body are overwritten. Close this issue once every line marked (new) is fixed at its cause or filed: the close disposes every line here, and a line returns only when its class changes.",
+		"",
+		"## Repos",
+		"",
+		...repoLines.map((l) => `- ${l}`),
+		"",
+		"## Session-owed lines",
+		"",
+		...byClass,
+		"## Waits no session can clear",
+		"",
+		...(owed.length === 0 ? ["None."] : owed.map((o) => `- ${o.text}`)),
+		"",
+		"## Restored this run",
+		"",
+		...(acts.length === 0 ? ["None."] : acts.map((a) => `- ${actText(a)}`)),
+		"",
+		"Standalone: the daily stale-ticket run's report (#5857).",
+	].join("\n");
+}
+
+/** @param {string} sig @param {Line[]} ls */
+function buildCauseBody(sig, ls) {
+	return [
+		`The daily stale-ticket run (\`scripts/stale-ticket-run.js\`) found the cause signature \`${sig}\` on ${ls.length} issues in one run. Fix the cause at its source, so that it stops recurring, rather than each issue in turn.`,
+		"",
+		"## Issues",
+		"",
+		...ls.map((l) => `- ${l.text}`),
+		"",
+		"Standalone: a recurring cause the daily stale-ticket run found (#5857).",
+	].join("\n");
+}
+
+/**
+ * @param {string} repo
+ * @param {GateRow} g
+ * @param {SnapIssue} iss
+ * @param {number} d
+ */
+function buildDataRouteBody(repo, g, iss, d) {
+	return [
+		`${repo}#${iss.number}'s gate check reads DEAD because its data source is absent: \`${oneLine(g.reading)}\`${g.detail ? ` (${oneLine(g.detail)})` : ""}, for ${d} d. Build the route that collects the data the gate counts, or re-measure the gate if it counts the wrong thing.`,
+		"",
+		"Standalone: a data route the daily stale-ticket run found missing (#5857).",
+	].join("\n");
+}
+
+module.exports = {
+	CAUSE_PREFIX,
+	DATA_ROUTE_PREFIX,
+	FLOOR_DAYS,
+	HUB_TAKES,
+	HUB_TITLE,
+	STAMP_ALARM_DAYS,
+	actText,
+	planStaleRun,
+};
