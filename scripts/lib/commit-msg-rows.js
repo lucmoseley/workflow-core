@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { main: scanCloses } = require("../check-commit-message-closes.js");
+const { SPEC: CLOSES } = require("../check-commit-message-closes.js");
 const { SPEC: WEAKENS } = require("../check-weakens-line.js");
 const { checkInProcess } = require("./check.js");
 const { checkSubject } = require("./commit-subject.js");
@@ -23,7 +23,11 @@ const ROWS = [
 		arm: { always: true },
 		when: { unlessRoutes: ["replay"] },
 		policy: "gate",
-		run: (file) => asRow(scanCloses([file, "commit-msg"])),
+		quietPass: true,
+		run: (file) =>
+			checkInProcess(CLOSES, [file, "commit-msg"], {
+				script: path.join(__dirname, "..", "check-commit-message-closes.js"),
+			}),
 	},
 	{
 		id: "subject",
