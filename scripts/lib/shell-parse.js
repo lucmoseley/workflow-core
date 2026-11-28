@@ -15,6 +15,10 @@ const {
 	gitRunWords,
 	dispatchingGhCall,
 	nodeScriptArgs,
+	SCOPE_MARK,
+	AMP_HOLD,
+	BAR_HOLD,
+	OP_MARK,
 } = require("./shell-words.js");
 const { expandTildeWord } = require("./home-path.js");
 const {
@@ -39,11 +43,8 @@ const {
 	defineFromConfigWord,
 } = gitAlias;
 
-const SCOPE_MARK = "\x02";
 const SCOPE_OPEN = `${SCOPE_MARK}(`;
 const SCOPE_CLOSE = `${SCOPE_MARK})`;
-
-const OP_MARK = "\x05";
 
 const JOIN = Object.freeze({
 	NONE: "",
@@ -69,26 +70,25 @@ const isJoin = (code) => JOIN_CODES.includes(code);
 
 const STAND_IN_BASE = 0xe0_00;
 
+// #5920
 /** @param {string} chars */
 function escapeShield(chars) {
-	/** @param {number} at */
-	const standIn = (at) => String.fromCharCode(STAND_IN_BASE + at);
 	/** @param {string} text @param {(c: string) => string} swap */
 	const swapPairs = (text, swap) =>
 		text.replace(/\\[\s\S]/g, (pair) => `\\${swap(pair.charAt(1))}`);
-	return {
-		/** @param {string} text */
-		shield: (text) =>
-			swapPairs(text, (c) => {
-				const at = chars.indexOf(c);
-				return at < 0 ? c : standIn(at);
-			}),
-		/** @param {string} text */
-		unshield: (text) =>
-			swapPairs(
-				text,
-				(c) => chars.charAt(c.charCodeAt(0) - STAND_IN_BASE) || c,
-			),
+	/** @param {string} text */
+	return (text) => {
+		let code = STAND_IN_BASE;
+		const standIns = [...chars].map(() => {
+			while (text.includes(String.fromCharCode(code))) code++;
+			return String.fromCharCode(code++);
+		});
+		return {
+			text: swapPairs(text, (c) => standIns[chars.indexOf(c)] ?? c),
+			/** @param {string} held */
+			unshield: (held) =>
+				swapPairs(held, (c) => chars.charAt(standIns.indexOf(c)) || c),
+		};
 	};
 }
 
@@ -129,7 +129,8 @@ function flatten(text, mark = false, ops = false) {
 	let inBackticks = false;
 	/** @param {Join} code */
 	const join = (code) => (ops ? `\n${OP_MARK}${code}` : "\n");
-	const flat = FLATTEN_SHIELD.shield(text)
+	const shield = FLATTEN_SHIELD(text);
+	const flat = shield.text
 		.replace(/\\[\s\S]|`/g, (m) => {
 			if (m !== "`") return m;
 			inBackticks = !inBackticks;
@@ -137,9 +138,9 @@ function flatten(text, mark = false, ops = false) {
 		})
 		.replace(/&&/g, join(JOIN.AND))
 		.replace(/\|\|/g, join(JOIN.OR))
-		.replace(/([<>])&/g, "$1\x03")
-		.replace(/&>/g, "\x03>")
-		.replace(/>\|/g, ">\x04")
+		.replace(/([<>])&/g, `$1${AMP_HOLD}`)
+		.replace(/&>/g, `${AMP_HOLD}>`)
+		.replace(/>\|/g, `>${BAR_HOLD}`)
 		.replace(/[()]/g, (b) =>
 			mark
 				? `\n${SCOPE_MARK}${b}\n${ops && b === "(" ? `${OP_MARK}${JOIN.OPEN}` : ""}`
@@ -148,9 +149,9 @@ function flatten(text, mark = false, ops = false) {
 		.replace(/;/g, join(JOIN.SEMI))
 		.replace(/\|&?/g, join(JOIN.PIPE))
 		.replace(/&/g, join(JOIN.BACKGROUND))
-		.replaceAll("\x03", "&")
-		.replaceAll("\x04", "|");
-	return `${FLATTEN_SHIELD.unshield(flat)}\n`;
+		.replaceAll(AMP_HOLD, "&")
+		.replaceAll(BAR_HOLD, "|");
+	return `${shield.unshield(flat)}\n`;
 }
 
 /** @param {string} masked */

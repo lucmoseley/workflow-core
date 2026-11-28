@@ -5,6 +5,23 @@ const QUOTED = "\x01QSTR\x01";
 
 const SENTINEL_BYTE = "\x01";
 
+const SCOPE_MARK = "\x02";
+
+const AMP_HOLD = "\x03";
+
+const BAR_HOLD = "\x04";
+
+const OP_MARK = "\x05";
+
+// #5920
+const MARK_BYTES = [
+	SENTINEL_BYTE,
+	SCOPE_MARK,
+	AMP_HOLD,
+	BAR_HOLD,
+	OP_MARK,
+].join("");
+
 /** @param {string} recorded */
 const isBareSpan = (recorded) => !["'", '"'].includes(recorded.charAt(0));
 
@@ -917,6 +934,11 @@ module.exports = {
 	ASSIGNMENT_RE,
 	QUOTED,
 	SENTINEL_BYTE,
+	SCOPE_MARK,
+	AMP_HOLD,
+	BAR_HOLD,
+	OP_MARK,
+	MARK_BYTES,
 	absolute,
 	hasExpansion,
 	isBareSpan,

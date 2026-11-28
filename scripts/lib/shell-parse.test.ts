@@ -792,19 +792,52 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 });
 
 describe("escapeShield — one shield for every escape-aware split (#5116)", () => {
-	const { shield, unshield } = escapeShield(";$");
+	const shieldOf = escapeShield(";$");
 
 	it("hides an escaped character of its set and restores it", () => {
-		const shielded = shield("a\\; b; \\$x \\&");
-		expect(shielded).not.toMatch(/\\[;$]/);
-		expect(shielded).toContain("b;");
-		expect(shielded).toContain("\\&");
-		expect(unshield(shielded)).toBe("a\\; b; \\$x \\&");
+		const { text, unshield } = shieldOf("a\\; b; \\$x \\&");
+		expect(text).not.toMatch(/\\[;$]/);
+		expect(text).toContain("b;");
+		expect(text).toContain("\\&");
+		expect(unshield(text)).toBe("a\\; b; \\$x \\&");
 	});
 
-	it("leaves a stand-in no escape holds as it was typed", () => {
-		const raw = "\ue000 \\\\\ue000";
-		expect(unshield(shield(raw))).toBe(raw);
+	it("holds under a stand-in the text lacks, so a typed one comes back as typed (#5920)", () => {
+		const raw = "\ue000 \\\ue000 \\\ue001 \\;";
+		const { text, unshield } = shieldOf(raw);
+		expect(text).toBe(" \\ \\ \\");
+		expect(unshield(text)).toBe(raw);
+	});
+});
+
+describe("parseCommand — a typed mark byte parses as typed (#5920)", () => {
+	const Neutral = "\x06";
+	const shapes = [
+		(m: string) => `echo a${m}b${m}; gh y`,
+		(m: string) => `echo \\${m} ${m}( gh y ) && gh z`,
+		(m: string) => `echo "x${m}" ${m}a${m}c${m}; gh y | gh z`,
+		(m: string) => `${m}a gh y\n${m}o gh z`,
+		(m: string) => `echo 'open ${m}`,
+	];
+	it.each([
+		["the span sentinel", "\x01"],
+		["the scope mark", "\x02"],
+		["the & hold", "\x03"],
+		["the | hold", "\x04"],
+		["the operator mark", "\x05"],
+	])("reads %s as any other byte", (_name, mark) => {
+		for (const shape of shapes) {
+			const typed = parseCommand(shape(mark));
+			const plain = parseCommand(shape(Neutral));
+			expect(typed.masked).not.toContain(mark);
+			expect(typed.segments.map((s) => asWritten(s, typed.spans))).toEqual(
+				plain.segments.map((s) =>
+					asWritten(s, plain.spans).replaceAll(Neutral, mark),
+				),
+			);
+			expect(typed.joins).toEqual(plain.joins);
+			expect(asWritten(typed.masked, typed.spans)).toBe(shape(mark));
+		}
 	});
 });
 
