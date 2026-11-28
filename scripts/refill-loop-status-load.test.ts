@@ -133,6 +133,7 @@ describe("refill-loop.js status's per-call cost (#4821)", () => {
 			"lib/launch-hold.js",
 			"lib/launch-room.js",
 			"lib/local-date.js",
+			"lib/loop-comment.js",
 			"lib/loop-jobs.js",
 			"lib/loop-prompts.js",
 			"lib/machine-marker.js",

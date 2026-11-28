@@ -11,14 +11,17 @@ const {
 } = require("./loop-comment.js");
 
 const ROOT = path.resolve(__dirname, "../..");
-const SOURCE = /\.(?:c?js|mjs|sh|py)$/;
+const SOURCE = /\.(?:c?js|mjs|ts|sh|py)$/;
 
-const sourcesUnder = (dir: string): string[] =>
+const readSourcesUnder = (dir: string): string[] =>
 	fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
 		const full = path.join(dir, e.name);
 		if (e.isDirectory())
-			return e.name === "node_modules" ? [] : sourcesUnder(full);
-		return SOURCE.test(e.name) ? [full] : [];
+			return e.name === "node_modules" ? [] : readSourcesUnder(full);
+		return (SOURCE.test(e.name) || !e.name.includes(".")) &&
+			!e.name.endsWith(".test.ts")
+			? [full]
+			: [];
 	});
 
 describe("loop comments", () => {
@@ -33,10 +36,10 @@ describe("loop comments", () => {
 		expect(isLoopComment(undefined)).toBe(false);
 	});
 
-	it("is the one spelling of the prefix in the shipped sources, #5912 (C5 false positive)", () => {
+	it("is the one spelling of the prefix in the shipped sources, #5912 (one prefix definition)", () => {
 		const own = path.join(__dirname, "loop-comment.js");
-		const spelt = ["scripts", "hooks"]
-			.flatMap((d) => sourcesUnder(path.join(ROOT, d)))
+		const spelt = ["scripts", "hooks", ".husky"]
+			.flatMap((d) => readSourcesUnder(path.join(ROOT, d)))
 			.filter((f) => f !== own)
 			.filter((f) => fs.readFileSync(f, "utf8").includes(LOOP_COMMENT_PREFIX))
 			.map((f) => path.relative(ROOT, f));

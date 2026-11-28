@@ -801,7 +801,7 @@ describe("planStaleRun: the catalogue", () => {
 			}),
 		]);
 
-	it("C8: the loop's own park notice is no answer, so the parked question is owed, #5912 (C5 false positive)", () => {
+	it("C8: the loop's own park comment is no answer, so the parked question is owed, #5912 (C5 false positive)", () => {
 		const p = buildParkedPlan([]);
 		expect(p.owed.map((o: { text: string }) => o.text)).toEqual([
 			`o/r#1 asked ${daysAgo(8.9).slice(0, 10)}, 8 d, holds 0 issues`,

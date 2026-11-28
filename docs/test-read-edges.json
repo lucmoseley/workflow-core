@@ -42683,6 +42683,7 @@
 			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/loop-comment.test.ts": [

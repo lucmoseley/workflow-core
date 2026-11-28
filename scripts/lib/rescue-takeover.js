@@ -752,6 +752,7 @@ const buildHandOffLeft = (ticket, narrated) =>
 		? `continue ${ticket} from ${narrated}, unless they end on a question to the founder that this ticket does not show answered: then post it as a round and park, building nothing past it`
 		: `continue ${ticket}; the loop read no narration for it, so first ask by round anything this ticket leaves open for the founder`;
 
+const HANDED_OFF_HEAD = `**${buildLoopComment("handed off.")}**`;
 const FRESH_PICK_UP =
 	"fresh session picks up from the block below, launched by the next tick free to, which an away-mode loop is not while the ticket is labelled parked.";
 
@@ -760,7 +761,7 @@ const FRESH_PICK_UP =
  * @param {string} sessionId
  */
 const buildRecordlessHead = (short, sessionId) =>
-	`**${buildLoopComment("handed off.")}** ${sessionId ? `Session ${sessionId}` : "The session"} of job ${short} ended unread: its job record is gone. ${sessionId ? "The loop released its claim; a" : "A"} ${FRESH_PICK_UP}`;
+	`${HANDED_OFF_HEAD} ${sessionId ? `Session ${sessionId}` : "The session"} of job ${short} ended unread: its job record is gone. ${sessionId ? "The loop released its claim; a" : "A"} ${FRESH_PICK_UP}`;
 
 /**
  * @param {BufferedIo} io
@@ -782,7 +783,7 @@ function writeSnapshotBody(io, dir, out, found) {
 		out,
 		{
 			head: [
-				`**${buildLoopComment("handed off.")}** Session ${job.sessionId}${job.name ? ` (${job.name})` : ""} was resumed by its host and took no turn, nor after the loop's resume (#2659). The loop stopped it and released its claim; a ${FRESH_PICK_UP}`,
+				`${HANDED_OFF_HEAD} Session ${job.sessionId}${job.name ? ` (${job.name})` : ""} was resumed by its host and took no turn, nor after the loop's resume (#2659). The loop stopped it and released its claim; a ${FRESH_PICK_UP}`,
 				`Its files stay uncommitted where it left them. Snapshot: ${path.relative(core.repoRoot(), out)}.`,
 			].join(" "),
 			done: job.commitsLanded?.join("; ") || "none",
