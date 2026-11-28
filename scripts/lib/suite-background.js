@@ -8,6 +8,7 @@ const {
 const {
 	BASH_SPACE,
 	asWritten,
+	isArgumentTail,
 	maskQuotes,
 	parseCommand,
 	placeSegments,
@@ -20,6 +21,7 @@ const {
 	buildIsWrapperScript,
 	isSnapshotLaunch,
 } = require("./suite-launch.js");
+const { escapeRe } = require("./regex-group.js");
 const { launchTestFileCount } = require("./suite-bounded.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
 const {
@@ -42,10 +44,17 @@ const SP = `[${BLANK}]`;
 
 const NOT_DETACHING = ["&&", "&>", "|&", ">&", "<&"];
 
-const HELD_OP_BASE = 2;
+// guess, #5898: past shell-parse.js's STAND_IN_BASE stand-ins
+const MARK_BASE = 0xe1_00;
 
-/** @param {number} i */
-const heldOp = (i) => String.fromCharCode(HELD_OP_BASE + i);
+/** @param {string} text */
+function markSource(text) {
+	let code = MARK_BASE;
+	return () => {
+		while (text.includes(String.fromCharCode(code))) code++;
+		return String.fromCharCode(code++);
+	};
+}
 
 const DETACHER_MARK = "\x1d";
 
@@ -58,18 +67,18 @@ const unmark = (text) =>
 		.split(TYPED_MARK)
 		.join(DETACHER_MARK);
 
-const DETACHER_PATH = "([^\\x00-\\x20\\u2028\\u2029;|&()<>`]*/)?";
+/** @param {string} [held] */
+const detacherPath = (held = "") =>
+	`([^\\x00-\\x20\\u2028\\u2029;|&()<>\`${held}]*/)?`;
 
 const DETACHER_TAIL = "[<>]|\\\\$";
 
 const DETACHER = new RegExp(
-	`${DETACHER_MARK}\\\\?(${DETACHER_PATH}(nohup|setsid)(${SP}|${DETACHER_TAIL}|$)|disown([^A-Za-z0-9_.-]|$))`,
+	`${DETACHER_MARK}\\\\?(${detacherPath()}(nohup|setsid)(${SP}|${DETACHER_TAIL}|$)|disown([^A-Za-z0-9_.-]|$))`,
 	"m",
 );
 
-const ESCAPED_AMP = "\x0f";
-
-const REREAD_AMP = "\x10";
+const ESCAPED_AMP_BLANK = "\x0f";
 
 /**
  * @param {string} text
@@ -104,7 +113,7 @@ const holdEscapedAmps = (text, reread, literalTo, detachTo) =>
 
 /** @param {string} masked @param {boolean} reread */
 function hasBareDetachment(masked, reread) {
-	if (DETACHER.test(holdEscapedAmps(masked, reread, ESCAPED_AMP, "&")))
+	if (DETACHER.test(holdEscapedAmps(masked, reread, ESCAPED_AMP_BLANK, "&")))
 		return true;
 	return NOT_DETACHING.reduce(
 		(t, op) => t.split(op).join("  "),
@@ -125,26 +134,28 @@ function hasDetachment(text, reread = false) {
 
 const STRIP_LEAD = `${DETACHER_MARK}\\\\?`;
 
-const DETACH_REWRITES = /** @type {const} */ ([
-	[new RegExp(`${REREAD_AMP}${SP}*(\\\\;|;|$)`, "g"), "$1"],
-	[new RegExp(REREAD_AMP, "g"), "\\;"],
-	[
-		new RegExp(
-			`${STRIP_LEAD}${DETACHER_PATH}(nohup|setsid)(${SP}+-[^${BLANK}<>]+)*(${SP}+|$|(?=${DETACHER_TAIL}))`,
-			"g",
-		),
-		"",
-	],
-	[
-		new RegExp(
-			`${STRIP_LEAD}disown(?![A-Za-z0-9_.-])(${SP}+[^${BLANK};|&]+)*${SP}*`,
-			"g",
-		),
-		"",
-	],
-	[new RegExp(`&${SP}*(;|$)`, "g"), "$1"],
-	[/&/g, ";"],
-]);
+/** @param {string} rereadAmp @param {string} held */
+const detachRewrites = (rereadAmp, held) =>
+	/** @type {const} */ ([
+		[new RegExp(`${escapeRe(rereadAmp)}${SP}*(\\\\;|;|$)`, "g"), "$1"],
+		[new RegExp(escapeRe(rereadAmp), "g"), "\\;"],
+		[
+			new RegExp(
+				`${STRIP_LEAD}${detacherPath(held)}(nohup|setsid)(${SP}+-[^${BLANK}<>]+)*(${SP}+|$|(?=${DETACHER_TAIL}))`,
+				"g",
+			),
+			"",
+		],
+		[
+			new RegExp(
+				`${STRIP_LEAD}disown(?![A-Za-z0-9_.-])(${SP}+[^${BLANK};|&]+)*${SP}*`,
+				"g",
+			),
+			"",
+		],
+		[new RegExp(`&${SP}*(;|$)`, "g"), "$1"],
+		[/&/g, ";"],
+	]);
 
 /**
  * @param {string} text
@@ -163,22 +174,21 @@ function stripDetachment(text, scriptSpans, stripScript, reread = false) {
 	return trimStart(asWritten(stripBare(masked, reread), kept));
 }
 
-const ESCAPED_DOLLAR = "\x12";
-const ESCAPED_TICK = "\x11";
-/** @type {Record<string, string>} */
-const HELD_ESCAPES = { $: ESCAPED_DOLLAR, "`": ESCAPED_TICK };
+/** @typedef {{ $: string, "`": string }} HeldEscapes */
 
-/** @param {string} body */
-const decodeDoubleQuoted = (body) =>
-	body.replace(/\\([\\"$`])/g, (_, c) => HELD_ESCAPES[c] ?? c);
+/** @param {string} body @param {HeldEscapes} held */
+const decodeDoubleQuoted = (body, held) =>
+	body.replace(/\\([\\"$`])/g, (_, /** @type {string} */ c) =>
+		c === "$" || c === "`" ? held[c] : c,
+	);
 
-/** @param {string} text */
-const encodeDoubleQuoted = (text) =>
+/** @param {string} text @param {HeldEscapes} held */
+const encodeDoubleQuoted = (text, held) =>
 	text
 		.replace(/[\\"]/g, (c) => `\\${c}`)
-		.split(ESCAPED_DOLLAR)
+		.split(held.$)
 		.join("\\$")
-		.split(ESCAPED_TICK)
+		.split(held["`"])
 		.join("\\`");
 
 /**
@@ -189,7 +199,9 @@ function stripQuotedScript(span, stripScript) {
 	const body = span.slice(1);
 	if (span.charAt(0) !== '"' || body.replace(/\\[\s\S]/g, "").includes('"'))
 		return stripScript(body);
-	return encodeDoubleQuoted(stripScript(decodeDoubleQuoted(body)));
+	const mark = markSource(body);
+	const held = { $: mark(), "`": mark() };
+	return encodeDoubleQuoted(stripScript(decodeDoubleQuoted(body, held)), held);
 }
 
 /**
@@ -240,52 +252,60 @@ function stripSpan(span) {
 
 /** @param {string} masked @param {boolean} reread */
 function stripBare(masked, reread) {
-	let s = NOT_DETACHING.reduce(
-		(t, op, i) => t.split(op).join(heldOp(i)),
-		holdEscapedAmps(masked, reread, ESCAPED_AMP, REREAD_AMP),
+	const mark = markSource(masked);
+	const escapedAmp = mark();
+	const rereadAmp = mark();
+	/** @type {[string, string][]} */
+	const heldOps = NOT_DETACHING.map((op) => [op, mark()]);
+	const rewrites = detachRewrites(
+		rereadAmp,
+		escapedAmp + rereadAmp + heldOps.map(([, held]) => held).join(""),
+	);
+	let s = heldOps.reduce(
+		(t, [op, held]) => t.split(op).join(held),
+		holdEscapedAmps(masked, reread, escapedAmp, rereadAmp),
 	);
 	s = trimEndRun(
 		s
 			.split("\n")
 			.map((line) =>
 				trimEndRun(
-					DETACH_REWRITES.reduce((l, [re, to]) => l.replace(re, to), line),
+					rewrites.reduce((l, [re, to]) => l.replace(re, to), line),
 					" \t\v\f\r",
 				),
 			)
 			.join("\n"),
 		"\n",
 	);
-	return NOT_DETACHING.reduce((t, op, i) => t.split(heldOp(i)).join(op), s)
-		.split(ESCAPED_AMP)
+	return heldOps
+		.reduce((t, [op, held]) => t.split(held).join(op), s)
+		.split(escapedAmp)
 		.join("\\&");
 }
 
 /** @param {string} s */
 const trimStart = (s) => s.replace(/^[ \t\n\v\f\r]+/, "");
 
-const held = (/** @type {number} */ n) => `\x07${n}\x07`;
-
-/** @param {string} raw @param {number[]} heredocLines */
-function holdHeredocs(raw, heredocLines) {
+/** @param {string} raw @param {number[]} heredocLines @param {string} taken */
+function holdHeredocs(raw, heredocLines, taken) {
+	const mark = markSource(raw + taken)();
 	const lines = raw.split("\n");
-	/** @type {Map<number, string>} */
+	/** @type {Map<string, string>} */
 	const kept = new Map();
 	for (const n of heredocLines) {
-		kept.set(n, lines[n] ?? "");
-		lines[n] = held(n);
+		const token = `${mark}${n}${mark}`;
+		kept.set(token, lines[n] ?? "");
+		lines[n] = token;
 	}
 	return { text: lines.join("\n"), kept };
 }
 
-/** @param {string} s @param {Map<number, string>} kept */
+/** @param {string} s @param {Map<string, string>} kept */
 function putBackHeredocs(s, kept) {
 	let out = s;
-	for (const n of [...kept.keys()].sort((a, b) => a - b)) {
-		const at = out.indexOf(held(n));
-		if (at >= 0)
-			out =
-				out.slice(0, at) + (kept.get(n) ?? "") + out.slice(at + held(n).length);
+	for (const [token, line] of kept) {
+		const at = out.indexOf(token);
+		if (at >= 0) out = out.slice(0, at) + line + out.slice(at + token.length);
 	}
 	return trimEndRun(out, "\n");
 }
@@ -318,13 +338,16 @@ function swap(words, drop, put) {
 /** @param {string} body */
 const singleQuoted = (body) => `'${body.split("'").join("'\\''")}'`;
 
-const requotedAt = (/** @type {number} */ n) => `\x0e${n}\x0e`;
+/** @param {string} mark @param {number} n */
+const requotedAt = (mark, n) => `${mark}${n}${mark}`;
 
-/** @param {string} text @param {string[]} bodies */
-function putBackRequoted(text, bodies) {
+/** @typedef {{ mark: string, bodies: string[] }} Requoted */
+
+/** @param {string} text @param {Requoted} requoted */
+function putBackRequoted(text, { mark, bodies }) {
 	let out = text;
 	bodies.forEach((body, n) => {
-		out = out.split(requotedAt(n)).join(singleQuoted(body));
+		out = out.split(requotedAt(mark, n)).join(singleQuoted(body));
 	});
 	return out;
 }
@@ -394,8 +417,8 @@ function readLaunches(parsed, ctx, launchPorts) {
 	const timed = [];
 	/** @type {ScriptSource[]} */
 	const scripts = [];
-	/** @type {string[]} */
-	const requoted = [];
+	/** @type {Requoted} */
+	const requoted = { mark: markSource(parsed.subject)(), bodies: [] };
 	/** @type {Detacher[]} */
 	const detachers = [];
 	/**
@@ -550,9 +573,12 @@ function readLaunches(parsed, ctx, launchPorts) {
 		for (const fix of fixes)
 			if ("respan" in fix) respanned.set(fix.respan, fix.span);
 			else if (
-				rewrite([[fix.requote, [requotedAt(requoted.length)]]], fix.requote)
+				rewrite(
+					[[fix.requote, [requotedAt(requoted.mark, requoted.bodies.length)]]],
+					fix.requote,
+				)
 			)
-				requoted.push(fix.body);
+				requoted.bodies.push(fix.body);
 		timed.push({
 			segIdx: cmd.segIdx,
 			to: asWritten(segment, spans),
@@ -563,6 +589,7 @@ function readLaunches(parsed, ctx, launchPorts) {
 	walkCommands(
 		parsed,
 		(cmd) => {
+			if (isArgumentTail(parsed, cmd.segIdx)) return;
 			const [first, ...later] = cmd.runs();
 			/** @type {{ run: import("./shell-words.js").Unwrapped, launch: import("./suite-launch.js").Launch }[]} */
 			const launches = [];
@@ -604,7 +631,7 @@ const DISOWN_PREFIX = ["builtin", "command"];
 /** @param {string | undefined} word @param {string} names */
 const isDetacherWord = (word, names) =>
 	word !== undefined &&
-	new RegExp(`^\\\\?${DETACHER_PATH}(${names})$`).test(word);
+	new RegExp(`^\\\\?${detacherPath()}(${names})$`).test(word);
 
 /**
  * @param {ScriptRead} script
@@ -798,7 +825,7 @@ function decide(command, ctx) {
 		requoted,
 		detachers,
 	} = readLaunches(parsed, ctx, launchPorts);
-	const hold = holdHeredocs(command, parsed.heredocLines);
+	const hold = holdHeredocs(command, parsed.heredocLines, requoted.mark);
 	const detached =
 		foundSuite &&
 		!escaped &&
@@ -837,7 +864,12 @@ function decide(command, ctx) {
 		);
 	fix = putBackRequoted(
 		fix,
-		detached ? requoted.map((body) => unmark(stripScript(body))) : requoted,
+		detached
+			? {
+					mark: requoted.mark,
+					bodies: requoted.bodies.map((body) => unmark(stripScript(body))),
+				}
+			: requoted,
 	);
 	fix = putBackHeredocs(trimStart(fix), hold.kept);
 	if (fix === "") {

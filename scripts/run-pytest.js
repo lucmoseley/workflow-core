@@ -194,7 +194,6 @@ function pytestPlan(argv, root) {
 			sessionId: sessionId || null,
 			argv: [],
 			leftOut,
-			boundedFrom,
 			touchedBase: from,
 		});
 		return 0;
