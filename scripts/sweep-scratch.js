@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// #5654
 const path = require("node:path");
 const { ignoreFailure } = require("./lib/caught.js");
 const { sweepScratch } = require("./lib/scratch-sweep.js");

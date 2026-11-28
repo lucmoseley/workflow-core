@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5865
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const { buildErrorText, ignoreFailure } = require("./lib/caught.js");

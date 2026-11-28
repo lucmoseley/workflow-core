@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5865
 
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { run } = require("./lib/guard-entry.js");

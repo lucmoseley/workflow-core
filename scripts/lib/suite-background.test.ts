@@ -317,6 +317,30 @@ describe("lib/suite-background.js", () => {
 		).toBe(`${SNAPSHOT_OPENER}flock /l -c "cd scripts && npm run test"`);
 	});
 
+	it("rewrites only the words a wrapper took its script from (#5846)", () => {
+		const fixOf = (command: string) =>
+			(readDenyReason(command).split("\n")[0] ?? "").slice(
+				SNAPSHOT_OPENER.length,
+			);
+		for (const [command, fix] of [
+			[
+				'flock "npm run test &" -c "npm run test &"',
+				'flock "npm run test &" -c "npm run test"',
+			],
+			[
+				"watch -n 5 \"npm run test\" 'x & y'",
+				"watch -n 5 \"npm run test\" 'x ; y'",
+			],
+			["watch -n 5 npm run test '&' true", "watch -n 5 npm run test '' true"],
+		]) {
+			expect(fixOf(command), command).toBe(fix);
+			expect(verdict(fix), fix).toBe("allow");
+		}
+		expect(fixOf('timeout -s "KILL" 60 flock /l -c "npm run test &"')).toMatch(
+			/ flock \/l -c "npm run test"$/,
+		);
+	});
+
 	it("reads no detachment in a heredoc, and re-issues its body unchanged", () => {
 		const write = [
 			"cat > /tmp/x.sh <<'EOF'",
