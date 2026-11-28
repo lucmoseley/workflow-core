@@ -221,10 +221,7 @@ if (require.main === module)
 	run({
 		field: "source",
 		top: true,
-		// #4340
-		event: /** @type {import("./lib/guard-entry.js").HookEvent} */ (
-			/** @type {unknown} */ ("SessionStart")
-		),
+		event: "SessionStart",
 		noun: "a background job's start",
 		decide,
 		ports,
