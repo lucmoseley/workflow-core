@@ -860,7 +860,7 @@ describe("planStaleRun: filings", () => {
 		expect(two.filings[0].body).toContain("o/q#5 NO-TAKES");
 	});
 
-	it("files nothing for two containers with open children, across repos", () => {
+	it("files nothing for two containers with open children, across repos, unlike two NO-TAKES issues (#5911)", () => {
 		const parent = (n: number) =>
 			issue(n, {
 				labels: ["takes:children"],
