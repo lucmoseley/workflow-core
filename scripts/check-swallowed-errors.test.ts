@@ -1,5 +1,7 @@
 // @vitest-environment node
 
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -98,6 +100,25 @@ describe("check-swallowed-errors in an adopter", () => {
 		const r = repo({ [PY]: swallow(), "tools/b.py": swallow("b") }, {});
 		const { code, output } = check(r, ["--all"]);
 		expect(output).toMatch(/FAIL: 2 swallow/);
+		expect(code).toBe(1);
+	});
+});
+
+describe("check-swallowed-errors in a linked worktree", () => {
+	it("reads pythonRoutes from the worktree it checks, not the main checkout's", () => {
+		const main = repo({}, {}, { "tools/**/*.py": "test" });
+		const wt = path.join(
+			fs.mkdtempSync(path.join(os.tmpdir(), "swallowed-wt-")),
+			"wt",
+		);
+		temps.push(path.dirname(wt));
+		main.git("worktree", "add", "-q", "--detach", wt, "HEAD");
+		writeHostConfig(wt, { tracker: "acme/widgets", pythonRoutes: ROUTES });
+		fs.mkdirSync(path.join(wt, "tools"));
+		fs.writeFileSync(path.join(wt, PY), swallow());
+		main.git("-C", wt, "add", "--", PY);
+		const { code, output } = check({ ...main, root: wt });
+		expect(output).toMatch(/tools\/fetch\.py: `except OSError` in fetch/);
 		expect(code).toBe(1);
 	});
 });
