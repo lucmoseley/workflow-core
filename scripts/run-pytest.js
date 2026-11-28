@@ -136,9 +136,7 @@ function recordCeilingKill(root, kill, { sha, startedAtMs, argv, scope }) {
  * @param {Plan["touched"]} touched
  */
 function runScope(scope, touched) {
-	return touched === null || !scope
-		? scope
-		: { ...scope, ...touchedScope(touched) };
+	return scope ? { ...scope, ...touchedScope(touched) } : scope;
 }
 
 /**

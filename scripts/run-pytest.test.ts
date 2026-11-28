@@ -319,7 +319,7 @@ describe("a bare run", () => {
 			});
 		});
 
-		it("records `head` and the file count on a gate run's ceiling kill and its ledger line", async () => {
+		it("records `head` and the file count on a gate run's ceiling kill and its ledger line (#5900)", async () => {
 			const root = branch();
 			const [python] = fakePytest({ passed: true, scope: scope() }, 0, {});
 			await wrap(python, root, [], {
@@ -341,6 +341,7 @@ describe("a bare run", () => {
 			]);
 			expect(readLedger(root)).toMatchObject([
 				{
+					kind: "touched",
 					suite: "pytest",
 					verdict: "killed",
 					touchedBase: "head",
@@ -1013,7 +1014,7 @@ describe("the suite ceiling (#2702)", () => {
 		});
 	});
 
-	it("carries a touched run's launch scope on its kill's row (#5321)", () => {
+	it("carries a touched run's launch scope on its kill's row (#5321, #5900)", () => {
 		const row = ceilingKillRow(
 			{
 				at: "2026-11-10T12:00:01Z",
