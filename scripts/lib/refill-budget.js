@@ -1,3 +1,4 @@
+const { buildLoopComment } = require("./loop-comment.js");
 const { isActionable, launchName, stopJob } = require("./refill-block-core.js");
 const { buildChildLine, buildHandOffArgs } = require("./refill-blocks.js");
 const { landingOf, sessionIdsOf } = require("./refill-breaker.js");
@@ -174,7 +175,9 @@ function parkOnBudget(l, why, { now, io }) {
 	);
 	io.comment(
 		l,
-		`Refill loop: stopped this issue's session on ${why} (#5275, #5471), and parked it for a human or a later resume. The conversation is kept: \`claude attach\` reopens it.`,
+		buildLoopComment(
+			`stopped this issue's session on ${why} (#5275, #5471), and parked it for a human or a later resume. The conversation is kept: \`claude attach\` reopens it.`,
+		),
 	);
 	return { ...l, ...io.progressOf(l), finishedAt: now, budgetParked: now };
 }

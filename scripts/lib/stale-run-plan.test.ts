@@ -4,12 +4,15 @@ import { describe, expect, it } from "vitest";
 const {
 	actComment,
 	bodyUnchanged,
+	buildHubBody,
 	buildRunRow,
+	failedText,
 	hubAfter,
 	planStaleRun,
 	reopenSteps,
 } = require("./stale-run-plan.js");
 const { UPSTREAM_TRACKER } = require("./workflow-core-config.js");
+const { buildLoopComment } = require("./loop-comment.js");
 
 const NOW = "2026-11-28T06:00:00.000Z";
 const REPO = "o/r";
@@ -66,6 +69,8 @@ const snap = (repos: unknown[], over: Record<string, unknown> = {}) => ({
 
 const plan = (repos: unknown[], over: Record<string, unknown> = {}) =>
 	planStaleRun(snap(repos, over));
+
+const hubBody = (p: unknown) => buildHubBody(p, { done: [], failed: [] });
 
 const texts = (p: { lines: { text: string }[] }) => p.lines.map((l) => l.text);
 const classOf = (p: { lines: { number: number; cls: string }[] }, n: number) =>
@@ -768,6 +773,54 @@ describe("planStaleRun: the catalogue", () => {
 		expect(p.lines).toEqual([]);
 	});
 
+	const buildParkedRound = (after: { body: string; created_at: string }[]) =>
+		issue(1, {
+			labels: ["takes:implement", "parked"],
+			timeline: [
+				{
+					event: "commented",
+					created_at: daysAgo(9),
+					body: "❓ **Q1** which?",
+				},
+				{
+					event: "labeled",
+					created_at: daysAgo(8.9),
+					label: { name: "parked" },
+				},
+				{
+					event: "commented",
+					created_at: daysAgo(8.8),
+					body: buildLoopComment(
+						"stopped QUESTION park on this issue's session.",
+					),
+				},
+				...after.map((c) => ({ event: "commented", ...c })),
+			],
+		});
+	const buildParkedPlan = (after: { body: string; created_at: string }[]) =>
+		plan([
+			repo({
+				issues: [buildParkedRound(after)],
+				parkMarkers: [{ sessionId: "s", issues: [1], cause: "QUESTION" }],
+			}),
+		]);
+
+	it("C8: the loop's own park comment is no answer, so the parked question is owed, #5912 (C5 false positive)", () => {
+		const p = buildParkedPlan([]);
+		expect(p.owed.map((o: { text: string }) => o.text)).toEqual([
+			`o/r#1 asked ${daysAgo(8.9).slice(0, 10)}, 8 d, holds 0 issues`,
+		]);
+		expect(p.lines).toEqual([]);
+	});
+
+	it("C5: a non-loop comment after the park label answers it", () => {
+		const p = buildParkedPlan([{ created_at: daysAgo(2), body: "B, go." }]);
+		expect(p.owed).toEqual([]);
+		expect(texts(p)).toEqual([
+			"o/r#1 parked, its question has a later comment",
+		]);
+	});
+
 	it("C8: an ask under the founder-owed floor is not listed", () => {
 		const p = plan([
 			repo({
@@ -858,6 +911,39 @@ describe("planStaleRun: filings", () => {
 			},
 		]);
 		expect(two.filings[0].body).toContain("o/q#5 NO-TAKES");
+	});
+
+	const blockedPlan = (tags: [string, string]) =>
+		plan([
+			repo({
+				issues: [
+					issue(1, { blockedBy: [{ repo: null, number: 3, state: "open" }] }),
+					issue(2, { blockedBy: [{ repo: null, number: 4, state: "open" }] }),
+					issue(3),
+					issue(4),
+				],
+				checkFindings: [
+					{ tag: tags[0], number: 3 },
+					{ tag: tags[1], number: 4 },
+				],
+			}),
+		]);
+	const causeTitles = (p: ReturnType<typeof plan>) =>
+		p.filings
+			.filter((f: { kind: string }) => f.kind === "cause")
+			.map((f: { title: string }) => f.title);
+
+	it("files no cause for stuck-blocker lines, which borrow their blocker's class (#5913)", () => {
+		const p = blockedPlan(["NO-TAKES", "UNPLACED"]);
+		expect(texts(p)).toContain("o/r#1 blocked by o/r#3 (C5, 10 d)");
+		expect(texts(p)).toContain("o/r#2 blocked by o/r#4 (C4, 10 d)");
+		expect(causeTitles(p)).toEqual([]);
+	});
+
+	it("still files the blockers' own cause when they share a signature", () => {
+		expect(causeTitles(blockedPlan(["NO-TAKES", "NO-TAKES"]))).toEqual([
+			"Stale-ticket cause: C5 NO-TAKES",
+		]);
 	});
 
 	it("files nothing for two containers with open children, across repos, unlike two NO-TAKES issues (#5911)", () => {
@@ -979,7 +1065,7 @@ describe("planStaleRun: the hub issue", () => {
 	it("is refreshed while an undisposed session-owed line exists", () => {
 		const p = plan(listed);
 		expect(p.hub.action).toBe("refresh");
-		expect(p.hub.body).toContain("o/r#1 NO-TAKES (new)");
+		expect(hubBody(p)).toContain("o/r#1 NO-TAKES (new)");
 		expect(p.hubKeys).toEqual(["o/r#1:C5"]);
 	});
 
@@ -1009,6 +1095,36 @@ describe("planStaleRun: the hub issue", () => {
 		expect(changed.hub.action).toBe("refresh");
 	});
 
+	it("lists the acts done and gives a failed-acts section only when one failed", () => {
+		const p = plan(listed);
+		const clean = buildHubBody(p, { done: ["cleared: o/r#2"], failed: [] });
+		expect(clean).toContain("## Restored this run\n\n- cleared: o/r#2\n");
+		expect(clean).not.toContain("## Failed this run");
+		const failed = buildHubBody(p, {
+			done: [],
+			failed: ["discharged: o/r#3 (met) — failed: refused"],
+		});
+		expect(failed).toContain("## Restored this run\n\nNone.\n");
+		expect(failed).toContain(
+			"## Failed this run\n\n- discharged: o/r#3 (met) — failed: refused\n",
+		);
+	});
+
+	it("bounds a failure to its first line, capped, in a code span", () => {
+		const act = {
+			kind: "strip-gate",
+			repo: "o/r",
+			number: 3,
+			blocker: "o/r#8",
+		};
+		expect(failedText(act, "gh `refused`\n## injected @someone")).toBe(
+			"cleared: o/r#3 gated on o/r#8, which has closed — failed: `gh 'refused'`",
+		);
+		expect(failedText(act, "x".repeat(300))).toContain(
+			`\`${"x".repeat(200)}…\``,
+		);
+	});
+
 	it("closes an open hub issue once nothing undisposed is left", () => {
 		const p = plan([repo()], { hub: { number: 40, state: "open" } });
 		expect(p.hub).toEqual({ action: "close", number: 40 });
@@ -1024,7 +1140,7 @@ describe("planStaleRun: the hub issue", () => {
 				checkFindings: [{ tag: "NO-TAKES", number: 2 }],
 			}),
 		]);
-		expect(p.hub.body).not.toMatch(/founder|@/i);
+		expect(hubBody(p)).not.toMatch(/founder|@/i);
 	});
 });
 

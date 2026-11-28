@@ -1,3 +1,4 @@
+const { buildLoopComment } = require("./loop-comment.js");
 const path = require("node:path");
 const { buildLimitCapText, isAtLimitCap } = require("./refill-decide.js");
 const { seatIdOf } = require("./refill-seats.js");
@@ -168,7 +169,9 @@ function parkOnceStopped(l, why, mode, { now, io }) {
 	io.log(buildParkStopLine(parking, mode, outcome));
 	io.comment(
 		l,
-		`Refill loop: ${buildParkStopLine(parking, mode, outcome, { brief: true })}. The conversation is kept: \`claude attach\` reopens it.${why.hold ? " The loop resumes it once the hold clears." : ""}${outcome.unmarkedWhy ? "" : buildRelaunchEndText(why.limitParks)}`,
+		buildLoopComment(
+			`${buildParkStopLine(parking, mode, outcome, { brief: true })}. The conversation is kept: \`claude attach\` reopens it.${why.hold ? " The loop resumes it once the hold clears." : ""}${outcome.unmarkedWhy ? "" : buildRelaunchEndText(why.limitParks)}`,
+		),
 	);
 	return {
 		...l,

@@ -1,3 +1,4 @@
+const { buildLoopComment } = require("./loop-comment.js");
 const { isTerminalAgent } = require("./agent-liveness.js");
 const { blockCause, hasEndedUnblocked } = require("./block-cause.js");
 const { newestMarkerListing } = require("./parked.js");
@@ -587,7 +588,7 @@ function relaunchResume(l, act, { now, io }) {
  */
 function reportResume(l, line, io) {
 	io.log(line);
-	io.comment(l, `Refill loop: ${line}.`);
+	io.comment(l, buildLoopComment(`${line}.`));
 }
 
 /**
