@@ -238,15 +238,11 @@ const singleQuoted = (body) => `'${body.split("'").join("'\\''")}'`;
 
 const requotedAt = (/** @type {number} */ n) => `\x0e${n}\x0e`;
 
-/**
- * @param {string} text
- * @param {string[]} bodies
- * @param {(body: string) => string} finish
- */
-function putBackRequoted(text, bodies, finish) {
+/** @param {string} text @param {string[]} bodies */
+function putBackRequoted(text, bodies) {
 	let out = text;
 	bodies.forEach((body, n) => {
-		out = out.split(requotedAt(n)).join(singleQuoted(finish(body)));
+		out = out.split(requotedAt(n)).join(singleQuoted(body));
 	});
 	return out;
 }
@@ -339,41 +335,28 @@ function readLaunches(parsed, ctx, launchPorts) {
 	/**
 	 * @param {import("./shell-parse.js").Command} cmd
 	 * @param {ScriptRun} script
-	 * @returns {ScriptFix[]}
+	 * @returns {ScriptFix | null}
 	 */
-	const scriptFix = (cmd, { run, wordIndices }) => {
+	const buildScriptFix = (cmd, { run, wordIndices }) => {
 		if (carriesVar("WFC_SUITE_TIMEOUT", cmd.leading, run.wrapperWords))
-			return [];
+			return null;
 		const words = wordIndices.flatMap((i) => cmd.words.slice(i, i + 1));
 		const literals = words.map((w) => literal(w, spans));
 		const body = literals.map((l) => l.text).join(" ");
 		const inner = readLaunches(parseCommand(body), ctx, launchPorts);
-		if (inner.timed.length === 0) return [];
+		if (inner.timed.length === 0) return null;
 		const untimed = putBackRequoted(
 			applyTimed(body, inner.timed, spanShift(inner.timed)),
 			inner.requoted,
-			(b) => b,
 		);
-		const [only, ...more] = words;
-		const at =
-			only !== undefined && more.length === 0
-				? soleQuotedSpanIndex(only, spans)
-				: null;
-		const span = at === null ? undefined : spans[at];
-		const quote = span?.charAt(0) ?? "";
-		if (
-			at !== null &&
-			span !== undefined &&
-			span.slice(1) === body &&
-			fitsQuote(quote, body, untimed)
-		)
-			return [{ respan: at, span: quote + untimed }];
+		const inPlace = respanFix(words, spans, body, untimed);
+		if (inPlace) return inPlace;
 		if (literals.every((l) => l.known))
-			return [{ requote: words, body: untimed }];
+			return { requote: words, body: untimed };
 		ctx.log(
 			"the timed script carries an expansion the re-issue cannot re-quote — its launch is left unjudged",
 		);
-		return [];
+		return null;
 	};
 	/**
 	 * @param {import("./shell-parse.js").Command} cmd
@@ -393,10 +376,11 @@ function readLaunches(parsed, ctx, launchPorts) {
 				ctx.log(
 					"swapWords could not place the words — the deny re-issues them as typed",
 				);
-				return;
+				return false;
 			}
 			segment = swapped;
 			dropped.push(...gone.flatMap(spanIndicesIn));
+			return true;
 		};
 		if (timeouts.length > 0)
 			rewrite(
@@ -405,10 +389,10 @@ function readLaunches(parsed, ctx, launchPorts) {
 			);
 		for (const fix of fixes)
 			if ("respan" in fix) respanned.set(fix.respan, fix.span);
-			else {
-				rewrite([[fix.requote, [requotedAt(requoted.length)]]], fix.requote);
+			else if (
+				rewrite([[fix.requote, [requotedAt(requoted.length)]]], fix.requote)
+			)
 				requoted.push(fix.body);
-			}
 		timed.push({
 			from: asWritten(cmd.segment, spans),
 			to: asWritten(segment, spans),
@@ -432,7 +416,10 @@ function readLaunches(parsed, ctx, launchPorts) {
 			const [timeouts = []] = launches
 				.map(({ run, launch }) => typedTimeouts(cmd, run, launch))
 				.filter((t) => t.length > 0);
-			const fixes = scriptRuns.flatMap((script) => scriptFix(cmd, script));
+			const fixes = scriptRuns.flatMap((script) => {
+				const fix = buildScriptFix(cmd, script);
+				return fix ? [fix] : [];
+			});
 			if (timeouts.length > 0 || fixes.length > 0)
 				noteTimed(cmd, timeouts, fixes);
 		},
@@ -473,6 +460,25 @@ function soleQuotedSpanIndex(word, spans) {
 	const [only, ...more] = found;
 	return bare === "" && rest === "" && more.length === 0
 		? (only ?? null)
+		: null;
+}
+
+/**
+ * @param {string[]} words
+ * @param {string[]} spans
+ * @param {string} body
+ * @param {string} untimed
+ * @returns {{ respan: number, span: string } | null}
+ */
+function respanFix(words, spans, body, untimed) {
+	const [only, ...more] = words;
+	if (only === undefined || more.length > 0) return null;
+	const at = soleQuotedSpanIndex(only, spans);
+	const span = at === null ? undefined : spans[at];
+	if (at === null || span === undefined || span.slice(1) !== body) return null;
+	const quote = span.charAt(0);
+	return fitsQuote(quote, body, untimed)
+		? { respan: at, span: quote + untimed }
 		: null;
 }
 
@@ -539,8 +545,9 @@ function decide(command, ctx) {
 				),
 			),
 		);
-	fix = putBackRequoted(fix, requoted, (body) =>
-		detached ? stripDetachment(body) : body,
+	fix = putBackRequoted(
+		fix,
+		detached ? requoted.map((body) => stripDetachment(body)) : requoted,
 	);
 	fix = putBackHeredocs(trimStart(fix), hold.kept);
 	if (fix === "") {

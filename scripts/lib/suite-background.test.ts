@@ -598,7 +598,7 @@ describe("lib/suite-background.js", () => {
 			).toBe(fix);
 	});
 
-	it("re-quotes a timed script its own quotes cannot hold rewritten as one single-quoted word (#5874)", () => {
+	it("re-issues a timed script as one single-quoted word where its own quotes cannot hold the rewrite (#5874)", () => {
 		for (const [command, fix] of [
 			[
 				'flock /l -c "timeout 590 npm run test -- -t \\"a b\\""',
@@ -641,7 +641,7 @@ describe("lib/suite-background.js", () => {
 			).toBe(fix);
 	});
 
-	it("reads a typed timeout over a script whose launch is not its first command", () => {
+	it("reads a typed timeout over a script whose launch is not its first command (#5874)", () => {
 		expect(
 			readDenyReason('timeout 5 flock /l -c "echo x; npm run test"')
 				.split("\n")[0]
@@ -882,12 +882,33 @@ describe("its deliberate limits", () => {
 		"timeout 60 pytest",
 		"timeout 60 node --test",
 		"env -S 'timeout 590 npm run test'",
-		'sh -c "timeout 590 npm run test"',
-		'flock /l sh -c "timeout 590 npm run test"',
-		"flock /l -c timeout\\ 590\\ npm\\ run\\ test",
 	])("reads no shell timeout on `%s`", (command) => {
 		expect(verdict(command)).toBe("allow");
 	});
+
+	it.each([
+		'sh -c "timeout 590 npm run test"',
+		'flock /l sh -c "timeout 590 npm run test"',
+		"flock /l -c timeout\\ 590\\ npm\\ run\\ test",
+		"flock /l -c $'timeout 590 npm run test'",
+		'flock /l --command="timeout 590 npm run test"',
+		'flock /l -xc "timeout 590 npm run test"',
+	])(
+		"reads no shell timeout in a script the walk hands no launch from: `%s`",
+		(command) => {
+			expect(verdict(command)).toBe("allow");
+		},
+	);
+
+	it.each([
+		'flock /l -c "echo \\"x\\" $Y; timeout 590 npm run test"',
+		"watch timeout 590 npm run test -- $X",
+	])(
+		"reads no shell timeout in a script holding an expansion the re-issue cannot re-quote: `%s`",
+		(command) => {
+			expect(verdict(command)).toBe("allow");
+		},
+	);
 
 	it("re-joins a timed segment's words on single spaces", () => {
 		expect(readDenyReason("timeout 590 npm  run   test").split("\n")[0]).toBe(
