@@ -113,8 +113,14 @@ function describePluginRecord(at) {
  * @returns {string|null}
  */
 function recordedUrlSha(block, ref) {
-	const line = block.match(/^- url source, ref (\S+), HEAD (\S+)$/m);
-	return line && line[1] === ref ? (line[2] ?? null) : null;
+	const [head] = describePluginRecord({
+		source: "url",
+		ref,
+		resolvedSha: "\0",
+	}).split("\0");
+	const line = block.split("\n").find((l) => l.startsWith(`- ${head}`));
+	const sha = line?.slice(`- ${head}`.length) ?? "";
+	return /^\S+$/.test(sha) ? sha : null;
 }
 
 /**

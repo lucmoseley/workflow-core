@@ -6,7 +6,6 @@ const {
 	renderSessionRules,
 	renderReference,
 	renderPluginRecord,
-	recordedUrlSha,
 	renderHookShim,
 	withIgnoreBlock,
 	withStatusScript,
@@ -324,14 +323,9 @@ function bringRules(ctx) {
  * @param {string|null} existing
  */
 function provenance(record, existing) {
+	if (record) return renderPluginRecord(record);
 	const at = existing?.indexOf(`\n${PROVENANCE_HEADING}\n`) ?? -1;
-	const block = existing === null || at === -1 ? "" : existing.slice(at);
-	if (!record) return block;
-	if (record.source === "url" && record.resolvedSha === null) {
-		const kept = recordedUrlSha(block, record.ref);
-		if (kept) return renderPluginRecord({ ...record, resolvedSha: kept });
-	}
-	return renderPluginRecord(record);
+	return existing === null || at === -1 ? "" : existing.slice(at);
 }
 
 /**

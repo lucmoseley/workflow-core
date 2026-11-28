@@ -9,6 +9,7 @@ import {
 	HOOKS,
 	hookRootOf,
 	labelPlan,
+	recordedUrlSha,
 	renderClaudeMd,
 	renderCodeStandards,
 	renderConfig,
@@ -42,6 +43,22 @@ const NO_COMMANDS = {
 };
 
 describe("the plugin provenance record (#108)", () => {
+	it("reads back the sha a rendered url line records, for its own ref alone (#5826)", () => {
+		const block = renderPluginRecord({
+			source: "url",
+			ref: "v1.3.8",
+			resolvedSha: "04ad20bd",
+		});
+		expect(recordedUrlSha(block, "v1.3.8")).toBe("04ad20bd");
+		expect(recordedUrlSha(block, "v1.3.9")).toBeNull();
+		expect(
+			recordedUrlSha(
+				renderPluginRecord({ source: "url", ref: "v1.3.8", resolvedSha: null }),
+				"v1.3.8",
+			),
+		).toBeNull();
+	});
+
 	it("describes a directory source by its HEAD sha and dirty flag", () => {
 		expect(
 			describePluginRecord({
