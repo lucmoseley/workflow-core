@@ -312,6 +312,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 			{
 				words: ["npm", "test"],
 				wrapperWords: ["FOO=1"],
+				typedWrappers: [[0], [1], [2]],
 				chdirs: [],
 				unread: [],
 				watched: false,
@@ -368,6 +369,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		expect(strip("nohup FOO=1 npm test")).toEqual({
 			words: ["FOO=1", "npm", "test"],
 			wrapperWords: [],
+			typedWrappers: [[0]],
 			chdirs: [],
 			unread: [],
 			watched: false,
@@ -379,6 +381,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		expect(strip("env A=/x/y FOO=1 npm test")).toEqual({
 			words: ["npm", "test"],
 			wrapperWords: ["A=/x/y", "FOO=1"],
+			typedWrappers: [[0], [1], [2]],
 			chdirs: [],
 			unread: [],
 			watched: false,
@@ -408,6 +411,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		expect(strip(`env -S 'FOO=1 npm run test'`)).toEqual({
 			words: ["npm", "run", "test"],
 			wrapperWords: ["FOO=1"],
+			typedWrappers: [[0, 1]],
 			chdirs: [],
 			unread: [],
 			watched: false,
@@ -543,6 +547,7 @@ describe("unwrap reads a wrapper as the shell hands it over (#4046)", () => {
 		expect(strip("env A=1 -C /x git status")).toEqual({
 			words: ["-C", "/x", "git", "status"],
 			wrapperWords: ["A=1"],
+			typedWrappers: [[0], [1]],
 			chdirs: [],
 			unread: [],
 			watched: false,
@@ -637,6 +642,7 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		expect(later).toEqual({
 			words: ["git", "push"],
 			wrapperWords: ["A=1"],
+			typedWrappers: [[0, 1, 2], [3], [4, 5, 6, 7]],
 			chdirs: [{ dir: "/d", read: true, holds: "always" }],
 			unread: [],
 			watched: false,

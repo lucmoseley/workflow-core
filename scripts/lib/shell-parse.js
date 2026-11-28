@@ -2728,6 +2728,7 @@ function stripRun(run, { spans, judged, pending }) {
 	return {
 		words: st.ws,
 		wrapperWords: st.wrapperWords,
+		typedWrappers: st.typedWrappers,
 		chdirs: st.chdirs,
 		unread: st.unread,
 		watched: st.watched,
@@ -2738,10 +2739,19 @@ function stripRun(run, { spans, judged, pending }) {
 /** @param {Strip} st @param {string[]} spans */
 function stripWrappers(st, spans) {
 	for (let first = st.ws[0]; first !== undefined; first = st.ws[0]) {
+		st.stepAt = st.wordAt;
 		const step = stripOne(st, first, spans);
+		noteWrapper(st, st.wordAt);
 		if (step === "cut") drop(st, st.ws.length);
 		if (step !== "next") break;
 	}
+}
+
+/** @param {Strip} st @param {(number | null)[]} left */
+function noteWrapper(st, left) {
+	const took = typedIndices(st.stepAt).filter((i) => !left.includes(i));
+	if (took.length > 0) st.typedWrappers = [...st.typedWrappers, took];
+	st.stepAt = left;
 }
 
 /** @param {string[]} words @param {string[]} spans */
@@ -2771,6 +2781,7 @@ function wrapperScript(words, spans) {
 const buildBareRun = (words) => ({
 	words,
 	wrapperWords: [],
+	typedWrappers: [],
 	chdirs: [],
 	unread: [],
 	watched: false,
@@ -2793,6 +2804,8 @@ const buildStrip = (run, judged, pending) => ({
 	awaitsScript: false,
 	script: null,
 	wrapperWords: [...run.wrapperWords],
+	typedWrappers: run.typedWrappers,
+	stepAt: [],
 	chdirs: [...run.chdirs],
 	unread: [...run.unread],
 	watched: run.watched,
@@ -2837,6 +2850,8 @@ const resetsEnv = (w, flags) =>
  * @typedef {object} Strip
  * @property {string[]} ws
  * @property {(number | null)[]} wordAt
+ * @property {number[][]} typedWrappers
+ * @property {(number | null)[]} stepAt
  * @property {string[]} judged
  * @property {boolean} inEnv
  * @property {boolean} envReset
@@ -2939,10 +2954,12 @@ function stepAfterFlags(st, wrapper, spans) {
  */
 function runScript(st, { script, from }, spans) {
 	st.scriptWords ??= from;
+	noteWrapper(st, []);
 	/** @type {Unwrapped[]} */
 	const runs = parseScript(script, spans).map((cmd) => ({
 		words: cmd.words,
 		wrapperWords: [...st.wrapperWords, ...cmd.leading],
+		typedWrappers: st.typedWrappers,
 		chdirs: [
 			...st.chdirs,
 			...cmd.chdirs.map((cd) => (st.envReset ? { ...cd, envReset: true } : cd)),

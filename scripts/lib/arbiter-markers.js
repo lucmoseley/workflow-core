@@ -47,6 +47,8 @@ const MARKER_PREFIXES = [
 	".jev-advisory-outage-",
 	".jev-advisory-malformed-",
 	".jev-advisory-refused-",
+	".fix-or-file-nagged-",
+	".fix-or-file-pending-nagged-",
 	".inventory-nagged-",
 	".inventory-draft-nagged-",
 	".needs-input-checklist-",
