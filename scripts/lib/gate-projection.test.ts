@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const DAY_MS = 864e5;
 const {
@@ -33,7 +33,7 @@ const rowsOf = (points: Point[], extra: Point[][] = []) =>
 		],
 	}));
 
-describe("project", () => {
+describe("a gate's met date projected from its rows", () => {
 	it("reads met where every count reaches its floor", () => {
 		expect(project([], [{ a: 15, b: 15 }], NOW)).toEqual({ verdict: "met" });
 	});
@@ -65,8 +65,8 @@ describe("project", () => {
 			remaining: 14,
 			spanDays: 7,
 		});
-		expect(p.ratePerDay).toBeCloseTo(1 / 7);
-		expect(p.metAt).toBe(NOW + 98 * DAY_MS);
+		expect(p.ratePerDay).toBeCloseTo(0.1);
+		expect(p.metAt).toBeCloseTo(NOW + 140 * DAY_MS, -3);
 	});
 
 	it("reads unreachable at zero rate with no date, counting days unmoved from since", () => {
@@ -125,6 +125,15 @@ describe("project", () => {
 	});
 });
 
+describe("a gate whose last row before the window is older than the window", () => {
+	it("takes the rise from the count interpolated at the window's start", () => {
+		const p = project(rowsOf([[20, 0]]), [{ a: 10, b: 15 }], NOW);
+		expect(p.ratePerDay).toBeCloseTo(0.5);
+		expect(p.spanDays).toBe(7);
+		expect(p.verdict).toBe("unreachable");
+	});
+});
+
 describe("a count whose series reset under a day ago", () => {
 	it("reads no-history, whether it fell at now or rose since", () => {
 		const fellAtNow = project(rowsOf([[7, 40]]), [{ a: 0, b: 15 }], NOW);
@@ -139,7 +148,7 @@ describe("a count whose series reset under a day ago", () => {
 	});
 });
 
-describe("reachableFloor", () => {
+describe("the floor a rate reaches within the bound", () => {
 	it("gives the count the rate reaches within the bound", () => {
 		expect(reachableFloor(3, 0.57)).toBe(6);
 		expect(reachableFloor(3, 0)).toBe(3);
@@ -152,6 +161,7 @@ describe("the history store", () => {
 	beforeEach(() => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-history-"));
 		file = path.join(dir, "h.jsonl");
+		vi.stubEnv("WFC_GATE_HISTORY", file);
 	});
 	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -163,12 +173,11 @@ describe("the history store", () => {
 				command: "c",
 				reading,
 				at,
-				file,
 				...over,
 			}),
 		).toBeNull();
 	const read = (over: object = {}) =>
-		readHistory({ repo: "o/r", issue: 1, command: "c", file, ...over });
+		readHistory({ repo: "o/r", issue: 1, command: "c", ...over });
 
 	it("writes one unchanged row a day and every changed count", () => {
 		put(daysAgo(3), "0 of 15");
