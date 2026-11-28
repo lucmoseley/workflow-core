@@ -8,6 +8,7 @@ const {
 	buildRunRow,
 	failedText,
 	hubAfter,
+	hubNext,
 	planStaleRun,
 	reopenSteps,
 } = require("./stale-run-plan.js");
@@ -69,7 +70,12 @@ const snap = (repos: unknown[], over: Record<string, unknown> = {}) => ({
 const plan = (repos: unknown[], over: Record<string, unknown> = {}) =>
 	planStaleRun(snap(repos, over));
 
-const hubBody = (p: unknown) => buildHubBody(p, { done: [], failed: [] });
+const NO_ACTS = { done: [], failed: [] };
+const hubBody = (p: unknown) => buildHubBody(p, NO_ACTS);
+const hubOf = (repos: unknown[], over: Record<string, unknown> = {}) => {
+	const s = snap(repos, over);
+	return hubNext(planStaleRun(s), s.hub, NO_ACTS);
+};
 
 const texts = (p: { lines: { text: string }[] }) => p.lines.map((l) => l.text);
 const classOf = (p: { lines: { number: number; cls: string }[] }, n: number) =>
@@ -982,35 +988,35 @@ describe("planStaleRun: the hub issue", () => {
 
 	it("is refreshed while an undisposed session-owed line exists", () => {
 		const p = plan(listed);
-		expect(p.hub.action).toBe("refresh");
+		expect(hubOf(listed)).toEqual({ action: "refresh" });
 		expect(hubBody(p)).toContain("o/r#1 NO-TAKES (new)");
-		expect(p.hubKeys).toEqual(["o/r#1:C5"]);
+		expect(
+			hubAfter(p, { action: "refresh" }, { filed: 77, before: null }),
+		).toEqual({ number: 77, keys: ["o/r#1:C5"] });
 	});
 
 	it("a close disposes its keys, which stay out until the class changes", () => {
-		const closed = plan(listed, {
+		const closing = {
 			previous: prevRow({ hub: { number: 40, keys: ["o/r#1:C5"] } }),
 			hub: { number: 40, state: "closed" },
-		});
+		};
+		const closed = plan(listed, closing);
 		expect(closed.disposed).toEqual(["o/r#1:C5"]);
-		expect(closed.hub).toEqual({ action: "none" });
+		expect(hubOf(listed, closing)).toEqual({ action: "none" });
 
-		const later = plan(listed, {
-			previous: prevRow({ disposed: closed.disposed }),
-		});
-		expect(later.hub).toEqual({ action: "none" });
+		expect(
+			hubOf(listed, { previous: prevRow({ disposed: closed.disposed }) }),
+		).toEqual({ action: "none" });
 
-		const changed = plan(
-			[
-				repo({
-					issues: [issue(1)],
-					checkFindings: [{ tag: "SHIPPED-GATED", number: 1 }],
-				}),
-			],
-			{ previous: prevRow({ disposed: closed.disposed }) },
-		);
-		expect(changed.disposed).toEqual([]);
-		expect(changed.hub.action).toBe("refresh");
+		const regated = [
+			repo({
+				issues: [issue(1)],
+				checkFindings: [{ tag: "SHIPPED-GATED", number: 1 }],
+			}),
+		];
+		const after = { previous: prevRow({ disposed: closed.disposed }) };
+		expect(plan(regated, after).disposed).toEqual([]);
+		expect(hubOf(regated, after)).toEqual({ action: "refresh" });
 	});
 
 	it("lists the acts done and gives a failed-acts section only when one failed", () => {
@@ -1044,8 +1050,23 @@ describe("planStaleRun: the hub issue", () => {
 	});
 
 	it("closes an open hub issue once nothing undisposed is left", () => {
-		const p = plan([repo()], { hub: { number: 40, state: "open" } });
-		expect(p.hub).toEqual({ action: "close", number: 40 });
+		expect(hubOf([repo()], { hub: { number: 40, state: "open" } })).toEqual({
+			action: "close",
+			number: 40,
+		});
+	});
+
+	it("refreshes a hub it would close or leave unfiled when an act failed, so the failure is read", () => {
+		const failed = { done: [], failed: ["cleared: o/r#2 — failed: `x`"] };
+		const open = snap([repo()], { hub: { number: 40, state: "open" } });
+		const p = planStaleRun(open);
+		const next = hubNext(p, open.hub, failed);
+		expect(next).toEqual({ action: "refresh" });
+		expect(hubAfter(p, next, { filed: null, before: 40 }).number).toBe(40);
+		const unfiled = snap([repo()]);
+		expect(hubNext(planStaleRun(unfiled), unfiled.hub, failed)).toEqual({
+			action: "refresh",
+		});
 	});
 
 	it("never names who an owed line waits on", () => {
@@ -1129,10 +1150,11 @@ describe("the executor's decisions", () => {
 				listed: [{ key: "o/r#1:C5", cls: "C5", firstListed: daysAgo(4) }],
 			}),
 		});
-		const row = buildRunRow(planStaleRun(s), s, {
+		const p = planStaleRun(s);
+		const row = buildRunRow(p, s, {
 			acts: [],
 			filings: [],
-			hub: 40,
+			hub: hubAfter(p, { action: "refresh" }, { filed: null, before: 40 }),
 		});
 		expect(row.listed).toEqual([
 			{ key: "o/r#1:C5", cls: "C5", firstListed: daysAgo(4) },
@@ -1142,11 +1164,12 @@ describe("the executor's decisions", () => {
 	});
 
 	it("records the hub a refresh names, else the one open before; none after a close", () => {
-		const refresh = { action: "refresh", body: "" };
-		expect(hubAfter(refresh, { filed: 77, before: 40 })).toBe(77);
-		expect(hubAfter(refresh, { filed: null, before: 40 })).toBe(40);
+		const p = plan([repo()]);
+		const refresh = { action: "refresh" };
+		expect(hubAfter(p, refresh, { filed: 77, before: 40 }).number).toBe(77);
+		expect(hubAfter(p, refresh, { filed: null, before: 40 }).number).toBe(40);
 		expect(
-			hubAfter({ action: "close", number: 40 }, { filed: null, before: 40 }),
-		).toBeNull();
+			hubAfter(p, { action: "close", number: 40 }, { filed: null, before: 40 }),
+		).toEqual({ number: null, keys: [] });
 	});
 });

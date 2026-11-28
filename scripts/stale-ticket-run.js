@@ -663,21 +663,23 @@ function file(labelled, { title, body, repo }) {
 
 /**
  * @param {import("./lib/stale-run-plan.js").Plan} p
- * @param {string} coreTracker
+ * @param {import("./lib/stale-run-plan.js").Snapshot} snap
  * @param {Set<string>} labelled
  * @param {import("./lib/stale-run-plan.js").ActOutcomes} acts
- * @returns {number|null}
  */
-function applyHub(p, coreTracker, labelled, acts) {
-	if (p.hub.action === "close") issue(coreTracker, p.hub.number, ["close"]);
-	if (p.hub.action !== "refresh") return null;
+function applyHub(p, snap, labelled, acts) {
+	const hub = plan.hubNext(p, snap.hub, acts);
+	const before = snap.hub?.state === "open" ? snap.hub.number : null;
+	if (hub.action === "close") issue(snap.coreTracker, hub.number, ["close"]);
+	if (hub.action !== "refresh")
+		return plan.hubAfter(p, hub, { filed: null, before });
 	const { number, text } = file(labelled, {
 		title: plan.HUB_TITLE,
 		body: plan.buildHubBody(p, acts),
-		repo: coreTracker,
+		repo: snap.coreTracker,
 	});
 	say(text);
-	return number;
+	return plan.hubAfter(p, hub, { filed: number, before });
 }
 
 /**
@@ -703,21 +705,21 @@ function apply(p, snap) {
 			return [];
 		}
 	});
-	const hub = plan.hubAfter(p.hub, {
-		filed: applyHub(p, snap.coreTracker, labelled, acts),
-		before: snap.hub?.state === "open" ? snap.hub.number : null,
-	});
+	const hub = applyHub(p, snap, labelled, acts);
 	return { acts: acts.done, filings, hub };
 }
 
-/** @param {import("./lib/stale-run-plan.js").Plan} p */
-function printPlan(p) {
+/**
+ * @param {import("./lib/stale-run-plan.js").Plan} p
+ * @param {import("./lib/stale-run-plan.js").Snapshot} snap
+ */
+function printPlan(p, snap) {
 	for (const l of p.repoLines) say(l);
 	for (const l of p.lines) say(`${l.cls}  ${l.text}`);
 	for (const o of p.owed) say(`owed  ${o.text}`);
 	for (const a of p.acts) say(`would: ${plan.actText(a)}`);
 	for (const f of p.filings) say(`would file or refresh: ${f.title}`);
-	say(`hub: ${p.hub.action}`);
+	say(`hub: ${plan.hubNext(p, snap.hub, { done: [], failed: [] }).action}`);
 }
 
 /** @param {{dryRun: boolean}} opts @returns {Promise<number>} */
@@ -729,7 +731,7 @@ async function runStaleTicket({ dryRun }) {
 		now: new Date(clockNow()),
 	});
 	const p = plan.planStaleRun(snap);
-	printPlan(p);
+	printPlan(p, snap);
 	if (dryRun) {
 		say("--dry-run: nothing written.");
 		return 0;

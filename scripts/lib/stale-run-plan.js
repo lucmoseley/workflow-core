@@ -169,8 +169,6 @@ const CLASS_ORDER = /** @type {Cls[]} */ (Object.keys(CLASS_NAMES));
  * @property {OwedLine[]} owed
  * @property {Act[]} acts
  * @property {Filing[]} filings
- * @property {HubNext} hub
- * @property {string[]} hubKeys
  * @property {string[]} disposed
  * @property {Record<string, GateSeen>} gates
  */
@@ -939,8 +937,7 @@ function planCauses(ctx) {
 /** @param {Ctx} ctx */
 function planHub(ctx) {
 	const { snap, lines, owed, acts, filings, repoLines } = ctx;
-	const keys = [...lines.map((l) => l.key), ...owed.map((o) => o.key)];
-	const current = new Set(keys);
+	const current = new Set([...lines, ...owed].map((l) => l.key));
 	const prevHub = snap.previous?.hub ?? { number: null, keys: [] };
 	const closedNow =
 		snap.hub?.state === "closed" && prevHub.number === snap.hub.number;
@@ -952,22 +949,22 @@ function planHub(ctx) {
 	]
 		.filter((k) => current.has(k))
 		.sort();
-	const disposedSet = new Set(disposed);
-	/** @type {HubNext} */
-	let hub = { action: "none" };
-	if (lines.some((l) => !disposedSet.has(l.key))) hub = { action: "refresh" };
-	else if (snap.hub?.state === "open")
-		hub = { action: "close", number: snap.hub.number };
-	return {
-		repoLines,
-		lines,
-		owed,
-		acts,
-		filings,
-		hub,
-		hubKeys: hub.action === "refresh" ? keys : [],
-		disposed,
-	};
+	return { repoLines, lines, owed, acts, filings, disposed };
+}
+
+/**
+ * @param {Plan} p
+ * @param {Snapshot["hub"]} open
+ * @param {ActOutcomes} acts
+ * @returns {HubNext}
+ */
+function hubNext(p, open, { failed }) {
+	const disposed = new Set(p.disposed);
+	if (failed.length > 0 || p.lines.some((l) => !disposed.has(l.key)))
+		return { action: "refresh" };
+	return open?.state === "open"
+		? { action: "close", number: open.number }
+		: { action: "none" };
 }
 
 /**
@@ -1037,7 +1034,7 @@ function actComment(a, { stripped }) {
 /**
  * @param {Plan} p
  * @param {Snapshot} snap
- * @param {{acts: string[], filings: string[], hub: number|null}} done
+ * @param {{acts: string[], filings: string[], hub: RunRow["hub"]}} done
  * @returns {RunRow}
  */
 function buildRunRow(p, snap, done) {
@@ -1055,19 +1052,25 @@ function buildRunRow(p, snap, done) {
 		owed: p.owed,
 		acts: done.acts,
 		filings: done.filings,
-		hub: { number: done.hub, keys: p.hubKeys },
+		hub: done.hub,
 		disposed: p.disposed,
 		gates: p.gates,
 	};
 }
 
 /**
+ * @param {Plan} p
  * @param {HubNext} hub
  * @param {{filed: number|null, before: number|null}} at
- * @returns {number|null}
+ * @returns {RunRow["hub"]}
  */
-const hubAfter = (hub, { filed, before }) =>
-	hub.action === "refresh" ? (filed ?? before) : null;
+const hubAfter = (p, hub, { filed, before }) =>
+	hub.action === "refresh"
+		? {
+				number: filed ?? before,
+				keys: [...p.lines, ...p.owed].map((l) => l.key),
+			}
+		: { number: null, keys: [] };
 
 /**
  * @param {Act} a
@@ -1159,6 +1162,7 @@ module.exports = {
 	buildRunRow,
 	failedText,
 	hubAfter,
+	hubNext,
 	planStaleRun,
 	reopenSteps,
 };
