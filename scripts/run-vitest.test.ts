@@ -6849,13 +6849,13 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 		return { code, out: out.text, spawned };
 	};
 
-	it("hands a selection over the bound's 120 files to the run's record with boundedFrom and every file left out, its planned count 120 (#5878)", async () => {
-		const dir = touchedRepo();
-		const readers = Array.from(
-			{ length: 121 },
-			(_, i) => `lib/r${String(i).padStart(3, "0")}.test.ts`,
-		);
-		for (const f of readers)
+	const boundReaders = Array.from(
+		{ length: 121 },
+		(_, i) => `lib/r${String(i).padStart(3, "0")}.test.ts`,
+	);
+	const boundTemplate = defineTemplate((dir) => {
+		touchedTemplate.instantiate(dir);
+		for (const f of boundReaders)
 			fs.writeFileSync(path.join(dir, f), 'import a from "./a.js";\n');
 		for (const args of [
 			["add", "."],
@@ -6865,6 +6865,12 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 				cwd: dir,
 				stdio: "ignore",
 			});
+	});
+
+	it("hands a selection over the bound's 120 files to the run's record with boundedFrom and every file left out, its planned count 120 (#5878)", async () => {
+		const dir = mkDirOutsideRepo("runvitest-");
+		dirs.push(dir);
+		boundTemplate.instantiate(dir);
 		fs.appendFileSync(path.join(dir, "lib/a.js"), "// edit\n");
 		const { out, spawned } = await launch(dir);
 		expect(spawned).toHaveLength(1);
@@ -6875,7 +6881,7 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 			touched: true,
 			resolvedFiles: 120,
 			boundedFrom: 122,
-			leftOut: readers.slice(-2),
+			leftOut: boundReaders.slice(-2),
 		});
 	});
 
