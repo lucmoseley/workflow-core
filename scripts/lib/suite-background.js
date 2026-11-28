@@ -8,6 +8,7 @@ const {
 const {
 	BASH_SPACE,
 	asWritten,
+	isArgumentTail,
 	maskQuotes,
 	parseCommand,
 	placeSegments,
@@ -43,7 +44,7 @@ const SP = `[${BLANK}]`;
 
 const NOT_DETACHING = ["&&", "&>", "|&", ">&", "<&"];
 
-// guess, #5898
+// guess, #5898: past shell-parse.js's STAND_IN_BASE stand-ins
 const MARK_BASE = 0xe1_00;
 
 /** @param {string} text */
@@ -588,6 +589,7 @@ function readLaunches(parsed, ctx, launchPorts) {
 	walkCommands(
 		parsed,
 		(cmd) => {
+			if (isArgumentTail(parsed, cmd.segIdx)) return;
 			const [first, ...later] = cmd.runs();
 			/** @type {{ run: import("./shell-words.js").Unwrapped, launch: import("./suite-launch.js").Launch }[]} */
 			const launches = [];
@@ -839,24 +841,19 @@ function decide(command, ctx) {
 	const quiet = { ...ctx, log: () => undefined };
 	/** @param {string} body @returns {string} */
 	const stripScript = (body) => {
-		const inner = parseCommand(body);
-		const {
-			scripts: nested,
-			reread: innerReread,
-			detachers: innerDetachers,
-		} = readLaunches(inner, quiet, launchPorts);
+		const inner = readMarked(body, quiet, launchPorts);
 		return stripDetachment(
-			markDetachers(body, inner, innerDetachers),
-			buildScriptSpanMap(nested, inner.spans),
+			inner.marked,
+			buildScriptSpanMap(inner.scripts, inner.parsed.spans),
 			stripScript,
-			innerReread,
+			inner.reread,
 		);
 	};
 	let fix = applyTimed({ text: hold.text, parsed }, timed, shift, ctx);
 	if (detached)
 		fix = unmark(
 			stripDetachment(
-				markFix(fix, quiet, launchPorts),
+				readMarked(fix, quiet, launchPorts).marked,
 				buildScriptSpanMap(scripts, spans, (i, span) => {
 					const at = indexAfterDrops(i);
 					return [at, respanned.get(at) ?? span];
@@ -898,14 +895,19 @@ function decide(command, ctx) {
 }
 
 /**
- * @param {string} fix
+ * @param {string} text
  * @param {Ctx} ctx
  * @param {Parameters<typeof readLaunches>[2]} launchPorts
  */
-function markFix(fix, ctx, launchPorts) {
-	const parsed = parseCommand(fix);
-	const { detachers } = readLaunches(parsed, ctx, launchPorts);
-	return markDetachers(fix, parsed, detachers);
+function readMarked(text, ctx, launchPorts) {
+	const parsed = parseCommand(text);
+	const { detachers, scripts, reread } = readLaunches(parsed, ctx, launchPorts);
+	return {
+		marked: markDetachers(text, parsed, detachers),
+		parsed,
+		scripts,
+		reread,
+	};
 }
 
 /**

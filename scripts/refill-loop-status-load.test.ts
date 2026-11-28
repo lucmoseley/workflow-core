@@ -203,6 +203,7 @@ describe("refill-loop.js status's per-call cost (#4821)", () => {
 			"lib/seat-reading.js",
 			"lib/session-id.js",
 			"lib/session-spend.js",
+			"lib/session-uuid.js",
 			"lib/sh-quote.js",
 			"lib/similar-titles.js",
 			"lib/sleep-sync.js",

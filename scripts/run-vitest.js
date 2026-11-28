@@ -586,7 +586,6 @@ function runOnce(
 			sessionId: session,
 			argv: launch.argv ?? [],
 			leftOut: plan.leftOut ?? [],
-			boundedFrom: plan.boundedFrom,
 			touchedBase: launch.touchedBase ?? "merge-base",
 		});
 		return Promise.resolve(0);
