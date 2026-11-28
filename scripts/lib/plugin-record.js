@@ -1,11 +1,20 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const {
+	RULES_FILE,
+	REFERENCE_FILE,
+	provenanceHolder,
+	recordedUrlSha,
+} = require("./adopter-skeleton.js");
+const {
 	findInstallRecord,
+	isTagRef,
+	releaseSha,
 	resolveConfigDir,
 	sameRelease,
 } = require("./plugin-state.js");
 const { gitOrNull, GIT_TIMEOUT_MS } = require("./git.js");
+const { readText } = require("./file-read.js");
 
 /** @typedef {{source: "url", url: string, ref: string} | {source: "directory", path: string}} PluginSource */
 /** @typedef {{source: "directory", headSha: string|null, dirty: boolean|null} |
@@ -35,14 +44,44 @@ function readDirectoryGit(pluginRoot) {
  * @returns {string|null}
  */
 function installedSha({ root, pluginName, marketplace, version, configDir }) {
+	const pluginsDir = path.join(resolveConfigDir(configDir), "plugins");
 	const row = findInstallRecord(
-		path.join(resolveConfigDir(configDir), "plugins"),
+		pluginsDir,
 		pluginName,
 		marketplace,
 		path.resolve(root),
 	);
-	return row && sameRelease(row.version, version) ? row.gitCommitSha : null;
+	if (row && sameRelease(row.version, version) && row.gitCommitSha)
+		return row.gitCommitSha;
+	return releaseSha(pluginsDir, pluginName, marketplace, version);
 }
+
+/**
+ * #5826
+ * @param {string} root
+ * @param {string} ref
+ * @returns {string|null}
+ */
+function recordedSha(root, ref) {
+	if (!isTagRef(ref)) return null;
+	/** @param {string} rel */
+	const read = (rel) => {
+		const text = readText(path.join(root, rel));
+		return text.state === "read" ? text.data : null;
+	};
+	const text = provenanceHolder(read(REFERENCE_FILE), read(RULES_FILE));
+	return text === null ? null : recordedUrlSha(text, ref);
+}
+
+/**
+ * @param {InstallKey & {ref: string, version: string}} at
+ * @returns {PluginRecord}
+ */
+const urlRecord = (at) => ({
+	source: "url",
+	ref: at.ref,
+	resolvedSha: installedSha(at) ?? recordedSha(at.root, at.ref),
+});
 
 /**
  * @param {PluginSource} source
@@ -50,13 +89,8 @@ function installedSha({ root, pluginName, marketplace, version, configDir }) {
  * @returns {PluginRecord}
  */
 function readPluginRecord(source, at) {
-	if (source.source === "url") {
-		return {
-			source: "url",
-			ref: source.ref,
-			resolvedSha: installedSha({ ...at, version: source.ref }),
-		};
-	}
+	if (source.source === "url")
+		return urlRecord({ ...at, ref: source.ref, version: source.ref });
 	return { source: "directory", ...readDirectoryGit(source.path) };
 }
 
@@ -72,16 +106,13 @@ function readInstalledRecord({ root, plugin, marketplace, source }) {
 		return typeof source.path === "string"
 			? { source: "directory", ...readDirectoryGit(source.path) }
 			: null;
-	return {
-		source: "url",
+	return urlRecord({
+		root,
+		pluginName: plugin.name,
+		marketplace,
 		ref: `v${plugin.version}`,
-		resolvedSha: installedSha({
-			root,
-			pluginName: plugin.name,
-			marketplace,
-			version: plugin.version,
-		}),
-	};
+		version: plugin.version,
+	});
 }
 
 module.exports = { readPluginRecord, readInstalledRecord };

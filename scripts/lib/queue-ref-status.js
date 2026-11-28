@@ -234,7 +234,7 @@ function buildQueueRefLine(s) {
 				return `queued: ${at} — waiting for the lander's next batch`;
 			return s.retaken
 				? `queued: ${at} — moved past its snapshot ${short(s.snapshot)} in a batch not yet merged, which takes it at this sha`
-				: `queued: ${at} — moved past its snapshot ${short(s.snapshot)} in the batch under test, so it waits for the next batch`;
+				: `queued: ${at} — moved past its snapshot ${short(s.snapshot)} in the batch under test, so it waits for the next batch, or for this one to take it should its test reach no verdict`;
 		case "testing":
 			return `testing: ${at} — in the lander's batch under test`;
 		case "unread":

@@ -132,24 +132,51 @@ function readGitRef(dir) {
  * @param {string} pluginsDir
  * @param {string|null} pluginName
  * @param {string|null} marketplace
- * @param {string} root
- * @returns {{installPath: string, version: string|null, gitCommitSha: string|null}|null}
  */
-function findInstallRecord(pluginsDir, pluginName, marketplace, root) {
-	if (!pluginName || !marketplace) return null;
+function installRows(pluginsDir, pluginName, marketplace) {
+	if (!pluginName || !marketplace) return [];
 	const doc = /** @type {InstalledPlugins|null} */ (
 		readJsonSafe(path.join(pluginsDir, "installed_plugins.json"))
 	);
 	const entries = doc?.plugins?.[`${pluginName}@${marketplace}`];
-	if (!Array.isArray(entries)) return null;
-	const rows = entries.filter((e) => e?.projectPath === root);
-	const row = rows.at(-1);
+	return Array.isArray(entries) ? entries : [];
+}
+
+/**
+ * @param {string} pluginsDir
+ * @param {string|null} pluginName
+ * @param {string|null} marketplace
+ * @param {string} root
+ * @returns {{installPath: string, version: string|null, gitCommitSha: string|null}|null}
+ */
+function findInstallRecord(pluginsDir, pluginName, marketplace, root) {
+	const row = installRows(pluginsDir, pluginName, marketplace)
+		.filter((e) => e?.projectPath === root)
+		.at(-1);
 	if (!row?.installPath) return null;
 	return {
 		installPath: row.installPath,
 		version: row.version ?? null,
 		gitCommitSha: row.gitCommitSha ?? null,
 	};
+}
+
+/**
+ * #5826
+ * @param {string} pluginsDir
+ * @param {string|null} pluginName
+ * @param {string|null} marketplace
+ * @param {string} version
+ * @returns {string|null}
+ */
+function releaseSha(pluginsDir, pluginName, marketplace, version) {
+	const shas = new Set(
+		installRows(pluginsDir, pluginName, marketplace)
+			.filter((e) => sameRelease(e?.version, version))
+			.flatMap((e) => (e?.gitCommitSha ? [e.gitCommitSha] : [])),
+	);
+	const [only] = shas;
+	return shas.size === 1 && only ? only : null;
 }
 
 /**
@@ -321,6 +348,7 @@ module.exports = {
 	readPin,
 	resolveMarketplace,
 	findInstallRecord,
+	releaseSha,
 	readRunningPlugin,
 	resolveConfigDir,
 	isTagRef,

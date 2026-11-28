@@ -4,6 +4,7 @@ const store = require("./arbiter-store");
 const { now } = require("./check.js");
 const { cutover, renderCutover } = require("./cutover.js");
 const { GIT_TIMEOUT_MS, gitReader } = require("./git.js");
+const { GATED_COMMIT_TIMEOUT_MS } = require("./lander-git.js");
 const {
 	renderBlocker,
 	level,
@@ -41,6 +42,7 @@ function runCutover(root) {
 			orphanedEdits: (r) => readOrphanedEdits(r, at, lastWriter),
 			level: (r) => level(r, { lastWriter, now: at }),
 			gitIn: (dir) => gitReader(dir, GIT_TIMEOUT_MS),
+			mergeIn: (dir) => gitReader(dir, GATED_COMMIT_TIMEOUT_MS),
 		});
 		const lines = renderCutover(result, {
 			renderBlocker: (b) => renderBlocker(b, at),
