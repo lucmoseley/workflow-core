@@ -1,6 +1,7 @@
 const { isTagRef, sameRelease } = require("./plugin-state.js");
 const { WIDE_SHA } = require("./git.js");
 const { scriptPath } = require("./script-path.js");
+const { describeAge, renderSurvey } = require("./level-main.js");
 
 // guess, #4448
 const LAG_WARN_DAYS = 7;
@@ -53,6 +54,38 @@ function judgeInstalls(adopters) {
 	return {
 		finding: "INSTALL-OFF-PIN",
 		line: `Install not at pin, pin / installed: ${listAdopters(off)}. The pinned release is not what runs there; each checkout's own session start names the commands that install it (${scriptPath("check-plugin-gap.js")}).`,
+	};
+}
+
+/**
+ * @typedef {{name: string} & (
+ *   | {kind: "read", lag: import("./level-main.js").MainLag}
+ *   | {kind: "unread", why: string})} MainReading
+ */
+
+/**
+ * @param {MainReading} reading
+ * @param {number} now
+ * @returns {Finding|null}
+ */
+function judgeMainLag(reading, now) {
+	if (reading.kind === "unread")
+		return {
+			finding: "MAIN-UNREAD",
+			line: `${reading.name}'s main checkout could not be measured against ${MAIN}: ${reading.why}`,
+		};
+	const { survey, behind, fetchedAt } = reading.lag;
+	if (behind === 0) return null;
+	const fetched =
+		fetchedAt === null
+			? "never fetched"
+			: `fetched ${describeAge(Math.max(0, now - fetchedAt))} ago`;
+	return {
+		finding: "MAIN-BEHIND",
+		line: [
+			`${reading.name}'s main checkout is ${behind} commit(s) behind ${MAIN} (${fetched}), so what runs from it is that old:`,
+			...renderSurvey(survey, now),
+		].join("\n"),
 	};
 }
 
@@ -128,6 +161,7 @@ module.exports = {
 	formatAdopters,
 	judgeInstalls,
 	judgeLag,
+	judgeMainLag,
 	labelPin,
 	readLag,
 };

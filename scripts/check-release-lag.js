@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const path = require("node:path");
-const { runCheck } = require("./lib/check");
+const { now, runCheck } = require("./lib/check");
 const { caught } = require("./lib/caught.js");
 const { readCommitOrBroken } = require("./lib/commit-sha.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -13,6 +13,8 @@ const {
 	readRunningPlugin,
 	resolveConfigDir,
 } = require("./lib/plugin-state.js");
+const store = require("./lib/arbiter-store");
+const { readMainLag } = require("./lib/level-main.js");
 const { homeDir, readAdopterCheckouts } = require("./lib/refill-repos.js");
 const {
 	LAG_WARN_DAYS,
@@ -20,6 +22,7 @@ const {
 	formatAdopters,
 	judgeInstalls,
 	judgeLag,
+	judgeMainLag,
 	labelPin,
 	readLag,
 } = require("./lib/release-lag.js");
@@ -39,23 +42,46 @@ function installedVersion(pluginsDir, marketplace, root) {
 	);
 }
 
-/** @param {string} home @returns {import("./lib/release-lag").Adopter[]} */
-function readAdopters(home) {
+/** @param {string} home @returns {string[]} */
+const readAdopterRoots = (home) =>
+	readAdopterCheckouts(home).included.filter((root) => !isCoreHost(root));
+
+/** @param {string[]} roots @returns {import("./lib/release-lag").Adopter[]} */
+function readAdopters(roots) {
 	const pluginsDir = path.join(resolveConfigDir(), "plugins");
-	return readAdopterCheckouts(home)
-		.included.filter((root) => !isCoreHost(root))
-		.map((root) => {
-			const settings =
-				/** @type {import("./lib/plugin-state").AdopterSettings|null} */ (
-					readJsonSafe(path.join(root, ".claude", "settings.json"))
-				);
-			const pin = findPin(settings, PLUGIN);
-			return {
-				name: path.basename(root),
-				pin: labelPin(pin),
-				installed: installedVersion(pluginsDir, pin.marketplace, root),
-			};
-		});
+	return roots.map((root) => {
+		const settings =
+			/** @type {import("./lib/plugin-state").AdopterSettings|null} */ (
+				readJsonSafe(path.join(root, ".claude", "settings.json"))
+			);
+		const pin = findPin(settings, PLUGIN);
+		return {
+			name: path.basename(root),
+			pin: labelPin(pin),
+			installed: installedVersion(pluginsDir, pin.marketplace, root),
+		};
+	});
+}
+
+/**
+ * @param {string} root
+ * @param {number} at
+ * @returns {import("./lib/release-lag").MainReading}
+ */
+function readMain(root, at) {
+	const name = path.basename(root);
+	try {
+		return {
+			name,
+			kind: "read",
+			lag: readMainLag(root, {
+				now: at,
+				lastWriter: (rel) => store.readLastWriterOf(rel, { root }),
+			}),
+		};
+	} catch (e) {
+		return { name, kind: "unread", why: caught(e).message.trim() };
+	}
 }
 
 runCheck({
@@ -82,7 +108,8 @@ runCheck({
 		} catch (e) {
 			ctx.broken(`git could not measure ${tag}: ${caught(e).message}`);
 		}
-		const adopters = readAdopters(homeDir());
+		const roots = readAdopterRoots(homeDir());
+		const adopters = readAdopters(roots);
 		const lag = judgeLag(tag, reading, formatAdopters(adopters));
 		const data = {
 			tag,
@@ -97,6 +124,11 @@ runCheck({
 			findings.push({ finding: lag.finding, line: lag.line });
 		const installs = judgeInstalls(adopters);
 		if (installs !== null) findings.push(installs);
+		const at = now();
+		for (const adopter of roots) {
+			const behind = judgeMainLag(readMain(adopter, at), at);
+			if (behind !== null) findings.push(behind);
+		}
 		if (findings.length === 0) return { okLine: lag.line, data };
 		if (lag.finding === null) ctx.say(lag.line);
 		for (const { finding, line } of findings) {

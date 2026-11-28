@@ -91,15 +91,26 @@ const buildCore = ({
 	return source;
 };
 
+const adopterMain = defineTemplate((root) => {
+	gitIn(root, ["init", "-q", "-b", "main"]);
+	gitIn(root, ["config", "branch.main.remote", "origin"]);
+	gitIn(root, ["config", "branch.main.merge", "refs/heads/main"]);
+	fs.mkdirSync(path.join(root, ".claude"));
+	fs.writeFileSync(path.join(root, ".claude", "workflow-core.json"), "{}");
+	fs.writeFileSync(path.join(root, ".gitignore"), ".claude/settings.json\n");
+	fs.writeFileSync(path.join(root, "hook.js"), "v1\n");
+	gitIn(root, ["add", "."]);
+	gitIn(root, ["commit", "-q", "-m", "seed"]);
+	gitIn(root, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+});
+
 const addAdopter = (
 	name: string,
 	ref: string | null,
 	installed: string | null = ref,
 ) => {
 	const root = path.join(home, name);
-	fs.mkdirSync(path.join(root, ".git"), { recursive: true });
-	fs.mkdirSync(path.join(root, ".claude"));
-	fs.writeFileSync(path.join(root, ".claude", "workflow-core.json"), "{}");
+	adopterMain.instantiate(root);
 	const settings =
 		ref === null
 			? {}
@@ -229,5 +240,90 @@ describe("unread or not applicable", () => {
 		expect(env.outcome).toBe("SKIP");
 		expect(env.summary).toContain("no origin/main in this clone");
 		expect(env.summary).toContain("`git fetch origin`");
+	});
+});
+
+describe("an adopter's main checkout behind origin/main (#5845)", () => {
+	const HourS = 3600;
+
+	const fallBehind = (name: string, commits: number) => {
+		const root = path.join(home, name);
+		const base = gitIn(root, ["rev-parse", "HEAD"]);
+		for (let i = 1; i <= commits; i++) {
+			fs.writeFileSync(path.join(root, "hook.js"), `v${i + 1}\n`);
+			gitIn(root, ["commit", "-q", "-am", `c${i}`]);
+		}
+		gitIn(root, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+		gitIn(root, ["reset", "-q", "--hard", base]);
+		const fetched = path.join(root, ".git", "FETCH_HEAD");
+		fs.writeFileSync(fetched, "");
+		const at = Date.now() / 1000 - 2 * HourS;
+		fs.utimesSync(fetched, at, at);
+		return root;
+	};
+
+	const snapshot = (root: string) => ({
+		head: gitIn(root, ["rev-parse", "HEAD"]),
+		status: gitIn(root, ["status", "--porcelain", "-uall"]),
+		hook: fs.readFileSync(path.join(root, "hook.js"), "utf8"),
+	});
+
+	it("names the adopter, the count, the fetch age and each blocking path with its age, moving nothing", () => {
+		buildCore({ lagDays: 1 });
+		addAdopter("level", "v1.0.0");
+		addAdopter("stuck", "v1.0.0");
+		const root = fallBehind("stuck", 3);
+		fs.writeFileSync(path.join(root, "hook.js"), "half-written\n");
+		const old = Date.now() / 1000 - 5 * HourS;
+		fs.utimesSync(path.join(root, "hook.js"), old, old);
+		const before = snapshot(root);
+
+		const r = run(["--notify"]);
+
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			"MAIN-BEHIND — stuck's main checkout is 3 commit(s) behind origin/main (fetched 2h ago), so what runs from it is that old:\nrefused: 1 edit(s) in the main checkout sit on paths",
+		);
+		expect(r.stdout).toContain("move each to its session's own worktree");
+		expect(r.stdout).toMatch(/\n {2}hook\.js — 5h old; last writer unknown/);
+		expect(r.stdout).not.toContain("level's main checkout");
+		expect(snapshot(root)).toEqual(before);
+	});
+
+	it("reports one behind with nothing blocking as clear, leaving a landed copy for the levelling pass to discard", () => {
+		buildCore({ lagDays: 1 });
+		addAdopter("lagging", "v1.0.0");
+		const root = fallBehind("lagging", 2);
+		fs.writeFileSync(path.join(root, "hook.js"), "v3\n");
+		const before = snapshot(root);
+
+		const r = run(["--notify"]);
+
+		expect(r.stdout).toContain(
+			"MAIN-BEHIND — lagging's main checkout is 2 commit(s) behind origin/main (fetched 2h ago), so what runs from it is that old:\nclear: no edit blocks the fast-forward, so the next levelling pass takes main to origin/main, after discarding hook.js, which origin/main holds byte for byte — `node scripts/level-main.js` runs one now",
+		);
+		expect(snapshot(root)).toEqual(before);
+	});
+
+	it("gives no finding for a level main checkout", () => {
+		buildCore({ lagDays: 1 });
+		addAdopter("level", "v1.0.0");
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toBe("");
+	});
+
+	it("names a main checkout git cannot measure", () => {
+		buildCore({ lagDays: 1 });
+		addAdopter("broken", "v1.0.0");
+		gitIn(path.join(home, "broken"), [
+			"update-ref",
+			"-d",
+			"refs/remotes/origin/main",
+		]);
+		const r = run(["--notify"]);
+		expect(r.stdout).toContain(
+			"MAIN-UNREAD — broken's main checkout could not be measured against origin/main:",
+		);
 	});
 });
