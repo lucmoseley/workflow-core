@@ -431,7 +431,7 @@ describe("PROGRAM's exits and input channels", () => {
 		);
 	});
 
-	it("propagates the checker's own exit code", () => {
+	it("refuses a BROKEN checker run on its own exit code, comparing nothing with HEAD", () => {
 		const repo = fixture({
 			staged: { "docs/research/note.md": "x\n" },
 			checkerExit: 2,
@@ -440,7 +440,8 @@ describe("PROGRAM's exits and input channels", () => {
 		const { code, output } = runProgram(repo);
 		expect(code, output).toBe(2);
 		expect(output).toContain(STUB_MARKER);
-		expect(output).toContain("NOT in HEAD");
+		expect(output).toContain("checker could not run (BROKEN, above)");
+		expect(output).not.toContain("NOT in HEAD");
 	});
 
 	it("passes a failing check whose every fault is inherited, still replaying its report", () => {

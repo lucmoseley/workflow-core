@@ -29,15 +29,27 @@ describe("a readable index", () => {
 	});
 
 	it("refuses with the checker's own exit code, its report replayed first", () => {
-		const { exit, stderr } = gate(
-			failing({ check: { status: 2, report: REPORT } }),
-		);
-		expect(exit).toBe(2);
+		const { exit, stderr } = gate(failing());
+		expect(exit).toBe(1);
 		expect(
 			stderr.startsWith(
 				`${REPORT}\n  Those paths are inside a throwaway extraction of this commit's index.\n`,
 			),
 		).toBe(true);
+	});
+
+	it("refuses a BROKEN checker run as could-not-run, comparing nothing with HEAD", () => {
+		const broken = "BROKEN: could not walk the plugin root: ENOENT";
+		const { exit, stderr, calls } = gate(
+			failing({ check: { status: 2, report: broken } }),
+		);
+		expect(exit).toBe(2);
+		expect(stderr.startsWith(`${broken}\n`)).toBe(true);
+		expect(stderr).toContain(
+			"pre-commit: the doc-map checker could not run (BROKEN, above) — refusing.\n",
+		);
+		expect(stderr).not.toContain("NOT in HEAD");
+		expect(calls).toHaveLength(1);
 	});
 
 	it("passes a failing check whose every fault is already in HEAD, still replaying the report", () => {

@@ -1,5 +1,6 @@
 const {
 	allowDeleteLine,
+	brokenLine,
 	deletionUnknownLine,
 	directionVerdict,
 	noBaselineLine,
@@ -11,6 +12,7 @@ const { greenReport, hasUntrackedBlock } = require("./doc-map-gate-report.js");
 
 const MAP = "docs/doc-map.md";
 const LABEL = "doc-map";
+const BROKEN_EXIT = 2;
 
 /**
  * @typedef {object} DocMapGatePorts
@@ -97,6 +99,8 @@ function runDocMapGate(ports, env) {
 
 	if (status !== 0) {
 		stderr += `${report}\n  Those paths are inside a throwaway extraction of this commit's index.\n`;
+		if (status === BROKEN_EXIT)
+			return { exit: status, stderr: stderr + brokenLine(LABEL) };
 		const verdict = inheritedOnly(ports, tree, dirty);
 		stderr += verdict.text;
 		if (!verdict.pass) return { exit: status, stderr };
