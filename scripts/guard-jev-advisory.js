@@ -154,10 +154,11 @@ function preflight({ message, sessionId, root }) {
 	return { outcome: null, key };
 }
 
+/** @typedef {import("./lib/jev-gateway.js").Served} Served */
+
 /**
  * @typedef {{outcome: Outcome, why?: string, confidence?: number,
- *   latencyMs?: number, retries?: number,
- *   served?: import("./lib/jev-gateway.js").Served}} LineFields
+ *   latencyMs?: number, retries?: number, served?: Served}} LineFields
  */
 
 /**
@@ -261,8 +262,7 @@ function failOutage({ log, sessionId, latencyMs, retries }) {
 /**
  * @param {{key: string, message: string, abortMs: number, sessionId: string,
  *   log: (rest: LineFields) => void, started: number}} ctx
- * @returns {Promise<{probability: number,
- *   served: import("./lib/jev-gateway.js").Served, retries: number}|null>}
+ * @returns {Promise<{probability: number, served: Served, retries: number}|null>}
  */
 async function askWithRetries({
 	key,

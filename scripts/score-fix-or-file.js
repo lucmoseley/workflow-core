@@ -94,7 +94,7 @@ async function main() {
 	}
 	const key = gateway.readKey();
 	if (!key) {
-		process.stderr.write("no AI_GATEWAY_API_KEY: nothing can be scored.\n");
+		process.stderr.write(`no ${gateway.KEY_VAR}: nothing can be scored.\n`);
 		return 2;
 	}
 	const scored = await scoreAll({ rows, key });
