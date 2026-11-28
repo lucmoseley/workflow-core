@@ -10,6 +10,7 @@ import {
 	expectFixtureSupplies,
 	gateHead,
 	gateTmpdir,
+	linkedWorktree,
 	newRepo,
 	registerTempCleanup,
 	stagedRepo,
@@ -277,6 +278,22 @@ describe("newRepo", () => {
 		expect(newRepo("harness-", temps).root).not.toBe(
 			newRepo("harness-", temps).root,
 		);
+	});
+});
+
+describe("linkedWorktree (#5832)", () => {
+	it("checks out the repo's HEAD in a worktree git lists, its parent registered for cleanup", () => {
+		const repo = stagedRepo("harness-", temps, {}, {});
+		const wt = linkedWorktree(repo, temps);
+
+		expect(temps).toContain(path.dirname(wt));
+		expect(fs.readFileSync(path.join(wt, "seed.txt"), "utf8")).toBe("seed\n");
+		expect(String(repo.git("worktree", "list", "--porcelain"))).toContain(
+			`worktree ${fs.realpathSync(wt)}\n`,
+		);
+		expect(
+			String(repo.git("-C", wt, "rev-parse", "--abbrev-ref", "HEAD")),
+		).toBe("HEAD\n");
 	});
 });
 
