@@ -2156,12 +2156,11 @@ function openingBracket(segments, closeIdx) {
 		if (segments[i] === SCOPE_CLOSE) depth++;
 		else if (segments[i] === SCOPE_OPEN && --depth === 0) return i;
 	}
-	return 0;
+	return -1;
 }
 
-// #5897
 /** @param {Parsed} parsed @param {number} segIdx */
-function isArgumentTail({ segments, joins }, segIdx) {
+function isArgumentTail({ segments, joins, spans }, segIdx) {
 	/** @type {string[]} */
 	const before = [];
 	let at = segIdx;
@@ -2170,7 +2169,10 @@ function isArgumentTail({ segments, joins }, segIdx) {
 		if (at < 0) return false;
 		before.unshift(segments[at] ?? "");
 	}
-	return before.length > 0 && commandWords(before.join(" ")).ran;
+	const { words, wi, ran } = commandWords(before.join(""));
+	if (before.length === 0 || !ran) return false;
+	const [named = "$"] = unwrap(words.slice(wi), spans)[0].words;
+	return !named.endsWith("$");
 }
 
 /** @param {Parsed} parsed @param {number} segIdx */

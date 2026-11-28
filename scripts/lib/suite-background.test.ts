@@ -672,14 +672,26 @@ describe("lib/suite-background.js", () => {
 				"echo `date` timeout 590 npm run test; npm run test",
 			],
 			[
-				"x=$(a) $(b) timeout 590 npm run test; timeout 590 npm run test",
-				"x=$(a) $(b) timeout 590 npm run test; npm run test",
-			],
-			[
 				"x=$(( (1+2)*3 )) timeout 590 npm run test",
 				"x=$(( (1+2)*3 )) npm run test",
 			],
 			["x=$(a) y=$(b) timeout 590 npm run test", "x=$(a) y=$(b) npm run test"],
+			["x=$(a)$(b) timeout 590 npm run test", "x=$(a)$(b) npm run test"],
+			["$(x) timeout 590 npm run test", "$(x) npm run test"],
+			[
+				"env $(cat flags) timeout 590 npm run test",
+				"env $(cat flags) npm run test",
+			],
+			["env FOO=$(x) timeout 590 npm run test", "env FOO=$(x) npm run test"],
+			[
+				"nice -n $(echo 5) timeout 590 npm run test",
+				"nice -n $(echo 5) npm run test",
+			],
+			[
+				"sudo -u $(whoami) timeout 590 npm run test",
+				"sudo -u $(whoami) npm run test",
+			],
+			["env $(cat .env) npm run test &", "env $(cat .env) npm run test"],
 		])
 			expect(
 				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
