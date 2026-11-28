@@ -374,7 +374,7 @@ in place of `@me` needs `node scripts/session-arbiter.js claim-issue <n>`.
 
 **The assignee alone does not decide.** Both readers exclude an assigned issue only where the arbiter holds a matching claim whose session is live (mantahostels#633): `scripts/pick-next.js` (mantahostels#645), and the frontier query under **Wayfinding operations** below (mantahostels#702), through `scripts/wayfinder-frontier.js`. **An assignment nobody records stays in every shortlist and on the frontier** — deliberate, per mantahostels#633.
 
-Unenforceable: an assignment is one `gh` call, identical whichever issue the session is really working. `scripts/check-stale-claims.js` (`npm run check:claims`, daily in `scripts/repo-checks.js`) is the backstop — it reports an open issue assigned over 14 days ago with no comment or commit since, at WARN. It never unassigns: a claim held across a slow decision looks the same from the timeline as an abandoned one, so a person decides.
+Unenforceable: an assignment is one `gh` call, identical whichever issue the session is really working. `scripts/check-stale-claims.js` (`npm run check:claims`, daily in `scripts/repo-checks.js`) is the backstop — it reports an open issue assigned over 14 days ago with no comment or commit since, at WARN. It never unassigns: a claim held across a slow decision looks the same from the timeline as an abandoned one, so a person decides. The one release is the daily stale-ticket run's (`scripts/stale-ticket-run.js`, #5857): on an issue this check reports, it unassigns only where the arbiter's record names the holder session and that session is absent from the live session ids.
 
 ## Session naming
 

@@ -141,7 +141,8 @@ function printTable(ctx, rows, warned) {
 		ctx.say(
 			"  A met condition is discharged by the session that judges it — /pick-next\n" +
 				"  on its GATED rows, or the /triage the refill loop launches on a changed\n" +
-				"  reading: comment the evidence, strip the marker, and the issue re-enters\n" +
+				"  reading — or by the daily stale-ticket run on a reading that says met:\n" +
+				"  comment the evidence, strip the marker, and the issue re-enters\n" +
 				`  the batch, a closed one reopened and its \`${WATCH_CLOSED_LABEL}\` stripped first. A DEAD, NO-OUTPUT,\n` +
 				"  OVER-BUDGET or NOT-A-COMMAND segment is repaired or deleted, and is never\n" +
 				"  itself the blocker in either direction (mantahostels#1332).\n",

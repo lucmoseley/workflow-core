@@ -21,6 +21,7 @@ const ORIGINS = /** @type {const} */ ([
 	"release-bump",
 	"repo-checks-script",
 	"disk-watch-script",
+	"stale-run",
 	"founder",
 ]);
 
@@ -33,6 +34,7 @@ const SCRIPT_ORIGINS = /** @type {readonly string[]} */ ([
 	"release-bump",
 	"repo-checks-script",
 	"disk-watch-script",
+	"stale-run",
 ]);
 
 const ORIGIN_PREFIX = "origin:";

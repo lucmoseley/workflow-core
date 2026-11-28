@@ -210,4 +210,4 @@ async function refillFrontier(roots, goal, readList = readShortlist) {
 	};
 }
 
-module.exports = { parseFailureLine, refillFrontier };
+module.exports = { parseFailureLine, readShortlist, refillFrontier };

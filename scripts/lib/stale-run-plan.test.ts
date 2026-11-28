@@ -189,9 +189,7 @@ describe("planStaleRun: selection", () => {
 				labelFindings: [{ tag: "NO-TAKES", number: 1 }],
 			}),
 		]);
-		expect(texts(p)).toEqual([
-			"o/r#1 container held by 1 open children: o/r#2",
-		]);
+		expect(texts(p)).toEqual(["o/r#1 container held by 1 open child: o/r#2"]);
 	});
 });
 
@@ -349,6 +347,42 @@ describe("planStaleRun: the catalogue", () => {
 		]);
 	});
 
+	it("C3: leaves a closed native blocker on an issue the run does not list", () => {
+		const closed = [{ repo: null, number: 9, state: "closed" }];
+		const p = plan([
+			repo({
+				issues: [
+					issue(1, { blockedBy: closed, createdAt: daysAgo(3) }),
+					issue(2, { blockedBy: closed }),
+				],
+				frontier: [2],
+			}),
+		]);
+		expect(
+			p.acts.filter((a: { kind: string }) => a.kind === "unblock"),
+		).toEqual([]);
+	});
+
+	it("a gate the run strips lists no gate line for its issue", () => {
+		const p = plan([
+			repo({
+				issues: [issue(2, { body: GATE("#8 closes") })],
+				gates: [
+					{
+						number: 2,
+						state: "NO-OUTPUT",
+						reading: "",
+						closed: false,
+						detail: "exit 0",
+					},
+				],
+				closedRefs: ["o/r#8"],
+			}),
+		]);
+		expect(p.acts.map((a: { kind: string }) => a.kind)).toEqual(["strip-gate"]);
+		expect(texts(p)).toEqual([]);
+	});
+
 	it("C4: a stale-container finding and the retag act", () => {
 		const p = plan([
 			repo({
@@ -502,7 +536,7 @@ describe("planStaleRun: the catalogue", () => {
 			}),
 		]);
 		expect(p.owed.map((o: { text: string }) => o.text)).toEqual([
-			`o/r#1 asked ${daysAgo(9).slice(0, 10)}, 9 d, holds 1 issues`,
+			`o/r#1 asked ${daysAgo(9).slice(0, 10)}, 9 d, holds 1 issue`,
 			`o/r#2 asked ${daysAgo(12).slice(0, 10)}, 12 d, holds 0 issues`,
 			`o/r#3 asked ${daysAgo(10).slice(0, 10)}, 10 d, holds 0 issues`,
 		]);

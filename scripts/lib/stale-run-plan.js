@@ -2,6 +2,7 @@ const { parseVerdict } = require("./gate-check.js");
 const { gateRefsOf, resolveGate } = require("./issue-gate.js");
 const { refKey } = require("./issue-ref.js");
 const { isTagRef, sameRelease } = require("./plugin-state.js");
+const { buildStandaloneLine } = require("./standalone-line.js");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // guess, #5857
@@ -19,6 +20,8 @@ const STAMP_ALARM_DAYS = 2;
 
 const HUB_TITLE = "Stale tickets: daily report";
 const HUB_TAKES = "takes:triage";
+const HUB_STANDALONE = "the daily stale-ticket run's report (#5857).";
+const FILING_STANDALONE = "a cause the daily stale-ticket run found.";
 const CAUSE_PREFIX = "Stale-ticket cause: ";
 const DATA_ROUTE_PREFIX = "Gate data not accruing: ";
 
@@ -139,7 +142,7 @@ const CLASS_ORDER = /** @type {Cls[]} */ (Object.keys(CLASS_NAMES));
  * @typedef {{key: string, repo: string, number: number, text: string, url: string,
  *   ageDays: number}} OwedLine
  * @typedef {{kind: "discharge", root: string, repo: string, number: number, reading: string,
- *     closed: boolean, body: string, wasBody: string}
+ *     seen: string, closed: boolean, body: string, wasBody: string}
  *   | {kind: "unblock", root: string, repo: string, number: number, blocker: {repo: string, number: number}}
  *   | {kind: "strip-gate", root: string, repo: string, number: number, blocker: string, body: string, wasBody: string}
  *   | {kind: "release", root: string, repo: string, number: number, assignees: string[], sessionId: string}
@@ -325,13 +328,25 @@ function planRepo(ctx, r, repo) {
 		closed: new Set(r.closedRefs.map((k) => k.toLowerCase())),
 	};
 	ctx.repoLines.push(buildRepoLine(rc));
-	for (const g of r.gates) planGate(rc, g);
-	/** @type {SnapIssue[]} */
-	const listed = [];
-	for (const iss of r.issues) {
-		planClosedEdges(rc, iss);
-		if (planIssue(rc, iss)) listed.push(iss);
-	}
+	const open = r.gates.filter((g) => !planMetGate(rc, g));
+	for (const iss of r.issues) planClosedEdges(rc, iss);
+	const restored = new Set(
+		ctx.acts.flatMap((a) =>
+			a.root === r.root && (a.kind === "discharge" || a.kind === "strip-gate")
+				? [a.number]
+				: [],
+		),
+	);
+	for (const g of open) if (!restored.has(g.number)) planGate(rc, g);
+	const listed = r.issues.filter(
+		(iss) => !restored.has(iss.number) && planIssue(rc, iss),
+	);
+	const held = new Set(
+		listed.flatMap((i) => (rc.takeable?.has(i.number) ? [] : [i.number])),
+	);
+	ctx.acts = ctx.acts.filter(
+		(a) => a.kind !== "unblock" || a.root !== r.root || held.has(a.number),
+	);
 	for (const iss of listed) planStuckBlockers(rc, iss);
 	if (r.containerRetags.length > 0)
 		ctx.acts.push({
@@ -376,19 +391,33 @@ function servedText(ctx, r) {
 	return "unserved because not in the served set";
 }
 
+/** @param {number} n @param {string} one @param {string} many */
+const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
 /** @param {RepoCtx} rc @param {GateRow} g */
-function planGate(rc, g) {
+function gateSince(rc, g) {
 	const { ctx, repo } = rc;
 	const key = `${repo}#${g.number}`;
 	const prev = ctx.snap.previous?.gates?.[key];
 	const changed = prev !== undefined && prev.reading !== g.reading;
 	const since = prev && !changed ? prev.since : ctx.snap.now;
 	ctx.gates[key] = { reading: g.reading, since };
+	return { since, changed };
+}
+
+/** @param {RepoCtx} rc @param {GateRow} g @returns {boolean} */
+function planMetGate(rc, g) {
+	if (g.state !== "READING" || parseVerdict(g.reading) !== "met") return false;
+	gateSince(rc, g);
+	discharge(rc, g, rc.byNumber.get(g.number)?.body ?? "");
+	return true;
+}
+
+/** @param {RepoCtx} rc @param {GateRow} g */
+function planGate(rc, g) {
+	const { ctx } = rc;
+	const { since, changed } = gateSince(rc, g);
 	const iss = rc.byNumber.get(g.number);
-	if (g.state === "READING" && parseVerdict(g.reading) === "met") {
-		discharge(rc, g, iss?.body ?? "");
-		return;
-	}
 	if (g.closed || !iss) return;
 	const d = daysSince(since, ctx.now);
 	if (g.state === "READING") planReading(rc, { g, iss, d, changed });
@@ -403,6 +432,7 @@ function discharge(rc, g, body) {
 		repo: rc.repo,
 		number: g.number,
 		reading: oneLine(g.reading),
+		seen: g.reading,
 		closed: g.closed,
 		body: withoutGate(body),
 		wasBody: body,
@@ -547,7 +577,7 @@ function planContainer(rc, iss, tags) {
 			n,
 			cls: "C4",
 			sig: "container held",
-			text: `container held by ${kids.length} open children: ${kids.map((k) => `${k.repo ?? rc.repo}#${k.number}`).join(", ")}`,
+			text: `container held by ${count(kids.length, "open child", "open children")}: ${kids.map((k) => `${k.repo ?? rc.repo}#${k.number}`).join(", ")}`,
 		});
 	for (const t of tags.filter((x) => CONTAINER_TAGS.has(x)))
 		add(rc, { n, cls: "C4", sig: t, text: t });
@@ -566,7 +596,12 @@ function planOwed(rc, iss) {
 	/** @param {string} at */
 	const asked = (at) => {
 		const d = daysSince(at, rc.ctx.now);
-		owe(rc, n, `asked ${at.slice(0, 10)}, ${d} d, holds ${holds} issues`, d);
+		owe(
+			rc,
+			n,
+			`asked ${at.slice(0, 10)}, ${d} d, holds ${count(holds, "issue", "issues")}`,
+			d,
+		);
 		return d;
 	};
 	const roundAt = openRoundAt(iss);
@@ -841,7 +876,7 @@ function buildHubBody({ repoLines, lines, owed, acts, disposed }) {
 		"",
 		...(acts.length === 0 ? ["None."] : acts.map((a) => `- ${actText(a)}`)),
 		"",
-		"Standalone: the daily stale-ticket run's report (#5857).",
+		buildStandaloneLine(HUB_STANDALONE),
 	].join("\n");
 }
 
@@ -854,7 +889,7 @@ function buildCauseBody(sig, ls) {
 		"",
 		...ls.map((l) => `- ${l.text}`),
 		"",
-		"Standalone: a recurring cause the daily stale-ticket run found (#5857).",
+		buildStandaloneLine(FILING_STANDALONE),
 	].join("\n");
 }
 
@@ -868,12 +903,14 @@ function buildDataRouteBody(repo, g, iss, d) {
 	return [
 		`${repo}#${iss.number}'s gate check reads DEAD because its data source is absent: \`${oneLine(g.reading)}\`${g.detail ? ` (${oneLine(g.detail)})` : ""}, for ${d} d. Build the route that collects the data the gate counts, or re-measure the gate if it counts the wrong thing.`,
 		"",
-		"Standalone: a data route the daily stale-ticket run found missing (#5857).",
+		buildStandaloneLine(FILING_STANDALONE),
 	].join("\n");
 }
 
 module.exports = {
 	CAUSE_PREFIX,
+	FILING_STANDALONE,
+	HUB_STANDALONE,
 	DATA_ROUTE_PREFIX,
 	FLOOR_DAYS,
 	HUB_TAKES,

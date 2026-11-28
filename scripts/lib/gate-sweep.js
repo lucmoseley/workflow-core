@@ -266,6 +266,24 @@ function dropTried(file, tried, log) {
 }
 
 /**
+ * @param {string} file
+ * @param {{root: string, number: number, seen: string, now: number}} judged
+ * @param {(line: string) => void} log
+ */
+function recordJudged(file, { root, number, seen, now }, log) {
+	const store = readGateStore(file, log);
+	const key = keyOf(root, number);
+	writeJson(file, {
+		...store,
+		readings: { ...store.readings, [key]: seen },
+		queuedAt: { ...store.queuedAt, [key]: now },
+		pending: store.pending.filter(
+			(j) => !(j.root === root && j.number === number),
+		),
+	});
+}
+
+/**
  * @param {string} root
  * @param {{env: NodeJS.ProcessEnv, script?: string}} opts
  * @returns {Promise<{stdout: string} | {error: string}>}
@@ -377,6 +395,7 @@ module.exports = {
 	dropTried,
 	gateSweeper,
 	readGateStore,
+	recordJudged,
 	runCheckGates,
 	runReleaseDue,
 };

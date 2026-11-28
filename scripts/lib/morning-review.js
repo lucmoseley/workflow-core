@@ -134,8 +134,11 @@ function parseOneWayDoor(comments) {
  *   holds: OpenHold[], throughput: ThroughputReading, kills: KillReading,
  *   runaways: RunawayReading,
  *   concurrency: ConcurrencyReading,
- *   idle: IdleReading, wslCurrency: WslCurrencyReading}} Reading
+ *   idle: IdleReading, wslCurrency: WslCurrencyReading,
+ *   staleRun: StaleRunReading}} Reading
  * @typedef {{lines: string[]} | {why: string} | null} WslCurrencyReading
+ * @typedef {{date: string, repoLines: string[],
+ *   owed: {text: string, url: string}[]} | {why: string}} StaleRunReading
  * @typedef {{trackers: import("./idle-efforts.js").TrackerFinding[],
  *   loopRunning: boolean, damaged: string[]} | {why: string}} IdleReading
  * @typedef {ReturnType<typeof import("./concurrency.js").readout>} Readout
@@ -164,6 +167,27 @@ function renderWslCurrencyLines(reading) {
 		...("why" in reading
 			? [`Not read: ${quoted(reading.why)}`]
 			: reading.lines.map((line) => `- ${quoted(line)}`)),
+		"",
+	];
+}
+
+/**
+ * @param {StaleRunReading} reading
+ * @returns {string[]}
+ */
+function renderStaleRunLines(reading) {
+	const head = ["## Stale tickets", ""];
+	if ("why" in reading)
+		return [...head, `Not read: ${quoted(reading.why)}`, ""];
+	return [
+		...head,
+		`From the daily stale-ticket run of ${reading.date}: each act you owe over 7 days old, then each repo's line.`,
+		"",
+		...(reading.owed.length === 0
+			? ["Nothing owed over 7 days."]
+			: reading.owed.map((o) => `- ${o.text} — ${o.url}`)),
+		"",
+		...reading.repoLines.map((l) => `- ${l}`),
 		"",
 	];
 }
@@ -573,6 +597,7 @@ function renderReview({
 	concurrency,
 	idle,
 	wslCurrency,
+	staleRun,
 }) {
 	const lo = Date.parse(since);
 	const hi = Date.parse(now);
@@ -717,6 +742,7 @@ function renderReview({
 		"",
 		...idleLines,
 		"",
+		...renderStaleRunLines(staleRun),
 		...renderWslCurrencyLines(wslCurrency),
 		"## Still-caught delegated decisions",
 		"",

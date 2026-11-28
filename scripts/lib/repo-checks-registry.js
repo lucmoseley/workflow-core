@@ -142,6 +142,12 @@ const REPO_CHECKS = [
 		gate: { core: true },
 	},
 	{
+		id: "stale-run-stamp",
+		script: "report-stale-run-stamp.js",
+		kind: "reporter",
+		gate: { core: true },
+	},
+	{
 		id: "red-suite",
 		script: "report-red-suite.js",
 		kind: "reporter",
