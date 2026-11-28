@@ -521,6 +521,34 @@ describe("skip_undeclared (#1504)", () => {
 	);
 });
 
+describe("index_held (#5889)", () => {
+	const marked = (between: string) =>
+		run(`t="$(index_tree)"\n${between}\nindex_held "$t"\necho HELD`, {
+			committed: { "a.txt": "a\n" },
+			staged: { "b.txt": "b\n" },
+		});
+
+	it("passes an index the steps after the mark left as it was", () => {
+		const { code, output } = marked("echo dirty > a.txt");
+		expect(code).toBe(0);
+		expect(output).toContain("HELD");
+	});
+
+	it("refuses an index a step staged a path into after the mark, naming the path", () => {
+		const { code, output } = marked("echo x > stray && git add stray");
+		expect(code).toBe(1);
+		expect(output).toContain("changed what this commit stages");
+		expect(output).toContain("  A\tstray");
+		expect(output).not.toContain("HELD");
+	});
+
+	it("refuses an index a step unstaged a path from after the mark", () => {
+		const { code, output } = marked("git rm -q --cached b.txt");
+		expect(code).toBe(1);
+		expect(output).toContain("  D\tb.txt");
+	});
+});
+
 describe("the library and the hook", () => {
 	it("is sourced by .husky/pre-commit, above the first gate", () => {
 		const hook = fs.readFileSync(
@@ -532,5 +560,21 @@ describe("the library and the hook", () => {
 		expect(source).toBeGreaterThan(-1);
 		expect(source).toBeLessThan(hook.indexOf("|| skip_undeclared"));
 		expect(source).toBeLessThan(hook.indexOf("if armed "));
+	});
+
+	it("marks the judged tree after check_staged and holds the index to it just before the local hook", () => {
+		const hook = fs.readFileSync(
+			path.join(ROOT, ".husky", "pre-commit"),
+			"utf8",
+		);
+		const mark = hook.indexOf('pc_judged="$(index_tree)" || exit "$?"');
+		const held = hook.indexOf('index_held "$pc_judged" || exit "$?"');
+
+		expect(mark).toBeGreaterThan(hook.indexOf('sh -c "$staged_cmd"'));
+		expect(mark).toBeLessThan(hook.indexOf("git --staged --redact"));
+		expect(held).toBeGreaterThan(hook.indexOf("mutation-hold-gate.js"));
+		expect(held).toBeLessThan(
+			hook.indexOf("if [ -f .husky/pre-commit.local ]"),
+		);
 	});
 });

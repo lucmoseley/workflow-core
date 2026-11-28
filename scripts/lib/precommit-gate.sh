@@ -242,3 +242,20 @@ staged_gate() {
 lander_batch() { [ "${wfc_gates:-all}" = batch ]; }
 
 lander_tested() { [ "${wfc_gates:-all}" = tested ]; }
+
+index_tree() {
+  git write-tree 2>/dev/null && return 0
+  echo "pre-commit: git could not write this commit's tree, so no gate's verdict can be held to it and the commit is refused." >&2
+  return 2
+}
+
+# #5889
+index_held() {
+  ih_now="$(index_tree)" || return "$?"
+  [ "$ih_now" != "$1" ] || return 0
+  echo "pre-commit: a step after the gates changed what this commit stages, so it is refused:" >&2
+  git diff-tree -r --no-renames --name-status "$1" "$ih_now" |
+    while IFS= read -r ih_line; do printf '  %s\n' "$ih_line"; done >&2
+  echo "  No gate judged those paths. Unstage what you did not mean to commit (\`git restore --staged -- <path>\`), then commit again." >&2
+  return 1
+}
