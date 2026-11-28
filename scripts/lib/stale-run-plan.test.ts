@@ -860,6 +860,39 @@ describe("planStaleRun: filings", () => {
 		expect(two.filings[0].body).toContain("o/q#5 NO-TAKES");
 	});
 
+	const blocked = (tags: [string, string]) =>
+		plan([
+			repo({
+				issues: [
+					issue(1, { blockedBy: [{ repo: null, number: 3, state: "open" }] }),
+					issue(2, { blockedBy: [{ repo: null, number: 4, state: "open" }] }),
+					issue(3),
+					issue(4),
+				],
+				checkFindings: [
+					{ tag: tags[0], number: 3 },
+					{ tag: tags[1], number: 4 },
+				],
+			}),
+		]);
+	const causeTitles = (p: ReturnType<typeof plan>) =>
+		p.filings
+			.filter((f: { kind: string }) => f.kind === "cause")
+			.map((f: { title: string }) => f.title);
+
+	it("files no cause for stuck-blocker lines, which borrow their blocker's class", () => {
+		const p = blocked(["NO-TAKES", "UNPLACED"]);
+		expect(texts(p)).toContain("o/r#1 blocked by o/r#3 (C5, 10 d)");
+		expect(texts(p)).toContain("o/r#2 blocked by o/r#4 (C4, 10 d)");
+		expect(causeTitles(p)).toEqual([]);
+	});
+
+	it("still files the blockers' own cause when they share a signature", () => {
+		expect(causeTitles(blocked(["NO-TAKES", "NO-TAKES"]))).toEqual([
+			"Stale-ticket cause: C5 NO-TAKES",
+		]);
+	});
+
 	it("files the same title on a second run, so fileOrRefresh refreshes it", () => {
 		const repos = [
 			repo({

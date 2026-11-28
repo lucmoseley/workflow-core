@@ -151,7 +151,7 @@ const CLASS_ORDER = /** @type {Cls[]} */ (Object.keys(CLASS_NAMES));
  * @property {{number: number, state: "open"|"closed"}|null} hub
  * @property {SnapRepo[]} repos
  * @typedef {{key: string, repo: string, number: number, cls: Cls, sig: string,
- *   text: string, restored: boolean}} Line
+ *   text: string, restored: boolean, derived: boolean}} Line
  * @typedef {{key: string, repo: string, number: number, text: string, url: string,
  *   ageDays: number}} OwedLine
  * @typedef {{kind: "discharge", root: string, repo: string, number: number, reading: string,
@@ -252,11 +252,12 @@ const partyOf = (body) =>
  * @property {Map<number, Line[]>} found
  * @property {Set<number>} excluded
  * @property {Set<string>} closed
- * @typedef {{n: number, cls: Cls, sig: string, text: string, restored?: boolean}} Finding
+ * @typedef {{n: number, cls: Cls, sig: string, text: string, restored?: boolean,
+ *   derived?: boolean}} Finding
  */
 
 /** @param {RepoCtx} rc @param {Finding} f */
-function add(rc, { n, cls, sig, text, restored = false }) {
+function add(rc, { n, cls, sig, text, restored = false, derived = false }) {
 	const line = {
 		key: `${rc.repo}#${n}:${cls}`,
 		repo: rc.repo,
@@ -265,6 +266,7 @@ function add(rc, { n, cls, sig, text, restored = false }) {
 		sig: `${cls} ${sig}`,
 		text: `${rc.repo}#${n} ${text}`,
 		restored,
+		derived,
 	};
 	rc.found.set(n, [...(rc.found.get(n) ?? []), line]);
 }
@@ -892,6 +894,7 @@ function planStuckBlockers(rc, iss, named) {
 			n: iss.number,
 			cls: "C3",
 			sig: "stuck blocker",
+			derived: true,
 			text: `blocked by ${theirs.repo}#${ref.number} (${cls}, ${daysSince(blocker.createdAt, rc.ctx.now)} d)`,
 		});
 	}
@@ -916,6 +919,7 @@ function planCycles(rc) {
 				sig: "C3 cycle",
 				text: `cycle: ${path}`,
 				restored: false,
+				derived: false,
 			},
 		]);
 	}
@@ -926,7 +930,7 @@ function planCauses(ctx) {
 	/** @type {Map<string, Line[]>} */
 	const causes = new Map();
 	for (const l of ctx.lines) {
-		if (l.cls === "unclassified" || l.restored) continue;
+		if (l.cls === "unclassified" || l.restored || l.derived) continue;
 		causes.set(l.sig, [...(causes.get(l.sig) ?? []), l]);
 	}
 	for (const [sig, ls] of causes)
