@@ -12,7 +12,7 @@ const { systemctl } = require("./lib/systemd-bins.js");
 const {
 	buildEnvironmentLine,
 	enableUserUnits,
-	unquotableWord,
+	unquotableFault,
 	writeUserUnits,
 } = require("./lib/systemd-user-units.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -52,9 +52,9 @@ function buildServiceText(template, { script, root }) {
 function install() {
 	const script = runScript();
 	const root = path.dirname(path.dirname(script));
-	const word = unquotableWord([script, root]);
-	if (word !== null) {
-		writeFd(2, `the unit cannot quote this path: ${word}\n`);
+	const fault = unquotableFault([script, root]);
+	if (fault !== null) {
+		writeFd(2, `${fault}\n`);
 		return 2;
 	}
 	const readTemplate = (/** @type {string} */ unit) =>

@@ -135,7 +135,7 @@ function createIssue({ title, labels, body, repo }) {
  * @param {TrackingSpec} spec
  * @returns {{ number: number | null, text: string }}
  */
-function fileOrRefreshIssue({ title, label, labels, takes, body, repo }) {
+function fileOrRefresh({ title, label, labels, takes, body, repo }) {
 	const existing = openTrackingIssue({ title, label, repo });
 	if (existing)
 		return {
@@ -153,14 +153,10 @@ function fileOrRefreshIssue({ title, label, labels, takes, body, repo }) {
 	return { number: Number.isInteger(n) ? n : null, text: `Filed ${url}` };
 }
 
-/** @param {TrackingSpec} spec @returns {string} */
-const fileOrRefresh = (spec) => fileOrRefreshIssue(spec).text;
-
 module.exports = {
 	createIssue,
 	findTrackingIssue,
 	openTrackingIssue,
 	refresh,
 	fileOrRefresh,
-	fileOrRefreshIssue,
 };

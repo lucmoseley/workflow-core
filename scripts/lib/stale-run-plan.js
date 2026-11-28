@@ -319,8 +319,7 @@ function planStaleRun(snap) {
 			);
 		else planned.push(planRepo(ctx, r, r.tracker));
 	}
-	for (const { rc, listed } of planned)
-		for (const iss of listed) planStuckBlockers(rc, iss);
+	planAllStuckBlockers(planned);
 	for (const { rc } of planned) flushLines(rc);
 	planCauses(ctx);
 	return { ...planHub(ctx), gates: ctx.gates };
@@ -578,12 +577,12 @@ function planIssue(rc, iss) {
 	const tags = rc.r.checkFindings
 		.filter((f) => f.number === n)
 		.map((f) => f.tag);
+	planPlacement(rc, iss, tags);
 	if (planContainer(rc, iss, tags)) return false;
 	for (const t of tags.filter((x) => LABEL_TAGS.has(x)))
 		add(rc, { n, cls: "C5", sig: t, text: t });
 	for (const t of tags.filter((x) => EDGE_TAGS.has(x)))
 		add(rc, { n, cls: "C3", sig: t, text: t });
-	planPlacement(rc, iss, tags);
 	const owedDays = planOwed(rc, iss);
 	planWaits(rc, iss, owedDays);
 	const stale = rc.r.staleClaims.find((c) => c.number === n);
@@ -767,8 +766,26 @@ function planUnclassified(rc, iss, owedDays) {
 	});
 }
 
-/** @param {RepoCtx} rc @param {SnapIssue} iss */
-function planStuckBlockers(rc, iss) {
+/** @param {{rc: RepoCtx, listed: SnapIssue[]}[]} planned */
+function planAllStuckBlockers(planned) {
+	/** @type {Set<string>} */
+	const named = new Set();
+	let grew = true;
+	while (grew) {
+		grew = false;
+		for (const { rc, listed } of planned)
+			for (const iss of listed)
+				if (planStuckBlockers(rc, iss, named)) grew = true;
+	}
+}
+
+/**
+ * @param {RepoCtx} rc
+ * @param {SnapIssue} iss
+ * @param {Set<string>} named
+ * @returns {boolean}
+ */
+function planStuckBlockers(rc, iss, named) {
 	const refs = new Map(
 		[
 			...iss.blockedBy
@@ -777,11 +794,15 @@ function planStuckBlockers(rc, iss) {
 			...gateRefsOf(iss.body, rc.repo),
 		].map((ref) => [refKey(ref), ref]),
 	);
-	for (const ref of refs.values()) {
+	let grew = false;
+	for (const [key, ref] of refs) {
+		const edge = `${refKey({ repo: rc.repo, number: iss.number })}>${key}`;
 		const theirs = rc.ctx.repoCtx.get(ref.repo.toLowerCase());
 		const blocker = theirs?.byNumber.get(ref.number);
 		const cls = theirs?.found.get(ref.number)?.[0]?.cls;
-		if (!blocker || !cls) continue;
+		if (named.has(edge) || !blocker || !cls) continue;
+		named.add(edge);
+		grew = true;
 		add(rc, {
 			n: iss.number,
 			cls: "C3",
@@ -789,6 +810,7 @@ function planStuckBlockers(rc, iss) {
 			text: `blocked by ${theirs.repo}#${ref.number} (${cls}, ${daysSince(blocker.createdAt, rc.ctx.now)} d)`,
 		});
 	}
+	return grew;
 }
 
 /** @param {RepoCtx} rc */

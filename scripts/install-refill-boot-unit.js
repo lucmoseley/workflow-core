@@ -13,7 +13,7 @@ const { loginctl, systemctl } = require("./lib/systemd-bins.js");
 const {
 	buildEnvironmentLine,
 	enableUserUnits,
-	unquotableWord,
+	unquotableFault,
 	writeUserUnits,
 } = require("./lib/systemd-user-units.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -55,9 +55,9 @@ function install() {
 			2,
 			`fetch failed, pinning the last fetched tip: ${boot.fetchError}\n`,
 		);
-	const word = unquotableWord([shell, boot.program, files.log]);
-	if (word !== null) {
-		writeFd(2, `the unit cannot quote this path: ${word}\n`);
+	const fault = unquotableFault([shell, boot.program, files.log]);
+	if (fault !== null) {
+		writeFd(2, `${fault}\n`);
 		return 2;
 	}
 	const readTemplate = (/** @type {string} */ unit) =>

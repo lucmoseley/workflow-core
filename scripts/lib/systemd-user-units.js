@@ -10,8 +10,10 @@ const PLAIN_PATH = /^[\w./@+-]+$/;
  * @param {string[]} words
  * @returns {string|null}
  */
-const unquotableWord = (words) =>
-	words.find((w) => !PLAIN_PATH.test(w)) ?? null;
+function unquotableFault(words) {
+	const word = words.find((w) => !PLAIN_PATH.test(w));
+	return word === undefined ? null : `the unit cannot quote this path: ${word}`;
+}
 
 /**
  * @param {string} name
@@ -65,7 +67,7 @@ function enableUserUnits(enables) {
 module.exports = {
 	buildEnvironmentLine,
 	enableUserUnits,
-	unquotableWord,
+	unquotableFault,
 	userUnitDir,
 	writeUserUnits,
 };

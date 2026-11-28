@@ -447,6 +447,41 @@ describe("planStaleRun: the catalogue", () => {
 		expect(classOf(p, 3)).toEqual(["C4"]);
 	});
 
+	it("C3: names a stuck blocker whatever order its chain is read in", () => {
+		const p = plan([
+			repo({
+				issues: [
+					issue(1, { blockedBy: [{ repo: null, number: 2, state: "open" }] }),
+					issue(2, { blockedBy: [{ repo: null, number: 3, state: "open" }] }),
+					issue(3),
+				],
+				checkFindings: [{ tag: "NO-TAKES", number: 3 }],
+			}),
+		]);
+		expect(texts(p)).toContain("o/r#2 blocked by o/r#3 (C5, 10 d)");
+		expect(texts(p)).toContain("o/r#1 blocked by o/r#2 (C3, 10 d)");
+	});
+
+	it("C4: a container under a closed parent, and a container that is an undischarged map", () => {
+		const p = plan([
+			repo({
+				issues: [
+					issue(1, {
+						labels: ["takes:children"],
+						parent: { repo: REPO, number: 9 },
+					}),
+					issue(2, { labels: ["takes:children"] }),
+				],
+				checkFindings: [{ tag: "UNDISCHARGED-MAP", number: 2 }],
+				closedRefs: ["o/r#9"],
+			}),
+		]);
+		expect(texts(p)).toEqual([
+			"o/r#1 open under closed parent o/r#9",
+			"o/r#2 UNDISCHARGED-MAP",
+		]);
+	});
+
 	it("C4: a stale-container finding and the retag act", () => {
 		const p = plan([
 			repo({

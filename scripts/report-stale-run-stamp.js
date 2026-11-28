@@ -64,12 +64,14 @@ function main() {
 	}
 	writeFd(
 		1,
-		`${fault}. ${fileOrRefresh({
-			title: TITLE,
-			labels: [originLabel("repo-checks-script")],
-			takes: LABEL,
-			body: buildBody(fault),
-		})}\n`,
+		`${fault}. ${
+			fileOrRefresh({
+				title: TITLE,
+				labels: [originLabel("repo-checks-script")],
+				takes: LABEL,
+				body: buildBody(fault),
+			}).text
+		}\n`,
 	);
 }
 

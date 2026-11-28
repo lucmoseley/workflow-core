@@ -284,7 +284,7 @@ function readAndFile(logFile, nowMs, dryRun, core) {
 	const closed = latest?.closedAt ? Date.parse(latest.closedAt) : null;
 	if (closed !== null && closed > nowMs - DAY_MS)
 		return `${figure}, but "${TITLE}" was closed at ${minute(closed)}, inside this window; it files again once a window starts after that.`;
-	return `${figure}. ${fileOrRefresh({ title: TITLE, labels: [LABEL], body })}`;
+	return `${figure}. ${fileOrRefresh({ title: TITLE, labels: [LABEL], body }).text}`;
 }
 
 function main() {

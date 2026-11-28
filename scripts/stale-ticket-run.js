@@ -15,11 +15,11 @@ const { parseOrExit } = require("./lib/cli-args.js");
 const { recordJudged, runCheckGates } = require("./lib/gate-sweep.js");
 const { gh, ghApiSlurp, ghJson } = require("./lib/gh.js");
 const { hostRoot } = require("./lib/host-root.js");
-const { asObject, objectsIn, stringMembers } = require("./lib/json-shape.js");
+const { asObject, stringMembers } = require("./lib/json-shape.js");
 const { gateRefsOf } = require("./lib/issue-gate.js");
 const { refKey } = require("./lib/issue-ref.js");
 const { readLinksMany } = require("./lib/link-batch.js");
-const { originLabel } = require("./lib/issue-origin.js");
+const { ORIGIN_LABELS, originLabel } = require("./lib/issue-origin.js");
 const { readParkMarkers } = require("./lib/parked.js");
 const { findPin, isCoreHost, readJsonSafe } = require("./lib/plugin-state.js");
 const { readShortlist } = require("./lib/refill-frontier.js");
@@ -36,7 +36,7 @@ const { scriptPath } = require("./lib/script-path.js");
 const plan = require("./lib/stale-run-plan.js");
 const record = require("./lib/stale-run-record.js");
 const { DAY_MS } = record;
-const { fileOrRefreshIssue, refresh } = require("./lib/tracking-issue.js");
+const { fileOrRefresh, refresh } = require("./lib/tracking-issue.js");
 const { WATCH_CLOSED_LABEL } = require("./lib/watch-label.js");
 const { loops } = require("./lib/wait-graph.js");
 const { readConfig, resolveKey } = require("./lib/workflow-core-config.js");
@@ -90,14 +90,32 @@ function runJson(script, args, root) {
 	return out;
 }
 
-/** @param {Record<string, unknown>|null} envelope @returns {{tag: string, number: number}[]} */
-const findingsOf = (envelope) =>
-	objectsIn(envelope?.findings).flatMap((f) => {
-		const n = asObject(f.data)?.number;
-		return typeof f.tag === "string" && typeof n === "number"
-			? [{ tag: f.tag, number: n }]
-			: [];
-	});
+/**
+ * @template T
+ * @param {string} what
+ * @param {unknown[]} raw
+ * @param {(row: unknown) => T[]} narrow
+ * @returns {T[]}
+ */
+function narrowRows(what, raw, narrow) {
+	const rows = raw.flatMap(narrow);
+	if (rows.length < raw.length)
+		warn(`${what}: ${raw.length - rows.length} malformed row(s) dropped`);
+	return rows;
+}
+
+/** @param {string} script @param {Record<string, unknown>|null} envelope @returns {{tag: string, number: number}[]} */
+const findingsOf = (script, envelope) =>
+	narrowRows(
+		`${script} findings`,
+		Array.isArray(envelope?.findings) ? envelope.findings : [],
+		(raw) => {
+			const f = asObject(raw);
+			return typeof f?.tag === "string" && typeof f.number === "number"
+				? [{ tag: f.tag, number: f.number }]
+				: [];
+		},
+	);
 
 /** @param {string} root @returns {{tracker: string|null, fault: string|null}} */
 function readTracker(root) {
@@ -280,10 +298,12 @@ function readGateRows(root, run) {
 			? undefined
 			: orFallback(() => asObject(JSON.parse(run.stdout))?.rows, undefined);
 	if (Array.isArray(rows))
-		return objectsIn(rows).flatMap((g) =>
-			typeof g.number === "number" &&
-			typeof g.state === "string" &&
-			typeof g.reading === "string"
+		return narrowRows("check-gates.js rows", rows, (raw) => {
+			const g = asObject(raw);
+			return g &&
+				typeof g.number === "number" &&
+				typeof g.state === "string" &&
+				typeof g.reading === "string"
 				? [
 						{
 							number: g.number,
@@ -293,8 +313,8 @@ function readGateRows(root, run) {
 							detail: typeof g.detail === "string" ? g.detail : null,
 						},
 					]
-				: [],
-		);
+				: [];
+		});
 	warn(
 		`check-gates.js in ${root}: no rows read, so no gate is judged (${"error" in run ? run.error : "no --json rows"})`,
 	);
@@ -391,22 +411,28 @@ async function gatherTracked(root, tracker, now) {
 		),
 		gates: readGateRows(root, gateRun),
 		checkFindings: FINDING_CHECKS.flatMap((script) =>
-			findingsOf(runJson(script, ["--json"], root)),
+			findingsOf(script, runJson(script, ["--json"], root)),
 		),
-		containerRetags: (Array.isArray(containers?.stale)
-			? containers.stale
-			: []
-		).filter((n) => typeof n === "number"),
-		staleClaims: objectsIn(claims?.stale).flatMap((c) =>
-			typeof c.number === "number" && typeof c.ageDays === "number"
-				? [
-						{
-							number: c.number,
-							ageDays: c.ageDays,
-							assignees: stringMembers(c.assignees),
-						},
-					]
-				: [],
+		containerRetags: narrowRows(
+			"retire-stale-containers.js stale",
+			Array.isArray(containers?.stale) ? containers.stale : [],
+			(n) => (typeof n === "number" ? [n] : []),
+		),
+		staleClaims: narrowRows(
+			"check-stale-claims.js stale",
+			Array.isArray(claims?.stale) ? claims.stale : [],
+			(raw) => {
+				const c = asObject(raw);
+				return typeof c?.number === "number" && typeof c.ageDays === "number"
+					? [
+							{
+								number: c.number,
+								ageDays: c.ageDays,
+								assignees: stringMembers(c.assignees),
+							},
+						]
+					: [];
+			},
 		),
 		claims: store && !store.why ? store.claims : null,
 		parkMarkers: readParkMarkers(root).map((m) => ({
@@ -515,7 +541,7 @@ const issue = (repo, n, args) =>
 		...args.slice(1),
 	]);
 
-/** @type {{[K in Act["kind"]]: (a: Extract<Act, {kind: K}>) => {stripped: boolean}}} */
+/** @type {{[K in Act["kind"]]: (a: Extract<Act, {kind: K}>) => boolean|void}} */
 const APPLY = {
 	discharge(a) {
 		for (const step of plan.reopenSteps(a)) issue(a.repo, a.number, step);
@@ -525,7 +551,7 @@ const APPLY = {
 			{ root: a.root, number: a.number, seen: a.seen, now: clockNow() },
 			warn,
 		);
-		return { stripped };
+		return stripped;
 	},
 	unblock(a) {
 		const id = gh([
@@ -540,10 +566,9 @@ const APPLY = {
 			"DELETE",
 			`repos/${a.repo}/issues/${a.number}/dependencies/blocked_by/${id}`,
 		]);
-		return { stripped: false };
 	},
 	"strip-gate"(a) {
-		return { stripped: replaceBody(a.repo, a.number, a.wasBody, a.body) };
+		return replaceBody(a.repo, a.number, a.wasBody, a.body);
 	},
 	release(a) {
 		issue(a.repo, a.number, [
@@ -553,21 +578,17 @@ const APPLY = {
 		const r = releaseIssue(a.number, { sessionId: a.sessionId }, a.root);
 		if (r.status === "failed")
 			throw new Error(`arbiter claim not released: ${caught(r.error).message}`);
-		return { stripped: false };
 	},
 	retag(a) {
 		runJson("retire-stale-containers.js", ["--json"], a.root);
-		return { stripped: false };
 	},
 };
 
 /** @param {Act} a */
 function applyAct(a) {
 	try {
-		const done = /** @type {(a: Act) => {stripped: boolean}} */ (APPLY[a.kind])(
-			a,
-		);
-		const note = plan.actComment(a, done);
+		const stripped = /** @type {(a: Act) => boolean|void} */ (APPLY[a.kind])(a);
+		const note = plan.actComment(a, { stripped: stripped === true });
 		if (note) issue(a.repo, note.number, ["comment", "--body", note.text]);
 		return plan.actText(a);
 	} catch (e) {
@@ -576,25 +597,54 @@ function applyAct(a) {
 	}
 }
 
-/** @param {{title: string, body: string, repo: string}} f */
-const file = ({ title, body, repo }) =>
-	fileOrRefreshIssue({
+const ORIGIN = originLabel("stale-run");
+
+/** @param {string} repo */
+function ensureOriginLabel(repo) {
+	const label = ORIGIN_LABELS.find((l) => l.name === ORIGIN);
+	if (!label) throw new Error(`${ORIGIN} is not in the origin label plan`);
+	gh([
+		"label",
+		"create",
+		label.name,
+		"--repo",
+		repo,
+		"--color",
+		label.color,
+		"--description",
+		label.description,
+		"--force",
+	]);
+}
+
+/**
+ * @param {Set<string>} labelled
+ * @param {{title: string, body: string, repo: string}} f
+ */
+function file(labelled, { title, body, repo }) {
+	if (!labelled.has(repo)) {
+		ensureOriginLabel(repo);
+		labelled.add(repo);
+	}
+	return fileOrRefresh({
 		title,
-		labels: [originLabel("stale-run")],
+		labels: [ORIGIN],
 		takes: plan.HUB_TAKES,
 		body,
 		repo,
 	});
+}
 
 /**
  * @param {import("./lib/stale-run-plan.js").Plan} p
  * @param {string} coreTracker
+ * @param {Set<string>} labelled
  * @returns {number|null}
  */
-function applyHub(p, coreTracker) {
+function applyHub(p, coreTracker, labelled) {
 	if (p.hub.action === "close") issue(coreTracker, p.hub.number, ["close"]);
 	if (p.hub.action !== "refresh") return null;
-	const { number, text } = file({
+	const { number, text } = file(labelled, {
 		title: plan.HUB_TITLE,
 		body: p.hub.body,
 		repo: coreTracker,
@@ -609,10 +659,12 @@ function applyHub(p, coreTracker) {
  */
 function apply(p, snap) {
 	const acts = p.acts.flatMap((a) => applyAct(a) ?? []);
+	/** @type {Set<string>} */
+	const labelled = new Set();
 	const filings = p.filings.flatMap((f) => {
 		try {
 			return [
-				`${f.title}: ${file({ title: f.title, body: f.body, repo: f.tracker }).text}`,
+				`${f.title}: ${file(labelled, { title: f.title, body: f.body, repo: f.tracker }).text}`,
 			];
 		} catch (e) {
 			warn(`${f.title} — not filed: ${caught(e).message}`);
@@ -620,7 +672,7 @@ function apply(p, snap) {
 		}
 	});
 	const hub = plan.hubAfter(p.hub, {
-		filed: applyHub(p, snap.coreTracker),
+		filed: applyHub(p, snap.coreTracker, labelled),
 		before: snap.hub?.state === "open" ? snap.hub.number : null,
 	});
 	return { acts, filings, hub };
@@ -663,12 +715,13 @@ async function main(argv = process.argv.slice(2)) {
 		usage: USAGE,
 		flags: { "--dry-run": "boolean" },
 	});
-	try {
-		return await runStaleTicket({ dryRun: flags["--dry-run"] === true });
-	} catch (e) {
-		warn(`stale-ticket run: ${caught(e).message}`);
-		return 1;
-	}
+	return runStaleTicket({ dryRun: flags["--dry-run"] === true }).catch(failed);
+}
+
+/** @param {unknown} e */
+function failed(e) {
+	warn(`stale-ticket run: ${caught(e).message}`);
+	return 1;
 }
 
 module.exports = { main };
@@ -679,7 +732,6 @@ if (require.main === module)
 			process.exitCode = code;
 		},
 		(e) => {
-			warn(`stale-ticket run: ${caught(e).message}`);
-			process.exitCode = 1;
+			process.exitCode = failed(e);
 		},
 	);

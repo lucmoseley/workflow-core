@@ -53,6 +53,7 @@ const ISSUES = [
 		"**Gated on:** the sky turns green — check: `true` — abandon if: never\n**Gate basis:** basis\n",
 		["takes:implement"],
 	),
+	raw(6, "A ticket with no takes label", "", []),
 ];
 
 interface Route {
@@ -73,7 +74,16 @@ const ENVELOPES: Record<string, unknown> = {
 	"check-gates.js": {
 		rows: [{ number: 4, state: "NO-OUTPUT", reading: "", closed: false }],
 	},
-	"check-issue-labels.js": { findings: [] },
+	"check-issue-labels.js": {
+		findings: [
+			{
+				severity: "FAIL",
+				tag: "NO-TAKES",
+				message: "no takes: label",
+				number: 6,
+			},
+		],
+	},
 	"check-open-maps.js": { findings: [] },
 	"check-issue-orphans.js": { findings: [] },
 	"retire-stale-containers.js": { stale: [] },
@@ -176,6 +186,7 @@ describe("stale-ticket-run", () => {
 		expect(r.stdout).toContain("would: cleared: o/a#2 gated on o/a#8");
 		expect(r.stdout).toMatch(/^C1 {2}o\/a#4 gate NO-OUTPUT/m);
 		expect(r.stdout).not.toMatch(/o\/a#2 gate /);
+		expect(r.stdout).toMatch(/^C5 {2}o\/a#6 NO-TAKES/m);
 		expect(r.stdout).toContain("hub: refresh");
 		expect(r.log).not.toMatch(/issue (comment|create|close|edit)/);
 		expect(r.issueBody.calls()).toEqual([]);
@@ -192,6 +203,9 @@ describe("stale-ticket-run", () => {
 		expect(r.log).toContain("issue create");
 		expect(r.log).toContain("Stale tickets: daily report");
 		expect(r.log).toContain("--label origin:stale-run --label takes:triage");
+		expect(r.log).toMatch(
+			/label create origin:stale-run --repo o\/core --color EDEDED .* --force/,
+		);
 		const rows = fs.readFileSync(record(), "utf8").trim().split("\n");
 		expect(rows).toHaveLength(1);
 		const row = JSON.parse(rows[0]);
@@ -199,13 +213,16 @@ describe("stale-ticket-run", () => {
 			"cleared: o/a#2 gated on o/a#8, which has closed",
 		]);
 		expect(row.repoLines).toHaveLength(2);
-		expect(row.listed.map((l: { key: string }) => l.key)).toEqual(["o/a#4:C1"]);
+		expect(row.listed.map((l: { key: string }) => l.key)).toEqual([
+			"o/a#4:C1",
+			"o/a#6:C5",
+		]);
 		expect(row.hub.number).toBe(77);
 	});
 
 	it("warns of a failed act, records only the acts that landed, and still files the hub", async () => {
 		const r = await run([], {
-			routes: [{ when: "issue comment 2 --repo o/a", fail: true }],
+			routes: [{ when: "issue view 2 --repo o/a --json body", fail: true }],
 		});
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain(

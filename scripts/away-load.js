@@ -26,7 +26,7 @@ const { scriptPath } = require("./lib/script-path.js");
 const { systemctl } = require("./lib/systemd-bins.js");
 const {
 	enableUserUnits,
-	unquotableWord,
+	unquotableFault,
 	writeUserUnits,
 } = require("./lib/systemd-user-units.js");
 const { MinuteTail } = require("./lib/minute-tail.js");
@@ -544,9 +544,9 @@ function install() {
 		writeFd(2, `install from the main checkout, not ${__dirname}\n`);
 		return 1;
 	}
-	const word = unquotableWord([shell, script]);
-	if (word !== null) {
-		writeFd(2, `the unit cannot quote this path: ${word}\n`);
+	const fault = unquotableFault([shell, script]);
+	if (fault !== null) {
+		writeFd(2, `${fault}\n`);
 		return 1;
 	}
 	const text = fs
