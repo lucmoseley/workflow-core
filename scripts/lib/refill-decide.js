@@ -3,7 +3,13 @@ const { LAST_RESUME_OFFSET_MS } = require("./block-act.js");
 const { WAITING_LABEL } = require("./frontier-order.js");
 const { buildAgeText } = require("./hold-age.js");
 const { newestMarkerListing, PARKED_LABEL } = require("./parked.js");
-const { buildSeatLabel, isSameSeat, seatIdOf } = require("./refill-seats.js");
+const {
+	buildSeatLabel,
+	buildSeatName,
+	isSameSeat,
+	seatIdOf,
+} = require("./refill-seats.js");
+const { shellQuote } = require("./sh-quote.js");
 const { loneCommandOf, TAKES_PREFIX } = require("./takes-label.js");
 const { withoutStamps } = require("./stamp-paths.js");
 const { buildRowPrompt } = require("./unclosed-launch.js");
@@ -43,6 +49,12 @@ const ALREADY_RUNNING = "already running";
 const CLASH_PREFIX = "clashes on ";
 /** @param {Skip} s */
 const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
+const UNTRUSTED_PREFIX = "workspace untrusted on ";
+/** @param {Skip} s */
+const isUntrustedSkip = (s) => s.why.startsWith(UNTRUSTED_PREFIX);
+/** @param {SeatRoot} at */
+const buildUntrustedWhy = ({ seat, root }) =>
+	`${UNTRUSTED_PREFIX}${buildSeatName(seat)}: run \`cd ${shellQuote(root)} && CLAUDE_CONFIG_DIR=${shellQuote(seat)} claude\` once and accept the trust prompt`;
 
 /**
  * @typedef {import("./frontier-order.js").FrontierRow & {root: string,
@@ -129,7 +141,10 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {HeldResume[]} [resumable]
  * @property {TickHold[]} [holds]
  * @property {BillingStop[]} [billingStops]
+ * @property {SeatRoot[]} [untrusted]
  */
+
+/** @typedef {{seat: string, root: string}} SeatRoot */
 
 /** @typedef {{seat: string, since: number}} BillingStop */
 
@@ -717,7 +732,13 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 		parkers,
 		history,
 		typedSeat,
+		untrusted = [],
 	} = input;
+	/** @param {string} on @param {string} root */
+	const buildUntrustedHold = (on, root) =>
+		untrusted.some((u) => u.seat === on && u.root === root)
+			? buildUntrustedWhy({ seat: on, root })
+			: null;
 	/** @type {Launch[]} */
 	const launches = [];
 	/** @type {Skip[]} */
@@ -764,11 +785,18 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 	const nextOf = (row) => {
 		const why = buildHeldWhy(row.root, row.number);
 		if (why !== null) return { why };
-		return routedLaunch(
+		const next = routedLaunch(
 			row,
 			{ retroBundles, mode, seats: seatsLeft, parkers, history, typedSeat },
 			(n) => taken.has(key(row.root, n)),
 		);
+		if ("why" in next) return next;
+		const on =
+			next.parkedRoute && "resume" in next.parkedRoute
+				? next.parkedRoute.resume.seat
+				: seat;
+		const hold = buildUntrustedHold(on, row.root);
+		return hold === null ? next : { why: hold };
 	};
 	/** @type {Map<string, number>} */
 	const writtenBy = new Map();
@@ -837,7 +865,8 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 	walk(parked.filter((r) => !hasQueuedJudgement(r)));
 	for (const j of judgements) {
 		if (launches.length >= slots) break;
-		const why = buildHeldWhy(j.root, j.number);
+		const why =
+			buildHeldWhy(j.root, j.number) ?? buildUntrustedHold(seat, j.root);
 		if (why === null) launch(j.root, [j.number], j.prompt, { gate: true });
 		else skipped.push({ root: j.root, number: j.number, why });
 	}
@@ -1171,6 +1200,7 @@ module.exports = {
 	decideTick,
 	isFrontierDependent,
 	isClashSkip,
+	isUntrustedSkip,
 	fitsLaunch,
 	hasRoom,
 	isParked,

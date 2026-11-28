@@ -445,10 +445,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		batch: Launch[],
 		resume: Io["resume"],
 		written = true,
-		{
-			admitResume = () => null,
-			isUntrusted = () => false,
-		}: Partial<Pick<Io, "admitResume" | "isUntrusted">> = {},
+		{ admitResume = () => null }: Partial<Pick<Io, "admitResume">> = {},
 	) {
 		const lines: string[] = [];
 		const fresh: Launch[][] = [];
@@ -462,7 +459,6 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 				return { file: 1 };
 			},
 			admitResume,
-			isUntrusted,
 			stagger: () => staggers.push(resumed.length),
 			resume: (l, t) => {
 				resumed.push(t);
@@ -494,31 +490,6 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		jobId: "j-9",
 		sessionId: "s-2",
 		copy: false,
-	});
-
-	it("holds a member whose seat does not trust its repo, naming the act, and launches the rest (#5918)", () => {
-		const asked: string[][] = [];
-		const parked = member(1, { parkedRoute: { resume: target } });
-		const r = run([parked, member(2)], ok, true, {
-			isUntrusted: (seat, root) => {
-				asked.push([seat, root]);
-				return seat === target.seat;
-			},
-		});
-		expect(asked).toEqual([
-			[target.seat, launch.root],
-			[launch.seat, launch.root],
-		]);
-		expect(r.resumed).toEqual([]);
-		expect(r.fresh).toEqual([[member(2)]]);
-		expect(r.out.refused).toEqual([
-			{
-				launch: parked,
-				reason:
-					"workspace untrusted on /home/u/.claude2: run `cd /home/u/design-vault && CLAUDE_CONFIG_DIR=/home/u/.claude2 claude` once and accept the trust prompt",
-				untrusted: true,
-			},
-		]);
 	});
 
 	it("re-reads admission in the resumed member's own checkout (#4962)", () => {

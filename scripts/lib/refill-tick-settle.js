@@ -1,9 +1,11 @@
+const path = require("node:path");
 const { batchesOf } = require("./refill-batch.js");
 const { isLive, isStepResume, launchName } = require("./refill-block-core.js");
 const {
 	buildResumeWaitLine,
 	decideTick,
 	isClashSkip,
+	isUntrustedSkip,
 	isParkRoutingMode,
 	isLaunchBarred,
 } = require("./refill-decide.js");
@@ -163,9 +165,10 @@ const buildLaunchesLine = (launches) => launches.map(launchName).join("; ");
  */
 function frontierNotes(d, read) {
 	if (read === null) return [];
+	const skipped = d.skipped.filter((s) => !isUntrustedSkip(s));
 	/** @type {Map<string, number>} */
 	const counts = new Map();
-	for (const s of d.skipped) {
+	for (const s of skipped) {
 		const why = isClashSkip(s) ? CLASH_COUNT : s.why;
 		counts.set(why, (counts.get(why) ?? 0) + 1);
 	}
@@ -174,11 +177,18 @@ function frontierNotes(d, read) {
 		...(counts.size > 0
 			? [
 					`skipped ${[...counts].map(([why, n]) => `${n} ${why}`).join(", ")}`,
-					`first ${d.skipped.slice(0, LINE_SKIPS).map(buildSkipText).join(", ")}`,
+					`first ${skipped.slice(0, LINE_SKIPS).map(buildSkipText).join(", ")}`,
 				]
 			: []),
 	];
 }
+
+/** @param {import("./refill-decide.js").Skip[]} skipped */
+const untrustedNotes = (skipped) =>
+	[...Map.groupBy(skipped.filter(isUntrustedSkip), (s) => s.why)].map(
+		([why, ss]) =>
+			`held ${path.basename(ss[0]?.root ?? "")} ${ss.map((s) => `#${s.number}`).join(", ")}: ${why}`,
+	);
 
 /** @param {import("./refill-decide.js").Skip[]} skipped */
 function clashNotes(skipped) {
@@ -234,6 +244,7 @@ function buildTickLine(
 			: []),
 		...(d.launches.length > 0 && read ? [buildFrontierReadText(read)] : []),
 		...(d.launches.length > 0 ? clashNotes(d.skipped) : []),
+		...untrustedNotes(d.skipped),
 		...(probes.length > 0
 			? [`probed ${probes.map((p) => `${p.seat}: ${p.outcome}`).join(", ")}`]
 			: []),
