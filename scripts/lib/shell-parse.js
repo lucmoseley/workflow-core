@@ -2785,7 +2785,7 @@ const buildBareRun = (words) => ({
  */
 const buildStrip = (run, judged, pending) => ({
 	ws: [...run.words],
-	at: run.words.map((_, i) => i),
+	wordAt: run.words.map((_, i) => (run.scriptWords === null ? i : null)),
 	judged,
 	inEnv: false,
 	envReset: run.envReset ?? false,
@@ -2803,8 +2803,27 @@ const buildStrip = (run, judged, pending) => ({
 /** @param {Strip} st @param {number} n */
 function drop(st, n) {
 	st.ws = st.ws.slice(n);
-	st.at = st.at.slice(n);
+	st.wordAt = st.wordAt.slice(n);
 }
+
+/**
+ * @param {Strip} st
+ * @param {string[]} words
+ * @param {(number | null)[]} wordAt
+ */
+function prepend(st, words, wordAt) {
+	st.ws = [...words, ...st.ws];
+	st.wordAt = [...wordAt, ...st.wordAt];
+}
+
+/** @param {Strip} st @param {string[]} words */
+function replaceWithScript(st, words) {
+	st.ws = words;
+	st.wordAt = words.map(() => null);
+}
+
+/** @param {(number | null)[]} wordAt @returns {number[]} */
+const typedIndices = (wordAt) => wordAt.flatMap((i) => (i === null ? [] : [i]));
 
 /** @param {string} w @param {string[]} flags */
 const resetsEnv = (w, flags) =>
@@ -2817,7 +2836,7 @@ const resetsEnv = (w, flags) =>
 /**
  * @typedef {object} Strip
  * @property {string[]} ws
- * @property {number[]} at
+ * @property {(number | null)[]} wordAt
  * @property {string[]} judged
  * @property {boolean} inEnv
  * @property {boolean} envReset
@@ -2887,7 +2906,11 @@ function stepAfterFlags(st, wrapper, spans) {
 				return "cut";
 			}
 			st.script = read([string]);
-			runScript(st, { script: st.script, from: st.at.slice(1, 2) }, spans);
+			runScript(
+				st,
+				{ script: st.script, from: typedIndices(st.wordAt.slice(1, 2)) },
+				spans,
+			);
 		}
 	}
 	if (wrapper.command === "sh-string") {
@@ -2898,7 +2921,11 @@ function stepAfterFlags(st, wrapper, spans) {
 		}
 		if (!st.execs) {
 			st.script = read(st.ws);
-			runScript(st, { script: st.script, from: st.at }, spans);
+			runScript(
+				st,
+				{ script: st.script, from: typedIndices(st.wordAt) },
+				spans,
+			);
 		}
 		if (st.ws.length === 0) return "cut";
 	}
@@ -2926,8 +2953,7 @@ function runScript(st, { script, from }, spans) {
 		...(st.envReset && { envReset: /** @type {const} */ (true) }),
 	}));
 	const [first, ...later] = runs;
-	st.ws = first?.words ?? [];
-	st.at = st.ws.map(() => -1);
+	replaceWithScript(st, first?.words ?? []);
 	if (first)
 		Object.assign(st, {
 			wrapperWords: first.wrapperWords,
@@ -2955,7 +2981,7 @@ function sweepFlags(st, wrapper, spans) {
 			[raw, st.ws[1]],
 			spans,
 		);
-		const valueAt = st.at[taken] ?? -1;
+		const valueAt = st.wordAt.slice(taken, taken + 1);
 		drop(st, 1 + taken);
 		for (const option of options)
 			if (!takeOption(st, wrapper, option, { read, valueAt })) return false;
@@ -2967,7 +2993,7 @@ function sweepFlags(st, wrapper, spans) {
  * @param {Strip} st
  * @param {WrapperGrammar} wrapper
  * @param {WrapperOption} option
- * @param {{ read: boolean, valueAt: number }} from
+ * @param {{ read: boolean, valueAt: (number | null)[] }} from
  */
 function takeOption(st, wrapper, { kind, name, value }, { read, valueAt }) {
 	if (kind === "dangling") return false;
@@ -2976,8 +3002,11 @@ function takeOption(st, wrapper, { kind, name, value }, { read, valueAt }) {
 	if (kind !== "opt") return true;
 	if (wrapper.splits && (name === "-S" || name === "--split-string")) {
 		const split = splitEnvString(value);
-		st.ws = [...split, ...st.ws];
-		st.at = [...split.map(() => valueAt), ...st.at];
+		prepend(
+			st,
+			split,
+			split.flatMap(() => valueAt),
+		);
 	} else if (name === wrapper.chdir || name === "--chdir")
 		st.chdirs.push({ dir: value, read, holds: "always" });
 	return true;

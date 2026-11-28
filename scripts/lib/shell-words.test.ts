@@ -650,9 +650,11 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		[`flock /l -c "flock /m -c 'npm test'"`, [3]],
 		["watch -n 5 \"npm run test\" 'x & y'", [3, 4]],
 		["watch -n 5 npm run test", [3, 4, 5]],
+		[`env -S "flock /l -c 'npm test'"`, [2]],
 		["nohup npm test", null],
 	])("names the words %s took its script from (#5846)", (command, at) => {
 		const got = one(command, (c, spans) => unwrap(c.words, spans));
+		expect(got.length).toBeGreaterThan(0);
 		expect(got.map((run) => run.scriptWords)).toEqual(got.map(() => at));
 	});
 

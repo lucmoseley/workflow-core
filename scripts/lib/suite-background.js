@@ -98,7 +98,7 @@ function stripDetachment(text, scriptSpans = new Map()) {
 /**
  * @typedef {object} ScriptSource
  * @property {string} text
- * @property {number[]} spans
+ * @property {number[]} spanIndices
  */
 
 /** @param {string} text @param {ScriptSource[]} scripts */
@@ -111,16 +111,16 @@ const hasDetachedRun = (text, scripts) =>
  * @param {string[]} spans
  * @returns {ScriptSource}
  */
-function scriptSource(words, at, spans) {
-	const held = at.map((i) => words[i] ?? "");
+function buildScriptSource(words, at, spans) {
+	const held = at.flatMap((i) => words.slice(i, i + 1));
 	return {
 		text: held.map((w) => literal(w, spans).text).join(" "),
-		spans: held.flatMap((word) => quotedSpans(word, spans)),
+		spanIndices: held.flatMap((word) => quotedSpanIndices(word, spans)),
 	};
 }
 
 /** @param {string} word @param {string[]} spans */
-function quotedSpans(word, spans) {
+function quotedSpanIndices(word, spans) {
 	/** @type {number[]} */
 	const found = [];
 	readSentinels(word, (_lit, idx) => {
@@ -311,9 +311,12 @@ function decide(command, ctx) {
 			const launch =
 				first.words.length === 0 ? null : noteLaunch(cmd.leading, first);
 			if (launch) launched.push(first);
-			const from = new Set(launched.map((run) => run.scriptWords));
-			for (const at of from)
-				if (at) scripts.push(scriptSource(cmd.words, at, spans));
+			/** @type {Map<string, number[]>} */
+			const sources = new Map();
+			for (const { scriptWords } of launched)
+				if (scriptWords) sources.set(scriptWords.join(" "), scriptWords);
+			for (const at of sources.values())
+				scripts.push(buildScriptSource(cmd.words, at, spans));
 			if (launch) noteTimed(cmd, first, launch);
 		},
 		ctx,
@@ -328,7 +331,13 @@ function decide(command, ctx) {
 	if (detached)
 		fix = stripDetachment(
 			fix,
-			new Map(scripts.flatMap((s) => s.spans.map((i) => [i, spans[i] ?? ""]))),
+			new Map(
+				scripts.flatMap((s) =>
+					s.spanIndices.flatMap((i) =>
+						spans.slice(i, i + 1).map((span) => [i, span]),
+					),
+				),
+			),
 		);
 	fix = putBackHeredocs(trimStart(fix), hold.kept);
 	if (fix === "") {

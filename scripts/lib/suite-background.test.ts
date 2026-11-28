@@ -322,17 +322,23 @@ describe("lib/suite-background.js", () => {
 			(readDenyReason(command).split("\n")[0] ?? "").slice(
 				SNAPSHOT_OPENER.length,
 			);
-		expect(fixOf('flock "npm run test &" -c "npm run test &"')).toBe(
-			'flock "npm run test &" -c "npm run test"',
-		);
-		for (const command of [
-			"watch -n 5 \"npm run test\" 'x & y'",
-			"watch -n 5 npm run test '&' true",
+		for (const [command, fix] of [
+			[
+				'flock "npm run test &" -c "npm run test &"',
+				'flock "npm run test &" -c "npm run test"',
+			],
+			[
+				"watch -n 5 \"npm run test\" 'x & y'",
+				"watch -n 5 \"npm run test\" 'x ; y'",
+			],
+			["watch -n 5 npm run test '&' true", "watch -n 5 npm run test '' true"],
 		]) {
-			const fix = fixOf(command);
-			expect(fix, command).not.toBe(command);
+			expect(fixOf(command), command).toBe(fix);
 			expect(verdict(fix), fix).toBe("allow");
 		}
+		expect(fixOf('timeout -s "KILL" 60 flock /l -c "npm run test &"')).toMatch(
+			/ flock \/l -c "npm run test"$/,
+		);
 	});
 
 	it("reads no detachment in a heredoc, and re-issues its body unchanged", () => {
