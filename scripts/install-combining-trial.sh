@@ -100,7 +100,7 @@ SYSTEMCTL="${WFC_SYSTEMCTL:-systemctl}"
 unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$unit_dir"
 for run in night morning; do
-  # guess, #5804: a night waits up to 5 min for combining on; a morning up to 65 min, then scans
+  # guess, #5907: a night is 3x its wait for combining on; a morning waits up to 65 min, then scans (#5804)
   if [[ "$run" == night ]]; then limit=15min; else limit=3h; fi
   cat >"$unit_dir/combining-trial-$run.service" <<UNIT
 [Unit]

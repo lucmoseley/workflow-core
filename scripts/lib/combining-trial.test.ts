@@ -96,6 +96,7 @@ describe("runNight", () => {
 			},
 		});
 		expect(runNight(f.ports)).toBe(1);
+		expect(f.calls).toEqual([`start ${TASKS.on}`]);
 	});
 });
 
@@ -129,6 +130,21 @@ describe("runMorning", () => {
 		expect(runMorning(f.ports)).toBe(1);
 		expect(f.calls.filter((c) => c === "hold").length).toBeGreaterThan(2);
 		expect(f.calls.at(-1)).toBe("release");
+	});
+
+	it("still dumps and turns combining off where launches cannot be held", () => {
+		const f = fake({
+			start: "2026-11-28T07:00:00",
+			combining: [ON],
+			holdError: "refill-loop refused",
+			writes: {
+				[TASKS.dump]: ["dumps.log", DUMP],
+				[TASKS.off]: ["combining.log", OFF],
+			},
+		});
+		expect(runMorning(f.ports)).toBe(0);
+		expect(f.calls).toContain(`start ${TASKS.dump}`);
+		expect(f.calls).toContain(`start ${TASKS.off}`);
 	});
 
 	it("holds nothing on a morning after a night with combining off", () => {
