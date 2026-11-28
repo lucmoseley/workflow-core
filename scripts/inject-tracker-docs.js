@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5865
 const { readFdAll } = require("./lib/read-fd.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { injectTrackerDocs } = require("./lib/inject-tracker-docs.js");

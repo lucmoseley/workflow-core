@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// #5661
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
 const { caught } = require("./lib/caught.js");

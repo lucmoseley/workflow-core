@@ -538,6 +538,27 @@ const GATES = [
 		floor: true,
 	},
 	{
+		id: "family-contracts",
+		script: "scripts/check-family-contracts.js",
+		lander: "batch",
+		args: ["--index"],
+		arm: {
+			pattern:
+				/^(scripts\/[^/]+\.[cm]?js|hooks\/hooks\.json|\.claude\/settings\.json)$/,
+		},
+		policy: "gate",
+		kind: "checker",
+		staged: "scripts/a.js",
+		refusals: ["family-contract breach(es)"],
+		notice: {
+			scope:
+				"every top-level scripts/ program keeping a family's contract outside its prefix",
+			cite: "(#5844)",
+			cost: "refuses every other session's commit staging a top-level scripts/ program until that program takes the family's prefix or opens on its ruling issue",
+		},
+		floor: true,
+	},
+	{
 		id: "program-output",
 		script: "scripts/check-program-output.js",
 		lander: "batch",
