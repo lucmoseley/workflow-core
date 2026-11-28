@@ -190,7 +190,7 @@ describe("planStaleRun: selection", () => {
 		expect(p.lines).toEqual([]);
 	});
 
-	it("lists a container's line and not the container in another class", () => {
+	it("lists no line for a container with an open child, in any class", () => {
 		const p = plan([
 			repo({
 				frontier: [1],
@@ -204,7 +204,7 @@ describe("planStaleRun: selection", () => {
 				checkFindings: [{ tag: "NO-TAKES", number: 1 }],
 			}),
 		]);
-		expect(texts(p)).toEqual(["o/r#1 container held by 1 open child: o/r#2"]);
+		expect(p.lines).toEqual([]);
 	});
 });
 
@@ -858,6 +858,24 @@ describe("planStaleRun: filings", () => {
 			},
 		]);
 		expect(two.filings[0].body).toContain("o/q#5 NO-TAKES");
+	});
+
+	it("files nothing for two containers with open children, across repos, unlike two NO-TAKES issues (#5911)", () => {
+		const parent = (n: number) =>
+			issue(n, {
+				labels: ["takes:children"],
+				subIssues: [{ repo: null, number: n + 1, state: "open" }],
+			});
+		const p = plan([
+			repo({ issues: [parent(1), issue(2, { createdAt: daysAgo(2) })] }),
+			repo({
+				root: "/h/q",
+				tracker: "o/q",
+				issues: [parent(5), issue(6, { createdAt: daysAgo(2) })],
+			}),
+		]);
+		expect(p.lines).toEqual([]);
+		expect(p.filings).toEqual([]);
 	});
 
 	it("files the same title on a second run, so fileOrRefresh refreshes it", () => {
