@@ -8,14 +8,14 @@ const {
 	KILLED_EXIT,
 	isRunnerFailure,
 } = require("./run-budgeted.js");
-const { caught } = require("./caught.js");
 const { now: clockNow } = require("./clock.js");
+const { parseErrorFirstLine } = require("./first-line.js");
 const { docPath, isCoreRepo, scriptPath } = require("./script-path");
 const {
 	BOUND_DAYS,
 	MIN_REFUSE_DAYS,
-	project,
-	readCounts,
+	judgeBound,
+	parseCounts,
 	readHistory,
 	reachableFloor,
 	recordReading,
@@ -178,7 +178,7 @@ function classifyExit(r, { out, err, timeoutMs, elapsedMs }) {
 function parseVerdict(reading) {
 	if (/^[ \t]*unmet\b/im.test(reading)) return "unmet";
 	if (/^[ \t]*met\b/im.test(reading)) return "met";
-	const counts = readCounts(reading);
+	const counts = parseCounts(reading);
 	if (counts.length === 0) return null;
 	return counts.every(({ a, b }) => a >= b) ? "met" : "unmet";
 }
@@ -582,28 +582,6 @@ function addedCheckVerdict(
 	return { refusals, warnings };
 }
 
-const FOUNDER_ROUND_RE = /#\d+\s+Q\d+\b/;
-const PASS_CLAUSE_RE = /\bpass\s*=([^;]*)/i;
-const STATED_TIME_RES = [
-	/\((?:about\s+)?(\d+(?:\.\d+)?)\s+(days?|weeks?)\s+at\b/gi,
-	/\babout\s+(\d+(?:\.\d+)?)\s+(days?|weeks?)\b/gi,
-];
-
-/**
- * #5861
- * @param {string} basis
- * @returns {number|null}
- */
-function parseStatedDays(basis) {
-	const pass = PASS_CLAUSE_RE.exec(basis)?.[1] ?? "";
-	const days = STATED_TIME_RES.flatMap((re) =>
-		[...pass.matchAll(re)].map(
-			([, n, unit]) => Number(n) * (/^w/i.test(unit ?? "") ? 7 : 1),
-		),
-	);
-	return days.length > 0 ? Math.max(...days) : null;
-}
-
 /** @param {number} n */
 const roundTo = (n) => Number(n.toFixed(2));
 
@@ -621,7 +599,6 @@ const BOUND_CITE = `the ${BOUND_DAYS}-day bound (#5687 Q1: "Nothing should need 
  */
 
 /**
- * #5861
  * @param {string} line
  * @param {string} after
  * @param {string} command
@@ -637,7 +614,6 @@ const buildHistoryGate = (line, after, command, { repo, issue, now }) => ({
 });
 
 /**
- * #5861
  * @param {HistoryGate} gate
  * @param {string|null} reading
  * @returns {{rows: import("./gate-projection.js").HistoryRow[],
@@ -646,13 +622,12 @@ const buildHistoryGate = (line, after, command, { repo, issue, now }) => ({
 function readGateHistory(gate, reading) {
 	const rows = readHistory(gate);
 	const latest = (rows.at(-1)?.counts ?? []).map(({ a, b }) => ({ a, b }));
-	const counts = reading === null ? latest : readCounts(reading);
+	const counts = reading === null ? latest : parseCounts(reading);
 	const shown = reading ?? counts.map(({ a, b }) => `${a} of ${b}`).join(", ");
 	return { rows, counts, shown };
 }
 
 /**
- * #5861
  * @param {HistoryGate} gate
  * @param {string|null} reading
  * @param {{refusals: string[], warnings: string[]}} verdict
@@ -663,7 +638,7 @@ function projectGate(gate, reading, { refusals, warnings }) {
 		history = readGateHistory(gate, reading);
 	} catch (e) {
 		warnings.push(
-			`The gate history could not be read (${caught(e).message.split("\n")[0]}), so the count gate \`${gate.command}\` was not projected.`,
+			`The gate history could not be read (${parseErrorFirstLine(e)}), so the count gate \`${gate.command}\` was not projected.`,
 		);
 		return;
 	}
@@ -675,22 +650,18 @@ function projectGate(gate, reading, { refusals, warnings }) {
 			);
 	}
 	const { rows, counts, shown } = history;
-	if (counts.length === 0 || FOUNDER_ROUND_RE.test(gate.basis)) return;
-	const p = project(rows, counts, gate.now);
-	if (p.verdict === "met") return;
-	if (p.verdict !== "no-history" && p.spanDays >= MIN_REFUSE_DAYS) {
-		if (p.verdict === "unreachable")
-			refusals.push(buildUnreachableRefusal(gate.command, shown, p));
-		return;
-	}
-	const stated = parseStatedDays(gate.basis);
-	if (stated === null)
+	const bound = judgeBound(rows, counts, gate.basis, gate.now);
+	if (bound.verdict === "unreachable")
+		refusals.push(
+			buildUnreachableRefusal(gate.command, shown, bound.projection),
+		);
+	else if (bound.verdict === "unprojected")
 		warnings.push(
 			`The count gate \`${gate.command}\` has under ${MIN_REFUSE_DAYS} days of reading history and its basis states no expected time, so nothing projects its met date yet; the daily stale-ticket run projects it once it has a day of readings (#5861).`,
 		);
-	else if (stated > BOUND_DAYS)
+	else if (bound.verdict === "stated-past-bound")
 		refusals.push(
-			`the count gate \`${gate.command}\` on the \`**Gated on:**\` line has a \`**Gate basis:**\` whose pass clause expects ${stated} days, past ${BOUND_CITE}. ${WAYS_OUT}. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`,
+			`the count gate \`${gate.command}\` on the \`**Gated on:**\` line has a \`**Gate basis:**\` whose pass clause expects ${bound.days} days, past ${BOUND_CITE}. ${WAYS_OUT}. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue.`,
 		);
 }
 
@@ -719,7 +690,7 @@ function judgeRun(command, where, timeoutMs, { refusals, warnings }) {
 		r = runCheckCommand(command, timeoutMs, where.root, where.env);
 	} catch (e) {
 		warnings.push(
-			`The \`check:\` \`${command}\` could not be run (${caught(e).message.split("\n")[0]}), so nothing says it prints a reading.`,
+			`The \`check:\` \`${command}\` could not be run (${parseErrorFirstLine(e)}), so nothing says it prints a reading.`,
 		);
 		return null;
 	}

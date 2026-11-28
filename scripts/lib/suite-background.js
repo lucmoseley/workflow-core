@@ -1,5 +1,6 @@
 const {
 	carriesVar,
+	isBareSpan,
 	literal,
 	readSentinels,
 	typedWord,
@@ -207,26 +208,56 @@ function putBackHeredocs(s, kept) {
 	return trimEndRun(out, "\n");
 }
 
-/** @param {string} seg @param {string[][]} timeouts */
-function stripTimeout(seg, timeouts) {
+/**
+ * @param {string} seg
+ * @param {[string[], string[]][]} swaps
+ */
+function swapWords(seg, swaps) {
 	const segWords = (seg.split("\n")[0] ?? "").split(/[ \t]+/).filter(Boolean);
 	/** @type {string[] | null} */
 	let kept = segWords;
-	for (const drop of timeouts) kept = kept && without(kept, drop);
+	for (const [drop, put] of swaps) kept = kept && swap(kept, drop, put);
 	if (kept === null) return null;
 	const lead = /^[ \t\n\v\f\r]*/.exec(seg)?.[0] ?? "";
 	const trail = endRun(seg, BASH_SPACE);
 	return lead + kept.join(" ") + trail;
 }
 
-/** @param {string[]} words @param {string[]} drop */
-function without(words, drop) {
+/** @param {string[]} words @param {string[]} drop @param {string[]} put */
+function swap(words, drop, put) {
 	const at = words.findIndex((_, i) =>
 		drop.every((w, j) => words[i + j] === w),
 	);
 	return at < 0
 		? null
-		: [...words.slice(0, at), ...words.slice(at + drop.length)];
+		: [...words.slice(0, at), ...put, ...words.slice(at + drop.length)];
+}
+
+/** @param {string} body */
+const singleQuoted = (body) => `'${body.split("'").join("'\\''")}'`;
+
+const requotedAt = (/** @type {number} */ n) => `\x0e${n}\x0e`;
+
+/** @param {string} text @param {string[]} bodies */
+function putBackRequoted(text, bodies) {
+	let out = text;
+	bodies.forEach((body, n) => {
+		out = out.split(requotedAt(n)).join(singleQuoted(body));
+	});
+	return out;
+}
+
+/** @param {string} quote @param {string} body @param {string} untimed */
+function fitsQuote(quote, body, untimed) {
+	const live = quote === "'" ? "'" : '"\\$`';
+	const had = [...body].filter((c) => live.includes(c));
+	let at = 0;
+	for (const c of untimed)
+		if (live.includes(c)) {
+			at = had.indexOf(c, at) + 1;
+			if (at === 0) return false;
+		}
+	return true;
 }
 
 /** @param {boolean} snapshot */
@@ -246,27 +277,33 @@ const PARENT_SNAPSHOT_OVERRUN = `keep working on independent work; with none lef
 const TIMED_TEXT = `This suite is WRAPPED IN A SHELL \`timeout\`, which kills it with no result and no pass/fail marker when the clock runs out — and the clock counts time spent waiting in the \`--queue\` too. The Bash tool's own timeout does not kill it: an overrun is moved to the background and notifies, and you ${WAIT_SLOT} If guard-suite-concurrency refuses the re-issue, take its corrected command. A run naming its own test files is not refused. Genuinely need the shell timeout? Prefix the command with \`WFC_SUITE_TIMEOUT=1\`.`;
 
 /**
- * @param {string} command
- * @param {Ctx} ctx
- * @returns {import("./guard-entry.js").Decision}
+ * @typedef {object} Timed
+ * @property {string} from
+ * @property {string} to
+ * @property {number[]} dropped
+ * @property {Map<number, string>} respanned
+ * @typedef {{ run: import("./shell-words.js").Unwrapped, wordIndices: number[] }} ScriptRun
+ * @typedef {{ respan: number, span: string } | { requote: string[], body: string }} ScriptFix
  */
-function decide(command, ctx) {
-	const parsed = parseCommand(command);
+
+/**
+ * @param {import("./shell-parse.js").Parsed} parsed
+ * @param {Ctx} ctx
+ * @param {import("./suite-launch.js").LaunchPorts} launchPorts
+ */
+function readLaunches(parsed, ctx, launchPorts) {
 	const { spans } = parsed;
 	/** @param {string} w */
 	const typed = (w) => typedWord(w, spans);
-	/** @type {import("./suite-launch.js").LaunchPorts} */
-	const launchPorts = {
-		runners: ctx.runners,
-		isWrapperScript: buildIsWrapperScript(ctx.tree, ctx.log),
-	};
 	let foundSuite = false;
 	let escaped = false;
 	let snapshot = true;
-	/** @type {{ from: string, to: string, dropped: number[] }[]} */
+	/** @type {Timed[]} */
 	const timed = [];
 	/** @type {ScriptSource[]} */
 	const scripts = [];
+	/** @type {string[]} */
+	const requoted = [];
 	/**
 	 * @param {string[]} leading
 	 * @param {import("./shell-words.js").Unwrapped} run
@@ -284,67 +321,243 @@ function decide(command, ctx) {
 	 * @param {import("./shell-words.js").Unwrapped} first
 	 * @param {import("./suite-launch.js").Launch} launch
 	 */
-	const noteTimed = (cmd, { words, wrapperWords, typedWrappers }, launch) => {
-		const timeouts = typedWrappers
+	const typedTimeouts = (
+		cmd,
+		{ words, wrapperWords, typedWrappers },
+		launch,
+	) => {
+		if (!isUnbounded(launch, words, spans)) return [];
+		if (carriesVar("WFC_SUITE_TIMEOUT", cmd.leading, wrapperWords)) return [];
+		return typedWrappers
 			.map((at) => at.map((i) => cmd.words[i] ?? ""))
 			.filter(([w = ""]) => afterSlash(literal(w, spans).text) === "timeout");
-		if (timeouts.length === 0 || !isUnbounded(launch, words, spans)) return;
-		if (carriesVar("WFC_SUITE_TIMEOUT", cmd.leading, wrapperWords)) return;
-		let stripped = stripTimeout(cmd.segment, timeouts);
-		let dropped = timeouts.flat().flatMap(spanIndicesIn);
-		if (stripped === null) {
-			ctx.log(
-				"stripTimeout could not place the wrappers — the deny re-issues the segment as typed",
+	};
+	/**
+	 * @param {import("./shell-parse.js").Command} cmd
+	 * @param {ScriptRun} script
+	 * @returns {ScriptFix | null}
+	 */
+	const buildScriptFix = (cmd, { run, wordIndices }) => {
+		if (carriesVar("WFC_SUITE_TIMEOUT", cmd.leading, run.wrapperWords))
+			return null;
+		const words = wordIndices.flatMap((i) => cmd.words.slice(i, i + 1));
+		const literals = words.map((w) => literal(w, spans));
+		const body = literals.map((l) => l.text).join(" ");
+		const inner = readLaunches(parseCommand(body), ctx, launchPorts);
+		if (inner.timed.length === 0) return null;
+		const untimed = putBackRequoted(
+			applyTimed(body, inner.timed, spanShift(inner.timed)),
+			inner.requoted,
+		);
+		const inPlace = respanFix(words, spans, body, untimed);
+		if (inPlace) return inPlace;
+		if (literals.every((l) => l.known))
+			return { requote: words, body: untimed };
+		ctx.log(
+			"the timed script carries an expansion the re-issue cannot re-quote — its launch is left unjudged",
+		);
+		return null;
+	};
+	/**
+	 * @param {import("./shell-parse.js").Command} cmd
+	 * @param {string[][]} timeouts
+	 * @param {ScriptFix[]} fixes
+	 */
+	const noteTimed = (cmd, timeouts, fixes) => {
+		let segment = cmd.segment;
+		/** @type {number[]} */
+		const dropped = [];
+		/** @type {Map<number, string>} */
+		const respanned = new Map();
+		/** @param {[string[], string[]][]} swaps @param {string[]} gone */
+		const rewrite = (swaps, gone) => {
+			const swapped = swapWords(segment, swaps);
+			if (swapped === null) {
+				ctx.log(
+					"swapWords could not place the words — the deny re-issues them as typed",
+				);
+				return false;
+			}
+			segment = swapped;
+			dropped.push(...gone.flatMap(spanIndicesIn));
+			return true;
+		};
+		if (timeouts.length > 0)
+			rewrite(
+				timeouts.map((t) => [t, []]),
+				timeouts.flat(),
 			);
-			stripped = cmd.segment;
-			dropped = [];
-		}
+		for (const fix of fixes)
+			if ("respan" in fix) respanned.set(fix.respan, fix.span);
+			else if (
+				rewrite([[fix.requote, [requotedAt(requoted.length)]]], fix.requote)
+			)
+				requoted.push(fix.body);
 		timed.push({
-			from: asWritten(cmd.segment, spans),
-			to: asWritten(stripped, spans),
+			...beforeSubstitution(
+				asWritten(cmd.segment, spans),
+				asWritten(segment, spans),
+			),
 			dropped,
+			respanned,
 		});
 	};
 	walkCommands(
 		parsed,
 		(cmd) => {
 			const [first, ...later] = cmd.runs();
-			const launched = later.filter((run) => noteLaunch(cmd.leading, run));
-			const launch =
-				first.words.length === 0 ? null : noteLaunch(cmd.leading, first);
-			if (launch) launched.push(first);
-			/** @type {Map<string, number[]>} */
-			const scriptWordLists = new Map();
-			for (const { scriptWords } of launched)
-				if (scriptWords)
-					scriptWordLists.set(scriptWords.join(" "), scriptWords);
-			for (const wordIndices of scriptWordLists.values())
+			/** @type {{ run: import("./shell-words.js").Unwrapped, launch: import("./suite-launch.js").Launch }[]} */
+			const launches = [];
+			for (const run of first.words.length === 0 ? later : [first, ...later]) {
+				const launch = noteLaunch(cmd.leading, run);
+				if (launch) launches.push({ run, launch });
+			}
+			const scriptRuns = distinctScripts(launches.map(({ run }) => run));
+			for (const { wordIndices } of scriptRuns)
 				scripts.push(buildScriptSource(cmd.words, wordIndices, spans));
-			if (launch) noteTimed(cmd, first, launch);
+			const [timeouts = []] = launches
+				.map(({ run, launch }) => typedTimeouts(cmd, run, launch))
+				.filter((t) => t.length > 0);
+			const fixes = scriptRuns.flatMap((script) => {
+				const fix = buildScriptFix(cmd, script);
+				return fix ? [fix] : [];
+			});
+			if (timeouts.length > 0 || fixes.length > 0)
+				noteTimed(cmd, timeouts, fixes);
 		},
 		ctx,
 	);
+	return { foundSuite, escaped, snapshot, timed, scripts, requoted };
+}
+
+// #5882
+/** @param {string} from @param {string} to */
+const beforeSubstitution = (from, to) =>
+	from.length > 1 && from.endsWith("$") && to.endsWith("$")
+		? { from: from.slice(0, -1), to: to.slice(0, -1) }
+		: { from, to };
+
+/** @param {import("./shell-words.js").Unwrapped[]} runs @returns {ScriptRun[]} */
+function distinctScripts(runs) {
+	/** @type {Map<string, ScriptRun>} */
+	const byWords = new Map();
+	for (const run of runs) {
+		const { scriptWords } = run;
+		if (scriptWords === null) continue;
+		const key = scriptWords.join(" ");
+		if (!byWords.has(key)) byWords.set(key, { run, wordIndices: scriptWords });
+	}
+	return [...byWords.values()];
+}
+
+/**
+ * @param {string} word
+ * @param {string[]} spans
+ * @returns {number | null}
+ */
+function soleQuotedSpanIndex(word, spans) {
+	let bare = "";
+	/** @type {number[]} */
+	const found = [];
+	const { rest } = readSentinels(word, (lit, idx) => {
+		bare += lit;
+		const span = idx === null ? undefined : spans[idx];
+		if (idx !== null && span !== undefined && !isBareSpan(span))
+			found.push(idx);
+		return { text: "", stepPast: true };
+	});
+	const [only, ...more] = found;
+	return bare === "" && rest === "" && more.length === 0
+		? (only ?? null)
+		: null;
+}
+
+/**
+ * @param {string[]} words
+ * @param {string[]} spans
+ * @param {string} body
+ * @param {string} untimed
+ * @returns {{ respan: number, span: string } | null}
+ */
+function respanFix(words, spans, body, untimed) {
+	const [only, ...more] = words;
+	if (only === undefined || more.length > 0) return null;
+	const at = soleQuotedSpanIndex(only, spans);
+	const span = at === null ? undefined : spans[at];
+	if (at === null || span === undefined || span.slice(1) !== body) return null;
+	const quote = span.charAt(0);
+	return fitsQuote(quote, body, untimed)
+		? { respan: at, span: quote + untimed }
+		: null;
+}
+
+/**
+ * @typedef {{ indexAfterDrops: (i: number) => number, respanned: Map<number, string> }} SpanShift
+ * @param {Timed[]} timed
+ * @returns {SpanShift}
+ */
+function spanShift(timed) {
+	const dropped = timed.flatMap((t) => t.dropped);
+	/** @param {number} i */
+	const indexAfterDrops = (i) => i - dropped.filter((d) => d < i).length;
+	/** @type {Map<number, string>} */
+	const respanned = new Map();
+	for (const t of timed)
+		for (const [i, span] of t.respanned)
+			respanned.set(indexAfterDrops(i), span);
+	return { indexAfterDrops, respanned };
+}
+
+/** @param {string} text @param {Timed[]} timed @param {SpanShift} shift */
+function applyTimed(text, timed, { respanned }) {
+	let fix = text;
+	for (const { from, to } of timed) fix = fix.split(from).join(to);
+	if (respanned.size === 0) return fix;
+	const { masked, spans } = maskQuotes(fix);
+	return asWritten(
+		masked,
+		spans.map((span, i) => respanned.get(i) ?? span),
+	);
+}
+
+/**
+ * @param {string} command
+ * @param {Ctx} ctx
+ * @returns {import("./guard-entry.js").Decision}
+ */
+function decide(command, ctx) {
+	const parsed = parseCommand(command);
+	const { spans } = parsed;
+	const { foundSuite, escaped, snapshot, timed, scripts, requoted } =
+		readLaunches(parsed, ctx, {
+			runners: ctx.runners,
+			isWrapperScript: buildIsWrapperScript(ctx.tree, ctx.log),
+		});
 	const hold = holdHeredocs(command, parsed.heredocLines);
 	const detached = foundSuite && !escaped && hasDetachedRun(hold.text, scripts);
 	if (!detached && timed.length === 0) return null;
 
-	let fix = hold.text;
-	for (const { from, to } of timed)
-		if (from !== "") fix = fix.split(from).join(to);
-	const dropped = timed.flatMap((t) => t.dropped);
-	/** @param {number} i */
-	const afterTimed = (i) => i - dropped.filter((d) => d < i).length;
+	const shift = spanShift(timed);
+	const { indexAfterDrops, respanned } = shift;
+	let fix = applyTimed(hold.text, timed, shift);
 	if (detached)
 		fix = stripDetachment(
 			fix,
 			new Map(
 				scripts.flatMap((s) =>
-					s.spanIndices.flatMap((i) =>
-						spans.slice(i, i + 1).map((span) => [afterTimed(i), span]),
-					),
+					s.spanIndices.flatMap((i) => {
+						const at = indexAfterDrops(i);
+						return spans
+							.slice(i, i + 1)
+							.map((span) => [at, respanned.get(at) ?? span]);
+					}),
 				),
 			),
 		);
+	fix = putBackRequoted(
+		fix,
+		detached ? requoted.map((body) => stripDetachment(body)) : requoted,
+	);
 	fix = putBackHeredocs(trimStart(fix), hold.kept);
 	if (fix === "") {
 		ctx.log(

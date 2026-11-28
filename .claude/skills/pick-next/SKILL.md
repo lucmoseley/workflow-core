@@ -110,13 +110,14 @@ report leaves the previous one untouched.
 `--json` prints that same report. The sort levels, in order:
 open `bug` → `urgent` (#2664, #3250) → goal-set membership → a `waiting:external` stall past 7 days →
 ticket type (`wayfinder:grilling`, `wayfinder:prototype` and untyped
-`takes:wayfinder` first, #2001) → chain depth plus CLOSES → transitive downstream reach →
+`takes:wayfinder` first, #2001) → chain depth plus CLOSES plus AGE → transitive downstream reach →
 collision estimate → issue number. The first three pass to an issue from
 anything it holds out, as a blocker or as a child, so a blocker ranks with the
 urgent issue it holds and a child with its urgent parent
 (#3222); DEPTH is the longest chain to that tier. DEPTH and REACH count each
 open ancestor, and CLOSES the ancestors that close with the issue, each its
-parent's only open child (#3613).
+parent's only open child (#3613). AGE is the issue's own full weeks since
+`createdAt`, blank in the table at 0 (#5880).
 
 The **GOAL** column reads `yes` for a goal-set member and `via` for an issue
 holding one out (#3222).

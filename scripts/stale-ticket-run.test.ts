@@ -1,4 +1,5 @@
 // @vitest-environment node
+// #5872
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -9,8 +10,9 @@ import { runInProcessAsync } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "stale-ticket-run.js");
 const DAY_MS = 86_400_000;
+const NOW = "2026-11-28T06:00:00.000Z";
 const ago = (days: number) =>
-	new Date(Date.now() - days * DAY_MS).toISOString();
+	new Date(Date.parse(NOW) - days * DAY_MS).toISOString();
 const GATED =
 	"**Gated on:** #8 closes — check: `true` — abandon if: never\n**Gate basis:** basis\n";
 
@@ -51,9 +53,55 @@ const ISSUES = [
 		"**Gated on:** the sky turns green — check: `true` — abandon if: never\n**Gate basis:** basis\n",
 		["takes:implement"],
 	),
+	raw(6, "A ticket with no takes label", "", []),
 ];
 
-function writeStub() {
+interface Route {
+	is?: string;
+	when?: string;
+	cwd?: string;
+	out?: string;
+	fail?: boolean;
+}
+
+const ENVELOPES: Record<string, unknown> = {
+	"pick-next.js": {
+		frontier: [],
+		pulledIn: [],
+		pulledInUnread: [],
+		conflictGraph: { candidates: [], inFlight: [] },
+	},
+	"check-gates.js": {
+		rows: [{ number: 4, state: "NO-OUTPUT", reading: "", closed: false }],
+	},
+	"check-issue-labels.js": {
+		findings: [
+			{
+				severity: "FAIL",
+				tag: "NO-TAKES",
+				message: "no takes: label",
+				number: 6,
+			},
+		],
+	},
+	"check-open-maps.js": { findings: [] },
+	"check-issue-orphans.js": { findings: [] },
+	"retire-stale-containers.js": { stale: [] },
+	"check-stale-claims.js": { stale: [] },
+};
+
+function seedChildren() {
+	const children = at("children");
+	fs.mkdirSync(children);
+	for (const [name, envelope] of Object.entries(ENVELOPES))
+		fs.writeFileSync(
+			path.join(children, name),
+			`process.stdout.write(${JSON.stringify(JSON.stringify(envelope))});\n`,
+		);
+	return children;
+}
+
+function writeStub(extra: Route[]) {
 	const list = JSON.stringify([ISSUES]);
 	const routes = [
 		{
@@ -71,7 +119,7 @@ function writeStub() {
 		{ when: "issue create", out: "https://github.com/o/core/issues/77" },
 		{ when: "--slurp", out: "[]" },
 	];
-	fs.writeFileSync(at("routes.json"), JSON.stringify(routes));
+	fs.writeFileSync(at("routes.json"), JSON.stringify([...extra, ...routes]));
 	const stub = at("gh");
 	fs.writeFileSync(
 		stub,
@@ -82,6 +130,10 @@ fs.appendFileSync(${JSON.stringify(at("gh.log"))}, argv + "\\n");
 const hit = JSON.parse(fs.readFileSync(${JSON.stringify(at("routes.json"))}, "utf8")).find(
 	(r) => (r.is ? argv === r.is : argv.includes(r.when)) && (!r.cwd || process.cwd().endsWith(r.cwd)),
 );
+if (hit && hit.fail) {
+	process.stderr.write("gh refused\\n");
+	process.exit(1);
+}
 process.stdout.write(hit ? hit.out + "\\n" : argv.includes("--json") ? "[]\\n" : "");
 `,
 	);
@@ -89,18 +141,23 @@ process.stdout.write(hit ? hit.out + "\\n" : argv.includes("--json") ? "[]\\n" :
 	return stub;
 }
 
-async function run(args: string[]) {
+async function run(
+	args: string[],
+	{ real = false, routes = [] }: { real?: boolean; routes?: Route[] } = {},
+) {
 	const issueBody = fakeIssueBody(dir, GATED);
 	const core = at("home", "core");
 	const r = await runInProcessAsync(SCRIPT, args, {
 		cwd: core,
 		env: {
 			...process.env,
+			...(real ? {} : { WFC_STALE_RUN_CHILDREN: seedChildren() }),
+			WFC_NOW: NOW,
 			HOME: at("home"),
 			CLAUDE_PROJECT_DIR: core,
 			WFC_REPO_ROOT: core,
 			WFC_REFILL_DIR: at("refill"),
-			WFC_GH: writeStub(),
+			WFC_GH: writeStub(routes),
 			WFC_ISSUE_BODY: issueBody.script,
 		},
 	});
@@ -120,8 +177,8 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 describe("stale-ticket-run", () => {
-	it("prints a repo line per tracker and writes nothing on a dry run", async () => {
-		const r = await run(["--dry-run"]);
+	it("prints a repo line per tracker and writes nothing on a dry run, its children run for real", async () => {
+		const r = await run(["--dry-run"], { real: true });
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/^o\/a: \d+ takeable, oldest \d+ d, /m);
@@ -129,6 +186,7 @@ describe("stale-ticket-run", () => {
 		expect(r.stdout).toContain("would: cleared: o/a#2 gated on o/a#8");
 		expect(r.stdout).toMatch(/^C1 {2}o\/a#4 gate NO-OUTPUT/m);
 		expect(r.stdout).not.toMatch(/o\/a#2 gate /);
+		expect(r.stdout).toMatch(/^C5 {2}o\/a#6 NO-TAKES/m);
 		expect(r.stdout).toContain("hub: refresh");
 		expect(r.log).not.toMatch(/issue (comment|create|close|edit)/);
 		expect(r.issueBody.calls()).toEqual([]);
@@ -145,6 +203,9 @@ describe("stale-ticket-run", () => {
 		expect(r.log).toContain("issue create");
 		expect(r.log).toContain("Stale tickets: daily report");
 		expect(r.log).toContain("--label origin:stale-run --label takes:triage");
+		expect(r.log).toMatch(
+			/label create origin:stale-run --repo o\/core --color EDEDED .* --force/,
+		);
 		const rows = fs.readFileSync(record(), "utf8").trim().split("\n");
 		expect(rows).toHaveLength(1);
 		const row = JSON.parse(rows[0]);
@@ -152,7 +213,36 @@ describe("stale-ticket-run", () => {
 			"cleared: o/a#2 gated on o/a#8, which has closed",
 		]);
 		expect(row.repoLines).toHaveLength(2);
-		expect(row.listed.map((l: { key: string }) => l.key)).toEqual(["o/a#4:C1"]);
+		expect(row.listed.map((l: { key: string }) => l.key)).toEqual([
+			"o/a#4:C1",
+			"o/a#6:C5",
+		]);
 		expect(row.hub.number).toBe(77);
+	});
+
+	it("warns of a failed act, records only the acts that landed, and still files the hub", async () => {
+		const r = await run([], {
+			routes: [{ when: "issue view 2 --repo o/a --json body", fail: true }],
+		});
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain(
+			"cleared: o/a#2 gated on o/a#8, which has closed — failed:",
+		);
+		const row = JSON.parse(fs.readFileSync(record(), "utf8").trim());
+		expect(row.acts).toEqual([]);
+		expect(row.hub.number).toBe(77);
+	});
+
+	it("exits 1 when the host checkout resolves no tracker", async () => {
+		fs.writeFileSync(at("home", "core", ".claude", "workflow-core.json"), "{}");
+		const r = await run(["--dry-run"]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("stale-ticket run: no tracker resolves for");
+	});
+
+	it("refuses an unknown argument", async () => {
+		const r = await run(["--bogus"]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("usage: node");
 	});
 });

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { parseOrExit } = require("./lib/cli-args.js");
+const { now } = require("./lib/clock.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { STAMP_ALARM_DAYS } = require("./lib/stale-run-plan.js");
 const {
@@ -49,7 +50,7 @@ function main() {
 		usage: USAGE,
 		flags: { "--dry-run": "boolean" },
 	});
-	const fault = readFault(Date.now());
+	const fault = readFault(now());
 	if (fault === null) {
 		writeFd(1, "The stale-ticket run's record is current: nothing filed.\n");
 		return;
@@ -63,12 +64,14 @@ function main() {
 	}
 	writeFd(
 		1,
-		`${fault}. ${fileOrRefresh({
-			title: TITLE,
-			labels: [originLabel("repo-checks-script")],
-			takes: LABEL,
-			body: buildBody(fault),
-		})}\n`,
+		`${fault}. ${
+			fileOrRefresh({
+				title: TITLE,
+				labels: [originLabel("repo-checks-script")],
+				takes: LABEL,
+				body: buildBody(fault),
+			}).text
+		}\n`,
 	);
 }
 

@@ -234,18 +234,20 @@ function main({ flags, positionals }) {
 		const takes = takesNow(overCap);
 		writeFd(
 			1,
-			`${fileOrRefresh({
-				title: TITLE,
-				label: LABEL,
-				labels: [LABEL],
-				takes,
-				body: body(words, overCap, {
-					entries,
-					rate,
-					births: readSectionBBirths(mapPath),
-					malformedMarkers: malformedExemptionMarkers(text),
-				}),
-			})}\n`,
+			`${
+				fileOrRefresh({
+					title: TITLE,
+					label: LABEL,
+					labels: [LABEL],
+					takes,
+					body: body(words, overCap, {
+						entries,
+						rate,
+						births: readSectionBBirths(mapPath),
+						malformedMarkers: malformedExemptionMarkers(text),
+					}),
+				}).text
+			}\n`,
 		);
 	} catch (e) {
 		writeFd(

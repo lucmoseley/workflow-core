@@ -2,6 +2,7 @@
 // #5857
 
 const { parseOrExit } = require("./lib/cli-args.js");
+const { now } = require("./lib/clock.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { DAY_MS, readRows, recordPath } = require("./lib/stale-run-record.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -21,9 +22,7 @@ function main() {
 		return;
 	}
 	const first = readRows(recordPath())?.[0];
-	const age = first
-		? Math.floor((Date.now() - Date.parse(first.date)) / DAY_MS)
-		: 0;
+	const age = first ? Math.floor((now() - Date.parse(first.date)) / DAY_MS) : 0;
 	writeFd(
 		1,
 		`${age} of ${days} days${first ? ` since the stale-ticket run's first row, ${first.date}` : ": no stale-ticket run is recorded yet"}\n`,

@@ -96,7 +96,7 @@ describe("the reading", () => {
 		expect(r.out).toContain("the /triage the refill loop launches");
 	});
 
-	it("adds each count reading to the gate history, and nothing for a reading with no count (#5861)", () => {
+	it("adds each count reading to the gate history, and nothing for a reading with no count", () => {
 		const history = path.join(dir, "gate-history.jsonl");
 		const r = runInProcess(SCRIPT, [], {
 			env: {
