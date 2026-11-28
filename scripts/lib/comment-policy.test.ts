@@ -75,9 +75,8 @@ describe("the permitted shapes", () => {
 	});
 
 	it("passes a one-line ruled derivation naming the ruling's #N and round", () => {
-		expect(tags("// ruled, #5687 Q1\nconst BOUND_DAYS = 7;\n", "js")).toEqual(
-			[],
-		);
+		for (const line of ["// ruled, #5687 Q1", "// Ruled, #5687 Q1"])
+			expect(tags(`${line}\nconst BOUND_DAYS = 7;\n`, "js")).toEqual([]);
 		for (const line of [
 			"// a week, #5687 Q1",
 			"// ruled, #5687",
