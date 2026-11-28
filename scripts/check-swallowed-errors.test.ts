@@ -1,10 +1,10 @@
 // @vitest-environment node
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	linkedWorktree,
 	registerTempCleanup,
 	stagedRepo,
 	type TempRepo,
@@ -109,12 +109,7 @@ describe("check-swallowed-errors in an adopter", () => {
 describe("check-swallowed-errors in a linked worktree (#5821)", () => {
 	function linked() {
 		const main = repo({}, {}, { "tools/**/*.py": "test" });
-		const wt = path.join(
-			fs.mkdtempSync(path.join(os.tmpdir(), "swallowed-wt-")),
-			"wt",
-		);
-		temps.push(path.dirname(wt));
-		main.git("worktree", "add", "-q", "--detach", wt, "HEAD");
+		const wt = linkedWorktree(main, temps);
 		writeHostConfig(wt, { tracker: "acme/widgets", pythonRoutes: ROUTES });
 		fs.mkdirSync(path.join(wt, "tools"));
 		fs.writeFileSync(path.join(wt, PY), swallow());

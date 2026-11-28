@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
 	adoptWith,
 	CORE,
@@ -749,13 +749,8 @@ describe("init in a fresh repository", () => {
 			);
 		});
 
-		it("takes no sha from another repo's row or another release's (#955)", () => {
-			const { dir } = repo();
-			const configDir = fs.mkdtempSync(
-				path.join(os.tmpdir(), "adopter-config-"),
-			);
-			made.push(configDir);
-			fs.mkdirSync(path.join(configDir, "plugins"), { recursive: true });
+		describe("reading the install sha", () => {
+			let configDir: string;
 			const registry = (rows: object[]) =>
 				fs.writeFileSync(
 					path.join(configDir, "plugins", "installed_plugins.json"),
@@ -764,7 +759,7 @@ describe("init in a fresh repository", () => {
 						plugins: { "workflow-core@workflow-core": rows },
 					}),
 				);
-			const record = () =>
+			const record = (dir: string) =>
 				initIn(
 					{ ...process.env, CLAUDE_CONFIG_DIR: configDir },
 					dir,
@@ -774,29 +769,56 @@ describe("init in a fresh repository", () => {
 					"--marketplace-ref",
 					"v1.1.0",
 				);
-			const ours = {
-				projectPath: dir,
+			const row = (projectPath: string, version: string, sha: string) => ({
+				projectPath,
 				installPath: "/installed",
-				version: "1.1.0",
-				gitCommitSha: "a".repeat(40),
-			};
-			registry([
-				ours,
-				{ ...ours, projectPath: "/elsewhere", gitCommitSha: "e".repeat(40) },
-			]);
-			let r = record();
-			expect(r.status, r.stderr).toBe(0);
-			expect(r.stdout).toContain(
-				`record   url source, ref v1.1.0, HEAD ${"a".repeat(40)}`,
-			);
-			expect(r.stdout).not.toContain("e".repeat(40));
+				version,
+				gitCommitSha: sha.repeat(40),
+			});
+			const reference = (dir: string) =>
+				fs.readFileSync(
+					path.join(dir, ".claude", "workflow-core.reference.md"),
+					"utf8",
+				);
+			beforeEach(() => {
+				configDir = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-config-"));
+				made.push(configDir);
+				fs.mkdirSync(path.join(configDir, "plugins"), { recursive: true });
+			});
 
-			registry([{ ...ours, version: "1.0.0" }]);
-			r = record();
-			expect(r.status, r.stderr).toBe(0);
-			expect(r.stdout).toContain(
-				"record   url source, ref v1.1.0 (sha unknown)",
-			);
+			it("prefers this repo's row and takes no other release's (#955)", () => {
+				let { dir } = repo();
+				registry([row(dir, "1.1.0", "a"), row("/elsewhere", "1.1.0", "e")]);
+				let r = record(dir);
+				expect(r.status, r.stderr).toBe(0);
+				expect(r.stdout).toContain(
+					`record   url source, ref v1.1.0, HEAD ${"a".repeat(40)}`,
+				);
+				expect(r.stdout).not.toContain("e".repeat(40));
+
+				({ dir } = repo());
+				registry([row(dir, "1.0.0", "a"), row("/elsewhere", "1.0.0", "e")]);
+				r = record(dir);
+				expect(r.status, r.stderr).toBe(0);
+				expect(r.stdout).toContain(
+					"record   url source, ref v1.1.0 (sha unknown)",
+				);
+			});
+
+			it("keeps, and prints, the sha a re-render's own file records for the ref (#5826)", () => {
+				const { dir } = repo();
+				registry([row(dir, "1.1.0", "a")]);
+				expect(record(dir).status).toBe(0);
+				registry([row(dir, "1.2.0", "n")]);
+				const r = record(dir);
+				expect(r.status, r.stderr).toBe(0);
+				expect(r.stdout).toContain(
+					`record   url source, ref v1.1.0, HEAD ${"a".repeat(40)}`,
+				);
+				expect(reference(dir)).toContain(
+					`- url source, ref v1.1.0, HEAD ${"a".repeat(40)}`,
+				);
+			});
 		});
 
 		it("prints the same description on the `installed …` line", () => {

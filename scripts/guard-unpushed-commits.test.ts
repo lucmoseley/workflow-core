@@ -19,7 +19,11 @@ import {
 	STEPS,
 	stubProgram,
 } from "./lib/post-commit-testkit";
-import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
+import {
+	linkedWorktree,
+	newRepo,
+	registerTempCleanup,
+} from "./lib/precommit-gate-harness";
 import { commitOverSequencer } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { readStopGuardBlock } from "./lib/stop-guard-testkit";
@@ -507,9 +511,7 @@ describe(".husky/post-commit's record step", () => {
 
 	it("roots a linked worktree's commit at the main worktree too", () => {
 		const repo = hookRepo();
-		const linked = path.join(repo.root, "..", `${path.basename(repo.root)}-wt`);
-		temps.push(linked);
-		repo.git("worktree", "add", "-q", "--detach", linked);
+		const linked = linkedWorktree(repo, temps);
 		const { out } = runStep(linked, { CLAUDE_CODE_SESSION_ID: "s1" });
 		expect(out.trim().endsWith(`@ ${fs.realpathSync(repo.root)}`)).toBe(true);
 	});

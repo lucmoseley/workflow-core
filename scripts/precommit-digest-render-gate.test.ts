@@ -10,6 +10,7 @@ import {
 	cutGateScript,
 	expectFixtureSupplies,
 	gateHead,
+	linkedWorktree,
 	registerTempCleanup,
 	stagedRepo,
 	type TempRepo,
@@ -257,11 +258,8 @@ function pluginTree(checkerFrom: string): string {
 	return dir;
 }
 
-function coreWorktree(git: TempRepo["git"]): string {
-	const parent = fs.mkdtempSync(path.join(os.tmpdir(), "digest-render-wt-"));
-	temps.push(parent);
-	const wt = path.join(parent, "wt");
-	git("worktree", "add", "-q", "--detach", wt);
+function coreWorktree(repo: TempRepo): string {
+	const wt = linkedWorktree(repo, temps);
 	write(wt, DIGEST, "x\n");
 	execFileSync("git", ["add", "--", DIGEST], { cwd: wt });
 	execFileSync("git", ["rm", "-q", "--", GEN], { cwd: wt });
@@ -368,8 +366,9 @@ describe("the digest-render gate in the core", () => {
 	});
 
 	it("still refuses it from a worktree, WFC_PLUGIN_ROOT naming the checkout", () => {
-		const { root, git } = fixture({ checkerExit: 0, committed: TRIPLE });
-		const wt = coreWorktree(git);
+		const repo = fixture({ checkerExit: 0, committed: TRIPLE });
+		const { root } = repo;
+		const wt = coreWorktree(repo);
 
 		const { code, output } = runGate(wt, undefined, root);
 		expect(code).toBe(1);
@@ -472,8 +471,9 @@ describe("mutations of the gate are caught by the cases above", () => {
 	});
 
 	it("treats a core worktree as an adopter when the checkout test is dropped", () => {
-		const { root, git } = fixture({ checkerExit: 0, committed: TRIPLE });
-		const wt = coreWorktree(git);
+		const repo = fixture({ checkerExit: 0, committed: TRIPLE });
+		const { root } = repo;
+		const wt = coreWorktree(repo);
 
 		const mutant = mutate(' && [ "$dr_plugin" != "$dr_canon" ]', "");
 		expect(runGate(wt, mutant, root).code).toBe(0);

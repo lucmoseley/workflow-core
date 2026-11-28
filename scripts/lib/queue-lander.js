@@ -87,7 +87,7 @@ class TransientFault extends Error {}
  *   | {readonly kind: "leave-withdrawn", readonly name: string,
  *     readonly sha: string}
  *   | {readonly kind: "retake-member", readonly member: Member,
- *     readonly was: string}
+ *     readonly was: string, readonly merged: boolean}
  *   | {readonly kind: "take-waiting", readonly members: readonly Member[]}
  *   | {readonly kind: "drop-member", readonly drop: Drop}
  *   | {readonly kind: "file-fix-ticket", readonly drop: Drop,
@@ -227,6 +227,22 @@ const exit = (reason) => ({ kind: "exit", reason });
 
 const LOCK_HELD = "another lander holds the lock";
 const HELD = "held: ";
+
+/**
+ * @param {Batch} b
+ * @param {QueueState} s
+ */
+function hasNoVerdict(b, s) {
+	if (b.phase === "merging" || b.integration === null) return false;
+	const r = wholeRun(b.integration);
+	return ledgered(s, r) === null && !s.isGreen(r.sha) && !s.isPending(r);
+}
+
+/**
+ * @param {Batch} b
+ * @returns {Batch}
+ */
+const remerged = (b) => ({ ...b, integration: null, phase: "merging" });
 
 /** @param {Batch} b */
 const retakesMoved = (b) => b.phase === "merging";
@@ -981,9 +997,7 @@ function detachAction(s, { line, search }, red) {
 		b.integration === null ? [] : [{ sha: b.integration, slot: b.slot }],
 	);
 	/** @type {Batch[]} */
-	const rebuilt = rest
-		.slice(0, depth)
-		.map((b) => ({ ...b, integration: null, phase: "merging" }));
+	const rebuilt = rest.slice(0, depth).map(remerged);
 	return {
 		kind: "detach",
 		slot: head.slot,
@@ -1046,7 +1060,7 @@ const fastForward = (b, s, sha) =>
  * @returns {Extract<QueueAction, {kind: "retake-member"}>|null}
  */
 function retakeMoved(b, s, members) {
-	if (!retakesMoved(b)) return null;
+	if (!retakesMoved(b) && !hasNoVerdict(b, s)) return null;
 	for (const m of members) {
 		const r = s.queue.find((q) => q.name === m.name);
 		if (r && r.sha !== m.sha)
@@ -1054,6 +1068,7 @@ function retakeMoved(b, s, members) {
 				kind: "retake-member",
 				member: { name: r.name, sha: r.sha, pushedAt: r.pushedAt },
 				was: m.sha,
+				merged: b.phase !== "merging",
 			};
 	}
 	return null;
@@ -1662,12 +1677,7 @@ const retrying = (deps, what) => ({
  * @param {"deferred" | "dropped"} as
  * @returns {Batch}
  */
-const leaveOut = (b, name, as) => ({
-	...b,
-	[as]: [...b[as], name],
-	integration: null,
-	phase: "merging",
-});
+const leaveOut = (b, name, as) => remerged({ ...b, [as]: [...b[as], name] });
 
 /**
  * @param {Batch} b
@@ -2316,22 +2326,22 @@ async function act(deps, action, run) {
 		case "retake-member": {
 			const { member } = action;
 			const b = batchOf(run);
-			const batch = {
+			if (b.integration !== null)
+				dropRunsAt(deps, run, { sha: b.integration, slot: b.slot });
+			const batch = remerged({
 				...b,
 				members: b.members.map((m) => (m.name === member.name ? member : m)),
-			};
+			});
 			record.write(batch);
 			deps.logQueue("take", member);
 			return { ...run, acting: batch, unmerged: null, alone: null };
 		}
 		case "take-waiting": {
 			const b = batchOf(run);
-			const batch = {
+			const batch = remerged({
 				...b,
 				members: [...b.members, ...action.members].sort(byPushOrder),
-				integration: null,
-				phase: /** @type {const} */ ("merging"),
-			};
+			});
 			record.write(batch);
 			for (const m of action.members) deps.logQueue("take", m);
 			return { ...run, acting: batch, unmerged: null, alone: null };
@@ -2833,7 +2843,7 @@ function buildQueueActionLine(a) {
 		case "defer-member":
 			return `defer-member ${queueBranch(a.name)}`;
 		case "retake-member":
-			return `retake-member ${queueBranch(a.member.name)}@${short(a.member.sha)}: moved past its snapshot ${short(a.was)} before its batch merged`;
+			return `retake-member ${queueBranch(a.member.name)}@${short(a.member.sha)}: moved past its snapshot ${short(a.was)} before its batch ${a.merged ? "reached a verdict" : "merged"}`;
 		case "take-waiting":
 			return `take-waiting ${a.members.map((m) => `${queueBranch(m.name)}@${short(m.sha)}`).join(", ")}: the batch's base is stale, and a waiting ref may carry the re-anchor`;
 		case "leave-withdrawn":
