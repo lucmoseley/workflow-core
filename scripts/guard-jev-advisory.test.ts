@@ -46,6 +46,7 @@ interface LogLine {
 	why?: string;
 	confidence?: number;
 	fixOrFileConfidence?: number;
+	fixOrFileTold?: boolean;
 	latencyMs?: number;
 	retries?: number;
 	model?: string;
@@ -128,7 +129,11 @@ async function answering(
 	return { base, asks };
 }
 
-async function run(text: string, env: NodeJS.ProcessEnv = {}) {
+async function run(
+	text: string,
+	env: NodeJS.ProcessEnv = {},
+	payload: Record<string, unknown> = {},
+) {
 	const base: NodeJS.ProcessEnv = {
 		...process.env,
 		WFC_REPO_ROOT: dir,
@@ -148,6 +153,7 @@ async function run(text: string, env: NodeJS.ProcessEnv = {}) {
 			session_id: sid,
 			last_assistant_message: text,
 			transcript_path: path.join(dir, "absent.jsonl"),
+			...payload,
 		}),
 		cwd: dir,
 		env: { ...base, ...env },
@@ -1074,7 +1080,7 @@ describe("what the guard emits", () => {
 	});
 });
 
-describe("the fix-or-file shadow question (#5833)", () => {
+describe("the fix-or-file question (#5833)", () => {
 	it("rides the choice question's one call", async () => {
 		const { asks } = await ask(PLAIN, 0.1, {}, 0.8);
 		expect(asks).toHaveLength(1);
@@ -1104,8 +1110,46 @@ describe("the fix-or-file shadow question (#5833)", () => {
 		expect(line).not.toHaveProperty("messageText");
 	});
 
-	it("says nothing to the screen or the session, however high it scores", async () => {
+	function toldBy(res: { stdout: string }): string {
+		if (!res.stdout) return "";
+		return JSON.parse(res.stdout).hookSpecificOutput?.additionalContext ?? "";
+	}
+
+	it("tells the session from 0.8 up, as Stop feedback", async () => {
+		const { res } = await ask(PLAIN, 0.1, {}, 0.8);
+		const out = JSON.parse(res.stdout);
+		expect(out.hookSpecificOutput.hookEventName).toBe("Stop");
+		expect(toldBy(res)).toContain("rule:fix-or-file");
+		expect(out).not.toHaveProperty("systemMessage");
+		expect(readLogLines()[0].fixOrFileTold).toBe(true);
+	});
+
+	it("says nothing below 0.8", async () => {
+		const { res } = await ask(PLAIN, 0.1, {}, 0.79);
+		expect(res.stdout).toBe("");
+		expect(readLogLines()[0]).not.toHaveProperty("fixOrFileTold");
+	});
+
+	it("never tells a turn a Stop hook already continued", async () => {
+		const { base } = await answering(0.1, 0.99);
+		const res = await run(PLAIN, callable(base), { stop_hook_active: true });
+		expect(res.stdout).toBe("");
+		expect(readLogLines()[0].fixOrFileConfidence).toBe(0.99);
+	});
+
+	it("goes quiet once the session's budget is spent", async () => {
+		fs.writeFileSync(
+			marker(`.fix-or-file-told-${sid}`),
+			`${hookBlock.MAX_BLOCKS}\n`,
+		);
 		const { res } = await ask(PLAIN, 0.1, {}, 0.99);
 		expect(res.stdout).toBe("");
+	});
+
+	it("carries the choice flag and the notice in one reply", async () => {
+		const { res } = await ask(PLAIN, 0.9, {}, 0.9);
+		const out = JSON.parse(res.stdout);
+		expect(out.systemMessage).toContain("JEV ADVISORY");
+		expect(toldBy(res)).toContain("rule:fix-or-file");
 	});
 });

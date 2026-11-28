@@ -1728,6 +1728,14 @@
 		"route": null,
 		"consumes": null
 	},
+	"docs/data/fix-or-file-labels-2026-11-28/fresh.jsonl": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "#5833's fresh sample: 2,500 end-of-turn replies, one per transcript, from 35 days of six repos, seed 5833. pA scores #5814's question and pB #5833's sharper one, both on jev. 106 fires at 0.8 or more are blind-judged; the rest are unjudged. No row carries text; the score script fills it in memory from the local transcript its hash matches.",
+		"route": null,
+		"consumes": null
+	},
 	"docs/data/fix-or-file-labels-2026-11-28/labels.jsonl": {
 		"section": "Evidence & data",
 		"class": "source-of-truth",

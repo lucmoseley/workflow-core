@@ -73,6 +73,13 @@ const QUESTIONS = {
 // guess, #5833: the lowest threshold its plan judges at
 const KEEP_LEAVES_TEXT_AT = 0.5;
 
+// #5833
+const FIX_THRESHOLD = 0.8;
+
+const FIX_PREFIX = ".fix-or-file-told-";
+
+const FIX_BUDGET = hookBlock.MAX_BLOCKS;
+
 // guess, #175
 const LOG_CAP_BYTES = 2_097_152;
 
@@ -120,6 +127,17 @@ function advisory(hash) {
 		`node ${scriptPath("status-report.js")} will quote it back with the same command.`
 	);
 }
+
+const FIX_OR_FILE_NOTICE =
+	"FIX OR FILE (rule:fix-or-file) — this reply looks like it names a problem " +
+	"it neither fixed nor recorded on an issue. Fix or file every problem you " +
+	"find, whether or not your task owns it: before the turn ends, fix it, " +
+	"comment on the open issue that owns it, or file it with " +
+	`node ${scriptPath("file-issue.js")} --origin found-in-passing. A problem ` +
+	"named only in a reply is lost, and so is one left to a ticket that has " +
+	"since closed. Where every problem the reply names is already fixed or on " +
+	"an open issue, say which and end the turn: a model raised this, and it " +
+	"can be wrong.";
 
 const OUTAGE_NOTICE =
 	"JEV ADVISORY — the plain-prose choice check could not reach its vendor this " +
@@ -172,8 +190,8 @@ function preflight({ message, sessionId, root }) {
 
 /**
  * @typedef {{outcome: Outcome, why?: string, confidence?: number,
- *   fixOrFileConfidence?: number, latencyMs?: number, retries?: number,
- *   served?: Served}} LineFields
+ *   fixOrFileConfidence?: number, fixOrFileTold?: boolean,
+ *   latencyMs?: number, retries?: number, served?: Served}} LineFields
  */
 
 /**
@@ -202,6 +220,7 @@ function lineFor({ sessionId, message, served, ...fields }) {
 		why: fields.why || undefined,
 		confidence: fields.confidence,
 		fixOrFileConfidence: fields.fixOrFileConfidence,
+		fixOrFileTold: fields.fixOrFileTold || undefined,
 		latencyMs: fields.latencyMs,
 		retries: fields.retries || undefined,
 		...served,
@@ -334,10 +353,11 @@ async function askWithRetries({
 }
 
 /**
- * @param {{sessionId: string, message: string, root: string}} ctx
+ * @param {{sessionId: string, message: string, root: string,
+ *   payload: import("./lib/stop-guard").StopPayload|null}} ctx
  * @returns {Promise<void>}
  */
-async function review({ sessionId, message, root }) {
+async function review({ sessionId, message, root, payload }) {
 	const log = (/** @type {LineFields} */ rest) =>
 		logGate({ root, sessionId, message, ...rest });
 
@@ -363,19 +383,43 @@ async function review({ sessionId, message, root }) {
 	const latencyMs = Date.now() - started;
 	// #171
 	const flagged = probability >= 0.5;
+	const told =
+		payload?.stop_hook_active !== true &&
+		leaves >= FIX_THRESHOLD &&
+		hookBlock.charge({ prefix: FIX_PREFIX, sessionId, max: FIX_BUDGET });
 	log({
 		outcome: flagged ? "flagged" : "clear",
 		confidence: Number(probability.toFixed(2)),
 		fixOrFileConfidence: Number(leaves.toFixed(2)),
+		fixOrFileTold: told,
 		latencyMs,
 		retries,
 		served,
 	});
-	if (
+	const warned =
 		flagged &&
-		hookBlock.charge({ prefix: WARN_PREFIX, sessionId, max: WARN_BUDGET })
-	)
-		say(advisory(digest(message)));
+		hookBlock.charge({ prefix: WARN_PREFIX, sessionId, max: WARN_BUDGET });
+	deliver({
+		systemMessage: warned ? advisory(digest(message)) : undefined,
+		additionalContext: told ? FIX_OR_FILE_NOTICE : undefined,
+	});
+}
+
+/**
+ * @param {{systemMessage?: string, additionalContext?: string}} spec
+ */
+function deliver({ systemMessage, additionalContext }) {
+	if (!systemMessage && !additionalContext) return;
+	process.stdout.write(
+		JSON.stringify({
+			...(systemMessage ? { systemMessage } : {}),
+			...(additionalContext
+				? {
+						hookSpecificOutput: { hookEventName: "Stop", additionalContext },
+					}
+				: {}),
+		}),
+	);
 }
 
 /** @returns {Promise<void>} */
