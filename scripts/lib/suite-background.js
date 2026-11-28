@@ -255,6 +255,7 @@ function stripBare(masked, reread) {
 /** @param {string} s */
 const trimStart = (s) => s.replace(/^[ \t\n\v\f\r]+/, "");
 
+// guess, #5898: past shell-parse.js's STAND_IN_BASE stand-ins
 const HELD_LINE_MARK_BASE = 0xe1_00;
 
 /** @param {string} raw */
