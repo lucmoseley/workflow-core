@@ -95,6 +95,16 @@ const outsidePrefix = (prefix, keeps) => (program, rel, hooked) =>
 		: keeps(program, rel, hooked ?? new Set());
 
 /**
+ * @param {string} prefix
+ * @param {(program: Program, rel: string) => Site[]} breaks
+ * @returns {(program: Program, rel: string) => Site[]}
+ */
+const insidePrefix = (prefix, breaks) => (program, rel) =>
+	path.basename(rel).startsWith(prefix) && !hasOpeningPointer(program.source)
+		? breaks(program, rel)
+		: [];
+
+/**
  * @param {string} contract
  * @param {string} prefix
  */
@@ -126,14 +136,13 @@ const SPEC = heresySpec({
 		},
 		{
 			tag: "FAMILY-CHECK-OFF",
-			sites: ({ source }, rel) =>
-				path.basename(rel).startsWith("check-") &&
-				!hasOpeningPointer(source) &&
-				!RUN_CHECK.test(blankInert(source))
-					? [{ line: 1, text: "no runCheck" }]
-					: [],
+			sites: insidePrefix("check-", ({ source }) =>
+				RUN_CHECK.test(blankInert(source))
+					? []
+					: [{ line: 1, text: "no runCheck" }],
+			),
 			message: (rel, site) =>
-				`${rel}:${site.line} takes the \`check-\` prefix but never gates through runCheck, and opens with no bare #N. Fix: gate through runCheck and its five-outcome alphabet, or open the file with the bare #N of the issue ruling its departure (§N3, §N4).`,
+				`${rel}:${site.line} takes the \`check-\` prefix but never gates through runCheck, and opens with no bare #N. Fix: gate through runCheck and its five-outcome alphabet, or open the file with the bare #N of the issue ruling its departure (§N3, §N4, §G4).`,
 		},
 		{
 			tag: "FAMILY-REPORT",

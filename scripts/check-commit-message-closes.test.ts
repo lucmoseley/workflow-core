@@ -110,6 +110,13 @@ describe("as the hooks run it", () => {
 		},
 	);
 
+	it("refuses a third argument with its usage and exit 2", () => {
+		const r = runInProcess(SCANNER, ["a", "b", "c"]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("at most two arguments.");
+		expect(r.stderr).toContain("usage: node check-commit-message-closes.js");
+	});
+
 	it("refuses an unknown flag with its usage and exit 2, not a stack trace", () => {
 		const r = runInProcess(SCANNER, ["--bogus"]);
 		expect(r.status).toBe(2);

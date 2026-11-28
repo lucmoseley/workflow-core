@@ -111,7 +111,7 @@ describe("check-family-contracts", () => {
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(
-			"scripts/check-x.js:1 takes the `check-` prefix but never gates through runCheck, and opens with no bare #N. Fix: gate through runCheck and its five-outcome alphabet, or open the file with the bare #N of the issue ruling its departure (§N3, §N4).",
+			"scripts/check-x.js:1 takes the `check-` prefix but never gates through runCheck, and opens with no bare #N. Fix: gate through runCheck and its five-outcome alphabet, or open the file with the bare #N of the issue ruling its departure (§N3, §N4, §G4).",
 		);
 	});
 

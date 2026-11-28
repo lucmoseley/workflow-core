@@ -9,6 +9,7 @@ const {
 	routeName,
 	scanRefusal,
 } = require("./commit-route.js");
+const { checkInProcess } = require("./check.js");
 const { readText } = require("./file-read.js");
 const { spawnGitSync } = require("./git.js");
 const { readHookGitDir } = require("./hook-entry.js");
@@ -58,15 +59,19 @@ function readable(file) {
 	}
 }
 
+/** @param {unknown} v */
+const isFunction = (v) => typeof v === "function";
+
 /**
  * @param {string} file
  * @param {string} name
- * @returns {Function}
+ * @param {(value: any) => boolean} [shaped]
+ * @returns {any}
  */
-function exportOf(file, name) {
-	const fn = require(file)[name];
-	if (typeof fn !== "function") throw new Error(`${file} exports no ${name}`);
-	return fn;
+function exportOf(file, name, shaped = isFunction) {
+	const value = require(file)[name];
+	if (!shaped(value)) throw new Error(`${file} exports no ${name}`);
+	return value;
 }
 
 /** @typedef {(opts: { cwd: string, env: NodeJS.ProcessEnv, args?: string[] }) => RowResult} StepProgram */
@@ -113,10 +118,9 @@ async function closingKeyword(ctx) {
 			stdout: "",
 			stderr: `${HOOK}: ${scanner} is missing, so the closing-keyword scan did not run.\n  Refusing rather than passing the message unread (#138).\n`,
 		};
-	const spec = require(scanner).SPEC;
-	if (typeof spec?.run !== "function")
-		throw new Error(`${scanner} exports no SPEC`);
-	const { checkInProcess } = require("./check.js");
+	const spec = /** @type {import("./check.js").CheckSpec} */ (
+		exportOf(scanner, "SPEC", (v) => isFunction(v?.run))
+	);
 	const r = await checkInProcess(spec, [ctx.file, HOOK], { script: scanner });
 	return { ...r, exit: r.exit === 0 ? 0 : 1 };
 }
