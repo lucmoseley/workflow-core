@@ -14,7 +14,7 @@ const { spawnGitSync } = require("./lib/git.js");
 const { globMatches } = require("./lib/pathspec-glob.js");
 const { pythonRouteKind } = require("./lib/python-routes.js");
 const { readConfig } = require("./lib/workflow-core-config.js");
-const { worktreeRoot } = require("./lib/host-root.js");
+const { gitTopLevel } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
 const { scriptPath } = require("./lib/script-path.js");
 
@@ -160,7 +160,7 @@ runCheck({
 	flags: ["--all"],
 	run(/** @type {Ctx} */ ctx) {
 		const isProgram = buildIsProgram(
-			readConfig({ root: worktreeRoot() }).pythonRoutes,
+			readConfig({ root: gitTopLevel(process.cwd()) }).pythonRoutes,
 		);
 		const all = ctx.has("--all");
 		const listed = all

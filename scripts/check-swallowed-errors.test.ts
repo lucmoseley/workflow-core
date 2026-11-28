@@ -104,8 +104,8 @@ describe("check-swallowed-errors in an adopter", () => {
 	});
 });
 
-describe("check-swallowed-errors in a linked worktree", () => {
-	it("reads pythonRoutes from the worktree it checks, not the main checkout's", () => {
+describe("check-swallowed-errors in a linked worktree (#5821)", () => {
+	function linked() {
 		const main = repo({}, {}, { "tools/**/*.py": "test" });
 		const wt = path.join(
 			fs.mkdtempSync(path.join(os.tmpdir(), "swallowed-wt-")),
@@ -117,8 +117,24 @@ describe("check-swallowed-errors in a linked worktree", () => {
 		fs.mkdirSync(path.join(wt, "tools"));
 		fs.writeFileSync(path.join(wt, PY), swallow());
 		main.git("-C", wt, "add", "--", PY);
-		const { code, output } = check({ ...main, root: wt });
-		expect(output).toMatch(/tools\/fetch\.py: `except OSError` in fetch/);
-		expect(code).toBe(1);
-	});
+		return { main, wt };
+	}
+
+	it.each([
+		["the worktree", (_main: string, wt: string) => wt],
+		["the main checkout", (main: string) => main],
+	])(
+		"reads pythonRoutes from the worktree it checks, CLAUDE_PROJECT_DIR on %s",
+		(_, project) => {
+			const { main, wt } = linked();
+			const run = runInProcess(CHECKER, [], {
+				cwd: wt,
+				env: { ...process.env, CLAUDE_PROJECT_DIR: project(main.root, wt) },
+			});
+			const output = `${run.stdout}${run.stderr}`;
+			expect(output).toMatch(/tools\/fetch\.py: `except OSError` in fetch/);
+			expect(output).toMatch(WAY_OUT);
+			expect(run.status).toBe(1);
+		},
+	);
 });
