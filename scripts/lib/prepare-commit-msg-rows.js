@@ -65,8 +65,8 @@ const isFunction = (v) => typeof v === "function";
 /**
  * @param {string} file
  * @param {string} name
- * @param {(value: any) => boolean} [shaped]
- * @returns {any}
+ * @param {(value: unknown) => boolean} [shaped]
+ * @returns {unknown}
  */
 function exportOf(file, name, shaped = isFunction) {
 	const value = require(file)[name];
@@ -119,7 +119,12 @@ async function closingKeyword(ctx) {
 			stderr: `${HOOK}: ${scanner} is missing, so the closing-keyword scan did not run.\n  Refusing rather than passing the message unread (#138).\n`,
 		};
 	const spec = /** @type {import("./check.js").CheckSpec} */ (
-		exportOf(scanner, "SPEC", (v) => isFunction(v?.run))
+		exportOf(
+			scanner,
+			"SPEC",
+			(v) =>
+				typeof v === "object" && v !== null && "run" in v && isFunction(v.run),
+		)
 	);
 	const r = await checkInProcess(spec, [ctx.file, HOOK], { script: scanner });
 	return { ...r, exit: r.exit === 0 ? 0 : 1 };
