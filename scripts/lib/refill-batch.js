@@ -196,6 +196,7 @@ function readLaunched(batch, calledAt, io) {
 			launchedAt: Date.parse(entry.ts),
 			finishedAt: null,
 			...(l.gate ? { gate: l.gate } : {}),
+			...(l.releaseBump ? { releaseBump: l.releaseBump } : {}),
 			...(sessionId === undefined ? {} : { sessionId }),
 			...limitParksOf(l),
 		});

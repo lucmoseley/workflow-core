@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5865
 
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");

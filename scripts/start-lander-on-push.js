@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5865
 
 const { readSymbolicName } = require("./lib/git-tree.js");
 const { run } = require("./lib/guard-entry.js");

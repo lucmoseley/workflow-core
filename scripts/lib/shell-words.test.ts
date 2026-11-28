@@ -312,11 +312,11 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 			{
 				words: ["npm", "test"],
 				wrapperWords: ["FOO=1"],
-				typedWrappers: [["env"], ["FOO=1"], ["nohup"]],
+				typedWrappers: [[0], [1], [2]],
 				chdirs: [],
 				unread: [],
 				watched: false,
-				scripted: false,
+				scriptWords: null,
 			},
 		]);
 	});
@@ -369,11 +369,11 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		expect(strip("nohup FOO=1 npm test")).toEqual({
 			words: ["FOO=1", "npm", "test"],
 			wrapperWords: [],
-			typedWrappers: [["nohup"]],
+			typedWrappers: [[0]],
 			chdirs: [],
 			unread: [],
 			watched: false,
-			scripted: false,
+			scriptWords: null,
 		});
 	});
 
@@ -381,11 +381,11 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		expect(strip("env A=/x/y FOO=1 npm test")).toEqual({
 			words: ["npm", "test"],
 			wrapperWords: ["A=/x/y", "FOO=1"],
-			typedWrappers: [["env"], ["A=/x/y"], ["FOO=1"]],
+			typedWrappers: [[0], [1], [2]],
 			chdirs: [],
 			unread: [],
 			watched: false,
-			scripted: false,
+			scriptWords: null,
 		});
 	});
 
@@ -411,11 +411,11 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		expect(strip(`env -S 'FOO=1 npm run test'`)).toEqual({
 			words: ["npm", "run", "test"],
 			wrapperWords: ["FOO=1"],
-			typedWrappers: [["env", "-S", expect.any(String)]],
+			typedWrappers: [[0, 1]],
 			chdirs: [],
 			unread: [],
 			watched: false,
-			scripted: false,
+			scriptWords: null,
 		});
 	});
 
@@ -547,11 +547,11 @@ describe("unwrap reads a wrapper as the shell hands it over (#4046)", () => {
 		expect(strip("env A=1 -C /x git status")).toEqual({
 			words: ["-C", "/x", "git", "status"],
 			wrapperWords: ["A=1"],
-			typedWrappers: [["env"], ["A=1"]],
+			typedWrappers: [[0], [1]],
 			chdirs: [],
 			unread: [],
 			watched: false,
-			scripted: false,
+			scriptWords: null,
 		});
 	});
 
@@ -642,16 +642,26 @@ describe("unwrap reads every command a -c string runs (#4699)", () => {
 		expect(later).toEqual({
 			words: ["git", "push"],
 			wrapperWords: ["A=1"],
-			typedWrappers: [
-				["env", "-C", "/d"],
-				["A=1"],
-				["flock", "/l", "-c", expect.any(String)],
-			],
+			typedWrappers: [[0, 1, 2], [3], [4, 5, 6, 7]],
 			chdirs: [{ dir: "/d", read: true, holds: "always" }],
 			unread: [],
 			watched: false,
-			scripted: true,
+			scriptWords: [7],
 		});
+	});
+
+	it.each([
+		['flock "x &" -c "x &"', [3]],
+		['env -C /d flock -n /l --command "npm test"', [7]],
+		[`flock /l -c "flock /m -c 'npm test'"`, [3]],
+		["watch -n 5 \"npm run test\" 'x & y'", [3, 4]],
+		["watch -n 5 npm run test", [3, 4, 5]],
+		[`env -S "flock /l -c 'npm test'"`, [2]],
+		["nohup npm test", null],
+	])("names the words %s took its script from (#5846)", (command, at) => {
+		const got = one(command, (c, spans) => unwrap(c.words, spans));
+		expect(got.length).toBeGreaterThan(0);
+		expect(got.map((run) => run.scriptWords)).toEqual(got.map(() => at));
 	});
 
 	it.each([

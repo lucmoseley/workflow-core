@@ -406,10 +406,11 @@ const buildSeatText = (l) =>
 	`on ${buildSeatName(l.seat)}${l.reason ? ` (${l.reason})` : ""}`;
 
 /**
- * @param {{root: string, prompt: string, seat: string, reason?: string}[]} launches
+ * @param {{root: string, prompt: string, seat: string, reason?: string,
+ *   releaseBump?: true}[]} launches
  */
 const buildLaunchLine = (launches) =>
-	`launch ${launches.map((l) => `${launchName(l)} ${buildSeatText(l)}`).join("; ")}`;
+	`launch ${launches.map((l) => `${launchName(l)}${l.releaseBump ? " (release bump)" : ""} ${buildSeatText(l)}`).join("; ")}`;
 
 /** @param {import("./refill-decide.js").Decision} d */
 function summaryOf(d) {

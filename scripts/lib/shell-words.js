@@ -404,11 +404,11 @@ const WRAPPERS = new Map([
  * @typedef {object} Unwrapped
  * @property {string[]} words
  * @property {string[]} wrapperWords
- * @property {string[][]} typedWrappers
+ * @property {number[][]} typedWrappers
  * @property {Chdir[]} chdirs
  * @property {string[]} unread
  * @property {boolean} watched
- * @property {boolean} scripted
+ * @property {number[] | null} scriptWords
  * @property {true} [envReset]
  */
 
@@ -426,11 +426,11 @@ const WRAPPERS = new Map([
  */
 
 /**
- * @param {Pick<Unwrapped, "words" | "scripted">} run
+ * @param {Pick<Unwrapped, "words" | "scriptWords">} run
  * @param {string} segment
  */
 const runText = (run, segment) =>
-	run.scripted ? run.words.join(" ") : segment;
+	run.scriptWords === null ? segment : run.words.join(" ");
 
 /**
  * @typedef {object} WrapperOption

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5865
 
 const { run } = require("./lib/guard-entry.js");
 const { decide } = require("./lib/gh-acts.js");

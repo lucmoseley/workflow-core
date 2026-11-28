@@ -189,6 +189,12 @@ export const ROW_FIXTURES: Record<string, RowFixture> = {
 			added: { "scripts/report-c.js": 'execSync("gh issue create");\n' },
 		},
 	},
+	"family-contracts": {
+		fault: {
+			inherited: { "scripts/b.js": "runCheck(SPEC);\n" },
+			added: { "scripts/c.js": "createIssue({});\n" },
+		},
+	},
 	"program-output": {
 		fault: {
 			inherited: { "scripts/b.js": 'console.log("x");\nprocess.exit(0);\n' },

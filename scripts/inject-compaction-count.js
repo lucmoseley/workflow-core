@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5865
 const fs = require("node:fs");
 const path = require("node:path");
 const hookBlock = require("./lib/hook-block");
