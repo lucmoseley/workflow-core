@@ -449,7 +449,7 @@ describe("queue-run.js", () => {
 			},
 		);
 
-		it("hands the gate its repo's measured whole-run peak as the most it is charged (#5802)", async () => {
+		const capReader = () => {
 			const f = fixture();
 			const gateLog = path.join(f.dir, "gate-runs.jsonl");
 			fs.writeFileSync(
@@ -471,6 +471,11 @@ describe("queue-run.js", () => {
 				caps.push(reads.capMb);
 				return null;
 			};
+			return { f, gateLog, caps, read };
+		};
+
+		it("hands the gate its repo's measured whole-run peak as the most it is charged (#5802)", async () => {
+			const { f, gateLog, caps, read } = capReader();
 			main(
 				["--", "node", "--test", "a.test.js"],
 				f.options({ gate: undefined, gateRead: read, gateLog }),
@@ -479,28 +484,8 @@ describe("queue-run.js", () => {
 			expect(caps).toEqual([2340]);
 		});
 
-		it("hands it to a whole native run too, and to none through a wrapper (#5877)", async () => {
-			const f = fixture();
-			const gateLog = path.join(f.dir, "gate-runs.jsonl");
-			fs.writeFileSync(
-				gateLog,
-				[1201, 2340, 565, 577, 900]
-					.map(
-						(peakTreeMb) =>
-							`${JSON.stringify({ repo: gateRepoName(), command: "bash test/all.sh", outcome: "pass", runS: 300, peakTreeMb })}\n`,
-					)
-					.join(""),
-			);
-			const caps: unknown[] = [];
-			const read = (
-				_command: string,
-				_weight: unknown,
-				_climb: number,
-				reads: { capMb?: number },
-			) => {
-				caps.push(reads.capMb);
-				return null;
-			};
+		it("hands a whole native run, alone or chained after a named one, its repo's measured whole-run peak, and a wrapper none (#5877)", async () => {
+			const { f, gateLog, caps, read } = capReader();
 			const commands = [
 				"pytest",
 				"python3 -m unittest discover tests",
@@ -668,12 +653,14 @@ describe("queue-run.js", () => {
 		});
 
 		it("records a capped whole run in the test run store as whole (#5877)", async () => {
+			// measured, lucmoseley/health-and-fitness#318
+			const HealthPeak = 550;
 			const f = fixture();
 			const gateLog = path.join(f.dir, "gate-runs.jsonl");
 			fs.writeFileSync(
 				gateLog,
-				// measured, lucmoseley/health-and-fitness#318
-				[550, 550, 550, 550, 550]
+				new Array(5)
+					.fill(HealthPeak)
 					.map(
 						(peakTreeMb) =>
 							`${JSON.stringify({ repo: gateRepoName(), command: "sh scripts/test.sh", outcome: "pass", runS: 30, peakTreeMb })}\n`,
@@ -698,7 +685,7 @@ describe("queue-run.js", () => {
 						reads.onAdmission?.({
 							mode: "ladder",
 							cause: "unsized",
-							rungMb: rungMb(550),
+							rungMb: rungMb(HealthPeak),
 							climbMb: 0,
 							capMb: reads.capMb,
 						});
@@ -714,7 +701,7 @@ describe("queue-run.js", () => {
 				expect.objectContaining({
 					kind: "whole",
 					argv: ["python3", "-m", "unittest", "discover", "tests"],
-					admission: expect.objectContaining({ capMb: 550 }),
+					admission: expect.objectContaining({ capMb: HealthPeak }),
 				}),
 			]);
 			child.emit("exit", 0, null);
