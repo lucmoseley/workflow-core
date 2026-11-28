@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // #5857
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { configDir } = require("./lib/config-dir.js");
@@ -10,6 +9,12 @@ const { relativeUnder } = require("./lib/is-under.js");
 const { runCommand } = require("./lib/run-command.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { systemctl } = require("./lib/systemd-bins.js");
+const {
+	buildEnvironmentLine,
+	enableUserUnits,
+	unquotableWord,
+	writeUserUnits,
+} = require("./lib/systemd-user-units.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const SERVICE = "stale-ticket-run.service";
@@ -18,20 +23,6 @@ const RUN = "stale-ticket-run.js";
 const USAGE = `usage: node ${scriptPath("install-stale-run-timer.js")}`;
 // #4342 guess
 const NICE = 10;
-
-const PLAIN_PATH = /^[\w./@+-]+$/;
-
-/**
- * @param {string} name
- * @param {string} value
- */
-function buildEnvironmentLine(name, value) {
-	const escaped = value
-		.replace(/[\\"]/g, "\\$&")
-		.replace(/%/g, "%%")
-		.replace(/\$/g, "$$$$");
-	return `Environment="${name}=${escaped}"`;
-}
 
 function runScript() {
 	const own = path.join(__dirname, RUN);
@@ -61,35 +52,24 @@ function buildServiceText(template, { script, root }) {
 function install() {
 	const script = runScript();
 	const root = path.dirname(path.dirname(script));
-	for (const word of [script, root])
-		if (!PLAIN_PATH.test(word)) {
-			writeFd(2, `the unit cannot quote this path: ${word}\n`);
-			return 2;
-		}
+	const word = unquotableWord([script, root]);
+	if (word !== null) {
+		writeFd(2, `the unit cannot quote this path: ${word}\n`);
+		return 2;
+	}
 	const readTemplate = (/** @type {string} */ unit) =>
 		fs.readFileSync(path.join(__dirname, `${unit}.template`), "utf8");
-	const dir = path.join(
-		process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
-		"systemd",
-		"user",
-	);
-	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(
-		path.join(dir, SERVICE),
-		buildServiceText(readTemplate(SERVICE), { script, root }),
-	);
-	fs.writeFileSync(path.join(dir, TIMER), readTemplate(TIMER));
-
-	const reload = runCommand(systemctl(), ["--user", "daemon-reload"]);
-	const enable = reload.error
-		? reload
-		: runCommand(systemctl(), ["--user", "enable", "--now", TIMER]);
+	const dir = writeUserUnits({
+		[SERVICE]: buildServiceText(readTemplate(SERVICE), { script, root }),
+		[TIMER]: readTemplate(TIMER),
+	});
+	const enables = enableUserUnits([{ unit: TIMER, now: true }]);
 	const enabled = runCommand(systemctl(), ["--user", "is-enabled", TIMER]);
 	writeFd(
 		1,
 		`${path.join(dir, TIMER)}\n${TIMER} is-enabled: ${enabled.out}\nruns: ${script}\n`,
 	);
-	const errors = [enable, enabled].flatMap((r) => r.error ?? []);
+	const errors = [...enables, enabled].flatMap((r) => r.error ?? []);
 	for (const error of errors) writeFd(2, `${error}\n`);
 	return errors.length === 0 && enabled.out === "enabled" ? 0 : 1;
 }

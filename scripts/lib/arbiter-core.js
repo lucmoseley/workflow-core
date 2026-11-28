@@ -153,9 +153,10 @@ const paths = {
 	/**
 	 * @param {number|string} issue
 	 * @param {string} sessionId
+	 * @param {string} [root]
 	 */
-	issueClaim: (issue, sessionId) =>
-		path.join(paths.issueClaimsDir(), `${issue}${pairSuffix(sessionId)}`),
+	issueClaim: (issue, sessionId, root) =>
+		path.join(paths.issueClaimsDir(root), `${issue}${pairSuffix(sessionId)}`),
 
 	/** @param {string} sessionId */
 	ledger: (sessionId) =>

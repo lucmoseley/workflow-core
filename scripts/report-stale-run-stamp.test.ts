@@ -10,13 +10,14 @@ import { shellQuote } from "./lib/sh-quote.js";
 const SCRIPT = path.join(__dirname, "report-stale-run-stamp.js");
 const { TITLE } = require("./report-stale-run-stamp.js");
 const DAY_MS = 86_400_000;
+const NOW = "2026-11-28T06:00:00.000Z";
 
 let dir: string;
 const recordFile = () => path.join(dir, "refill", ".stale-run-record.jsonl");
 
 const writeRow = (ageDays: number) => {
 	fs.mkdirSync(path.dirname(recordFile()), { recursive: true });
-	const date = new Date(Date.now() - ageDays * DAY_MS).toISOString();
+	const date = new Date(Date.parse(NOW) - ageDays * DAY_MS).toISOString();
 	fs.appendFileSync(recordFile(), `${JSON.stringify({ date })}\n`);
 };
 
@@ -48,6 +49,7 @@ function run(args: string[] = []) {
 		cwd: dir,
 		env: {
 			...process.env,
+			WFC_NOW: NOW,
 			WFC_REPO_ROOT: dir,
 			WFC_REFILL_DIR: path.join(dir, "refill"),
 			WFC_GH: fx.ghStub,

@@ -10,26 +10,18 @@ const { loopFiles } = require("./lib/refill-files.js");
 const { runCommand } = require("./lib/run-command.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { loginctl, systemctl } = require("./lib/systemd-bins.js");
+const {
+	buildEnvironmentLine,
+	enableUserUnits,
+	unquotableWord,
+	writeUserUnits,
+} = require("./lib/systemd-user-units.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const UNIT = "refill-loop-boot.service";
 const WATCH_SERVICE = "refill-loop-watch.service";
 const WATCH_TIMER = "refill-loop-watch.timer";
 const USAGE = `usage: node ${scriptPath("install-refill-boot-unit.js")}`;
-
-const PLAIN_PATH = /^[\w./@+-]+$/;
-
-/**
- * @param {string} name
- * @param {string} value
- */
-function buildEnvironmentLine(name, value) {
-	const escaped = value
-		.replace(/[\\"]/g, "\\$&")
-		.replace(/%/g, "%%")
-		.replace(/\$/g, "$$$$");
-	return `Environment="${name}=${escaped}"`;
-}
 
 /**
  * @param {string} template
@@ -63,38 +55,27 @@ function install() {
 			2,
 			`fetch failed, pinning the last fetched tip: ${boot.fetchError}\n`,
 		);
-	for (const word of [shell, boot.program, files.log])
-		if (!PLAIN_PATH.test(word)) {
-			writeFd(2, `the unit cannot quote this path: ${word}\n`);
-			return 2;
-		}
+	const word = unquotableWord([shell, boot.program, files.log]);
+	if (word !== null) {
+		writeFd(2, `the unit cannot quote this path: ${word}\n`);
+		return 2;
+	}
 	const readTemplate = (/** @type {string} */ unit) =>
 		fs.readFileSync(path.join(__dirname, `${unit}.template`), "utf8");
-	const dir = path.join(
-		process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
-		"systemd",
-		"user",
-	);
-	fs.mkdirSync(dir, { recursive: true });
+	const unitText = (/** @type {string} */ unit) =>
+		buildUnitText(readTemplate(unit), shell, boot.program, files.log);
+	const dir = writeUserUnits({
+		[UNIT]: unitText(UNIT),
+		[WATCH_SERVICE]: unitText(WATCH_SERVICE),
+		[WATCH_TIMER]: readTemplate(WATCH_TIMER),
+	});
 	const file = path.join(dir, UNIT);
-	fs.writeFileSync(
-		file,
-		buildUnitText(readTemplate(UNIT), shell, boot.program, files.log),
-	);
-	fs.writeFileSync(
-		path.join(dir, WATCH_SERVICE),
-		buildUnitText(readTemplate(WATCH_SERVICE), shell, boot.program, files.log),
-	);
-	fs.writeFileSync(path.join(dir, WATCH_TIMER), readTemplate(WATCH_TIMER));
 
 	const user = os.userInfo().username;
-	const reload = runCommand(systemctl(), ["--user", "daemon-reload"]);
-	const enable = reload.error
-		? reload
-		: runCommand(systemctl(), ["--user", "enable", UNIT]);
-	const watch = reload.error
-		? reload
-		: runCommand(systemctl(), ["--user", "enable", "--now", WATCH_TIMER]);
+	const enables = enableUserUnits([
+		{ unit: UNIT, now: false },
+		{ unit: WATCH_TIMER, now: true },
+	]);
 	const linger = runCommand(loginctl(), ["enable-linger", user]);
 	const enabled = runCommand(systemctl(), ["--user", "is-enabled", UNIT]);
 	const watchEnabled = runCommand(systemctl(), [
@@ -112,8 +93,7 @@ function install() {
 		`${file}\nis-enabled: ${enabled.out}\n${WATCH_TIMER} is-enabled: ${watchEnabled.out}\n${lingerRead.out}\n`,
 	);
 	const errors = [
-		enable,
-		watch,
+		...enables,
 		linger,
 		enabled,
 		watchEnabled,
