@@ -1420,6 +1420,85 @@ describe("re-rendering the adopter's session rules on a bump (#654)", () => {
 		expect(readProvenanceLine()).toBe("- url source, ref v1.3.8 (sha unknown)");
 	});
 
+	describe("where this checkout's own install row is another release (#5826)", () => {
+		const pinV138 = () => {
+			configure();
+			installedAt("1.3.8");
+			pinAt({
+				source: "url",
+				url: "https://example.invalid/wc.git",
+				ref: "v1.3.8",
+			});
+		};
+		const rows = (...others: object[]) =>
+			writeJson(configDir, "plugins/installed_plugins.json", {
+				plugins: {
+					"workflow-core@wc": [
+						{
+							projectPath: root,
+							installPath: pluginRoot,
+							version: "1.4.0",
+							gitCommitSha: "n3w5ha",
+						},
+						...others,
+					],
+				},
+			});
+		const other = (projectPath: string, gitCommitSha: string) => ({
+			projectPath,
+			installPath: pluginRoot,
+			version: "1.3.8",
+			gitCommitSha,
+		});
+
+		it("takes the sha every other checkout's row records for the release", () => {
+			pinV138();
+			rows(other("/wt-a", "04ad20bd"), other("/wt-b", "04ad20bd"));
+			write(root, rulesFile, `<!-- CORE-OWNED. old -->\n${provenanceBlock}`);
+			upgrade({ root, pluginRoot });
+			expect(readProvenanceLine()).toBe(
+				"- url source, ref v1.3.8, HEAD 04ad20bd",
+			);
+		});
+
+		it("takes no sha where those rows disagree", () => {
+			pinV138();
+			rows(other("/wt-a", "04ad20bd"), other("/wt-b", "f0rk5ha"));
+			write(root, rulesFile, `<!-- CORE-OWNED. old -->\n${provenanceBlock}`);
+			upgrade({ root, pluginRoot });
+			expect(readProvenanceLine()).toBe(
+				"- url source, ref v1.3.8 (sha unknown)",
+			);
+		});
+
+		it("keeps the sha the reference file records for the same ref", () => {
+			pinV138();
+			rows();
+			const recorded =
+				"\n## Plugin provenance\n\n- url source, ref v1.3.8, HEAD 04ad20bd\n";
+			write(root, rulesFile, "<!-- CORE-OWNED. old -->\n");
+			write(root, referenceFile, `<!-- CORE-OWNED. old -->\n${recorded}`);
+			upgrade({ root, pluginRoot });
+			expect(readProvenanceLine()).toBe(
+				"- url source, ref v1.3.8, HEAD 04ad20bd",
+			);
+		});
+
+		it("keeps no sha recorded for another ref", () => {
+			pinV138();
+			rows();
+			write(
+				root,
+				rulesFile,
+				"<!-- CORE-OWNED. old -->\n\n## Plugin provenance\n\n- url source, ref v1.1.19, HEAD 0ld5ha\n",
+			);
+			upgrade({ root, pluginRoot });
+			expect(readProvenanceLine()).toBe(
+				"- url source, ref v1.3.8 (sha unknown)",
+			);
+		});
+	});
+
 	it("records a directory source's checkout HEAD", () => {
 		configure();
 		const checkout = committedRepo.instantiate(
