@@ -827,33 +827,38 @@ describe("verdicts", () => {
 		expect(remote.main).toBe("a1");
 	});
 
-	it("retakes a member whose ref moved behind a batch that reached no verdict, and lands the new tip (#5825)", async () => {
+	const retakes = (actions: readonly QueueAction[]) =>
+		actions.flatMap((a) =>
+			a.kind === "retake-member" ? [buildQueueActionLine(a)] : [],
+		);
+
+	it("retakes a member whose ref moved behind a batch that reached no verdict, cancelling its run at the old tip and never asking it again (#5825)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
 			b: { sha: "b1", pushedAt: 2 },
 		});
 		const disk = freshDisk();
-		const o: Options = {
-			verdict: (sha) =>
-				sha.includes("a1")
-					? { kind: "unknown", reason: "no run at the sha" }
-					: { kind: "green", run: 1, cleared: [] },
-		};
+		const verdict = (sha: string): Verdict =>
+			sha.includes("a1")
+				? { kind: "unknown", reason: "no run at the sha" }
+				: { kind: "green", run: 1, cleared: [] };
 
-		const first = await land(remote, disk, o);
+		const first = await land(remote, disk, { verdict });
 		expect(first.end.reason).toMatch(/^no verdict at /);
+		const old = batchIn(disk)?.integration ?? "";
 		expect(batchIn(disk)?.phase).toBe("testing");
 
 		remote.refs.set("a", { sha: "a2", pushedAt: 3 });
-		const { end, actions } = await land(remote, disk, o);
+		const { end, actions, asked, events } = await land(remote, disk, {
+			verdict,
+			runs: [{ at: "batch-0", sha: old }],
+		});
 
-		expect(
-			actions.flatMap((a) =>
-				a.kind === "retake-member" ? [buildQueueActionLine(a)] : [],
-			),
-		).toEqual([
+		expect(retakes(actions)).toEqual([
 			"retake-member queue/a@a2: moved past its snapshot a1 before its batch reached a verdict",
 		]);
+		expect(asked).not.toContain(old);
+		expect(events).toContain(`cancel ${old} at batch-0`);
 		expect(end).toEqual(NO_QUEUE);
 		expect(remote.main).toContain("a2");
 		expect(remote.main).not.toContain("a1");
@@ -873,9 +878,73 @@ describe("verdicts", () => {
 		await land(remote, disk, o);
 		const again = await land(remote, disk, o);
 
-		expect(again.actions.some((a) => a.kind === "retake-member")).toBe(false);
+		expect(retakes(again.actions)).toEqual([]);
 		expect(again.end.reason).toMatch(/^no verdict at /);
 		expect(again.asked).toHaveLength(1);
+	});
+
+	it("waits on a batch whose test is pending when a member's ref moves, and lands the tip it tested", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		const disk = freshDisk();
+		const A = "merge(m0;a1)";
+
+		const { actions, pushed } = await land(remote, disk, {
+			parallel: true,
+			onAsk: (sha, r) => {
+				if (sha === A) r.refs.set("a", { sha: "a2", pushedAt: 2 });
+			},
+		});
+
+		expect(retakes(actions)).toEqual([]);
+		expect(pushed[0]).toBe(A);
+	});
+
+	it("isolates a batch whose ledgered verdict is red though a member's ref moved, retaking nothing", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		const A = "merge(m0;a1,b1)";
+
+		const { actions } = await land(remote, disk, {
+			onAsk: (sha, r) => {
+				if (sha === A) r.refs.set("a", { sha: "a2", pushedAt: 3 });
+			},
+			verdict: (sha, _, files) =>
+				sha === A && files.length === 0
+					? { kind: "red", files: ["scripts/x.test.ts"] }
+					: { kind: "green", run: 1, cleared: [] },
+		});
+
+		expect(retakes(actions)).toEqual([]);
+		expect(actions.map((a) => a.kind)).toContain("detach");
+	});
+
+	it("retakes a follower's moved member once its own integration has no verdict, leaving the head as it was", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		const disk = freshDisk();
+		const A = "merge(m0;a1)";
+		const B1 = `merge(${A};b1)`;
+		const B2 = `merge(${A};b2)`;
+
+		const { actions, pushed } = await land(remote, disk, {
+			parallel: true,
+			onAsk: (sha, r) => {
+				if (sha === A) r.refs.set("b", { sha: "b1", pushedAt: 2 });
+				if (sha === B1) r.refs.set("b", { sha: "b2", pushedAt: 3 });
+			},
+			gate: (key, ev) => key !== A || ev.includes(`verdict ${B2}`),
+			verdict: (sha) =>
+				sha === B1
+					? { kind: "unknown", reason: "no run at the sha" }
+					: { kind: "green", run: 1, cleared: [] },
+		});
+
+		expect(retakes(actions)).toEqual([
+			"retake-member queue/b@b2: moved past its snapshot b1 before its batch reached a verdict",
+		]);
+		expect(pushed).toEqual([A, B2]);
 	});
 
 	it("never lands a green naming no CI run where main takes only a sha a run passed", async () => {
