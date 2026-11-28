@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const { UUID } = require("./session-uuid.js");
 const path = require("node:path");
 const { readProcStartOf, pidAlive } = require("./arbiter-proc.js");
 const { storeConfigDir } = require("./arbiter-core.js");
@@ -33,8 +34,6 @@ const FAILED_BACKOFF_MS = 6 * 60 * 60 * 1000;
  * @typedef {{sessionId: string, heldSince?: string, closedAt: string,
  *   by: "trap" | "done" | "sweep"}} ClosedLine
  */
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const storeDir = () => path.join(storeConfigDir(), "chrome-children");
 const givenUpDir = () => path.join(storeDir(), "given-up");
@@ -232,7 +231,6 @@ const isSpent = (record, now) =>
 module.exports = {
 	GIVE_UP_MS,
 	HOLD_MS,
-	UUID,
 	appendClosed,
 	deleteRecord,
 	giveUp,

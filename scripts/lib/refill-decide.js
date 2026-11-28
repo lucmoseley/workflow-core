@@ -8,6 +8,7 @@ const { loneCommandOf, TAKES_PREFIX } = require("./takes-label.js");
 const { withoutStamps } = require("./stamp-paths.js");
 const { buildRowPrompt } = require("./unclosed-launch.js");
 const { RELEASE_BUMP_LABEL } = require("./issue-origin.js");
+const { UUID } = require("./session-uuid.js");
 const {
 	BREAKER_OPEN,
 	buildLaunchRoom,
@@ -37,8 +38,6 @@ const PLAN_RESETS = "a plan resets";
 const PAUSED = "paused by";
 const LAUNCH_HELD = "launches held by";
 const PICK_NEXT_HOLDER = "a manual /pick-next";
-const SESSION_ID =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PROBE_HOLD_WAIT = "a probe hold stops every launch";
 const ALREADY_RUNNING = "already running";
 const CLASH_PREFIX = "clashes on ";
@@ -160,14 +159,14 @@ const isLaunchBarred = ({ paused, launchHold }, now) =>
 	paused !== undefined || liveLaunchHold(launchHold, now) !== undefined;
 
 /** @param {string|null} holder */
-const holderName = (holder) =>
-	holder === null || SESSION_ID.test(holder) ? PICK_NEXT_HOLDER : holder;
+const buildHolderName = (holder) =>
+	holder === null || UUID.test(holder) ? PICK_NEXT_HOLDER : holder;
 
 /** @param {LaunchHold} hold */
 const buildLaunchHoldIdle = ({ holder, until }) =>
 	buildIdle(
 		LAUNCH_HELD,
-		` ${holderName(holder)} until ${new Date(until).toISOString()}`,
+		` ${buildHolderName(holder)} until ${new Date(until).toISOString()}`,
 	);
 
 /** @param {LaunchHold} hold */
@@ -1134,6 +1133,7 @@ function readParkers(frontier, readMarkers) {
 }
 
 module.exports = {
+	LAUNCH_HELD,
 	readParkers,
 	startedAt,
 	EXPLICIT_STOP_DETAIL,

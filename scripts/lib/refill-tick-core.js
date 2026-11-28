@@ -477,23 +477,21 @@ function settleRoom(
 		acts,
 	},
 ) {
+	const readAdmission = () =>
+		io.readFreeSlots(admissionRoot(served, io.typecheckPeakMb));
 	if (seen.barred) {
 		acts.releaseEndedHolds(before, judged, seen.io);
 		return {
 			launches: judged,
 			slots: 0,
-			admission: control.paused
-				? null
-				: io.readFreeSlots(admissionRoot(served, io.typecheckPeakMb)).admission,
+			admission: control.paused ? null : readAdmission().admission,
 			liveChange: 0,
 			seats: [],
 			probes: [],
 			overflow: [],
 		};
 	}
-	const { slots: free, admission } = io.readFreeSlots(
-		admissionRoot(served, io.typecheckPeakMb),
-	);
+	const { slots: free, admission } = readAdmission();
 	const room = buildLaunchRoom({
 		history: judged,
 		lastActAt,
