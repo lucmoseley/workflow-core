@@ -1,4 +1,4 @@
-const { LOOP_NOTICE_PREFIX } = require("./refill-notice.js");
+const { buildLoopComment } = require("./loop-comment.js");
 const { shortJobId } = require("./job-paths.js");
 const { launchName } = require("./refill-block-core.js");
 
@@ -26,10 +26,7 @@ const buildGiveUpFix = (u, original, failed) =>
 function retireOriginals(launches, io) {
 	return launches.map((l) =>
 		withRetried(l, launchName(l), io, (u, original, failed) =>
-			io.comment(
-				l,
-				`${LOOP_NOTICE_PREFIX}${buildGiveUpFix(u, original, failed)}`,
-			),
+			io.comment(l, buildLoopComment(buildGiveUpFix(u, original, failed))),
 		),
 	);
 }

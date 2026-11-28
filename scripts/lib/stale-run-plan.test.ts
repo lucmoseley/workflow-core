@@ -10,7 +10,7 @@ const {
 	reopenSteps,
 } = require("./stale-run-plan.js");
 const { UPSTREAM_TRACKER } = require("./workflow-core-config.js");
-const { LOOP_NOTICE_PREFIX } = require("./refill-notice.js");
+const { buildLoopComment } = require("./loop-comment.js");
 
 const NOW = "2026-11-28T06:00:00.000Z";
 const REPO = "o/r";
@@ -769,7 +769,7 @@ describe("planStaleRun: the catalogue", () => {
 		expect(p.lines).toEqual([]);
 	});
 
-	const parkedRound = (after: { body: string; created_at: string }[]) =>
+	const buildParkedRound = (after: { body: string; created_at: string }[]) =>
 		issue(1, {
 			labels: ["takes:implement", "parked"],
 			timeline: [
@@ -786,21 +786,23 @@ describe("planStaleRun: the catalogue", () => {
 				{
 					event: "commented",
 					created_at: daysAgo(8.8),
-					body: `${LOOP_NOTICE_PREFIX}stopped QUESTION park on this issue's session.`,
+					body: buildLoopComment(
+						"stopped QUESTION park on this issue's session.",
+					),
 				},
 				...after.map((c) => ({ event: "commented", ...c })),
 			],
 		});
-	const parkedPlan = (after: { body: string; created_at: string }[]) =>
+	const buildParkedPlan = (after: { body: string; created_at: string }[]) =>
 		plan([
 			repo({
-				issues: [parkedRound(after)],
+				issues: [buildParkedRound(after)],
 				parkMarkers: [{ sessionId: "s", issues: [1], cause: "QUESTION" }],
 			}),
 		]);
 
-	it("C8: the loop's own park notice is no answer, so the parked question is owed", () => {
-		const p = parkedPlan([]);
+	it("C8: the loop's own park notice is no answer, so the parked question is owed, #5912 (C5 false positive)", () => {
+		const p = buildParkedPlan([]);
 		expect(p.owed.map((o: { text: string }) => o.text)).toEqual([
 			`o/r#1 asked ${daysAgo(8.9).slice(0, 10)}, 8 d, holds 0 issues`,
 		]);
@@ -808,7 +810,7 @@ describe("planStaleRun: the catalogue", () => {
 	});
 
 	it("C5: a non-loop comment after the park label answers it", () => {
-		const p = parkedPlan([{ created_at: daysAgo(2), body: "B, go." }]);
+		const p = buildParkedPlan([{ created_at: daysAgo(2), body: "B, go." }]);
 		expect(p.owed).toEqual([]);
 		expect(texts(p)).toEqual([
 			"o/r#1 parked, its question has a later comment",

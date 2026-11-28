@@ -23,16 +23,4 @@ const isNotice = (value) =>
 const buildNoticeText = ({ reason, remedy }) =>
 	remedy === null ? reason : `${reason}; ${remedy}`;
 
-const LOOP_NOTICE_PREFIX = "Refill loop: ";
-
-/** @param {string|undefined} body */
-const isLoopNotice = (body) =>
-	(body ?? "").replace(/^\*\*/, "").startsWith(LOOP_NOTICE_PREFIX);
-
-module.exports = {
-	LOOP_NOTICE_PREFIX,
-	buildNotice,
-	buildNoticeText,
-	isLoopNotice,
-	isNotice,
-};
+module.exports = { buildNotice, buildNoticeText, isNotice };

@@ -1,7 +1,7 @@
 const { AGE_UNIT_DAYS, WAITING_LABEL } = require("./frontier-order.js");
 const { WATCH_CLOSED_LABEL } = require("./watch-label.js");
 const { PARKED_LABEL } = require("./parked.js");
-const { isLoopNotice } = require("./refill-notice.js");
+const { isLoopComment } = require("./loop-comment.js");
 const { takesLabel } = require("./takes-label.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 const { parseVerdict } = require("./gate-check.js");
@@ -765,7 +765,7 @@ const answeredAfter = (tl, since) =>
 	since !== null &&
 	tl.some(
 		(e) =>
-			e.event === "commented" && e.created_at > since && !isLoopNotice(e.body),
+			e.event === "commented" && e.created_at > since && !isLoopComment(e.body),
 	);
 
 /** @param {RepoCtx} rc @param {SnapIssue} iss @param {number|null} owedDays */

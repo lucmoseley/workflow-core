@@ -1,4 +1,4 @@
-const { LOOP_NOTICE_PREFIX } = require("./refill-notice.js");
+const { buildLoopComment } = require("./loop-comment.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { isTerminalAgent, listedAgents } = require("./agent-liveness");
@@ -760,7 +760,7 @@ const FRESH_PICK_UP =
  * @param {string} sessionId
  */
 const buildRecordlessHead = (short, sessionId) =>
-	`**${LOOP_NOTICE_PREFIX}handed off.** ${sessionId ? `Session ${sessionId}` : "The session"} of job ${short} ended unread: its job record is gone. ${sessionId ? "The loop released its claim; a" : "A"} ${FRESH_PICK_UP}`;
+	`**${buildLoopComment("handed off.")}** ${sessionId ? `Session ${sessionId}` : "The session"} of job ${short} ended unread: its job record is gone. ${sessionId ? "The loop released its claim; a" : "A"} ${FRESH_PICK_UP}`;
 
 /**
  * @param {BufferedIo} io
@@ -782,7 +782,7 @@ function writeSnapshotBody(io, dir, out, found) {
 		out,
 		{
 			head: [
-				`**${LOOP_NOTICE_PREFIX}handed off.** Session ${job.sessionId}${job.name ? ` (${job.name})` : ""} was resumed by its host and took no turn, nor after the loop's resume (#2659). The loop stopped it and released its claim; a ${FRESH_PICK_UP}`,
+				`**${buildLoopComment("handed off.")}** Session ${job.sessionId}${job.name ? ` (${job.name})` : ""} was resumed by its host and took no turn, nor after the loop's resume (#2659). The loop stopped it and released its claim; a ${FRESH_PICK_UP}`,
 				`Its files stay uncommitted where it left them. Snapshot: ${path.relative(core.repoRoot(), out)}.`,
 			].join(" "),
 			done: job.commitsLanded?.join("; ") || "none",

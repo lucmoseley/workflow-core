@@ -1,4 +1,4 @@
-const { LOOP_NOTICE_PREFIX } = require("./refill-notice.js");
+const { buildLoopComment } = require("./loop-comment.js");
 const { SYNTHETIC_TRIES, blockAct } = require("./block-act.js");
 const { SYNTHETIC_PROMPT } = require("./loop-prompts.js");
 const {
@@ -212,7 +212,7 @@ function launchSubject(l, seen) {
 		},
 		report: (line) => {
 			io.log(line);
-			io.comment(l, `${LOOP_NOTICE_PREFIX}${line}.`);
+			io.comment(l, buildLoopComment(`${line}.`));
 		},
 	};
 }
