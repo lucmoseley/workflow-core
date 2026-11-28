@@ -534,6 +534,21 @@ describe("lib/suite-background.js", () => {
 		}
 	});
 
+	it("re-issues a typed mark-digit-mark as typed beside a heredoc, as the heredoc case above (#5898)", () => {
+		for (const mark of ["\x07", "\ue100"]) {
+			const write = [
+				`echo '${mark}1${mark}' > /tmp/y; cat > /tmp/x.sh <<'EOF'`,
+				"body line",
+				"EOF",
+			].join("\n");
+			const command = `${write}\nnpm run test &`;
+			expect(
+				readDenyReason(command).split("\nThis suite is ")[0],
+				JSON.stringify(mark),
+			).toBe(`${SNAPSHOT_OPENER}${write}\nnpm run test`);
+		}
+	});
+
 	it("keeps the escape, the no-tool-call ending and the check before a relaunch", () => {
 		const reason = readDenyReason("nohup npm run test");
 		expect(reason).toContain("WFC_SUITE_DETACH=1");
