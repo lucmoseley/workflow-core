@@ -657,6 +657,37 @@ describe("lib/suite-background.js", () => {
 			).toBe(fix);
 	});
 
+	it("keeps the words after a substitution as arguments of the command holding it (#5897)", () => {
+		for (const [command, fix] of [
+			[
+				"echo $((1+2)) timeout 590 npm run test; timeout 590 npm run test",
+				"echo $((1+2)) timeout 590 npm run test; npm run test",
+			],
+			[
+				"echo $(date) timeout 590 npm run test; timeout 590 npm run test",
+				"echo $(date) timeout 590 npm run test; npm run test",
+			],
+			[
+				"echo `date` timeout 590 npm run test; timeout 590 npm run test",
+				"echo `date` timeout 590 npm run test; npm run test",
+			],
+			[
+				"x=$(a) $(b) timeout 590 npm run test; timeout 590 npm run test",
+				"x=$(a) $(b) timeout 590 npm run test; npm run test",
+			],
+			[
+				"x=$(( (1+2)*3 )) timeout 590 npm run test",
+				"x=$(( (1+2)*3 )) npm run test",
+			],
+			["x=$(a) y=$(b) timeout 590 npm run test", "x=$(a) y=$(b) npm run test"],
+		])
+			expect(
+				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
+				command,
+			).toBe(fix);
+		expect(run("echo $((1+2)) timeout 590 npm run test")).toBeNull();
+	});
+
 	it("strips a timeout whole when a flag value is quoted, and reads a script launch's wrappers from the walk (#5867)", () => {
 		for (const [command, fix] of [
 			['timeout -s "KILL" 60 npm run test', "npm run test"],

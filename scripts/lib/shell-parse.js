@@ -2149,6 +2149,30 @@ function closingBracket(segments, openIdx) {
 	return segments.length - 1;
 }
 
+/** @param {string[]} segments @param {number} closeIdx */
+function openingBracket(segments, closeIdx) {
+	let depth = 0;
+	for (let i = closeIdx; i >= 0; i--) {
+		if (segments[i] === SCOPE_CLOSE) depth++;
+		else if (segments[i] === SCOPE_OPEN && --depth === 0) return i;
+	}
+	return 0;
+}
+
+// #5897
+/** @param {Parsed} parsed @param {number} segIdx */
+function isArgumentTail({ segments, joins }, segIdx) {
+	/** @type {string[]} */
+	const before = [];
+	let at = segIdx;
+	while (joins[at] === JOIN.AFTER_CLOSE && segments[at - 1] === SCOPE_CLOSE) {
+		at = openingBracket(segments, at - 1) - 1;
+		if (at < 0) return false;
+		before.unshift(segments[at] ?? "");
+	}
+	return before.length > 0 && commandWords(before.join(" ")).ran;
+}
+
 /** @param {Parsed} parsed @param {number} segIdx */
 function closingCompound(parsed, segIdx) {
 	let end = segIdx;
@@ -3219,6 +3243,7 @@ module.exports = {
 	commitPathsArgs,
 	parseCommand,
 	placeSegments,
+	isArgumentTail,
 	maskQuotes,
 	quotedSubstitutions,
 	escapeShield,
