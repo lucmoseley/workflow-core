@@ -62,6 +62,12 @@ describe("check-family-contracts", () => {
 		["createIssue", FILE, 1],
 		["an issue-create argument pair", 'gh([\n\t"issue",\n\t"create"]);\n', 2],
 		["the issue filer's argv", "fileThrough(buildScriptFilerArgv({}));\n", 1],
+		["fileThrough", "fileThrough(argv, body, root);\n", 1],
+		[
+			"a spawn of file-issue.js",
+			'\nrun(path.join(__dirname, "file-issue.js"), argv);\n',
+			2,
+		],
 	])(
 		"FAILs a program filing through %s with no report- prefix",
 		(_, body, line) => {

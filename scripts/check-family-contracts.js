@@ -1,23 +1,26 @@
 #!/usr/bin/env node
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { heresySpec } = require("./lib/heresy-scan.js");
 const { runCheck } = require("./lib/check");
 const { ISSUE_REF } = require("./lib/exempt-markers.js");
 const { blankInert } = require("./lib/strip-comments.js");
 
+/**
+ * @typedef {import("./lib/heresy-scan.js").Program} Program
+ * @typedef {import("./lib/heresy-scan.js").Site} Site
+ */
+
 const REGISTRATIONS = ["hooks/hooks.json", ".claude/settings.json"];
 const TOP_LEVEL = /^scripts\/[^/]+$/;
 const FAMILY = /^scripts\/(?:check|guard|generate|report)-/;
 const OPENING_POINTER = new RegExp(String.raw`^//\s*${ISSUE_REF}\s*$`);
 const RUN_CHECK = /\brunCheck\s*\(/;
-const FILER = /\b(?:createIssue|fileOrRefresh|buildScriptFilerArgv)\s*\(/;
+const FILER =
+	/\b(?:createIssue|fileOrRefresh|buildScriptFilerArgv|fileThrough)\s*\(/;
+const FILER_PATH = /(["'`])file-issue\.js\1/;
 const ISSUE_CREATE = /(["'`])issue\1\s*,\s*(["'`])create\2/;
 const ROOTED_PATH = /^(?:\$\{?\w+\}?\/|\.\/)?(scripts\/[^/]+)$/;
-
-/** @type {Map<string, Set<string>>} */
-const hookPrograms = new Map();
 
 /**
  * @param {unknown} registration
@@ -38,28 +41,24 @@ function parseHookCommands(registration) {
 	);
 }
 
-/** @param {string} root */
-function readHookPrograms(root) {
-	const cached = hookPrograms.get(root);
-	if (cached) return cached;
-	const found = new Set(
-		REGISTRATIONS.flatMap((rel) => {
-			const at = path.join(root, rel);
-			if (!fs.existsSync(at)) return [];
-			return parseHookCommands(JSON.parse(fs.readFileSync(at, "utf8")));
-		}).flatMap((command) =>
-			command.split(/\s+/).flatMap((token) => {
-				const m = token.replace(/["']/g, "").match(ROOTED_PATH);
-				return m?.[1] ? [m[1]] : [];
-			}),
-		),
+/**
+ * @param {ReadonlyMap<string, string>} texts
+ * @returns {Set<string>}
+ */
+const parseHookPrograms = (texts) =>
+	new Set(
+		[...texts.values()]
+			.flatMap((text) => parseHookCommands(JSON.parse(text)))
+			.flatMap((command) =>
+				command.split(/\s+/).flatMap((token) => {
+					const m = token.replace(/["']/g, "").match(ROOTED_PATH);
+					return m?.[1] ? [m[1]] : [];
+				}),
+			),
 	);
-	hookPrograms.set(root, found);
-	return found;
-}
 
 /** @param {string} source */
-const opensOnPointer = (source) =>
+const hasOpeningPointer = (source) =>
 	OPENING_POINTER.test(
 		source
 			.split("\n")
@@ -72,9 +71,9 @@ const opensOnPointer = (source) =>
 /**
  * @param {string} code
  * @param {RegExp} re
- * @returns {import("./lib/heresy-scan.js").Site[]}
+ * @returns {Site[]}
  */
-function parseFirstSite(code, re) {
+function findFirstSite(code, re) {
 	const m = re.exec(code);
 	if (!m) return [];
 	return [
@@ -87,55 +86,53 @@ function parseFirstSite(code, re) {
 
 /**
  * @param {string} prefix
- * @param {(program: import("./lib/heresy-scan.js").Program, rel: string, root: string) => import("./lib/heresy-scan.js").Site[]} keeps
- * @returns {(program: import("./lib/heresy-scan.js").Program, rel: string, root: string) => import("./lib/heresy-scan.js").Site[]}
+ * @param {(program: Program, rel: string, hooked: Set<string>) => Site[]} keeps
+ * @returns {(program: Program, rel: string, context: unknown) => Site[]}
  */
-const outsidePrefix = (prefix, keeps) => (program, rel, root) =>
-	path.basename(rel).startsWith(prefix) || opensOnPointer(program.source)
+const outsidePrefix = (prefix, keeps) => (program, rel, context) =>
+	path.basename(rel).startsWith(prefix) || hasOpeningPointer(program.source)
 		? []
-		: keeps(program, rel, root);
+		: keeps(program, rel, /** @type {Set<string>} */ (context));
 
 /**
  * @param {string} contract
  * @param {string} prefix
  */
-const message =
-	(contract, prefix) =>
-	(
-		/** @type {string} */ rel,
-		/** @type {import("./lib/heresy-scan.js").Site} */ site,
-	) =>
+const buildMessage =
+	(contract, prefix) => (/** @type {string} */ rel, /** @type {Site} */ site) =>
 		`${rel}:${site.line} ${contract} with no \`${prefix}\` prefix and no opening bare #N. Fix: take the \`${prefix}\` prefix and that family's contract whole, or open the file with the bare #N of the issue ruling its departure (§N3, §G4).`;
 
 /** @type {import("./lib/check").CheckSpec} */
 const SPEC = heresySpec({
 	name: "family-contracts",
-	reads: REGISTRATIONS,
+	reads: { paths: REGISTRATIONS, parse: parseHookPrograms },
 	include: (rel) => TOP_LEVEL.test(rel),
 	breaches: [
 		{
 			tag: "FAMILY-HOOK",
-			sites: outsidePrefix("guard-", (_program, rel, root) =>
-				!FAMILY.test(rel) && readHookPrograms(root).has(rel)
+			sites: outsidePrefix("guard-", (_program, rel, hooked) =>
+				!FAMILY.test(rel) && hooked.has(rel)
 					? [{ line: 1, text: "hook registration" }]
 					: [],
 			),
-			message: message("runs as a registered hook", "guard-"),
+			message: buildMessage("runs as a registered hook", "guard-"),
 		},
 		{
 			tag: "FAMILY-CHECK",
 			sites: outsidePrefix("check-", ({ source }) =>
-				parseFirstSite(blankInert(source), RUN_CHECK),
+				findFirstSite(blankInert(source), RUN_CHECK),
 			),
-			message: message("gates through runCheck", "check-"),
+			message: buildMessage("gates through runCheck", "check-"),
 		},
 		{
 			tag: "FAMILY-REPORT",
 			sites: outsidePrefix("report-", ({ source, code }) => {
-				const filer = parseFirstSite(blankInert(source), FILER);
-				return filer.length > 0 ? filer : parseFirstSite(code, ISSUE_CREATE);
+				const filer = findFirstSite(blankInert(source), FILER);
+				if (filer.length > 0) return filer;
+				const spawned = findFirstSite(code, FILER_PATH);
+				return spawned.length > 0 ? spawned : findFirstSite(code, ISSUE_CREATE);
 			}),
-			message: message("files a GitHub issue", "report-"),
+			message: buildMessage("files a GitHub issue", "report-"),
 		},
 	],
 	finish(ctx, scanned) {
