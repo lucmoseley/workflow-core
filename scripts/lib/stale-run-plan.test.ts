@@ -6,6 +6,7 @@ const {
 	bodyUnchanged,
 	buildHubBody,
 	buildRunRow,
+	failedText,
 	hubAfter,
 	planStaleRun,
 	reopenSteps,
@@ -68,8 +69,7 @@ const snap = (repos: unknown[], over: Record<string, unknown> = {}) => ({
 const plan = (repos: unknown[], over: Record<string, unknown> = {}) =>
 	planStaleRun(snap(repos, over));
 
-const hubBody = (p: { hub: { parts?: unknown } }) =>
-	buildHubBody(p.hub.parts, { done: [], failed: [] });
+const hubBody = (p: unknown) => buildHubBody(p, { done: [], failed: [] });
 
 const texts = (p: { lines: { text: string }[] }) => p.lines.map((l) => l.text);
 const classOf = (p: { lines: { number: number; cls: string }[] }, n: number) =>
@@ -996,17 +996,32 @@ describe("planStaleRun: the hub issue", () => {
 	});
 
 	it("lists the acts done and gives a failed-acts section only when one failed", () => {
-		const parts = plan(listed).hub.parts;
-		const clean = buildHubBody(parts, { done: ["cleared: o/r#2"], failed: [] });
+		const p = plan(listed);
+		const clean = buildHubBody(p, { done: ["cleared: o/r#2"], failed: [] });
 		expect(clean).toContain("## Restored this run\n\n- cleared: o/r#2\n");
 		expect(clean).not.toContain("## Failed this run");
-		const failed = buildHubBody(parts, {
+		const failed = buildHubBody(p, {
 			done: [],
 			failed: ["discharged: o/r#3 (met) — failed: refused"],
 		});
 		expect(failed).toContain("## Restored this run\n\nNone.\n");
 		expect(failed).toContain(
 			"## Failed this run\n\n- discharged: o/r#3 (met) — failed: refused\n",
+		);
+	});
+
+	it("bounds a failure to its first line, capped, in a code span", () => {
+		const act = {
+			kind: "strip-gate",
+			repo: "o/r",
+			number: 3,
+			blocker: "o/r#8",
+		};
+		expect(failedText(act, "gh `refused`\n## injected @someone")).toBe(
+			"cleared: o/r#3 gated on o/r#8, which has closed — failed: `gh 'refused'`",
+		);
+		expect(failedText(act, "x".repeat(300))).toContain(
+			`\`${"x".repeat(200)}…\``,
 		);
 	});
 

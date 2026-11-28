@@ -248,6 +248,7 @@ describe("stale-ticket-run", () => {
 		expect(hub).toMatch(
 			/## Failed this run\s+- cleared: o\/a#2 gated on o\/a#8, which has closed — failed: /,
 		);
+		expect(hub).not.toContain("gh refused");
 	});
 
 	describe("a count gate's reading history", () => {

@@ -607,16 +607,20 @@ const APPLY = {
 
 /** @param {Act} a @returns {{done: string} | {failed: string}} */
 function applyAct(a) {
+	let stripped;
 	try {
-		const stripped = /** @type {(a: Act) => boolean|void} */ (APPLY[a.kind])(a);
-		const note = plan.actComment(a, { stripped: stripped === true });
-		if (note) issue(a.repo, note.number, ["comment", "--body", note.text]);
-		return { done: plan.actText(a) };
+		stripped = /** @type {(a: Act) => boolean|void} */ (APPLY[a.kind])(a);
 	} catch (e) {
-		const text = `${plan.actText(a)} — failed: ${caught(e).message}`;
-		warn(text);
-		return { failed: text };
+		warn(`${plan.actText(a)} — failed: ${caught(e).message}`);
+		return { failed: plan.failedText(a, caught(e).message) };
 	}
+	const note = plan.actComment(a, { stripped: stripped === true });
+	try {
+		if (note) issue(a.repo, note.number, ["comment", "--body", note.text]);
+	} catch (e) {
+		warn(`${plan.actText(a)} — its comment not posted: ${caught(e).message}`);
+	}
+	return { done: plan.actText(a) };
 }
 
 const ORIGIN = originLabel("stale-run");
@@ -661,7 +665,7 @@ function file(labelled, { title, body, repo }) {
  * @param {import("./lib/stale-run-plan.js").Plan} p
  * @param {string} coreTracker
  * @param {Set<string>} labelled
- * @param {{done: string[], failed: string[]}} acts
+ * @param {import("./lib/stale-run-plan.js").ActOutcomes} acts
  * @returns {number|null}
  */
 function applyHub(p, coreTracker, labelled, acts) {
@@ -669,7 +673,7 @@ function applyHub(p, coreTracker, labelled, acts) {
 	if (p.hub.action !== "refresh") return null;
 	const { number, text } = file(labelled, {
 		title: plan.HUB_TITLE,
-		body: plan.buildHubBody(p.hub.parts, acts),
+		body: plan.buildHubBody(p, acts),
 		repo: coreTracker,
 	});
 	say(text);
@@ -682,6 +686,7 @@ function applyHub(p, coreTracker, labelled, acts) {
  */
 function apply(p, snap) {
 	const outcomes = p.acts.map(applyAct);
+	/** @type {import("./lib/stale-run-plan.js").ActOutcomes} */
 	const acts = {
 		done: outcomes.flatMap((o) => ("done" in o ? [o.done] : [])),
 		failed: outcomes.flatMap((o) => ("failed" in o ? [o.failed] : [])),
