@@ -161,7 +161,8 @@ const CLASS_ORDER = /** @type {Cls[]} */ (Object.keys(CLASS_NAMES));
  *   | {kind: "release", root: string, repo: string, number: number, assignees: string[], sessionId: string}
  *   | {kind: "retag", root: string, repo: string, numbers: number[]}} Act
  * @typedef {{kind: "cause" | "data-route", tracker: string, root: string|null, title: string, body: string}} Filing
- * @typedef {{action: "refresh", body: string} | {action: "close", number: number} | {action: "none"}} HubNext
+ * @typedef {{action: "refresh"} | {action: "close", number: number} | {action: "none"}} HubNext
+ * @typedef {{done: string[], failed: string[]}} ActOutcomes
  * @typedef {object} Plan
  * @property {string[]} repoLines
  * @property {Line[]} lines
@@ -179,6 +180,8 @@ const daysSince = (from, now) => Math.floor((now - Date.parse(from)) / DAY_MS);
 
 /** @param {number} ms */
 const isoDate = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+const FAILURE_CHARS = 200;
 
 /** @param {string} repo @param {number} n */
 const issueUrl = (repo, n) => `https://github.com/${repo}/issues/${n}`;
@@ -953,17 +956,7 @@ function planHub(ctx) {
 	const disposedSet = new Set(disposed);
 	/** @type {HubNext} */
 	let hub = { action: "none" };
-	if (lines.some((l) => !disposedSet.has(l.key)))
-		hub = {
-			action: "refresh",
-			body: buildHubBody({
-				repoLines,
-				lines,
-				owed,
-				acts,
-				disposed: disposedSet,
-			}),
-		};
+	if (lines.some((l) => !disposedSet.has(l.key))) hub = { action: "refresh" };
 	else if (snap.hub?.state === "open")
 		hub = { action: "close", number: snap.hub.number };
 	return {
@@ -1078,10 +1071,22 @@ const hubAfter = (hub, { filed, before }) =>
 	hub.action === "refresh" ? (filed ?? before) : null;
 
 /**
- * @param {{repoLines: string[], lines: Line[], owed: OwedLine[], acts: Act[],
- *   disposed: Set<string>}} parts
+ * @param {Act} a
+ * @param {string} message
  */
-function buildHubBody({ repoLines, lines, owed, acts, disposed }) {
+const failedText = (a, message) => {
+	const first = (message.split("\n")[0] ?? "").replaceAll("`", "'");
+	const cut =
+		first.length > FAILURE_CHARS ? `${first.slice(0, FAILURE_CHARS)}…` : first;
+	return `${actText(a)} — failed: \`${cut}\``;
+};
+
+/**
+ * @param {Pick<Plan, "repoLines" | "lines" | "owed" | "disposed">} p
+ * @param {ActOutcomes} acts
+ */
+function buildHubBody({ repoLines, lines, owed, disposed }, { done, failed }) {
+	const disposedSet = new Set(disposed);
 	const byClass = CLASS_ORDER.flatMap((cls) => {
 		const ls = lines.filter((l) => l.cls === cls);
 		return ls.length === 0
@@ -1089,7 +1094,9 @@ function buildHubBody({ repoLines, lines, owed, acts, disposed }) {
 			: [
 					`### ${CLASS_NAMES[cls]}`,
 					"",
-					...ls.map((l) => `- ${l.text}${disposed.has(l.key) ? "" : " (new)"}`),
+					...ls.map(
+						(l) => `- ${l.text}${disposedSet.has(l.key) ? "" : " (new)"}`,
+					),
 					"",
 				];
 	});
@@ -1109,8 +1116,11 @@ function buildHubBody({ repoLines, lines, owed, acts, disposed }) {
 		"",
 		"## Restored this run",
 		"",
-		...(acts.length === 0 ? ["None."] : acts.map((a) => `- ${actText(a)}`)),
+		...(done.length === 0 ? ["None."] : done.map((t) => `- ${t}`)),
 		"",
+		...(failed.length === 0
+			? []
+			: ["## Failed this run", "", ...failed.map((t) => `- ${t}`), ""]),
 		buildStandaloneLine(HUB_STANDALONE),
 	].join("\n");
 }
@@ -1146,7 +1156,9 @@ module.exports = {
 	actComment,
 	actText,
 	bodyUnchanged,
+	buildHubBody,
 	buildRunRow,
+	failedText,
 	hubAfter,
 	planStaleRun,
 	reopenSteps,
