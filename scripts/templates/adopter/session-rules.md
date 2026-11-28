@@ -41,7 +41,7 @@ GitHub Issues on this repo, via `gh`. **Run `gh` in the foreground, and re-run a
 ## Working patterns
 
 - Queue actionable items at the moment they're agreed — including recommendations buried in prose, not just explicit requests. Audit against that compiled ledger.
-- **Fix or file every problem you find, whether or not your task owns it.** Before the turn ends, either fix it, comment on the open issue that owns it, or file it with `--origin found-in-passing`. A problem named only in a reply is lost, and so is one left to a ticket that has since closed. A finding a subagent reports to you is yours to dispose of. **Unenforced**: a model check measured 25-58% effective false positives against a 10% ceiling.
+- **Fix or file every problem you find, whether or not your task owns it.** Before the turn ends, either fix it, comment on the open issue that owns it, or file it with `--origin found-in-passing`. A problem named only in a reply is lost, and so is one left to a ticket that has since closed. A finding a subagent reports to you is yours to dispose of. **Unenforced**.
 - **Test a blocker before it ends a turn** — run the command, attempt the edit, check the tool — rather than inferring it can't be done. Where it genuinely can't be finished this session, record the verified reason where the work lives (a ticket comment or new ticket) and keep going on whatever else is reachable.
 
 ## Questions to {{founder}}
