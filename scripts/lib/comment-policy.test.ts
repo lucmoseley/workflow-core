@@ -74,6 +74,15 @@ describe("the permitted shapes", () => {
 		).toEqual(["COMMENT@1"]);
 	});
 
+	it("passes a one-line ruled derivation naming the ruling's #N and round", () => {
+		expect(tags("// ruled, #5687 Q1\nconst BOUND_DAYS = 7;\n", "js")).toEqual(
+			[],
+		);
+		expect(tags("// a week, #5687 Q1\nconst BOUND_DAYS = 7;\n", "js")).toEqual([
+			"COMMENT@1",
+		]);
+	});
+
 	it("passes a bare #N, owner/repo#N or RFC pointer, several together (K5)", () => {
 		const src = [
 			"// #5455",

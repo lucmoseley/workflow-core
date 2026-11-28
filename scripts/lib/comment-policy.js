@@ -1026,7 +1026,7 @@ function barePointers(text) {
 	return tokens.length > 0 && tokens.every((t) => POINTER.test(t));
 }
 const LICENCE = /SPDX-License-Identifier:|\bcopyright\b|©/i;
-const DERIVATION = /\b(?:measured|guess)\b/i;
+const DERIVATION = /\b(?:measured|guess|ruled)\b/i;
 const ISSUE = new RegExp(String.raw`(?<![\w&])${ISSUE_REF}`);
 const ANY_ISSUE = /(?<!&)#\d+/;
 const URL = /\bhttps?:\/\/\S/;
