@@ -863,6 +863,11 @@ describe("what status --json carries for the panel (#4062)", () => {
 		expect(statusOf(line({}, STALE_MS + 1))).toEqual(Unread);
 	});
 
+	it("takes a launch-held tick's counts, its loop still running (#5905)", () => {
+		const held = { binding: { limit: "launch hold", why: "w" } };
+		expect(statusOf(line(held)).live).toBe(9);
+	});
+
 	it("reads a stop tick as unread", () => {
 		const stop = { binding: { limit: "loop not running", why: "w" } };
 		expect(statusOf(line(stop))).toEqual(Unread);

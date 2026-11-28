@@ -5,6 +5,7 @@ const { buildControlImage } = require("./refill-panel-sixel.js");
 const { describeAge } = require("./age-text.js");
 const {
 	FIVE_HOUR_FULL,
+	LAUNCH_HELD,
 	LIMIT_HELD_WAIT,
 	NO_FREE_SLOT,
 	NO_PLAN_ROOM,
@@ -202,6 +203,8 @@ function buildWaitingRowText(status, now) {
 	if (!reason || reason === NO_FREE_SLOT) return "";
 	if (reason === PROBE_HOLD_WAIT)
 		return `Probe hold${tick?.idle?.detail ?? ""}`;
+	if (reason === LAUNCH_HELD)
+		return `Launches held by${tick?.idle?.detail ?? ""}`;
 	return WAITING_WORDS.get(reason) ?? reason;
 }
 

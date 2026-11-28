@@ -22,6 +22,7 @@ const STALE_MS = 15 * MINUTE_MS;
 const RETAIN_MS = 28 * DAY_MS;
 
 const LOOP_OFF = "loop not running";
+const LAUNCH_HOLD = "launch hold";
 const WINDOWS_MEMORY = "Windows memory";
 const NONE = "none";
 // guess, #3315
@@ -86,7 +87,7 @@ function policyFailing(input, decision) {
 	if (input.paused)
 		return [{ limit: LOOP_OFF, why: buildPauseText(input.paused) }];
 	if (input.launchHold)
-		return [{ limit: LOOP_OFF, why: buildLaunchHoldText(input.launchHold) }];
+		return [{ limit: LAUNCH_HOLD, why: buildLaunchHoldText(input.launchHold) }];
 	if (decision.planWait)
 		return [{ limit: "allowance", why: buildPlanWaitText(decision.planWait) }];
 	/** @type {Failing[]} */

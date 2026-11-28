@@ -53,9 +53,18 @@ function readIsIntentToAdd(root, head) {
 }
 
 /** @param {string} root */
-function readIntentToAdd(root) {
-	const isIntentToAdd = readIsIntentToAdd(root);
-	return gitList(root, ["ls-files", "-z"]).filter(isIntentToAdd);
+function readUnstagedNewFiles(root) {
+	const headIds = hasHead(root) ? readTreeBlobIds(root) : new Map();
+	const isIntentToAdd = readIsIntentToAdd(root, headIds);
+	return [
+		...gitList(root, ["ls-files", "-z"]).filter(isIntentToAdd),
+		...gitList(root, [
+			"ls-files",
+			"-z",
+			"--others",
+			"--exclude-standard",
+		]).filter((p) => !headIds.has(p)),
+	];
 }
 
 /** @param {string} root */
@@ -204,4 +213,10 @@ function render(
 const buildManifestText = (edges) =>
 	`${JSON.stringify({ $note: NOTE, edges }, null, "\t")}\n`;
 
-module.exports = { OUT, buildManifestText, hasHead, readIntentToAdd, render };
+module.exports = {
+	OUT,
+	buildManifestText,
+	hasHead,
+	readUnstagedNewFiles,
+	render,
+};

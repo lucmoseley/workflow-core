@@ -1097,8 +1097,9 @@ describe("set (#3856)", () => {
 
 	it("holds launches and releases them, a founder's pause standing through both (#4354)", async () => {
 		writeControl({ paused });
+		const Session = "0f6c2a9e-3b1d-4e57-9a28-7c4d1e5b6f30";
 		const held = await runEnv(
-			{ CLAUDE_CODE_SESSION_ID: "s1", WFC_NOW: AT },
+			{ CLAUDE_CODE_SESSION_ID: Session, WFC_NOW: AT },
 			"set",
 			"--hold-launches",
 			"20",
@@ -1109,11 +1110,11 @@ describe("set (#3856)", () => {
 		);
 		const { launchHold, ...rest } = readControl();
 		expect(rest).toEqual({ ...plainControl, paused });
-		expect(launchHold.holder).toBe("s1");
+		expect(launchHold.holder).toBe(Session);
 		expect(launchHold.until).toBe(AT_MS + 20 * 60_000);
 
 		const released = await runEnv(
-			{ CLAUDE_CODE_SESSION_ID: "s1" },
+			{ CLAUDE_CODE_SESSION_ID: Session },
 			"set",
 			"--release-launches",
 		);
