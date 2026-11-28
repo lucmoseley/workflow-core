@@ -244,10 +244,10 @@ describe("planStaleRun: the catalogue", () => {
 		expect(texts(p)).toEqual(["o/r#1 gate DEAD: exit 1, nothing on stdout"]);
 	});
 
-	it("C1: NO-OUTPUT and NOT-STATED each give their state", () => {
+	it("C1: a NO-OUTPUT check gives its state", () => {
 		const p = plan([
 			repo({
-				issues: [issue(1, { body: GATE("x") }), issue(2, { body: GATE("y") })],
+				issues: [issue(1, { body: GATE("x") })],
 				gates: [
 					{
 						number: 1,
@@ -255,19 +255,31 @@ describe("planStaleRun: the catalogue", () => {
 						reading: "exit 0, nothing on stdout",
 						closed: false,
 					},
-					{
-						number: 2,
-						state: "NOT-STATED",
-						reading: "no check",
-						closed: false,
-					},
 				],
 			}),
 		]);
 		expect(texts(p)).toEqual([
 			"o/r#1 gate NO-OUTPUT: exit 0, nothing on stdout",
-			"o/r#2 gate NOT-STATED: no check",
 		]);
+	});
+
+	it("a hand-judged gate with no check: is listed only where it states no basis", () => {
+		const handGate = "**Gated on:** x — abandon if: never";
+		const p = plan([
+			repo({
+				issues: [
+					issue(1, { body: `${handGate}\n**Gate basis:** event gate` }),
+					issue(2, { body: handGate }),
+				],
+				gates: [1, 2].map((number) => ({
+					number,
+					state: "NOT-STATED",
+					reading: "no `check:` — judge the condition by hand",
+					closed: false,
+				})),
+			}),
+		]);
+		expect(texts(p)).toEqual(["o/r#2 hand-judged gate states no basis"]);
 	});
 
 	it("C2: a met reading is discharged, a closed watch one reopened too", () => {
