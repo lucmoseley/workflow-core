@@ -741,6 +741,79 @@ describe("buildManifest over a spawned script's dependencies (#657, #1126)", () 
 		]);
 	});
 
+	const hookSourcing = (line: string, lib = "scripts/zz/lib.sh") =>
+		build({
+			[T]: drives(".husky/zz-hook"),
+			".husky/zz-hook": line,
+			[lib]: "",
+		});
+
+	it.each([
+		[
+			"a defaulted root with the quote closing before the tail",
+			`. "\${R:-.}"/scripts/zz/lib.sh`,
+		],
+		["a no-colon default", `. "\${R-.}/scripts/zz/lib.sh"`],
+		[
+			"a default of the hook's parent directory",
+			`. "\${R:-$(dirname "$0")/..}/scripts/zz/lib.sh"`,
+		],
+		[
+			"a source after ||",
+			`[ ! -r "\${R:-.}/scripts/zz/lib.sh" ] || . "\${R:-.}/scripts/zz/lib.sh"`,
+		],
+		["a source after &&", `[ -n "$x" ] && source ./scripts/zz/lib.sh`],
+		["a source after ;", "true; . ./scripts/zz/lib.sh"],
+		[
+			"a variable assigned once, through another",
+			`here="$(dirname "$0")"\nlib="\${R:-$here/..}/scripts/zz/lib.sh"\n. "$lib"`,
+		],
+		[
+			"a toplevel-rooted variable",
+			`top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0\n. "\${R:-$top}/scripts/zz/lib.sh"`,
+		],
+	])("resolves %s (#5817)", (_, line) => {
+		const { edges, warnings } = hookSourcing(line);
+		expect(edges["scripts/zz/lib.sh"]).toEqual([T]);
+		expect(warnings).toEqual([]);
+	});
+
+	it("reads no source inside a quoted string or a comment after a separator (#5817)", () => {
+		const { edges, warnings } = hookSourcing(
+			[
+				`out="$(jq 'any(.[]; . == $m)')"`,
+				`echo "run; . ./nope.sh"`,
+				"# see; . scripts/zz/lib.sh",
+			].join("\n"),
+		);
+		expect(edges["scripts/zz/lib.sh"]).toBeUndefined();
+		expect(warnings).toEqual([]);
+	});
+
+	it("still warns on a source through a variable it cannot trace, or one assigned twice (#5817)", () => {
+		const { warnings } = build({
+			[T]: drives("scripts/zz/guard.sh"),
+			"scripts/zz/guard.sh": [
+				`lib="$(mktemp)"`,
+				`. "$lib"`,
+				`two="scripts/zz/a.sh"`,
+				`export two="$(mktemp)"`,
+				`. "$two"`,
+				`three="scripts/zz/a.sh"`,
+				"read -r three",
+				`. "$three"`,
+				". ~/.profile",
+			].join("\n"),
+			"scripts/zz/a.sh": "",
+		});
+		expect(warnings).toEqual([
+			'scripts/zz/guard.sh: source "$lib" resolves to no tracked file',
+			'scripts/zz/guard.sh: source "$two" resolves to no tracked file',
+			'scripts/zz/guard.sh: source "$three" resolves to no tracked file',
+			"scripts/zz/guard.sh: source ~/.profile resolves to no tracked file",
+		]);
+	});
+
 	it("resolves a real source opening a subshell's body", () => {
 		const { edges } = build({
 			[T]: drives("scripts/zz/guard.sh"),

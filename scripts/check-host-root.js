@@ -54,6 +54,11 @@ const ALLOWED = {
 		reason:
 			"readTopLevel reads the top level of the tree a command runs in — a linked worktree or another repo, not the host root — for every host port that needs it (#2785, #2883)",
 	},
+	"scripts/lib/test-read-edges.js": {
+		tags: ["SECOND-SEAM-JS"],
+		reason:
+			"matches a shell hook's `$(git rev-parse --show-toplevel)` assignment as text, to read it as the repo root when resolving a source line; it never runs git (#5817)",
+	},
 	"scripts/commit-paths.js": {
 		tags: ["SECOND-SEAM-JS"],
 		reason:
