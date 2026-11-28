@@ -11,7 +11,7 @@ import { runInProcess } from "./run-in-process";
 import { launchSnapshotTree } from "./tree-drift.js";
 
 const COMMIT_PATHS = path.resolve(__dirname, "..", "commit-paths.js");
-const DOC = ["docs", "new.md"].join("/");
+const DOC = "docs/new.md";
 const READER = "scripts/reader.test.ts";
 const SESSION = "this-session";
 
@@ -45,14 +45,12 @@ function openSnapshot() {
 	return dir;
 }
 
-interface Ledger {
-	readWritesBy: (id: string, tree?: string) => string[] | null;
-}
-const fresh = (sessionId: string | null, ledger?: Ledger) =>
-	renderFreshEdges(openSnapshot(), sb.repo, {
-		sessionId,
-		...(ledger ? { ledger } : {}),
-	})[DOC];
+const freshIn = (snapshot: string, sessionId: string | null) =>
+	renderFreshEdges(snapshot, sb.repo, { sessionId })[DOC];
+const fresh = (sessionId: string | null) => freshIn(openSnapshot(), sessionId);
+
+const unreadableLedger = () =>
+	fs.mkdirSync(store.paths.ledger(SESSION), { recursive: true });
 
 const refusingGate = () => {
 	const hook = path.join(hooks, "pre-commit");
@@ -74,8 +72,10 @@ describe("the pre-run freshen's render of an intent-to-add entry (#5891)", () =>
 
 	it("keeps every one where it cannot tell whose they are", () => {
 		git("add", "-N", DOC);
-		expect(fresh(null)).toEqual([READER]);
-		expect(fresh(SESSION, { readWritesBy: () => null })).toEqual([READER]);
+		const snapshot = openSnapshot();
+		expect(freshIn(snapshot, null)).toEqual([READER]);
+		unreadableLedger();
+		expect(freshIn(snapshot, SESSION)).toEqual([READER]);
 	});
 
 	it("keeps one this session's commit-paths.js call made, which a gate refused", () => {
@@ -84,18 +84,46 @@ describe("the pre-run freshen's render of an intent-to-add entry (#5891)", () =>
 		expect(r.stderr).toContain("gate: refused");
 		expect(r.status).toBe(3);
 		expect(git("ls-files", "--", DOC)).toBe(`${DOC}\n`);
-		expect(fresh(SESSION)).toEqual([READER]);
-		expect(fresh("a-neighbour")).toBeUndefined();
+		const snapshot = openSnapshot();
+		expect(freshIn(snapshot, SESSION)).toEqual([READER]);
+		expect(freshIn(snapshot, "a-neighbour")).toBeUndefined();
 	});
 
 	it("goes on to the commit where the intent-add will not record, saying the freshen will leave it out", () => {
 		refusingGate();
-		fs.mkdirSync(store.paths.ledger(SESSION), { recursive: true });
+		unreadableLedger();
 		const r = commitPaths();
 		expect(r.stderr).toMatch(
 			/intent-add of docs\/new\.md was not recorded as this session's/,
 		);
 		expect(r.stderr).toContain("gate: refused");
 		expect(r.status).toBe(3);
+	});
+});
+
+describe("the pre-run freshen's render of an untracked file (#5902)", () => {
+	it("leaves out one this session did not write, which no commit of its carries", () => {
+		expect(fresh(SESSION)).toBeUndefined();
+	});
+
+	it("keeps one this session wrote", () => {
+		store.recordWrite(path.join(sb.repo, DOC), SESSION);
+		const snapshot = openSnapshot();
+		expect(freshIn(snapshot, SESSION)).toEqual([READER]);
+		expect(freshIn(snapshot, "a-neighbour")).toBeUndefined();
+	});
+
+	it("keeps every one where it cannot tell whose they are", () => {
+		const snapshot = openSnapshot();
+		expect(freshIn(snapshot, null)).toEqual([READER]);
+		unreadableLedger();
+		expect(freshIn(snapshot, SESSION)).toEqual([READER]);
+	});
+
+	it("keeps one HEAD carries, which a git rm --cached left on disk", () => {
+		git("add", DOC);
+		git("commit", "-qm", "doc");
+		git("rm", "-q", "--cached", DOC);
+		expect(fresh(SESSION)).toEqual([READER]);
 	});
 });

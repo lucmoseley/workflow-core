@@ -9,7 +9,7 @@ const { EDGES_FILE } = require("./test-pass-marker.js");
 const arbiterStore = require("./arbiter-store");
 const {
 	buildManifestText,
-	readIntentToAdd,
+	readUnstagedNewFiles,
 	render: renderReadEdges,
 } = require("./read-edges-render.js");
 
@@ -109,17 +109,16 @@ function writeShared(home, text, { given, session, claimFn, err }) {
 }
 
 /**
- * #5891
  * @param {string} dir
  * @param {string} home
  * @param {{ sessionId: string|null,
- *   ledger?: { readWritesBy: (id: string, tree?: string) => string[]|null } }} by
+ *   ledger?: Pick<import("./own-selection.js").Ledger, "readWritesBy"> }} by
  * @returns {Record<string, string[]>}
  */
 function renderFreshEdges(dir, home, { sessionId, ledger = arbiterStore }) {
 	const own = sessionId ? ledger.readWritesBy(sessionId, home) : null;
 	const leaveOut = own
-		? readIntentToAdd(home).filter((p) => !own.includes(p))
+		? readUnstagedNewFiles(home).filter((p) => !own.includes(p))
 		: [];
 	return renderReadEdges(dir, { leaveOut }).edges;
 }

@@ -97,7 +97,7 @@ const FLATTEN_SHIELD = escapeShield("()&|;<>");
 // lucmoseley/mantahostels#2346
 const GUARDED_HEADS = ["git", "gh"];
 
-const IFS_SPLIT = /[ \t\n]+/;
+const IFS_WORD = /[^ \t\n]+/g;
 
 const REDIRECT_RE = /^((?:\\.|[^\\<>])*)([<>].*)$/s;
 
@@ -198,6 +198,7 @@ const isChainEnd = (joins, segIdx) =>
 /**
  * @typedef {object} CommandWords
  * @property {string[]} words
+ * @property {number[]} starts
  * @property {number} wi
  * @property {number} assignStart
  * @property {number} assignEnd
@@ -212,24 +213,28 @@ const isChainEnd = (joins, segIdx) =>
  * @property {string} target
  */
 
-/** @param {string[]} words @param {boolean} noRedirects */
-function stripRedirects(words, noRedirects) {
+/** @param {string[]} words @param {number[]} starts @param {boolean} noRedirects */
+function stripRedirects(words, starts, noRedirects) {
 	/** @type {RedirectEntry[]} */
 	const redirs = [];
 	if (!words.some((w) => /[<>]/.test(w)) || noRedirects)
-		return { words, redirs };
+		return { words, starts, redirs };
 	/** @type {string[]} */
 	const out = [];
+	/** @type {number[]} */
+	const outStarts = [];
 	let cond = isConditionalTail(words);
 	let i = 0;
 	while (i < words.length) {
+		const start = starts[i] ?? 0;
 		const w = words[i++] ?? "";
 		if (w === "[[") cond = true;
 		if (w === "]]") cond = false;
 		if (!cond) i = cutRedirects(w, words, i, { out, redirs });
 		else if (w) out.push(w);
+		while (outStarts.length < out.length) outStarts.push(start);
 	}
-	return { words: out, redirs };
+	return { words: out, starts: outStarts, redirs };
 }
 
 /** @param {string[]} words */
@@ -324,18 +329,36 @@ function parseTarget(rest, words, i) {
  */
 function commandWords(segment, { bare = false, noRedirects = false } = {}) {
 	const line = segment.split("\n")[0] ?? "";
-	const { words, redirs } = stripRedirects(
-		line.split(IFS_SPLIT).filter(Boolean),
+	const tokens = [...line.matchAll(IFS_WORD)];
+	const { words, starts, redirs } = stripRedirects(
+		tokens.map((t) => t[0]),
+		tokens.map((t) => t.index),
 		noRedirects,
 	);
 	if (words.length === 0)
-		return { words, wi: 0, assignStart: 0, assignEnd: 0, redirs, ran: false };
+		return {
+			words,
+			starts,
+			wi: 0,
+			assignStart: 0,
+			assignEnd: 0,
+			redirs,
+			ran: false,
+		};
 	const assignStart = bare ? 0 : skipReserved(words, 0);
 	let wi = assignStart;
 	while (wi < words.length && ASSIGNMENT_RE.test(words[wi] ?? "")) wi++;
 	const assignEnd = wi;
 	if (!bare) wi = skipExec(words, wi);
-	return { words, wi, assignStart, assignEnd, redirs, ran: wi < words.length };
+	return {
+		words,
+		starts,
+		wi,
+		assignStart,
+		assignEnd,
+		redirs,
+		ran: wi < words.length,
+	};
 }
 
 const RESERVED_WORDS = [
@@ -1009,6 +1032,7 @@ function resolveWord(word, scope) {
  * @property {string} segment
  * @property {number} segIdx
  * @property {string[]} words
+ * @property {number[]} starts
  * @property {string[]} leading
  * @property {string} cwd
  * @property {import("./shell-dirs.js").Dirs} cwds
@@ -1302,7 +1326,7 @@ function walkCommands(parsed, fn, ports) {
 	const abs = (word) => absolutePath(walk, word);
 	eachSegment(
 		walk,
-		(segment, { words, wi, assignEnd, redirs, ran }, segIdx) => {
+		(segment, { words, starts, wi, assignEnd, redirs, ran }, segIdx) => {
 			settleCwdDoubt(walk, segIdx);
 			if (!ran && !(ports.bareRedirects && redirs.length > 0)) return;
 			const own = ran ? words.slice(wi) : [];
@@ -1315,6 +1339,7 @@ function walkCommands(parsed, fn, ports) {
 				segment,
 				segIdx,
 				words: own,
+				starts: ran ? starts.slice(wi) : [],
 				leading,
 				cwd: cwdOf(walk),
 				cwds: walk.dirs.dirs,
