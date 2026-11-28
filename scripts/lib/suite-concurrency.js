@@ -1037,5 +1037,4 @@ module.exports = {
 	field: "command",
 	noun: "command",
 	decide,
-	FULL_LIMB_ID,
 };

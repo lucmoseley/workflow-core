@@ -714,27 +714,6 @@ function queueStamps(file, options = {}) {
 }
 
 /**
- * @param {string} role
- * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
- * @returns {{ records: QueueRecord[], unread: string | null }}
- */
-function readLiveRoleMarkers(
-	role,
-	{ queueDir = defaultQueueDir(), queueFs = fs, alive = pidAlive } = {},
-) {
-	const { markers, error } = readMarkers(queueDir, queueFs);
-	return {
-		records: markers
-			.map((m) => m.record)
-			.filter((r) => r.role === role && !isMarkerStale(r, { alive })),
-		unread:
-			error === null
-				? null
-				: `the suite queue ${queueDir} would not read (${caught(error).message})`,
-	};
-}
-
-/**
  * #5555
  * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} options
  * @returns {{ name: string, record: QueueRecord }[]}
@@ -1324,14 +1303,23 @@ function queueSeat({
  * @param {string} [queueDir]
  * @returns {{ records: (QueueRecord & { chargeMb: number })[], unread: import("./admission.js").UnreadReserve | null }}
  */
-function readLiveCharged(role, defaultMb, queueDir) {
-	const { records, unread } = readLiveRoleMarkers(role, { queueDir });
+function readLiveCharged(role, defaultMb, queueDir = defaultQueueDir()) {
+	const { markers, error } = readMarkers(queueDir);
 	return {
-		records: records.map((r) => ({
-			...r,
-			chargeMb: Number.isFinite(r.chargeMb) ? Number(r.chargeMb) : defaultMb,
-		})),
-		unread: unread === null ? null : { why: unread, chargeMb: defaultMb },
+		records: markers
+			.map((m) => m.record)
+			.filter((r) => r.role === role && !isMarkerStale(r))
+			.map((r) => ({
+				...r,
+				chargeMb: Number.isFinite(r.chargeMb) ? Number(r.chargeMb) : defaultMb,
+			})),
+		unread:
+			error === null
+				? null
+				: {
+						why: `the suite queue ${queueDir} would not read (${caught(error).message})`,
+						chargeMb: defaultMb,
+					},
 	};
 }
 
@@ -1396,7 +1384,6 @@ module.exports = {
 	isMarkerStale,
 	readMarkers,
 	readLiveCharged,
-	readLiveRoleMarkers,
 	readTestsHeldOnWindows,
 	readTestsHeldOnMemory,
 	readQueuesClimbMb,

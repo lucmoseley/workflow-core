@@ -40,9 +40,8 @@ type Verdict = {
 } | null;
 type Plain = { plain: boolean } | { fault: string };
 
-const { decide, FULL_LIMB_ID } = require("./suite-concurrency.js") as {
+const { decide } = require("./suite-concurrency.js") as {
 	decide: (command: string, ctx: object) => Verdict;
-	FULL_LIMB_ID: string;
 };
 const { EARLYOOM_FLOOR_MB, rungMb, suiteRungMb } =
 	require("./suite-ladder.js") as {
@@ -2377,7 +2376,7 @@ describe("a plain --full over a tree whose read graph renders is told the lander
 		expect(v?.prelude).toContain(LIMB);
 		expect(v?.prelude).toContain("A SESSION OWES ONLY ITS TOUCHED TESTS");
 		expect(v?.prelude).toContain("not a refusal");
-		expect(v?.latchAfter).toBe(FULL_LIMB_ID);
+		expect(v?.latchAfter).toBe("full-suite-admissible");
 		expect(handed(v)).toContain("suite-tree-dirty");
 	});
 
@@ -2409,7 +2408,7 @@ describe("a plain --full over a tree whose read graph renders is told the lander
 
 	it("is unsaid, and the port unasked, once its own latch is told", () => {
 		const v = limbed("npm run test -- --full", "1", {
-			told: [FULL_LIMB_ID],
+			told: ["full-suite-admissible"],
 		});
 		expect(v?.prelude ?? "").not.toContain(LIMB);
 		expect(v).not.toHaveProperty("latchAfter");
