@@ -2,9 +2,12 @@ const { QUOTED, carriesVar, literal, typedWord } = require("./shell-words.js");
 const {
 	BASH_SPACE,
 	asWritten,
+	maskText,
 	parseCommand,
+	quotedSubstitutions,
 	walkCommands,
 } = require("./shell-parse.js");
+const { Lexer } = require("./shell-lexer.js");
 const {
 	afterSlash,
 	suiteLaunchKind,
@@ -33,11 +36,28 @@ const NOT_DETACHING = ["&&", "&>", "|&", ">&", "<&"];
 
 const DETACHER = /(^|[^A-Za-z0-9_-])(nohup|setsid|disown)([^A-Za-z0-9_.-]|$)/m;
 
-/** @param {string} s */
-function detaches(s) {
-	if (DETACHER.test(s)) return true;
-	return NOT_DETACHING.reduce((t, op) => t.split(op).join("  "), s).includes(
-		"&",
+/** @param {string} text */
+function maskQuotes(text) {
+	/** @type {string[]} */
+	const spans = [];
+	return { masked: maskText(new Lexer(spans), text), spans };
+}
+
+/** @param {string} masked */
+function bareDetaches(masked) {
+	if (DETACHER.test(masked)) return true;
+	return NOT_DETACHING.reduce(
+		(t, op) => t.split(op).join("  "),
+		masked,
+	).includes("&");
+}
+
+/** @param {string} text @returns {boolean} */
+function detaches(text) {
+	const { masked, spans } = maskQuotes(text);
+	return (
+		bareDetaches(masked) ||
+		spans.some((span) => quotedSubstitutions(span).some(detaches))
 	);
 }
 
@@ -60,11 +80,35 @@ const DETACH_REWRITES = /** @type {const} */ ([
 	[/&/g, ";"],
 ]);
 
-/** @param {string} text */
+/** @param {string} text @returns {string} */
 function stripDetachment(text) {
+	const { masked, spans } = maskQuotes(text);
+	return trimStart(asWritten(stripBare(masked), spans.map(stripSpan)));
+}
+
+/** @param {string} span */
+function stripSpan(span) {
+	let out = span;
+	for (const body of quotedSubstitutions(span)) {
+		if (!detaches(body)) continue;
+		const stripped = stripDetachment(body);
+		for (const [open, close] of [
+			["$(", ")"],
+			["`", "`"],
+		])
+			out = out.replace(
+				`${open}${body}${close}`,
+				() => open + stripped + close,
+			);
+	}
+	return out;
+}
+
+/** @param {string} masked */
+function stripBare(masked) {
 	let s = NOT_DETACHING.reduce(
 		(t, op, i) => t.split(op).join(String.fromCharCode(2 + i)),
-		text,
+		masked,
 	);
 	s = trimEndRun(
 		s
@@ -78,11 +122,10 @@ function stripDetachment(text) {
 			.join("\n"),
 		"\n",
 	);
-	s = NOT_DETACHING.reduce(
+	return NOT_DETACHING.reduce(
 		(t, op, i) => t.split(String.fromCharCode(2 + i)).join(op),
 		s,
 	);
-	return trimStart(s);
 }
 
 /** @param {string} s */

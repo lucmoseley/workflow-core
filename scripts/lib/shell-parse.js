@@ -2989,6 +2989,8 @@ module.exports = {
 	ghWords,
 	commitPathsArgs,
 	parseCommand,
+	maskText,
+	quotedSubstitutions,
 	escapeShield,
 	walkCommands,
 	TEXT_ONLY_PORTS,
