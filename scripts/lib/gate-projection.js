@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { writeFileAtomic } = require("./atomic-write.js");
-const { caught } = require("./caught.js");
+const { parseErrorFirstLine } = require("./first-line.js");
 const { now: clockNow } = require("./clock.js");
 const { readJsonl } = require("./jsonl.js");
 const { refillPath } = require("./refill-dir.js");
@@ -45,9 +45,6 @@ const parseCounts = (reading) =>
 		a: Number(a),
 		b: Number(b),
 	}));
-
-/** @param {unknown} e */
-const parseMessageLine = (e) => caught(e).message.split("\n")[0] ?? "";
 
 const historyPath = () =>
 	process.env.WFC_GATE_HISTORY || refillPath(HISTORY_FILE);
@@ -163,7 +160,7 @@ function recordReading(reading) {
 		appendReading(reading);
 		return null;
 	} catch (e) {
-		return parseMessageLine(e);
+		return parseErrorFirstLine(e);
 	}
 }
 
@@ -265,7 +262,7 @@ const STATED_TIME_RES = [
 ];
 
 /** @param {string} basis */
-const citesFounderRound = (basis) =>
+const hasFounderRound = (basis) =>
 	[...basis.matchAll(FOUNDER_ROUND_RE)].some(
 		([m]) => m.replace(/\s+/, " ") !== BOUND_RULING,
 	);
@@ -300,12 +297,12 @@ function parseStatedDays(basis) {
 function judgeBound(rows, counts, basis, now) {
 	/** @type {BoundVerdict} */
 	const pass = { verdict: "pass" };
-	if (counts.length === 0 || citesFounderRound(basis)) return pass;
+	if (counts.length === 0 || hasFounderRound(basis)) return pass;
 	const p = project(rows, counts, now);
 	if (p.verdict === "met") return pass;
 	if (p.verdict !== "no-history" && p.spanDays >= MIN_REFUSE_DAYS)
 		return p.verdict === "unreachable"
-			? { verdict: "unreachable", projection: /** @type {Unreachable} */ (p) }
+			? { verdict: "unreachable", projection: p }
 			: pass;
 	const days = parseStatedDays(basis);
 	if (days === null) return { verdict: "unprojected" };
@@ -319,7 +316,6 @@ module.exports = {
 	judgeBound,
 	project,
 	parseCounts,
-	parseMessageLine,
 	readHistory,
 	reachableFloor,
 	recordReading,

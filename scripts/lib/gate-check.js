@@ -9,6 +9,7 @@ const {
 	isRunnerFailure,
 } = require("./run-budgeted.js");
 const { now: clockNow } = require("./clock.js");
+const { parseErrorFirstLine } = require("./first-line.js");
 const { docPath, isCoreRepo, scriptPath } = require("./script-path");
 const {
 	BOUND_DAYS,
@@ -16,7 +17,6 @@ const {
 	MIN_REFUSE_DAYS,
 	judgeBound,
 	parseCounts,
-	parseMessageLine,
 	readHistory,
 	reachableFloor,
 	recordReading,
@@ -639,7 +639,7 @@ function projectGate(gate, reading, { refusals, warnings }) {
 		history = readGateHistory(gate, reading);
 	} catch (e) {
 		warnings.push(
-			`The gate history could not be read (${parseMessageLine(e)}), so the count gate \`${gate.command}\` was not projected.`,
+			`The gate history could not be read (${parseErrorFirstLine(e)}), so the count gate \`${gate.command}\` was not projected.`,
 		);
 		return;
 	}
@@ -691,7 +691,7 @@ function judgeRun(command, where, timeoutMs, { refusals, warnings }) {
 		r = runCheckCommand(command, timeoutMs, where.root, where.env);
 	} catch (e) {
 		warnings.push(
-			`The \`check:\` \`${command}\` could not be run (${parseMessageLine(e)}), so nothing says it prints a reading.`,
+			`The \`check:\` \`${command}\` could not be run (${parseErrorFirstLine(e)}), so nothing says it prints a reading.`,
 		);
 		return null;
 	}
