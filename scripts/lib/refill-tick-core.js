@@ -561,6 +561,16 @@ function settleRoom(
 
 /**
  * @param {TickIo} io
+ * @param {import("./refill-batch.js").Refusal[]} refused
+ * @param {string[]} warmed
+ */
+function warmRefusedRoots(io, refused, warmed) {
+	for (const root of new Set(refused.map((r) => r.launch.root)))
+		if (!warmed.includes(root) && io.hasConfig(root)) io.startWarmPass(root);
+}
+
+/**
+ * @param {TickIo} io
  * @param {import("./refill-decide.js").TickInput} input
  * @param {import("./refill-loop.js").Scope} scope
  * @returns {Promise<{decision: import("./refill-decide.js").Decision,
@@ -658,7 +668,11 @@ function settleDecided(
 		},
 		{
 			readControl: io.readControl,
-			launchBatch: (batch) => io.launchBatch(batch, served),
+			launchBatch: (batch) => {
+				const r = io.launchBatch(batch, served);
+				warmRefusedRoots(io, r.refused, landingRoots(served, state.launches));
+				return r;
+			},
 			resumeHeld: (resumes, held, isStopped, record) =>
 				blocks.resumeHeldLaunches(resumes, held, seen, { isStopped, record }),
 			runReview: io.runReview,
