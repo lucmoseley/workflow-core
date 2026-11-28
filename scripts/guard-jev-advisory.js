@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 const crypto = require("node:crypto");
-const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const hookBlock = require("./lib/hook-block");
 const { scriptPath } = require("./lib/script-path.js");
@@ -9,7 +8,7 @@ const stopGuard = require("./lib/stop-guard");
 const jevLog = require("./lib/jev-log.js");
 const { guardDisabled } = require("./lib/workflow-core-config");
 const { hasRoundMarker } = require("./lib/round-marker");
-const { readSecretKeepingIgnore } = require("./lib/env-file.js");
+const gateway = require("./lib/jev-gateway.js");
 const { ignoreFailure, orFallback } = require("./lib/caught.js");
 const { noop } = require("./lib/noop.js");
 
@@ -34,84 +33,12 @@ const MALFORMED_BUDGET = 1;
 // guess, #4144
 const REFUSED_BUDGET = 1;
 
-const REFUSED_STATUSES = new Set([401, 403]);
-
-const MALFORMED_REPLY_NAME = "JevMalformedReply";
-
-const UNREADABLE_NAMES = new Set([
-	MALFORMED_REPLY_NAME,
-	"AI_InvalidResponseDataError",
-	"AI_TypeValidationError",
-	"AI_JSONParseError",
-]);
-
-// #226 measured deepest cause chain 4, doubled
-const CAUSE_DEPTH = 8;
-
-class MalformedReply extends Error {
-	/**
-	 * @param {string} why
-	 * @param {Served} served
-	 */
-	constructor(why, served) {
-		super(why);
-		this.name = MALFORMED_REPLY_NAME;
-		this.served = served;
-	}
-}
-
-/** @typedef {{model?: string, provider?: string}} Served */
-
-/**
- * @param {any} result
- * @returns {Served}
- */
-function servedBy(result) {
-	// `@ai-sdk/gateway` sets `response.modelId` to the id it was asked for.
-	const model = result?.response?.body?.model ?? result?.response?.modelId;
-	const provider = result?.providerMetadata?.gateway?.routing?.finalProvider;
-	return {
-		...(typeof model === "string" ? { model } : {}),
-		...(typeof provider === "string" ? { provider } : {}),
-	};
-}
-
-const KEY_VAR = "AI_GATEWAY_API_KEY";
-
-const BASE_URL_VAR = "WFC_JEV_BASE_URL";
-
-const SDK_MODULE = "ai";
-const GATEWAY_MODULE = "@ai-sdk/gateway";
-
-/** @returns {string} */
-const gitleaksBinary = () => process.env.WFC_GITLEAKS || "gitleaks";
-
-// guess: generous against a ~200 ms one-message scan, #204
-const SWEEP_MS = 5000;
-
-/**
- * @param {string} name
- * @param {number} ceiling
- * @returns {number}
- */
-function budgetFromEnv(name, ceiling) {
-	const raw = process.env[name]?.trim() ?? "";
-	const ms = /^[1-9]\d*$/.test(raw) ? Number(raw) : ceiling;
-	return Math.min(ms, ceiling);
-}
-
-/** @returns {number} */
-const sweepBudget = () => budgetFromEnv("WFC_JEV_SWEEP_MS", SWEEP_MS);
-
-// #702
-const MODEL_ID = "typesafe-ai/jev";
-
 // #174 measured p95 1.6 s, under the 15 s hook timeout
 const ABORT_MS = 3000;
 
 /** @returns {number} */
 function abortBudget() {
-	return budgetFromEnv("WFC_JEV_ABORT_MS", ABORT_MS);
+	return gateway.budgetFromEnv("WFC_JEV_ABORT_MS", ABORT_MS);
 }
 
 // #255 measured hang rate 6.9%, 4 of 58 calls
@@ -209,7 +136,7 @@ const REFUSED_NOTICE =
 	"JEV ADVISORY — the plain-prose choice check's vendor refused its key this " +
 	"session (401 or 403), so the check is not running and its silence is not a " +
 	"clean bill of health. Store a working key with " +
-	`node ${scriptPath("write-secret.js")} ${KEY_VAR}. Not an outage, and it does not ` +
+	`node ${scriptPath("write-secret.js")} ${gateway.KEY_VAR}. Not an outage, and it does not ` +
 	"count toward the adoption's reversal (#175). Said once; nothing is blocked, " +
 	"and the turn stands.";
 
@@ -224,139 +151,6 @@ function switchedOff(root) {
 	return guardDisabled(CHECK_NAME, { root });
 }
 
-/** @returns {string|null} */
-function readKey() {
-	const fromEnv = process.env[KEY_VAR]?.trim();
-	if (fromEnv) return fromEnv;
-	try {
-		return readSecretKeepingIgnore(KEY_VAR);
-	} catch {
-		return null;
-	}
-}
-
-/** @returns {boolean} */
-function sdkMissing() {
-	try {
-		require.resolve(SDK_MODULE);
-		require.resolve(GATEWAY_MODULE);
-	} catch {
-		return true;
-	}
-	return false;
-}
-
-/**
- * @param {string} input
- * @returns {ReturnType<typeof spawnSync>}
- */
-function runSweep(input) {
-	return spawnSync(
-		gitleaksBinary(),
-		["stdin", "--no-banner", "--log-level", "error"],
-		{
-			input,
-			stdio: ["pipe", "ignore", "ignore"],
-			timeout: sweepBudget(),
-		},
-	);
-}
-
-/**
- * @param {{message: string}} spec
- * @returns {"finding"|"unswept"|null}
- */
-function sweepRefusal({ message }) {
-	let res;
-	try {
-		res = runSweep(message);
-	} catch {
-		return "unswept";
-	}
-	if (res.error) return "unswept";
-	if (res.status === 0) return null;
-	let probe;
-	try {
-		probe = runSweep("");
-	} catch {
-		return "unswept";
-	}
-	return probe.error || probe.status !== 0 ? "unswept" : "finding";
-}
-
-/**
- * @param {{key: string, message: string, questions?: Record<string, unknown>,
- *   questionKey?: string, abortMs?: number}} spec
- * @returns {Promise<{probability: number, probabilities: Record<string, number>,
- *   served: Served}>}
- */
-async function askJev({
-	key,
-	message,
-	questions = QUESTIONS,
-	questionKey = QUESTION_KEY,
-	abortMs = ABORT_MS,
-}) {
-	const { createGateway } = require(GATEWAY_MODULE);
-	const { experimental_evaluate: evaluate } = require(SDK_MODULE);
-	const baseURL = process.env[BASE_URL_VAR]?.trim();
-	const gateway = createGateway({
-		apiKey: key,
-		...(baseURL ? { baseURL } : {}),
-	});
-	const result = await evaluate({
-		model: gateway.evaluationModel(MODEL_ID),
-		state: message,
-		questions,
-		// `ai` retries 408, 429 and 500-599 with backoff to a ~40 s worst case.
-		maxRetries: 0,
-		abortSignal: AbortSignal.timeout(abortMs),
-	});
-	const served = servedBy(result);
-	/** @type {Record<string, number>} */
-	const probabilities = {};
-	for (const k of Object.keys(questions)) {
-		const p = result?.answers?.[k]?.probability;
-		if (typeof p !== "number" || !Number.isFinite(p))
-			throw new MalformedReply(
-				`no ${k} probability in the gateway's answer`,
-				served,
-			);
-		probabilities[k] = p;
-	}
-	const probability = probabilities[questionKey];
-	if (probability === undefined)
-		throw new MalformedReply("no probability in the gateway's answer", served);
-	return { probability, probabilities, served };
-}
-
-/**
- * @param {unknown} e
- * @returns {boolean}
- */
-function isMalformedReply(e) {
-	const top = /** @type {Record<string, unknown>} */ (e);
-	if (!top) return false;
-	const status = top.statusCode;
-	if (typeof status === "number" && (status < 200 || status >= 300))
-		return false;
-	let link = top;
-	for (let depth = 0; link && depth < CAUSE_DEPTH; depth++) {
-		if (UNREADABLE_NAMES.has(String(link.name))) return true;
-		link = /** @type {Record<string, unknown>} */ (link.cause);
-	}
-	return false;
-}
-
-/**
- * @param {unknown} e
- * @returns {boolean}
- */
-function isRefusedKey(e) {
-	const status = /** @type {Record<string, unknown>} */ (e)?.statusCode;
-	return typeof status === "number" && REFUSED_STATUSES.has(status);
-}
-
 /**
  * @param {{message: string, sessionId: string, root: string}} ctx
  * @returns {{outcome: Outcome|null, why?: string, key?: string}}
@@ -366,13 +160,15 @@ function preflight({ message, sessionId, root }) {
 	if (switchedOff(root)) return { outcome: "skipped-disabled" };
 	if (hookBlock.capSpent({ prefix: WARN_PREFIX, sessionId, max: WARN_BUDGET }))
 		return { outcome: "skipped-budget" };
-	if (sdkMissing()) return { outcome: "skipped-no-sdk", why: "sdk" };
-	const key = readKey();
+	if (gateway.sdkMissing()) return { outcome: "skipped-no-sdk", why: "sdk" };
+	const key = gateway.readKey();
 	if (!key) return { outcome: "skipped-no-sdk", why: "key" };
-	const refusal = sweepRefusal({ message });
+	const refusal = gateway.sweepRefusal({ message });
 	if (refusal) return { outcome: "skipped-redaction", why: refusal };
 	return { outcome: null, key };
 }
+
+/** @typedef {import("./lib/jev-gateway.js").Served} Served */
 
 /**
  * @typedef {{outcome: Outcome, why?: string, confidence?: number,
@@ -452,7 +248,7 @@ function failMalformed(e, { log, sessionId, latencyMs, retries }) {
 		outcome: "malformed",
 		latencyMs,
 		retries,
-		served: e instanceof MalformedReply ? e.served : undefined,
+		served: e instanceof gateway.MalformedReply ? e.served : undefined,
 	});
 	if (
 		hookBlock.charge({
@@ -508,19 +304,21 @@ async function askWithRetries({
 	for (;;) {
 		const attemptAt = Date.now();
 		try {
-			const { probabilities, served } = await askJev({
+			const { probabilities, served } = await gateway.askJev({
 				key,
 				message,
+				questions: QUESTIONS,
+				questionKey: QUESTION_KEY,
 				abortMs,
 			});
 			return { probabilities, served, retries };
 		} catch (e) {
 			const latencyMs = Date.now() - started;
-			if (isMalformedReply(e)) {
+			if (gateway.isMalformedReply(e)) {
 				failMalformed(e, { log, sessionId, latencyMs, retries });
 				return null;
 			}
-			if (isRefusedKey(e)) {
+			if (gateway.isRefusedKey(e)) {
 				failRefused({ log, sessionId, latencyMs, retries });
 				return null;
 			}
@@ -589,13 +387,6 @@ module.exports = {
 	main,
 	LEAVES_QUESTION: QUESTIONS[LEAVES_KEY],
 	LEAVES_KEY,
-	gateway: {
-		readKey,
-		sdkMissing,
-		sweepRefusal,
-		askJev,
-		isMalformedReply,
-	},
 };
 
 if (require.main === module) main().catch(noop);

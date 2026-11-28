@@ -6,7 +6,6 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { gateway } from "./guard-jev-advisory.js";
 import { errorLog } from "./lib/arbiter-core.js";
 import {
 	readEnvFileValue,
@@ -14,6 +13,7 @@ import {
 	secretsFile,
 } from "./lib/env-file.js";
 import { defineTemplate } from "./lib/git-fixture";
+import { readKey } from "./lib/jev-gateway.js";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { noop } from "./lib/noop.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
@@ -123,7 +123,7 @@ describe("write-secret", () => {
 		execFileSync("sh", ["-c", "echo X=1 > .env"], { cwd: host });
 		expect(fs.readFileSync(path.join(host, ".env"), "utf8")).toBe("X=1\n");
 		readFromStore();
-		expect(gateway.readKey()).toBe(SECRET);
+		expect(readKey()).toBe(SECRET);
 		expect(readEnvFileValue(secretsFile(), "SEAT_KEY")).toBe("seat-value");
 	});
 
@@ -159,7 +159,7 @@ describe("write-secret", () => {
 			seed(`AI_GATEWAY_API_KEY=${SECRET}\n`);
 			plantIgnore();
 			readFromStore();
-			expect(gateway.readKey()).toBe(SECRET);
+			expect(readKey()).toBe(SECRET);
 			const ignore = path.join(path.dirname(store()), ".gitignore");
 			expect(fs.lstatSync(ignore).isFile()).toBe(true);
 			expect(fs.readFileSync(ignore, "utf8")).toBe("*\n");
@@ -175,7 +175,7 @@ describe("write-secret", () => {
 		fs.chmodSync(dir, 0o500);
 		try {
 			readFromStore();
-			expect(gateway.readKey()).toBe(SECRET);
+			expect(readKey()).toBe(SECRET);
 		} finally {
 			fs.chmodSync(dir, 0o700);
 		}
@@ -732,7 +732,7 @@ describe("write-secret", () => {
 		makeStoreDir();
 		plantFifo();
 		readFromStore();
-		expect(gateway.readKey()).toBeNull();
+		expect(readKey()).toBeNull();
 	});
 
 	it("a stored-names read throws on a FIFO at the file rather than hanging, so no masker masks fewer (#3822)", () => {

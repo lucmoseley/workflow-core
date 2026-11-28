@@ -23,6 +23,7 @@ const {
 	transcriptIndex,
 } = require("./lib/fix-or-file-rehydrate.js");
 const { worktreeRoot } = require("./lib/host-root.js");
+const gateway = require("./lib/jev-gateway.js");
 const { scriptPath } = require("./lib/script-path.js");
 
 const LABELS = path.join(
@@ -69,10 +70,10 @@ function readQuestion(file) {
  * @returns {Ask|null}
  */
 function jevAsk(question) {
-	const key = advisory.gateway.readKey();
+	const key = gateway.readKey();
 	if (!key) return null;
 	return async (message) => {
-		const { probability } = await advisory.gateway.askJev({
+		const { probability } = await gateway.askJev({
 			key,
 			message,
 			questions: { [advisory.LEAVES_KEY]: question },
@@ -112,7 +113,7 @@ async function scoreAll({ rows, ask }) {
 	let costUsd = 0;
 	for (const row of rows) {
 		if (typeof row.text !== "string") continue;
-		if (advisory.gateway.sweepRefusal({ message: row.text })) {
+		if (gateway.sweepRefusal({ message: row.text })) {
 			process.stderr.write(
 				`${row.id}: not sent, the redaction sweep refused it\n`,
 			);
@@ -185,7 +186,7 @@ async function main() {
 			? claudeAsk(question, values.model)
 			: jevAsk(question);
 	if (!ask) {
-		process.stderr.write("no AI_GATEWAY_API_KEY: nothing can be scored.\n");
+		process.stderr.write(`no ${gateway.KEY_VAR}: nothing can be scored.\n`);
 		return 2;
 	}
 	const { scored, costUsd } = await scoreAll({
