@@ -319,7 +319,7 @@ describe("a bare run", () => {
 			});
 		});
 
-		it("records `head` on a gate run's ceiling kill, which carries no scope (#5321)", async () => {
+		it("records `head` and the file count on a gate run's ceiling kill and its ledger line, as a finished run's certificate names it (#5900)", async () => {
 			const root = branch();
 			const [python] = fakePytest({ passed: true, scope: scope() }, 0, {});
 			await wrap(python, root, [], {
@@ -329,7 +329,25 @@ describe("a bare run", () => {
 				[DEADLINE_ENV]: path.join(root, "deadline"),
 			});
 			expect(readFailures({ root })).toEqual([
-				expect.objectContaining({ ceilingKill: true, touchedBase: "head" }),
+				expect.objectContaining({
+					ceilingKill: true,
+					scope: {
+						touched: true,
+						resolvedFiles: 1,
+						leftOut: [],
+						touchedBase: "head",
+					},
+				}),
+			]);
+			expect(readLedger(root)).toMatchObject([
+				{
+					kind: "touched",
+					suite: "pytest",
+					verdict: "killed",
+					touchedBase: "head",
+					resolvedFiles: 1,
+					leftOut: [],
+				},
 			]);
 		});
 
@@ -974,7 +992,7 @@ describe("the suite ceiling (#2702)", () => {
 				argv: ["scripts"],
 				sessionId: null,
 				lander: false,
-				touchedBase: null,
+				scope: null,
 			},
 		);
 
@@ -996,7 +1014,7 @@ describe("the suite ceiling (#2702)", () => {
 		});
 	});
 
-	it("carries a touched run's base on its kill's row, which has no scope (#5321)", () => {
+	it("carries a touched run's launch scope on its kill's row (#5321, #5900)", () => {
 		const row = ceilingKillRow(
 			{
 				at: "2026-11-10T12:00:01Z",
@@ -1010,10 +1028,20 @@ describe("the suite ceiling (#2702)", () => {
 				argv: [],
 				sessionId: null,
 				lander: false,
-				touchedBase: "head",
+				scope: {
+					touched: true,
+					resolvedFiles: 2,
+					leftOut: [],
+					touchedBase: "head",
+				},
 			},
 		);
-		expect(row.touchedBase).toBe("head");
+		expect(row.scope).toEqual({
+			touched: true,
+			resolvedFiles: 2,
+			leftOut: [],
+			touchedBase: "head",
+		});
 	});
 
 	it("leaves a kill's row with no tests named where pytest reported none in flight", () => {
@@ -1030,7 +1058,7 @@ describe("the suite ceiling (#2702)", () => {
 				argv: [],
 				sessionId: null,
 				lander: true,
-				touchedBase: null,
+				scope: null,
 			},
 		);
 

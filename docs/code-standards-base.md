@@ -100,7 +100,7 @@ The floor is every gate in the plugin's own `.husky/pre-commit` that judges code
 | `scripts/check-arbiter-commands.js` | a printed `session-arbiter.js` command, or a `scriptPath()` of the arbiter, spelt by hand rather than through `buildArbiterCommand` (or `buildArbiterCommandIn(env)`) in `scripts/lib/build-arbiter-command.js` | a commit staging a `scripts/` program, judging the whole repo |
 | `scripts/check-clock-copies.js` | a program reading `WFC_NOW` itself rather than `now()` in `scripts/lib/clock.js` | a commit staging a `scripts/` program, judging the whole repo |
 | `scripts/check-report-programs.js` | a `report-*` program building its own `gh issue create` rather than `createIssue` | a commit staging a `scripts/report-*` program, judging the whole repo |
-| `scripts/check-family-contracts.js` | a top-level `scripts/` `.js`, `.cjs` or `.mjs` program keeping a family's contract outside its prefix with no opening bare `#N` (§N3): registered as a hook while in no family, calling `runCheck` outside `check-*`, or filing an issue outside `report-*` | a commit staging a top-level `scripts/` program, `hooks/hooks.json` or `.claude/settings.json`, judging the whole repo |
+| `scripts/check-family-contracts.js` | a top-level `scripts/` `.js`, `.cjs` or `.mjs` program keeping a family's contract outside its prefix with no opening bare `#N` (§N3): registered as a hook while in no family, calling `runCheck` outside `check-*`, or filing an issue outside `report-*`; and a `check-*` that never calls `runCheck` with no opening bare `#N` (§N3, §N4, §G4) | a commit staging a top-level `scripts/` program, `hooks/hooks.json` or `.claude/settings.json`, judging the whole repo |
 | `scripts/check-program-output.js` | a program calling `process.exit`, or any `report-*`, writing through `console` or `process.stdout.write` / `process.stderr.write` rather than `writeFd` or `writeTerminal` (§N6) | a commit staging a `scripts/` or `.claude/skills/*/scripts/` program, judging the whole repo |
 | `scripts/check-gh-route.js` | a `gh` call off `scripts/lib/gh.js` and `WFC_GH`, or a `claude` call off `scripts/lib/claude-bin.js` and `WFC_CLAUDE_BIN`: a second var, a Node program's own spawn, a bare shell call, or a test's stub on `PATH` (§X2, §N7) | a commit staging `scripts/`, `.claude/skills/`, `.husky/` or `hooks/`, judging the whole repo |
 | `scripts/check-guard-test-isolation.js`, `scripts/check-host-root-test-isolation.js`, `scripts/check-git-fixture-identity.js`, `scripts/check-test-env-writes.js` | a `scripts/` test that spawns a guard without redirecting `CLAUDE_CONFIG_DIR`, spawns a `hostRoot()`- or `gr_root`-rooted script without redirecting `CLAUDE_PROJECT_DIR`, or commits in a git fixture it gave no identity; a test anywhere writing or deleting `process.env` directly rather than through `vi.stubEnv` | a commit staging `scripts/` code, or for the last any test file or `scripts/` `.ts` helper, each judging the whole repo |
@@ -193,7 +193,7 @@ The fixes, best first: the test drives the program end to end through `run-in-pr
 
 Three kinds of export are not test-only:
 
-- **A program's entry point**, exported so `run-in-process` can run it: a `main` exported by a file carrying a `require.main` guard, as `scripts/audit-escape-lines.js:426` does — *"module.exports = { main };"*.
+- **A program's entry point**, exported so `run-in-process` can run it: a `main` exported by a file carrying a `require.main` guard, as `scripts/audit-escape-lines.js:430` does — *"module.exports = { main };"*.
 - **Test support.** A testkit, harness, fixture, stub or fake module, named for what it is, and anything under a `fixtures/` directory. `scripts/lib/precommit-gate-harness.js`, the machinery the `.husky/pre-commit` gate suites share, is one.
 - **A module built ahead of its caller**, whose opening comment is the directive `Unbuilt caller: <caller> (#N)`, naming the caller and the open issue that builds it.
 
@@ -203,7 +203,7 @@ Three kinds of export are not test-only:
 
 **Program, library and shell.** Every injected seam — a dependency parameter, a port, or an env var standing in for a binary, a file or a clock — has a second adapter beside production's, and a test fake counts. Otherwise an open issue names the caller that will supply one, and the seam cites it as a bare `#N` (K5).
 
-`scripts/lib/suite-queue.js:414` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:25` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
+`scripts/lib/suite-queue.js:417` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:26` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
 
 Where neither fits, remove the seam: create the dependency in place, and let the test reach it another way, through a temp directory, the real clock, or a binary stubbed at its §N7 var (#1374).
 
@@ -462,7 +462,7 @@ Stream discipline (`scripts/lib/check.js:32-36`): stdout is for machine readers 
 
 ### §N9 · A function returns its result rather than changing what it was passed — **judgement**
 
-**Program kind only**: library code leans on §T5's `readonly` instead, which holds a passed record's fields and arrays but not a passed Map, Set or regex. A function returns its result rather than changing an object or array it was passed, so every value a call changes shows at the call site. A field write, a push, an in-place sort and a reset of a regex's `lastIndex` all count, and so does a write to an element of a passed list or through a destructured options field. `scripts/lib/issue-gate.js:77` runs a caller's regex on a copy rather than resetting it: *"const local = new RegExp(re);"*.
+**Program kind only**: library code leans on §T5's `readonly` instead, which holds a passed record's fields and arrays but not a passed Map, Set or regex. A function returns its result rather than changing an object or array it was passed, so every value a call changes shows at the call site. A field write, a push, an in-place sort and a reset of a regex's `lastIndex` all count, and so does a write to an element of a passed list or through a destructured options field. `scripts/lib/issue-gate.js:79` runs a caller's regex on a copy rather than resetting it: *"const local = new RegExp(re);"*.
 
 **The good reason to differ is a caller-owned accumulator or counter passed in for that purpose** — a findings list, a tally, a cache, the state a split-out loop step advances — the house shape (#1297). It is said by the parameter's name or type, which names what accumulates in it, as the parameter `tally`, typed `Tally`, in `scripts/check-cleared-trackers.js` does (#1375, #5455). A record handed in with one field for the callee to fill is an accumulator for that field alone, and the name says which. A record, a regex, a parsed document or a list handed in to be read is never an accumulator.
 

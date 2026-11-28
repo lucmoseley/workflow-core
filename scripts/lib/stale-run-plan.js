@@ -684,13 +684,6 @@ function planContainer(rc, iss, tags) {
 	const n = iss.number;
 	const kids = iss.subIssues.filter((k) => k.state === "open");
 	if (!iss.labels.includes(CONTAINER_LABEL) && kids.length === 0) return false;
-	if (kids.length > 0)
-		add(rc, {
-			n,
-			cls: "C4",
-			sig: "container held",
-			text: `container held by ${count(kids.length, "open child", "open children")}: ${kids.map((k) => `${k.repo ?? rc.repo}#${k.number}`).join(", ")}`,
-		});
 	for (const t of tags.filter((x) => CONTAINER_TAGS.has(x)))
 		add(rc, { n, cls: "C4", sig: t, text: t });
 	return true;

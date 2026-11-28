@@ -3,13 +3,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { SPEC } from "./check-commit-message-closes.js";
+import { checkInProcess } from "./lib/check.js";
 import { mkScratchDir } from "./lib/git-fixture";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { runInProcess } from "./lib/run-in-process.js";
 
-const { main } = require("./check-commit-message-closes.js") as {
-	main: (argv: string[]) => { code: number; stderr: string };
-};
+const SCANNER = path.join(__dirname, "check-commit-message-closes.js");
 
 const temps = registerTempCleanup();
 
@@ -25,10 +25,14 @@ beforeEach(() => {
 	vi.stubEnv("GIT_EDITOR", "vi");
 });
 
-function scan(message: string) {
-	const { code, stderr } = main([messageFile(message), "test"]);
-	return { code, output: stderr };
+async function scanFile(file: string) {
+	const { exit, stderr } = await checkInProcess(SPEC, [file, "test"], {
+		script: SCANNER,
+	});
+	return { code: exit, output: stderr };
 }
+
+const scan = (message: string) => scanFile(messageFile(message));
 
 describe("check-commit-message-closes.js (#138)", () => {
 	it.each([
@@ -44,8 +48,8 @@ describe("check-commit-message-closes.js (#138)", () => {
 			"do it\n\nresolves https://github.com/lucmoseley/workflow-core-tracker/issues/7\n",
 			"resolves https://github.com/lucmoseley/workflow-core-tracker/issues/7",
 		],
-	])("refuses %j, naming what matched", (message, matched) => {
-		const r = scan(message as string);
+	])("refuses %j, naming what matched", async (message, matched) => {
+		const r = await scan(message as string);
 		expect(r.code).toBe(1);
 		expect(r.output).toContain(`What matched: \`${matched}\``);
 	});
@@ -62,46 +66,59 @@ describe("check-commit-message-closes.js (#138)", () => {
 			"a revert's quoted subject",
 			'Revert "Fixes #77 add g"\n\nThis reverts commit abc.\n',
 		],
-	])("passes %s", (_name, message) => {
-		expect(scan(message as string).code).toBe(0);
+	])("passes %s", async (_name, message) => {
+		expect((await scan(message as string)).code).toBe(0);
 	});
 
-	it("refuses rather than passing a message file it cannot read", () => {
-		const r = main(["/nonexistent/COMMIT_EDITMSG", "test"]);
-		expect(r.code).toBe(1);
-		expect(r.stderr).toContain("cannot read the commit message file");
-		expect(r.stderr).toContain("Refusing rather than passing a message");
+	it("is BROKEN, exit 2, on a message file it cannot read", async () => {
+		const r = await scanFile("/nonexistent/COMMIT_EDITMSG");
+		expect(r.code).toBe(2);
+		expect(r.output).toContain(
+			"BROKEN: test: cannot read the commit message file",
+		);
+		expect(r.output).toContain("Refusing rather than passing a message");
 	});
 });
 
 describe("as the hooks run it", () => {
-	it("refuses a closing message on stderr with exit 1", () => {
-		const r = scan("Fixes #12 do a thing\n");
+	it("refuses a closing message on stderr with exit 1", async () => {
+		const r = await scan("Fixes #12 do a thing\n");
 		expect(r.code).toBe(1);
 		expect(r.output).toContain("test: this commit message closes an issue");
 		expect(r.output).toContain("What matched: `Fixes #12`");
 		expect(r.output).toContain(
 			"Rewrite the message with a non-closing reference and commit again.",
 		);
+		expect(r.output).toContain("FAIL: 1 closing keyword(s)");
 	});
 
-	it("passes a clean message silently with exit 0", () => {
-		expect(scan("Refs #12 do a thing\n")).toEqual({ code: 0, output: "" });
+	it("passes a clean message with exit 0 and its OK line", async () => {
+		expect(await scan("Refs #12 do a thing\n")).toEqual({
+			code: 0,
+			output: "OK: no closing keyword in the message.\n",
+		});
 	});
 
 	it.each([
 		["-m or -F (no editor), keeping it as the subject, so refuses", ":", 1],
 		["the editor, dropping it as a comment, so passes", "vi", 0],
-	])("reads a #N line as git records it on %s (#3075)", (_, editor, code) => {
-		vi.stubEnv("GIT_EDITOR", editor as string);
-		expect(scan("#3 Fixes #12 do a thing\n").code).toBe(code);
+	])(
+		"reads a #N line as git records it on %s (#3075)",
+		async (_, editor, code) => {
+			vi.stubEnv("GIT_EDITOR", editor as string);
+			expect((await scan("#3 Fixes #12 do a thing\n")).code).toBe(code);
+		},
+	);
+
+	it("refuses a third argument with its usage and exit 2", () => {
+		const r = runInProcess(SCANNER, ["a", "b", "c"]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("at most two arguments.");
+		expect(r.stderr).toContain("usage: node check-commit-message-closes.js");
 	});
 
 	it("refuses an unknown flag with its usage and exit 2, not a stack trace", () => {
-		const r = runInProcess(
-			path.join(__dirname, "check-commit-message-closes.js"),
-			["--bogus"],
-		);
+		const r = runInProcess(SCANNER, ["--bogus"]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("unknown flag: --bogus");
 		expect(r.stderr).toContain("usage: node check-commit-message-closes.js");

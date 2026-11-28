@@ -141,12 +141,12 @@ function runPytest(argv, root, { handOff, inflightFile, schedule }) {
  * @param {CeilingKill} kill
  * @param {{ sha: string, startedAtMs: number, argv: string[],
  *   sessionId: string|null, lander: boolean,
- *   touchedBase: import("./test-pass-marker.js").TouchedBase|null }} run
+ *   scope: Partial<import("./test-pass-marker.js").Scope>|null }} run
  * @returns {import("./test-pass-marker.js").KillRow}
  */
 function ceilingKillRow(
 	kill,
-	{ sha, startedAtMs, argv, sessionId, lander, touchedBase },
+	{ sha, startedAtMs, argv, sessionId, lander, scope },
 ) {
 	const { inflight } = kill;
 	return {
@@ -163,7 +163,7 @@ function ceilingKillRow(
 		argv,
 		sessionId,
 		...(lander ? { lander: true } : {}),
-		...(touchedBase ? { touchedBase } : {}),
+		...(scope ? { scope } : {}),
 	};
 }
 
