@@ -133,8 +133,9 @@ describe("a checker that never returns (#4187)", () => {
 describe("prepare-commit-msg's steps (#5213)", () => {
 	const repoTemplate = defineTemplate((root) => initGitRepo(root, ".no-hooks"));
 
-	const hung = (name: string) =>
-		`module.exports = { ${name}: () => require("node:child_process").spawnSync("sleep", ["${SLEEPER_S}"]) };\n`;
+	const sleeper = `() => require("node:child_process").spawnSync("sleep", ["${SLEEPER_S}"])`;
+	const hung = (name: string) => `module.exports = { ${name}: ${sleeper} };\n`;
+	const hungSpec = `module.exports = { SPEC: { name: "hung", usage: "hung", run: ${sleeper} } };\n`;
 	const SlowPreCommit = "sleep 2\necho PRE-COMMIT-DONE\n";
 
 	const PrepareCommitMsgScripts = [
@@ -193,7 +194,7 @@ describe("prepare-commit-msg's steps (#5213)", () => {
 
 	it("refuses a commit whose closing-keyword scan hangs, killed at the limit", () => {
 		const r = prepareCommitMsg("exit 0\n", "subject\n", {
-			"check-commit-message-closes.js": hung("main"),
+			"check-commit-message-closes.js": hungSpec,
 		});
 		expect(r.status).not.toBe(0);
 		expect(r.stderr).toContain(killedLine());
