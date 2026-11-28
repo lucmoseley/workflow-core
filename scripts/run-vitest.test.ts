@@ -6904,9 +6904,10 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 	});
 
 	describe("a queued touched run killed on the fake clock (#5875)", () => {
+		// guess: one short kill window, the other never due, advanced twice past the first, #5875
 		const KillMs = 50;
-		// guess: 1000x the kill window, so the other never comes due first (#5875)
 		const NeverMs = 1000 * KillMs;
+		const AdvanceMs = 2 * KillMs;
 
 		async function killedLedger(
 			timers: { stall: number; ceiling: number },
@@ -6934,7 +6935,7 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 					...extra,
 				});
 				await up;
-				await vi.advanceTimersByTimeAsync(2 * KillMs);
+				await vi.advanceTimersByTimeAsync(AdvanceMs);
 				await done;
 			} finally {
 				vi.useRealTimers();
