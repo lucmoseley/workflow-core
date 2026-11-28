@@ -1154,6 +1154,7 @@ function secondMapVerdict(labels, readMaps) {
 }
 
 module.exports = {
+	basisOf,
 	gateOf,
 	gateOnOf,
 	gateRefsOf,

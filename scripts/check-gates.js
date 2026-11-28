@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+const { caught } = require("./lib/caught.js");
 const { runCheck } = require("./lib/check");
 const {
 	parseErrLine,
@@ -17,6 +18,8 @@ const {
 	runCheckCommand,
 	unwrap,
 } = require("./lib/gate-check.js");
+const { appendReading } = require("./lib/gate-projection.js");
+const { readHostTracker } = require("./lib/refill-repos.js");
 const { WATCH_CLOSED_LABEL } = require("./lib/watch-label.js");
 
 // guess, lucmoseley/mantahostels#2656
@@ -197,6 +200,30 @@ function readIssues(only) {
 	return iss.state === "open" || carriesWatchLabel(iss) ? [iss] : [];
 }
 
+/**
+ * #5861
+ * @param {import("./lib/check").Ctx} ctx
+ * @param {GateRow[]} rows
+ */
+function recordReadings(ctx, rows) {
+	const repo = readHostTracker(REPO_ROOT) ?? "";
+	for (const r of rows) {
+		if (r.state !== "READING" || r.command === null) continue;
+		try {
+			appendReading({
+				repo,
+				issue: r.number,
+				command: r.command,
+				reading: r.reading,
+			});
+		} catch (e) {
+			ctx.say(
+				`  #${r.number}: reading not added to the gate history (${caught(e).message.split("\n")[0]})`,
+			);
+		}
+	}
+}
+
 runCheck({
 	name: "gates",
 	usage:
@@ -225,6 +252,7 @@ runCheck({
 			const row = gateRow(iss, timeoutS * 1000);
 			if (row) rows.push(row);
 		}
+		recordReadings(ctx, rows);
 
 		rows.sort((a, b) => a.number - b.number);
 		const repairs = rows.filter((r) => REPAIRS.has(r.state));
