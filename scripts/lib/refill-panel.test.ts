@@ -366,6 +366,18 @@ describe("the panel's rows", () => {
 		);
 	});
 
+	it("names the launch hold's holder (#5905)", () => {
+		const idle = {
+			reason: "launches held by",
+			detail: " page-combining-trial until 2026-11-28T16:30:10.714Z",
+		};
+		const lastTick = { at: AT, summary: "", idle, paused: false };
+
+		expect(rowsOf({ status: { ...RUNNING, lastTick } })[3].text).toBe(
+			"Launches held by page-combining-trial until 2026-11-28T16:30:10.714Z",
+		);
+	});
+
 	it.each([
 		["an unmapped reason", "a reason unmapped"],
 		["one opening with a mapped reason's text", "nothing launchable yet"],

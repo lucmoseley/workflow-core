@@ -1084,10 +1084,11 @@ describe("the launch hold a manual /pick-next takes (#4354)", () => {
 			lines: string[];
 			startFrom: unknown;
 		};
-	const hold = { holder: "s1", until: 7 + 20 * Minute };
+	const S1 = "0f6c2a9e-3b1d-4e57-9a28-7c4d1e5b6f30";
+	const hold = { holder: S1, until: 7 + 20 * Minute };
 
 	it("holds for the minutes asked, naming its end, and starts no process", () => {
-		const plan = set(control, { holdMinutes: 20, holder: "s1" }, false);
+		const plan = set(control, { holdMinutes: 20, holder: S1 }, false);
 		expect(plan.write?.launchHold).toEqual(hold);
 		expect(plan.lines).toEqual([
 			`launches held by a manual /pick-next until ${new Date(hold.until).toISOString()}`,
@@ -1112,9 +1113,9 @@ describe("the launch hold a manual /pick-next takes (#4354)", () => {
 			lines: [expect.stringContaining("unchanged: another session's hold")],
 		});
 		expect(
-			set(held, { holdMinutes: null, holder: "s1" }).write,
+			set(held, { holdMinutes: null, holder: S1 }).write,
 		).not.toHaveProperty("launchHold");
-		const lapsed = { ...control, launchHold: { holder: "s1", until: 7 } };
+		const lapsed = { ...control, launchHold: { holder: S1, until: 7 } };
 		expect(
 			set(lapsed, { holdMinutes: null, holder: "s2" }).write,
 		).not.toHaveProperty("launchHold");
@@ -1141,6 +1142,16 @@ describe("the launch hold a manual /pick-next takes (#4354)", () => {
 			}).join("\n");
 		expect(statusAt(8)).toContain("launches held by a manual /pick-next");
 		expect(statusAt(hold.until)).not.toContain("launches held");
+	});
+
+	it("names a script's hold by the script (#5905)", () => {
+		const plan = set(control, {
+			holdMinutes: 20,
+			holder: "wsl-disk-compaction",
+		});
+		expect(plan.lines).toEqual([
+			`launches held by wsl-disk-compaction until ${new Date(hold.until).toISOString()}`,
+		]);
 	});
 });
 
