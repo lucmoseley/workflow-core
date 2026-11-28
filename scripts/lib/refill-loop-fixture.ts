@@ -80,6 +80,7 @@ export const row = (
 	asksQuestions: false,
 	depth: 0,
 	closes: 0,
+	agePoints: 0,
 	reach: 0,
 	collision: "comment-only",
 	takes: [takes],

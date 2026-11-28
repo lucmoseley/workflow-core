@@ -12,6 +12,7 @@ const { byCodeUnit } = require("./by-code-unit.js");
 const { LOADS_BODY, pragmaLine } = require("./code-edges-pragmas.js");
 const { JS_TEST_FILE, isJsTestFile, isTestKind } = require("./test-kind.js");
 const { isUnder } = require("./is-under.js");
+const { programLibs } = require("./program-libs.js");
 const {
 	DISPATCH_ENTRY,
 	MANIFEST_REL,
@@ -1839,13 +1840,17 @@ function addReader(byDoc, p, t) {
 const isTestSupport = (p) => isTestKind(p) && !isJsTestFile(p);
 
 /**
+ * @typedef {{ tracked: Set<string>, read: (p: string) => string,
+ *  programReads: (p: string) => string[] }} TestScan
+ */
+
+/**
  * @param {string} t
  * @param {string} source
- * @param {Set<string>} tracked
- * @param {(p: string) => string} read
+ * @param {TestScan} ctx
  * @returns {Set<string>}
  */
-function helperReads(t, source, tracked, read) {
+function helperReads(t, source, { tracked, read, programReads }) {
 	const found = new Set();
 	const seen = new Set([t]);
 	const queue = [...importedHelpers(source, t, tracked)];
@@ -1855,24 +1860,88 @@ function helperReads(t, source, tracked, read) {
 		seen.add(helper);
 		const code = blankComments(read(helper));
 		for (const p of edgesFor(code, tracked, helper)) found.add(p);
+		for (const p of programReads(helper)) found.add(p);
 		if (isTestSupport(helper))
 			queue.push(...importedHelpers(code, helper, tracked));
 	}
 	return found;
 }
 
+const PROGRAM_LIBS_CALL = /\breadProgramLibs\(/g;
+
+const PROGRAM_DIR = path.posix.dirname("scripts/lib-closure-fixture.ts");
+
 /**
- * @param {string} t
+ * @param {SiteScan} scan
+ * @param {number} open
+ * @returns {string[]}
+ */
+function programsCalled(scan, open) {
+	const close = closeOf(scan.source, open);
+	if (close === -1) return [];
+	const [arg] = topLevelArgs(scan.source.slice(open + 1, close - 1));
+	if (arg === undefined) return [];
+	const segs = segmentsOf({ ...scan, site: open }, arg, TRACE_HOPS);
+	return Array.isArray(segs) ? segs : [];
+}
+
+/**
+ * #5855
+ * @param {string} file
  * @param {string} source
  * @param {Set<string>} tracked
  * @param {(p: string) => string} read
+ * @returns {{ reads: string[], warnings: string[] }}
+ */
+function programLibReads(file, source, tracked, read) {
+	const code = blankComments(source);
+	/** @type {SiteScan} */
+	const scan = {
+		source: code,
+		spans: inertSpans(code),
+		dir: file.split("/").slice(0, -1).join("/"),
+		tracked,
+		seen: () => true,
+		site: 0,
+		decls: new Map(),
+	};
+	const dir = {
+		read: (/** @type {string} */ rel) => read(`${PROGRAM_DIR}/${rel}`),
+		exists: (/** @type {string} */ rel) => tracked.has(`${PROGRAM_DIR}/${rel}`),
+	};
+	const reads = new Set();
+	const warnings = [];
+	const opens = [...code.matchAll(PROGRAM_LIBS_CALL)]
+		.map((m) => (m.index ?? 0) + m[0].length - 1)
+		.filter((open) => isCode(scan.spans, open));
+	for (const open of opens) {
+		const at = `${file}:${code.slice(0, open).split("\n").length}: readProgramLibs names`;
+		const programs = programsCalled(scan, open);
+		if (programs.length === 0)
+			warnings.push(
+				`${at} no program the selector can trace, so its libs never select this test`,
+			);
+		for (const program of programs)
+			if (dir.exists(program))
+				for (const lib of programLibs(program, dir))
+					reads.add(`${PROGRAM_DIR}/lib/${lib}`);
+			else warnings.push(`${at} ${PROGRAM_DIR}/${program}, no tracked file`);
+	}
+	return { reads: [...reads].sort(), warnings };
+}
+
+/**
+ * @param {string} t
+ * @param {string} source
+ * @param {TestScan} ctx
  * @returns {Set<string>}
  */
-function testReads(t, source, tracked, read) {
+function testReads(t, source, ctx) {
+	const { tracked, read, programReads } = ctx;
 	const found = new Set(edgesFor(source, tracked, t));
 	for (const p of ruleEdgesFor(source, tracked, t)) found.add(p);
-	for (const p of helperReads(t, source, tracked, read))
-		if (p !== t) found.add(p);
+	for (const p of programReads(t)) found.add(p);
+	for (const p of helperReads(t, source, ctx)) if (p !== t) found.add(p);
 	for (const p of readPatchTargets(found, tracked, read))
 		if (p !== t) found.add(p);
 	return found;
@@ -2034,13 +2103,22 @@ function buildManifest(tracked, read, { sites: findSites = false } = {}) {
 			isFile: (c) => tracked.has(c),
 		}).flatMap((e) => [e.to, ...loadsOnce(e.to)]),
 	);
+	const programReadsOnce = once((p) => {
+		const found = programLibReads(p, read(p), tracked, read);
+		warnings.push(...found.warnings);
+		return found.reads;
+	});
 	const coreEdges = buildCoreEdges(tracked, read);
 	/** @type {Record<string, Site[]>} */
 	const unseen = {};
 	for (const t of tests) {
 		const source = read(t);
 		warnings.push(...untrackedLoads(source, tracked, t));
-		const found = testReads(t, source, tracked, read);
+		const found = testReads(t, source, {
+			tracked,
+			read,
+			programReads: programReadsOnce,
+		});
 		for (const p of coreEdges(t, source, found)) found.add(p);
 		addLaunches(found, t, launchesOnce);
 		addClosure(byClosure, t, closureDepths(t, found, loadsOnce, readsOnce));
