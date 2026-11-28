@@ -5,6 +5,7 @@ const {
 	gitBinary,
 	gitSpawnOptions,
 	GIT_TIMEOUT_MS,
+	scrubbedGitEnv,
 } = require("./git.js");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -21,6 +22,24 @@ const { withMergeParents } = require("./merge-heads.js");
 /** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
 
 const ISOLATED_PREFIX = "isolated-";
+
+// #5889
+/**
+ * @param {string} cwd
+ * @param {"pipe" | "ignore"} stderr
+ */
+const isolatedGitOptions = (cwd, stderr) =>
+	gitSpawnOptions({
+		cwd,
+		env: scrubbedGitEnv(process.env),
+		encoding: /** @type {const} */ ("utf8"),
+		stdio: /** @type {["ignore", "pipe", "pipe" | "ignore"]} */ ([
+			"ignore",
+			"pipe",
+			stderr,
+		]),
+		timeout: GIT_TIMEOUT_MS,
+	});
 
 const SHARED_ARTEFACTS = ["node_modules"];
 
@@ -95,12 +114,7 @@ function removeIsolated(
 		execFn(
 			gitBinary(),
 			["worktree", "remove", "--force", dir],
-			gitSpawnOptions({
-				cwd: root,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-				timeout: GIT_TIMEOUT_MS,
-			}),
+			isolatedGitOptions(root, "ignore"),
 		);
 	} catch (error) {
 		err.write(
@@ -180,12 +194,7 @@ function pruneWorktreeRegistrations(
 		execFn(
 			gitBinary(),
 			["worktree", "prune"],
-			gitSpawnOptions({
-				cwd: root,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-				timeout: GIT_TIMEOUT_MS,
-			}),
+			isolatedGitOptions(root, "ignore"),
 		);
 	} catch (error) {
 		err.write(
@@ -212,16 +221,7 @@ function createIsolated(
 	const dir = path.join(root, WORKTREES, `${ISOLATED_PREFIX}${String(pid)}`);
 	/** @type {(args: string[], cwd: string) => void} */
 	const run = (args, cwd) => {
-		execFn(
-			gitBinary(),
-			args,
-			gitSpawnOptions({
-				cwd,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-				timeout: GIT_TIMEOUT_MS,
-			}),
-		);
+		execFn(gitBinary(), args, isolatedGitOptions(cwd, "pipe"));
 	};
 	try {
 		worktreeFs.mkdirSync(path.dirname(dir), { recursive: true });
@@ -285,8 +285,6 @@ function linkArtefacts(root, dir, worktreeFs = fs) {
 
 const QUEUE_RUN = path.join(__dirname, "..", "queue-run.js");
 
-const GIT_REDIRECTS = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"];
-
 /**
  * @param {string} root
  * @param {string} tree
@@ -301,8 +299,7 @@ function runInTree(
 	{ env = process.env, onStart, gate = false } = {},
 ) {
 	/** @type {NodeJS.ProcessEnv} */
-	const clean = withMergeParents(root, env);
-	for (const k of GIT_REDIRECTS) delete clean[k];
+	const clean = scrubbedGitEnv(withMergeParents(root, env));
 	/** @type {ExecFn} */
 	const execFn = (file, args, options) =>
 		execFileSync(file, args, { ...options, env: clean });
