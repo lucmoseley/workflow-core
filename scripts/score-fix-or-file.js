@@ -11,6 +11,7 @@ const {
 	report,
 } = require("./lib/fix-or-file-rates.js");
 const { worktreeRoot } = require("./lib/host-root.js");
+const { scriptPath } = require("./lib/script-path.js");
 
 const LABELS = path.join(
 	"docs",
@@ -80,7 +81,7 @@ async function main() {
 	});
 	if (values.help) {
 		process.stdout.write(
-			"usage: node scripts/score-fix-or-file.js [--labels <jsonl>] [--recorded | --out <jsonl>]\n",
+			`usage: node ${scriptPath("score-fix-or-file.js")} [--labels <jsonl>] [--recorded | --out <jsonl>]\n`,
 		);
 		return 0;
 	}
