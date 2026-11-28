@@ -308,7 +308,7 @@ describe("the queue directory every default reads (#2889)", () => {
 });
 
 describe("readLiveCharged (#2416)", () => {
-	it("names the live markers of one role, charging the default where a marker carries none, sweeping none", () => {
+	it("names the live markers of one role with their charge, sweeping none", () => {
 		const queueDir = qdir();
 		joined(queueDir, process.pid, 11, { role: "lander", chargeMb: 600 });
 		joined(queueDir, 2 ** 30, 22, { role: "lander" });
