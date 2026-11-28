@@ -299,6 +299,15 @@ describe("lib/suite-background.js", () => {
 			);
 	});
 
+	it("reads the script a wrapper runs as commands, quotes and all (#5822)", () => {
+		expect(verdict(`flock /l -c "echo 'a & b'; npm run test"`)).toBe("allow");
+		expect(
+			readDenyReason('flock /l -c "cd scripts && nohup npm run test &"').split(
+				"\n",
+			)[0],
+		).toBe(`${SNAPSHOT_OPENER}flock /l -c "cd scripts && npm run test"`);
+	});
+
 	it("reads no detachment in a heredoc, and re-issues its body unchanged", () => {
 		const write = [
 			"cat > /tmp/x.sh <<'EOF'",

@@ -1,4 +1,10 @@
-const { QUOTED, carriesVar, literal, typedWord } = require("./shell-words.js");
+const {
+	QUOTED,
+	carriesVar,
+	literal,
+	readSentinels,
+	typedWord,
+} = require("./shell-words.js");
 const {
 	BASH_SPACE,
 	asWritten,
@@ -80,11 +86,42 @@ const DETACH_REWRITES = /** @type {const} */ ([
 	[/&/g, ";"],
 ]);
 
-/** @param {string} text @returns {string} */
-function stripDetachment(text) {
+/**
+ * @param {string} text
+ * @param {Set<string>} [scripts]
+ * @returns {string}
+ */
+function stripDetachment(text, scripts = new Set()) {
 	const { masked, spans } = maskQuotes(text);
-	return trimStart(asWritten(stripBare(masked), spans.map(stripSpan)));
+	const kept = spans.map((span) =>
+		scripts.has(span)
+			? span.charAt(0) + stripDetachment(span.slice(1))
+			: stripSpan(span),
+	);
+	return trimStart(asWritten(stripBare(masked), kept));
 }
+
+/** @param {string} text @param {Set<string>} scripts */
+const readsDetached = (text, scripts) =>
+	detaches(text) || [...scripts].some((span) => detaches(span.slice(1)));
+
+/** @param {Set<string>} set @param {string[]} items */
+const addAll = (set, items) => {
+	for (const item of items) set.add(item);
+};
+
+/** @param {string[]} words @param {string[]} spans */
+const quotedSpans = (words, spans) =>
+	words.flatMap((word) => {
+		/** @type {string[]} */
+		const found = [];
+		readSentinels(word, (_lit, idx) => {
+			const span = idx === null ? undefined : spans[idx];
+			if (span?.startsWith("'") || span?.startsWith('"')) found.push(span);
+			return { text: "", stepPast: true };
+		});
+		return found;
+	});
 
 /** @param {string} span */
 function stripSpan(span) {
@@ -225,6 +262,8 @@ function decide(command, ctx) {
 	let snapshot = true;
 	/** @type {{ from: string, to: string }[]} */
 	const timed = [];
+	/** @type {Set<string>} */
+	const scripts = new Set();
 	/**
 	 * @param {string[]} leading
 	 * @param {import("./shell-words.js").Unwrapped} run
@@ -237,43 +276,52 @@ function decide(command, ctx) {
 		foundSuite = true;
 		return launch;
 	};
+	/**
+	 * @param {import("./shell-parse.js").Command} cmd
+	 * @param {import("./shell-words.js").Unwrapped} first
+	 * @param {import("./suite-launch.js").Launch} launch
+	 */
+	const noteTimed = (cmd, { words, wrapperWords }, launch) => {
+		const nwrap = cmd.words.length - words.length;
+		const isTimed =
+			nwrap > 0 &&
+			cmd.words.slice(0, nwrap).some((w) => afterSlash(w) === "timeout");
+		if (!isTimed || !isUnbounded(launch, words, spans)) return;
+		if (carriesVar("WFC_SUITE_TIMEOUT", cmd.leading, wrapperWords)) return;
+		let stripped = stripTimeout(cmd.segment, words[0] ?? "");
+		if (stripped === null) {
+			ctx.log(
+				"stripTimeout could not place the wrappers — the deny re-issues the segment as typed",
+			);
+			stripped = cmd.segment;
+		}
+		timed.push({
+			from: asWritten(cmd.segment, spans),
+			to: asWritten(stripped, spans),
+		});
+	};
 	walkCommands(
 		parsed,
 		(cmd) => {
 			const [first, ...later] = cmd.runs();
-			for (const run of later) noteLaunch(cmd.leading, run);
-			const { words, wrapperWords } = first;
-			const nwrap = cmd.words.length - words.length;
-			const isTimed =
-				nwrap > 0 &&
-				cmd.words.slice(0, nwrap).some((w) => afterSlash(w) === "timeout");
-			if (words.length === 0) return;
-			const launch = noteLaunch(cmd.leading, first);
-			if (!launch) return;
-			if (!isTimed || !isUnbounded(launch, words, spans)) return;
-			if (carriesVar("WFC_SUITE_TIMEOUT", cmd.leading, wrapperWords)) return;
-			let stripped = stripTimeout(cmd.segment, words[0] ?? "");
-			if (stripped === null) {
-				ctx.log(
-					"stripTimeout could not place the wrappers — the deny re-issues the segment as typed",
-				);
-				stripped = cmd.segment;
-			}
-			timed.push({
-				from: asWritten(cmd.segment, spans),
-				to: asWritten(stripped, spans),
-			});
+			const launched = later.filter((run) => noteLaunch(cmd.leading, run));
+			const launch =
+				first.words.length === 0 ? null : noteLaunch(cmd.leading, first);
+			if (launch) launched.push(first);
+			if (launched.some((run) => run.scripted))
+				addAll(scripts, quotedSpans(cmd.words, spans));
+			if (launch) noteTimed(cmd, first, launch);
 		},
 		ctx,
 	);
 	const hold = holdHeredocs(command, parsed.heredocLines);
-	const detached = foundSuite && !escaped && detaches(hold.text);
+	const detached = foundSuite && !escaped && readsDetached(hold.text, scripts);
 	if (!detached && timed.length === 0) return null;
 
 	let fix = hold.text;
 	for (const { from, to } of timed)
 		if (from !== "") fix = fix.split(from).join(to);
-	if (detached) fix = stripDetachment(fix);
+	if (detached) fix = stripDetachment(fix, scripts);
 	fix = putBackHeredocs(trimStart(fix), hold.kept);
 	if (fix === "") {
 		ctx.log(
