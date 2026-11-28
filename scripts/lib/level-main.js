@@ -51,6 +51,12 @@ const HOLDERS = ["level-main.js", "refill-loop.js"];
  *   | ({ status: "stranding", from: string, to: string } & Stranding)
  * )} Moved
  * @typedef {(
+ *   | Extract<Moved, { status: "off-branch" | "shared" | "level" | "ahead" | "blocked" }>
+ *   | { status: "clear", from: string, to: string, changed: string[], landed: Landed[] }
+ * )} Survey
+ * @typedef {import("./landed-edit.js").LandedCopy & { inHead: boolean }} Landed
+ * @typedef {{ survey: Survey, behind: number, fetchedAt: number | null }} MainLag
+ * @typedef {(
  *   | (Moved & { fetchError: string | null, discarded: Discard[] })
  *   | { status: "busy", holder: number | null, fetchError: null, discarded: [] }
  * ) & { install: InstallResult }} Outcome
@@ -84,7 +90,7 @@ const parseNulList = (out) => out.split("\0").filter(Boolean);
 function readEditedPaths(root) {
 	const paths = new Set();
 	for (const { path: p, source } of porcelainEntries(
-		git(["status", "--porcelain", "-z", "-uall"], root),
+		git(["--no-optional-locks", "status", "--porcelain", "-z", "-uall"], root),
 	)) {
 		paths.add(p);
 		if (source) paths.add(source);
@@ -260,33 +266,20 @@ function discard(root, rel, inHead) {
 
 /**
  * @param {string} root
- * @param {string[]} edited
- * @returns {{ discarded: Discard[], kept: string[], failed: string | null }}
+ * @param {Landed[]} landed
+ * @param {Discard[]} discarded
+ * @returns {string | null}
  */
-function discardLanded(root, edited) {
-	const judged = edited.map((rel) => ({
-		rel,
-		clear: readLevelClear(root, rel, UPSTREAM),
-	}));
-	const kept = judged.filter((j) => j.clear === null).map((j) => j.rel);
-	if (kept.length > 0) return { discarded: [], kept, failed: null };
-	/** @type {Discard[]} */
-	const discarded = [];
-	for (const { clear } of judged) {
-		if (clear === null) continue;
-		const { inHead, ...copy } = clear;
+function discardLanded(root, landed, discarded) {
+	for (const { inHead, ...copy } of landed) {
 		try {
 			discard(root, copy.path, inHead);
 		} catch (err) {
-			return {
-				discarded,
-				kept,
-				failed: `discarding ${copy.path}, which ${UPSTREAM} holds byte for byte, failed: ${(caught(err).stderr || caught(err).message).trim()}`,
-			};
+			return `discarding ${copy.path}, which ${UPSTREAM} holds byte for byte, failed: ${(caught(err).stderr || caught(err).message).trim()}`;
 		}
 		discarded.push(copy);
 	}
-	return { discarded, kept, failed: null };
+	return null;
 }
 
 /**
@@ -323,12 +316,10 @@ function forward(root, how) {
 
 /**
  * @param {string} root
- * @param {{ now: number, lastWriter: LastWriter, work: string,
- *   listSessions?: ListSessions }} how
- * @param {Discard[]} discarded
- * @returns {Moved}
+ * @param {{ now: number, lastWriter: LastWriter }} how
+ * @returns {Survey}
  */
-function advance(root, { now, lastWriter, work, listSessions }, discarded) {
+function survey(root, { now, lastWriter }) {
 	let branch = null;
 	try {
 		branch = git(["symbolic-ref", "--quiet", "--short", "HEAD"], root).trim();
@@ -348,17 +339,31 @@ function advance(root, { now, lastWriter, work, listSessions }, discarded) {
 	const changed = parseNulList(
 		git(["diff", "--name-only", "--no-renames", "-z", from, to], root),
 	);
-	const cleared = discardLanded(
-		root,
-		[...readEditedPaths(root)].filter((p) => clashes(p, changed)).sort(),
-	);
-	discarded.push(...cleared.discarded);
-	if (cleared.failed !== null)
-		return { status: "refused", from, to, why: cleared.failed };
-	const blockers = cleared.kept.map((p) =>
-		readBlocker(root, p, now, lastWriter),
-	);
+	const judged = [...readEditedPaths(root)]
+		.filter((p) => clashes(p, changed))
+		.sort()
+		.map((rel) => ({ rel, clear: readLevelClear(root, rel, UPSTREAM) }));
+	const blockers = judged
+		.filter((j) => j.clear === null)
+		.map((j) => readBlocker(root, j.rel, now, lastWriter));
 	if (blockers.length > 0) return { status: "blocked", from, to, blockers };
+	const landed = judged.flatMap((j) => (j.clear === null ? [] : [j.clear]));
+	return { status: "clear", from, to, changed, landed };
+}
+
+/**
+ * @param {string} root
+ * @param {{ now: number, lastWriter: LastWriter, work: string,
+ *   listSessions?: ListSessions }} how
+ * @param {Discard[]} discarded
+ * @returns {Moved}
+ */
+function advance(root, { now, lastWriter, work, listSessions }, discarded) {
+	const surveyed = survey(root, { now, lastWriter });
+	if (surveyed.status !== "clear") return surveyed;
+	const { from, to, changed } = surveyed;
+	const failed = discardLanded(root, surveyed.landed, discarded);
+	if (failed !== null) return { status: "refused", from, to, why: failed };
 	const moved = remarkAroundMove(
 		buildRemarkPorts(root, path.join(work, "canary"), listSessions),
 		{ from, to, changed },
@@ -379,6 +384,32 @@ function advance(root, { now, lastWriter, work, listSessions }, discarded) {
 		case "moved":
 			return { status: "forwarded", from, head: to, late: moved.late };
 	}
+}
+
+/**
+ * @param {string} root
+ * @param {{ now: number, lastWriter: LastWriter }} how
+ * @returns {MainLag}
+ */
+function readMainLag(root, how) {
+	const surveyed = survey(root, how);
+	const behind = Number(
+		git(["rev-list", "--count", `HEAD..${UPSTREAM}`], root).trim(),
+	);
+	const common = gitCommonDirOrThrow(root, { timeout: GIT_TIMEOUT_MS });
+	const stamps = [
+		"FETCH_HEAD",
+		path.join("logs", "refs", "remotes", ...UPSTREAM.split("/")),
+	].flatMap(
+		(rel) =>
+			fs.statSync(path.join(common, rel), { throwIfNoEntry: false })?.mtimeMs ??
+			[],
+	);
+	return {
+		survey: surveyed,
+		behind,
+		fetchedAt: stamps.length === 0 ? null : Math.max(...stamps),
+	};
 }
 
 /**
@@ -530,11 +561,27 @@ function renderLate(late) {
 }
 
 /**
- * @param {Outcome} o
+ * @param {Survey} s
  * @param {number} now
  * @returns {string[]}
  */
-function renderOutcome(o, now) {
+function renderSurvey(s, now) {
+	if (s.status !== "clear") return renderStatus(s, now);
+	const landed =
+		s.landed.length === 0
+			? ""
+			: `, after discarding ${s.landed.map((l) => l.path).join(", ")}, which ${UPSTREAM} holds byte for byte`;
+	return [
+		`clear: no edit blocks the fast-forward, so the next levelling pass takes main to ${UPSTREAM}${landed} — \`node ${scriptPath("level-main.js")}\` runs one now`,
+	];
+}
+
+/**
+ * @param {Moved | { status: "busy", holder: number | null }} o
+ * @param {number} now
+ * @returns {string[]}
+ */
+function renderStatus(o, now) {
 	const short = (/** @type {string} */ sha) => sha.slice(0, SHORT_SHA);
 	const next = "then the next pass levels main";
 	/** @type {string[]} */
@@ -596,6 +643,17 @@ function renderOutcome(o, now) {
 			);
 			break;
 	}
+	return lines;
+}
+
+/**
+ * @param {Outcome} o
+ * @param {number} now
+ * @returns {string[]}
+ */
+function renderOutcome(o, now) {
+	const short = (/** @type {string} */ sha) => sha.slice(0, SHORT_SHA);
+	const lines = renderStatus(o, now);
 	for (const d of o.discarded)
 		lines.push(
 			`discarded ${d.path} from the main checkout: its blob ${short(d.blob)} is the file at ${short(d.commit)} on ${UPSTREAM}, so nothing was lost`,
@@ -618,8 +676,10 @@ module.exports = {
 	describeAge,
 	level,
 	levelNow,
+	readMainLag,
 	readOrphanedEdits,
 	renderBlocker,
 	renderOutcome,
+	renderSurvey,
 	startLevelling,
 };
