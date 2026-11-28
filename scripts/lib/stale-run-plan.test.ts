@@ -860,7 +860,7 @@ describe("planStaleRun: filings", () => {
 		expect(two.filings[0].body).toContain("o/q#5 NO-TAKES");
 	});
 
-	const blocked = (tags: [string, string]) =>
+	const blockedPlan = (tags: [string, string]) =>
 		plan([
 			repo({
 				issues: [
@@ -880,15 +880,15 @@ describe("planStaleRun: filings", () => {
 			.filter((f: { kind: string }) => f.kind === "cause")
 			.map((f: { title: string }) => f.title);
 
-	it("files no cause for stuck-blocker lines, which borrow their blocker's class", () => {
-		const p = blocked(["NO-TAKES", "UNPLACED"]);
+	it("files no cause for stuck-blocker lines, which borrow their blocker's class (#5913)", () => {
+		const p = blockedPlan(["NO-TAKES", "UNPLACED"]);
 		expect(texts(p)).toContain("o/r#1 blocked by o/r#3 (C5, 10 d)");
 		expect(texts(p)).toContain("o/r#2 blocked by o/r#4 (C4, 10 d)");
 		expect(causeTitles(p)).toEqual([]);
 	});
 
 	it("still files the blockers' own cause when they share a signature", () => {
-		expect(causeTitles(blocked(["NO-TAKES", "NO-TAKES"]))).toEqual([
+		expect(causeTitles(blockedPlan(["NO-TAKES", "NO-TAKES"]))).toEqual([
 			"Stale-ticket cause: C5 NO-TAKES",
 		]);
 	});
