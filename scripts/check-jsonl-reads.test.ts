@@ -34,8 +34,11 @@ const HELPER =
 	'function readAll(text) {\n\treturn text\n\t\t.split("\\n")\n\t\t.map(parseRow)\n\t\t.filter((r) => r !== null);\n}\nfunction parseRow(line) {\n\ttry {\n\t\treturn JSON.parse(line);\n\t} catch {\n\t\treturn null;\n\t}\n}\n';
 const ARROW_HELPER =
 	'const parseRow = (l) =>\n\tJSON.parse(l);\nconst rows = raw.split("\\n").flatMap((l) => parseRow(l));\n';
+const DOLLAR_HELPER =
+	'const $p = (l, i) => JSON.parse(l);\nconst rows = raw.split("\\n").map((l, i) => $p(l, i));\n';
 const PLAIN_HELPER =
-	'const trim = (l) => l.trim();\nconst words = raw.split("\\n").map(trim);\n';
+	'const open = (l) => l.startsWith("{");\nconst flags = raw.split("\\n").map(open);\n';
+const IDENTITY_MAP = 'const lines = raw.split("\\n").map((l) => l);\n';
 const ON_READER =
 	'const { readJsonl } = require("./lib/jsonl.js");\nconst rows = readJsonl(file)?.rows ?? [];\n';
 
@@ -78,18 +81,18 @@ describe("check-jsonl-reads", () => {
 	it("FAILs a split mapped through a named helper that parses JSON, bare or arrow-wrapped (#5869)", () => {
 		program("helper.js", HELPER);
 		program("arrow.js", ARROW_HELPER);
+		program("dollar.js", DOLLAR_HELPER);
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(
-			"2 site(s) hand-parse JSONL: scripts/arrow.js:3, scripts/helper.js:3.",
+			"3 site(s) hand-parse JSONL: scripts/arrow.js:3, scripts/dollar.js:2, scripts/helper.js:3.",
 		);
 	});
 
-	it("passes a split mapped through a helper that parses no JSON, with a parse past the helper's end (#5869)", () => {
-		program(
-			"plain.js",
-			`${PLAIN_HELPER}${"f();\n".repeat(13)}JSON.parse(x);\n`,
-		);
+	it("passes a split mapped through a helper that parses no JSON, its body holding a brace in a string, with a parse past its end, and an identity map beside an unrelated parse (#5869)", () => {
+		const far = `${"f();\n".repeat(13)}const l = JSON.parse(cfg);\n`;
+		program("plain.js", `${PLAIN_HELPER}${far}`);
+		program("identity.js", `${IDENTITY_MAP}${far}`);
 		program("on.js", ON_READER);
 		const r = run();
 		expect(r.status).toBe(0);

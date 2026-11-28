@@ -3,16 +3,20 @@
 const { runCheck } = require("./lib/check");
 const { exemptHint, exemptMarker } = require("./lib/exempt-markers.js");
 const { parseLineSites, heresySpec } = require("./lib/heresy-scan.js");
+const { escapeRe } = require("./lib/regex-group.js");
 
 // measured 12 lines in lib/pending-tasks.js, #3452
 const WINDOW = 12;
 const NEWLINE_SPLIT =
 	/\.split\(\s*(?:"\\n"|'\\n'|`\\n`|\/\\n\/|\/\\r\?\\n\/)\s*\)/;
 const PARSE = /\bJSON\.parse\b/;
-// #5869
-const MAPPED =
-	/\.(?:flatMap|map)\(\s*(?:\(?\w+\)?\s*=>\s*)?([A-Za-z_$][\w$]*)[,)(]/g;
-// guess: a bound on a helper body's scan should its braces never balance, #5869
+const IDENT = "[A-Za-z_$][\\w$]*";
+const MAPPED = new RegExp(
+	`\\.(?:flatMap|map)\\((?:(${IDENT})\\s*[,)]|(?:\\w+|\\([\\w, ]*\\)) ?=> ?(${IDENT})\\()`,
+	"g",
+);
+const LITERAL = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
+// guess, #5869
 const BODY_CAP = 200;
 const EXEMPT = exemptMarker("jsonl-read");
 const READER = "scripts/lib/jsonl.js";
@@ -23,28 +27,31 @@ const FIX = `read it through readJsonl (a file), parseJsonl (text) or parseJsonl
  * @param {string[]} lines
  * @param {string} name
  */
-function helperParses(lines, name) {
-	const def = new RegExp(
-		`(?:\\bfunction\\s+${name}\\s*\\(|\\b(?:const|let|var)\\s+${name}\\s*=)`,
+function hasParsingHelper(lines, name) {
+	const definition = new RegExp(
+		`(?:\\bfunction\\s+${escapeRe(name)}\\s*\\(|\\b(?:const|let|var)\\s+${escapeRe(name)}\\s*=)`,
 	);
-	const start = lines.findIndex((l) => def.test(l));
+	const start = lines.findIndex((l) => definition.test(l));
 	if (start === -1) return false;
 	let depth = 0;
 	for (const line of lines.slice(start, start + BODY_CAP)) {
 		if (PARSE.test(line)) return true;
-		depth += (line.match(/[{(]/g) ?? []).length;
-		depth -= (line.match(/[})]/g) ?? []).length;
-		if (depth <= 0 && /[;}]\s*$/.test(line)) return false;
+		const bare = line.replace(LITERAL, '""');
+		depth += (bare.match(/[{(]/g) ?? []).length;
+		depth -= (bare.match(/[})]/g) ?? []).length;
+		if (depth <= 0 && /[;}]\s*$/.test(bare)) return false;
 	}
 	return false;
 }
 
-/** @param {string[]} window @param {string[]} lines */
-const parsesNear = (window, lines) =>
-	window.some(
+/** @param {string[]} nearby @param {string[]} lines */
+const hasParseNear = (nearby, lines) =>
+	nearby.some(
 		(l) =>
 			PARSE.test(l) ||
-			[...l.matchAll(MAPPED)].some((m) => helperParses(lines, m[1] ?? "")),
+			[...l.matchAll(MAPPED)].some((m) =>
+				hasParsingHelper(lines, m[1] ?? m[2] ?? ""),
+			),
 	);
 
 /** @type {import("./lib/check").CheckSpec} */
@@ -59,7 +66,7 @@ const SPEC = heresySpec({
 					program,
 					(line, i, lines) =>
 						NEWLINE_SPLIT.test(line) &&
-						parsesNear(lines.slice(i, i + WINDOW + 1), lines),
+						hasParseNear(lines.slice(i, i + WINDOW + 1), lines),
 					EXEMPT,
 				),
 			message: (rel, site) =>
