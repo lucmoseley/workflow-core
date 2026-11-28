@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// #5857
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -6,7 +7,7 @@ const path = require("node:path");
 const { listedSessionIds } = require("./lib/agent-liveness.js");
 const { listIssueClaims } = require("./lib/arbiter-issue-claims.js");
 const core = require("./lib/arbiter-core.js");
-const { caught } = require("./lib/caught.js");
+const { caught, orFallback } = require("./lib/caught.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { recordJudged, runCheckGates } = require("./lib/gate-sweep.js");
@@ -31,6 +32,7 @@ const { labelPin } = require("./lib/release-lag.js");
 const { scriptPath } = require("./lib/script-path.js");
 const plan = require("./lib/stale-run-plan.js");
 const record = require("./lib/stale-run-record.js");
+const { DAY_MS } = record;
 const { fileOrRefresh, refresh } = require("./lib/tracking-issue.js");
 const { WATCH_CLOSED_LABEL } = require("./lib/watch-label.js");
 const { loops } = require("./lib/wait-graph.js");
@@ -40,7 +42,6 @@ const { writeFd } = require("./lib/write-fd.js");
 const USAGE = `usage: node ${scriptPath("stale-ticket-run.js")} [--dry-run]`;
 const PLUGIN = "workflow-core";
 const BUMP_TITLE = "Bump workflow-core to ";
-const DAY_MS = 24 * 60 * 60 * 1000;
 // guess, #5857
 const CHECK_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -120,6 +121,18 @@ function readOpenIssues(tracker, root) {
 		.map(issueOf);
 }
 
+/** @param {string} tracker @param {string} root @returns {SnapIssue[]} */
+function readWatched(tracker, root) {
+	return ghApiSlurp(
+		[
+			`repos/${tracker}/issues?state=closed&labels=${WATCH_CLOSED_LABEL}&per_page=100`,
+		],
+		{ cwd: root },
+	)
+		.filter((i) => !i.pull_request)
+		.map(issueOf);
+}
+
 /** @param {string} tracker @param {SnapIssue[]} issues */
 async function readEdges(tracker, issues) {
 	const reads = await readLinksMany(tracker, issues, {
@@ -177,7 +190,10 @@ function readClosedRefs(tracker, issues) {
 				".state",
 			]).trim();
 			return state === "closed" ? [k] : [];
-		} catch {
+		} catch (e) {
+			warn(
+				`${k}: state unread, so its gate is not stripped (${caught(e).message})`,
+			);
 			return [];
 		}
 	});
@@ -202,14 +218,17 @@ async function readCycles(tracker, issues) {
 	}
 }
 
-/** @param {string} stdout @returns {any[]} */
-function readGateRows(stdout) {
-	try {
-		const rows = JSON.parse(stdout).rows;
-		return Array.isArray(rows) ? rows : [];
-	} catch {
-		return [];
-	}
+/** @param {string} root @param {{stdout: string} | {error: string}} run @returns {any[]} */
+function readGateRows(root, run) {
+	const rows =
+		"error" in run
+			? undefined
+			: orFallback(() => JSON.parse(run.stdout).rows, undefined);
+	if (Array.isArray(rows)) return rows;
+	warn(
+		`check-gates.js in ${root}: no rows read, so no gate is judged (${"error" in run ? run.error : "no --json rows"})`,
+	);
+	return [];
 }
 
 /** @param {string} root @returns {string|null} */
@@ -243,6 +262,7 @@ async function gatherRepo(root, { served, now }) {
 		claims: [],
 		parkMarkers: [],
 		closedRefs: [],
+		watched: [],
 		cycles: [],
 	};
 	if (tracker === null) return base;
@@ -277,7 +297,8 @@ async function gatherTracked(root, tracker, now) {
 		frontier:
 			"error" in shortlist ? shortlist : shortlist.rows.map((r) => r.number),
 		issues,
-		gates: "error" in gateRun ? [] : readGateRows(gateRun.stdout),
+		watched: readWatched(tracker, root),
+		gates: readGateRows(root, gateRun),
 		labelFindings: (labels?.findings ?? []).flatMap((/** @type {any} */ f) =>
 			typeof f.data?.number === "number"
 				? [{ tag: f.tag, number: f.data.number }]
@@ -302,7 +323,7 @@ async function gatherTracked(root, tracker, now) {
 
 /** @returns {Set<string>} */
 function readServed() {
-	const control = readControlChecked(() => undefined).control;
+	const control = readControlChecked(warn).control;
 	return new Set(
 		control ? scopeRoots(control.scope, readExclusionWhy).roots : [],
 	);
@@ -313,7 +334,8 @@ function readLatestRelease(coreRoot) {
 	try {
 		const { readReleaseTags } = require("./lib/release-tags.js");
 		return readReleaseTags(coreRoot).at(-1) ?? null;
-	} catch {
+	} catch (e) {
+		warn(`release tags unread, so no pin reads behind (${caught(e).message})`);
 		return null;
 	}
 }
@@ -335,7 +357,10 @@ function readHub(n, tracker) {
 			number: n,
 			state: /** @type {"open"|"closed"} */ (String(state).toLowerCase()),
 		};
-	} catch {
+	} catch (e) {
+		warn(
+			`${tracker}#${n}: hub state unread, so no close disposes its keys (${caught(e).message})`,
+		);
 		return null;
 	}
 }

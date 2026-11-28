@@ -1,3 +1,4 @@
+const { OWED_FLOOR_DAYS } = require("./stale-run-plan.js");
 const { requiredGroup } = require("./regex-group.js");
 const { byKind, incidentTitle, isOver } = require("./earlyoom-kills.js");
 const { buildEpisodeTitle, countKilled } = require("./process-runaways.js");
@@ -181,10 +182,10 @@ function renderStaleRunLines(reading) {
 		return [...head, `Not read: ${quoted(reading.why)}`, ""];
 	return [
 		...head,
-		`From the daily stale-ticket run of ${reading.date}: each act you owe over 7 days old, then each repo's line.`,
+		`From the daily stale-ticket run of ${reading.date}: each act you owe over ${OWED_FLOOR_DAYS} days old, then each repo's line.`,
 		"",
 		...(reading.owed.length === 0
-			? ["Nothing owed over 7 days."]
+			? [`Nothing owed over ${OWED_FLOOR_DAYS} days.`]
 			: reading.owed.map((o) => `- ${o.text} — ${o.url}`)),
 		"",
 		...reading.repoLines.map((l) => `- ${l}`),

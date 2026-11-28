@@ -40,6 +40,7 @@ const repo = (over: Record<string, unknown> = {}) => ({
 	claims: [],
 	parkMarkers: [],
 	closedRefs: [],
+	watched: [],
 	cycles: [],
 	...over,
 });
@@ -645,6 +646,83 @@ describe("planStaleRun: filings", () => {
 		expect(plan(repos).filings[0].title).toBe(
 			plan(repos, { previous: prevRow() }).filings[0].title,
 		);
+	});
+});
+
+describe("planStaleRun: review fixes", () => {
+	it("lists no gate line and files nothing for an issue under the floor", () => {
+		const p = plan([
+			repo({
+				issues: [issue(1, { createdAt: daysAgo(2), body: GATE("y") })],
+				gates: [
+					{
+						number: 1,
+						state: "DEAD",
+						reading: "ENOENT: no such file",
+						closed: false,
+					},
+				],
+			}),
+		]);
+		expect(p.lines).toEqual([]);
+		expect(p.filings).toEqual([]);
+	});
+
+	it("discharges a closed watch:closed issue with its body read", () => {
+		const p = plan([
+			repo({
+				watched: [issue(3, { body: `x\n${GATE("y")}` })],
+				gates: [
+					{ number: 3, state: "READING", reading: "5 of 5", closed: true },
+				],
+			}),
+		]);
+		expect(p.acts).toMatchObject([
+			{ kind: "discharge", number: 3, closed: true, body: "x" },
+		]);
+	});
+
+	it("files no cause for two lines of one signature on one issue", () => {
+		const open = (n: number) => ({ repo: null, number: n, state: "open" });
+		const p = plan([
+			repo({
+				issues: [
+					issue(1, { blockedBy: [open(2), open(3)] }),
+					issue(2, { labels: [] }),
+					issue(3, { labels: [] }),
+				],
+			}),
+		]);
+		expect(
+			p.filings
+				.filter((f: { kind: string }) => f.kind === "cause")
+				.map((f: { title: string }) => f.title),
+		).not.toContain("Stale-ticket cause: C3 stuck blocker");
+	});
+
+	it("reads a parked question answered only by a comment after the label", () => {
+		const parked = (n: number, commentAt: string) =>
+			issue(n, {
+				labels: ["takes:implement", "parked"],
+				timeline: [
+					{ event: "commented", created_at: commentAt },
+					{
+						event: "labeled",
+						created_at: daysAgo(9),
+						label: { name: "parked" },
+					},
+				],
+			});
+		const p = plan([
+			repo({
+				issues: [parked(1, daysAgo(9.5)), parked(2, daysAgo(8))],
+				parkMarkers: [{ sessionId: "s", issues: [1, 2] }],
+			}),
+		]);
+		expect(p.owed.map((o: { number: number }) => o.number)).toEqual([1]);
+		expect(texts(p)).toEqual([
+			"o/r#2 parked, its question has a later comment",
+		]);
 	});
 });
 

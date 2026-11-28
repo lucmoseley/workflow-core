@@ -1,10 +1,14 @@
+const { WAITING_LABEL } = require("./frontier-order.js");
+const { PARKED_LABEL } = require("./parked.js");
+const { takesLabel } = require("./takes-label.js");
+const { URGENT_LABEL } = require("./urgent-label.js");
 const { parseVerdict } = require("./gate-check.js");
 const { gateRefsOf, resolveGate } = require("./issue-gate.js");
 const { refKey } = require("./issue-ref.js");
 const { isTagRef, sameRelease } = require("./plugin-state.js");
+const { DAY_MS } = require("./retained-jsonl.js");
 const { buildStandaloneLine } = require("./standalone-line.js");
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 // guess, #5857
 const FLOOR_DAYS = 7;
 // guess, #5857
@@ -19,7 +23,7 @@ const URGENT_DAYS = 14;
 const STAMP_ALARM_DAYS = 2;
 
 const HUB_TITLE = "Stale tickets: daily report";
-const HUB_TAKES = "takes:triage";
+const HUB_TAKES = takesLabel("triage");
 const HUB_STANDALONE = "the daily stale-ticket run's report (#5857).";
 const FILING_STANDALONE = "a cause the daily stale-ticket run found.";
 const CAUSE_PREFIX = "Stale-ticket cause: ";
@@ -27,9 +31,6 @@ const DATA_ROUTE_PREFIX = "Gate data not accruing: ";
 
 const CONTAINER_LABEL = "takes:children";
 const HUMAN_LABEL = "takes:human";
-const PARKED_LABEL = "parked";
-const URGENT_LABEL = "urgent";
-const EXTERNAL_LABEL = "waiting:external";
 const ROUND = /❓ \*\*Q/;
 const LABEL_TAGS = new Set([
 	"NO-TAKES",
@@ -110,6 +111,7 @@ const CLASS_ORDER = /** @type {Cls[]} */ (Object.keys(CLASS_NAMES));
  * @property {{number: number, assigned: boolean}[]} bumps
  * @property {number[] | {error: string}} frontier
  * @property {SnapIssue[]} issues
+ * @property {SnapIssue[]} watched
  * @property {GateRow[]} gates
  * @property {{tag: string, number: number}[]} labelFindings
  * @property {number[]} containerRetags
@@ -321,7 +323,7 @@ function planRepo(ctx, r, repo) {
 		ctx,
 		r,
 		repo,
-		byNumber: new Map(r.issues.map((i) => [i.number, i])),
+		byNumber: new Map([...r.watched, ...r.issues].map((i) => [i.number, i])),
 		takeable: "error" in r.frontier ? null : new Set(r.frontier),
 		found: new Map(),
 		excluded: new Set(),
@@ -405,6 +407,13 @@ function gateSince(rc, g) {
 	return { since, changed };
 }
 
+/** @param {Ctx} ctx @param {SnapIssue} iss */
+function overFloor(ctx, iss) {
+	if (daysSince(iss.createdAt, ctx.now) <= FLOOR_DAYS) return false;
+	const { gate } = resolveGate(iss.body, ctx.now);
+	return !(gate && !gate.malformed && gate.active && gate.reason);
+}
+
 /** @param {RepoCtx} rc @param {GateRow} g @returns {boolean} */
 function planMetGate(rc, g) {
 	if (g.state !== "READING" || parseVerdict(g.reading) !== "met") return false;
@@ -418,7 +427,7 @@ function planGate(rc, g) {
 	const { ctx } = rc;
 	const { since, changed } = gateSince(rc, g);
 	const iss = rc.byNumber.get(g.number);
-	if (g.closed || !iss) return;
+	if (g.closed || !iss || !overFloor(ctx, iss)) return;
 	const d = daysSince(since, ctx.now);
 	if (g.state === "READING") planReading(rc, { g, iss, d, changed });
 	else planRepair(rc, g, iss, d);
@@ -624,7 +633,7 @@ function planOwed(rc, iss) {
 			sig: `parked ${marker.cause}`,
 			text: `parked (${marker.cause})`,
 		});
-	else if (tl.some((e) => e.event === "commented"))
+	else if (answeredAfter(tl, labelledAt(tl, PARKED_LABEL)))
 		add(rc, {
 			n,
 			cls: "C5",
@@ -635,14 +644,19 @@ function planOwed(rc, iss) {
 	return null;
 }
 
+/** @param {{event: string, created_at: string}[]} tl @param {string|null} since */
+const answeredAfter = (tl, since) =>
+	since !== null &&
+	tl.some((e) => e.event === "commented" && e.created_at > since);
+
 /** @param {RepoCtx} rc @param {SnapIssue} iss @param {number|null} owedDays */
 function planWaits(rc, iss, owedDays) {
 	const n = iss.number;
 	const tl = iss.timeline ?? [];
 	const ageOf = (/** @type {string} */ label) =>
 		daysSince(labelledAt(tl, label) ?? iss.createdAt, rc.ctx.now);
-	if (iss.labels.includes(EXTERNAL_LABEL)) {
-		const d = ageOf(EXTERNAL_LABEL);
+	if (iss.labels.includes(WAITING_LABEL)) {
+		const d = ageOf(WAITING_LABEL);
 		if (d > EXTERNAL_DAYS)
 			owe(rc, n, `waiting on ${partyOf(iss.body)} ${d} d`, d);
 	}
@@ -769,7 +783,7 @@ function planCauses(ctx) {
 		causes.set(l.sig, [...(causes.get(l.sig) ?? []), l]);
 	}
 	for (const [sig, ls] of causes)
-		if (ls.length > 1)
+		if (new Set(ls.map((l) => l.key.split(":")[0])).size > 1)
 			ctx.filings.push({
 				kind: "cause",
 				tracker: ctx.snap.coreTracker,
@@ -908,11 +922,8 @@ function buildDataRouteBody(repo, g, iss, d) {
 }
 
 module.exports = {
-	CAUSE_PREFIX,
-	FILING_STANDALONE,
-	HUB_STANDALONE,
-	DATA_ROUTE_PREFIX,
 	FLOOR_DAYS,
+	OWED_FLOOR_DAYS,
 	HUB_TAKES,
 	HUB_TITLE,
 	STAMP_ALARM_DAYS,

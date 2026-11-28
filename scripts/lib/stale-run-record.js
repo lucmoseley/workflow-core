@@ -3,6 +3,8 @@ const path = require("node:path");
 const { readJsonl, readLastJsonlRow } = require("./jsonl.js");
 const { refillPath } = require("./refill-dir.js");
 
+const { DAY_MS } = require("./retained-jsonl.js");
+
 const RECORD_NAME = ".stale-run-record.jsonl";
 
 const recordPath = () => refillPath(RECORD_NAME);
@@ -32,4 +34,4 @@ function appendRow(file, row) {
 	fs.appendFileSync(file, `${JSON.stringify(row)}\n`);
 }
 
-module.exports = { appendRow, readNewestRow, readRows, recordPath };
+module.exports = { DAY_MS, appendRow, readNewestRow, readRows, recordPath };

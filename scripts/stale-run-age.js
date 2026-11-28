@@ -1,12 +1,12 @@
 #!/usr/bin/env node
+// #5857
 
 const { parseOrExit } = require("./lib/cli-args.js");
 const { scriptPath } = require("./lib/script-path.js");
-const { readRows, recordPath } = require("./lib/stale-run-record.js");
+const { DAY_MS, readRows, recordPath } = require("./lib/stale-run-record.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = `usage: node ${scriptPath("stale-run-age.js")} <days>`;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 function main() {
 	const { positionals } = parseOrExit(process.argv.slice(2), {

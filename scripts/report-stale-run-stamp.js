@@ -3,16 +3,20 @@
 const { parseOrExit } = require("./lib/cli-args.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { STAMP_ALARM_DAYS } = require("./lib/stale-run-plan.js");
-const { readNewestRow, recordPath } = require("./lib/stale-run-record.js");
+const {
+	DAY_MS,
+	readNewestRow,
+	recordPath,
+} = require("./lib/stale-run-record.js");
 const { takesLabel } = require("./lib/takes-label.js");
 const { fileOrRefresh } = require("./lib/tracking-issue.js");
 const { originLabel } = require("./lib/issue-origin.js");
 const { buildStandaloneLine } = require("./lib/standalone-line.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-const TITLE = "The daily stale-ticket run has not run for 2 days";
+const TITLE = `The daily stale-ticket run has not run for ${STAMP_ALARM_DAYS} days`;
+const LABEL = takesLabel("triage");
 const USAGE = `usage: node ${scriptPath("report-stale-run-stamp.js")} [--dry-run]`;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** @param {number} nowMs @returns {string|null} */
 function readFault(nowMs) {
@@ -62,12 +66,12 @@ function main() {
 		`${fault}. ${fileOrRefresh({
 			title: TITLE,
 			labels: [originLabel("repo-checks-script")],
-			takes: takesLabel("triage"),
+			takes: LABEL,
 			body: buildBody(fault),
 		})}\n`,
 	);
 }
 
-module.exports = { TITLE };
+module.exports = { LABEL, TITLE, readFault };
 
 if (require.main === module) main();
