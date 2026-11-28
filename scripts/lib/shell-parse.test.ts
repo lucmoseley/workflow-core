@@ -808,7 +808,7 @@ describe("escapeShield — one shield for every escape-aware split (#5116)", () 
 		const raw = `\ue000 ${typed} \\;`;
 		const { text, unshield } = shieldOf(raw);
 		expect(text).not.toContain("\\;");
-		expect(text.startsWith(`\ue000 ${typed} \\`)).toBe(true);
+		expect(text.slice(0, -1)).toBe(`\ue000 ${typed} \\`);
 		expect(unshield(text)).toBe(raw);
 	});
 });
