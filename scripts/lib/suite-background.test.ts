@@ -390,6 +390,39 @@ describe("lib/suite-background.js", () => {
 		}
 	});
 
+	it("reads an escaped `&` as a detachment only in a script a wrapper re-reads (#5884)", () => {
+		const fixOf = (command: string) =>
+			(readDenyReason(command).split("\n")[0] ?? "").slice(
+				SNAPSHOT_OPENER.length,
+			);
+		for (const command of [
+			"npm run test \\&",
+			"npm run test -- -t a\\&b",
+			"watch npm run test -- \\\\\\&",
+		])
+			expect(verdict(command), command).toBe("allow");
+		for (const [command, fix] of [
+			["watch npm run test -- $X \\&", "watch npm run test -- $X"],
+			[
+				"watch npm run test -- -t `date` \\&",
+				"watch npm run test -- -t `date`",
+			],
+			["watch npm run test -- \\\\\\& \\&", "watch npm run test -- \\\\\\&"],
+			["watch npm run test \\& \\; true", "watch npm run test \\; true"],
+			[
+				"watch timeout 300 npm run test \\& true",
+				"watch 'npm run test ; true'",
+			],
+			["watch npm run test\\&", "watch npm run test"],
+			["watch npm run test \\& true", "watch npm run test \\; true"],
+			["npm run test -- \\& &", "npm run test -- \\&"],
+			["npm run test \\\\&", "npm run test \\\\"],
+		]) {
+			expect(fixOf(command), command).toBe(fix);
+			expect(verdict(fix), fix).toBe("allow");
+		}
+	});
+
 	it("reads no detachment in a heredoc, and re-issues its body unchanged", () => {
 		const write = [
 			"cat > /tmp/x.sh <<'EOF'",
@@ -642,6 +675,25 @@ describe("lib/suite-background.js", () => {
 			[
 				'flock /l -c "timeout 590 npm run test -- -t $(date)"',
 				'flock /l -c "npm run test -- -t $(date)"',
+			],
+		])
+			expect(
+				readDenyReason(command).split("\n")[0].replace(FIX_OPENER, ""),
+				command,
+			).toBe(fix);
+	});
+
+	it("strips a timeout from a launch holding a backtick substitution, keeping the backticks (#5882)", () => {
+		for (const [command, fix] of [
+			["timeout 590 npm run test -- -t `date`", "npm run test -- -t `date`"],
+			[
+				"timeout 590 npm run test -- -t `date` --queue",
+				"npm run test -- -t `date` --queue",
+			],
+			["timeout 590 npm run test -- -t a$", "npm run test -- -t a$"],
+			[
+				'flock /l -c "timeout 590 npm run test -- -t `date`"',
+				'flock /l -c "npm run test -- -t `date`"',
 			],
 		])
 			expect(

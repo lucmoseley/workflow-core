@@ -142,7 +142,7 @@ node scripts/steps-owed.js decline <tag> "<text>"
 `clear` refuses a malformed identifier — an unknown type, an empty tag or
 text — before touching the file. `decline` only ever touches a `choice`.
 
-The `check-plugin-gap.js` SessionStart reporter (#243) surfaces every
+The `guard-plugin-gap.js` SessionStart reporter (#243) surfaces every
 undeclined `stepsOwed` entry — alongside the version-gap report where one is
 open, and on its own where it is not. Its report carries the exact `clear`/
 `decline` command for each entry.

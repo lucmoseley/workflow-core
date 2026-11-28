@@ -53,7 +53,7 @@ function judgeInstalls(adopters) {
 	if (off.length === 0) return null;
 	return {
 		finding: "INSTALL-OFF-PIN",
-		line: `Install not at pin, pin / installed: ${listAdopters(off)}. The pinned release is not what runs there; each checkout's own session start names the commands that install it (${scriptPath("check-plugin-gap.js")}).`,
+		line: `Install not at pin, pin / installed: ${listAdopters(off)}. The pinned release is not what runs there; each checkout's own session start names the commands that install it (${scriptPath("guard-plugin-gap.js")}).`,
 	};
 }
 

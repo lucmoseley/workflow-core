@@ -41,7 +41,6 @@ process.env.WFC_GATE_JUDGE = "off";
 
 process.env.WFC_GATE_CITED = "off";
 
-/* #5861 */
 process.env.WFC_GATE_HISTORY = path.join(
 	os.tmpdir(),
 	`wfc-gate-history-${process.pid}-${Date.now()}.jsonl`,

@@ -21,7 +21,7 @@ const selectionMarker = require("./lib/selection-marker.js");
 installPickNextHarness();
 
 describe("possible file collisions", () => {
-	const table = (out: string) => out.split("-".repeat(111))[1].split("\n\n")[0];
+	const table = (out: string) => out.split(/^-+$/m)[1].split("\n\n")[0];
 
 	it("reports two shortlisted issues whose bodies name the same tracked file", async () => {
 		stubRepo(["scripts/lib/guard-log.sh", "scripts/pick-next.js"]);
