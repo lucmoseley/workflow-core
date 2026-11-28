@@ -161,7 +161,7 @@ A decision that could reasonably have gone the other way is recorded where #5457
 
 ### §G2 · A magic value carries its derivation — **hard**
 
-A value that was chosen — a threshold, a size, a count, a timeout — states where it came from, and says so when it is a guess, wherever it sits: a module constant, a parameter's default, a call-site argument or a local name (#1406). It does so in the value-derivation form `docs/comment-kinds.md` gives: one line holding `measured` and the figure, or `guess`, and the `#N` that holds the detail. Several sites holding one value for one reason take it from one constant that carries the derivation. A name for a fixed path or label is not one, nor is a value nothing chose, such as a unit conversion or a command's argument count.
+A value that was chosen — a threshold, a size, a count, a timeout — states where it came from, and says so when it is a guess, wherever it sits: a module constant, a parameter's default, a call-site argument or a local name (#1406). It does so in the value-derivation form `docs/comment-kinds.md` gives: one line holding `measured` and the figure, `guess`, or `ruled` for a house value, and the `#N` that holds the detail; `ruled` adds the round that set it (`ruled, #N Qk`). Several sites holding one value for one reason take it from one constant that carries the derivation. A name for a fixed path or label is not one, nor is a value nothing chose, such as a unit conversion or a command's argument count.
 
 ### §G3 · A retained escape hatch silences only a style-only or faulty rule, and names it — **hard**
 

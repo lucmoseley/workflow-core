@@ -55,7 +55,7 @@ A module switches on extra rules and gates. Each needs documents or tests a new 
 - **governance** — the document map's figure registry and the operating manual. On once the manual or a figure-registry entry exists.
 - **site** — the rendered pages and their copy checks, gating a commit that touches them. On once the brand sheet and the site's pages both exist.
 - **mutation** — a commit changing a line on a declared sensitive path is refused while a planted bug on that line survives every test. Never on by itself: switch it on only where those paths are tested in-process by vitest.
-- **comments** — a commit adding a comment to a JS, TS, Python or shell file is refused unless it fits a permitted kind: a licence header, a style-only suppression, an issue, ADR or RFC pointer, a measured or guessed derivation, a named source, or a doc on a shipped export. Off until the comments the tree already holds are reshaped or deleted.
+- **comments** — a commit adding a comment to a JS, TS, Python or shell file is refused unless it fits a permitted kind: a licence header, a style-only suppression, an issue, ADR or RFC pointer, a measured, guessed or ruled derivation, a named source, or a doc on a shipped export. Off until the comments the tree already holds are reshaped or deleted.
 
 To switch one on, ask a session in that repo to.
 

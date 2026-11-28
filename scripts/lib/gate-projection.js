@@ -14,7 +14,7 @@ const {
 	UPSTREAM_TRACKER,
 } = require("./workflow-core-config.js");
 
-// #5687
+// ruled, #5687 Q1
 const BOUND_DAYS = 7;
 
 // guess, #5852
