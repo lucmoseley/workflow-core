@@ -669,17 +669,22 @@ function file(labelled, { title, body, repo }) {
  */
 function applyHub(p, snap, labelled, acts) {
 	const hub = plan.hubNext(p, snap.hub, acts);
-	const before = snap.hub?.state === "open" ? snap.hub.number : null;
+	say(`hub: ${hub.action}`);
 	if (hub.action === "close") issue(snap.coreTracker, hub.number, ["close"]);
-	if (hub.action !== "refresh")
-		return plan.hubAfter(p, hub, { filed: null, before });
-	const { number, text } = file(labelled, {
-		title: plan.HUB_TITLE,
-		body: plan.buildHubBody(p, acts),
-		repo: snap.coreTracker,
+	let filed = null;
+	if (hub.action === "refresh") {
+		const written = file(labelled, {
+			title: plan.HUB_TITLE,
+			body: plan.buildHubBody(p, acts),
+			repo: snap.coreTracker,
+		});
+		say(written.text);
+		filed = written.number;
+	}
+	return plan.hubAfter(p, hub, {
+		filed,
+		before: snap.hub?.state === "open" ? snap.hub.number : null,
 	});
-	say(text);
-	return plan.hubAfter(p, hub, { filed: number, before });
 }
 
 /**
@@ -709,17 +714,13 @@ function apply(p, snap) {
 	return { acts: acts.done, filings, hub };
 }
 
-/**
- * @param {import("./lib/stale-run-plan.js").Plan} p
- * @param {import("./lib/stale-run-plan.js").Snapshot} snap
- */
-function printPlan(p, snap) {
+/** @param {import("./lib/stale-run-plan.js").Plan} p */
+function printPlan(p) {
 	for (const l of p.repoLines) say(l);
 	for (const l of p.lines) say(`${l.cls}  ${l.text}`);
 	for (const o of p.owed) say(`owed  ${o.text}`);
 	for (const a of p.acts) say(`would: ${plan.actText(a)}`);
 	for (const f of p.filings) say(`would file or refresh: ${f.title}`);
-	say(`hub: ${plan.hubNext(p, snap.hub, { done: [], failed: [] }).action}`);
 }
 
 /** @param {{dryRun: boolean}} opts @returns {Promise<number>} */
@@ -731,8 +732,9 @@ async function runStaleTicket({ dryRun }) {
 		now: new Date(clockNow()),
 	});
 	const p = plan.planStaleRun(snap);
-	printPlan(p, snap);
+	printPlan(p);
 	if (dryRun) {
+		say(`hub: ${plan.hubNext(p, snap.hub, plan.NO_OUTCOMES).action}`);
 		say("--dry-run: nothing written.");
 		return 0;
 	}

@@ -334,7 +334,7 @@ function planStaleRun(snap) {
 	planAllStuckBlockers(planned);
 	for (const { rc } of planned) flushLines(rc);
 	planCauses(ctx);
-	return { ...planHub(ctx), gates: ctx.gates };
+	return { ...planDisposal(ctx), gates: ctx.gates };
 }
 
 /** @param {Ctx} ctx @param {SnapRepo} r @param {string} repo */
@@ -935,9 +935,9 @@ function planCauses(ctx) {
 }
 
 /** @param {Ctx} ctx */
-function planHub(ctx) {
+function planDisposal(ctx) {
 	const { snap, lines, owed, acts, filings, repoLines } = ctx;
-	const current = new Set([...lines, ...owed].map((l) => l.key));
+	const current = new Set(hubKeys(ctx));
 	const prevHub = snap.previous?.hub ?? { number: null, keys: [] };
 	const closedNow =
 		snap.hub?.state === "closed" && prevHub.number === snap.hub.number;
@@ -952,18 +952,24 @@ function planHub(ctx) {
 	return { repoLines, lines, owed, acts, filings, disposed };
 }
 
+/** @param {Pick<Plan, "lines" | "owed">} p */
+const hubKeys = (p) => [...p.lines, ...p.owed].map((l) => l.key);
+
+/** @type {ActOutcomes} */
+const NO_OUTCOMES = Object.freeze({ done: [], failed: [] });
+
 /**
  * @param {Plan} p
- * @param {Snapshot["hub"]} open
- * @param {ActOutcomes} acts
+ * @param {Snapshot["hub"]} hub
+ * @param {ActOutcomes} outcomes
  * @returns {HubNext}
  */
-function hubNext(p, open, { failed }) {
+function hubNext(p, hub, outcomes) {
 	const disposed = new Set(p.disposed);
-	if (failed.length > 0 || p.lines.some((l) => !disposed.has(l.key)))
+	if (outcomes.failed.length > 0 || p.lines.some((l) => !disposed.has(l.key)))
 		return { action: "refresh" };
-	return open?.state === "open"
-		? { action: "close", number: open.number }
+	return hub?.state === "open"
+		? { action: "close", number: hub.number }
 		: { action: "none" };
 }
 
@@ -1066,10 +1072,7 @@ function buildRunRow(p, snap, done) {
  */
 const hubAfter = (p, hub, { filed, before }) =>
 	hub.action === "refresh"
-		? {
-				number: filed ?? before,
-				keys: [...p.lines, ...p.owed].map((l) => l.key),
-			}
+		? { number: filed ?? before, keys: hubKeys(p) }
 		: { number: null, keys: [] };
 
 /**
@@ -1122,7 +1125,14 @@ function buildHubBody({ repoLines, lines, owed, disposed }, { done, failed }) {
 		"",
 		...(failed.length === 0
 			? []
-			: ["## Failed this run", "", ...failed.map((t) => `- ${t}`), ""]),
+			: [
+					"## Failed this run",
+					"",
+					"The next run tries each of these again; one listed here two runs running needs a session to fix its cause.",
+					"",
+					...failed.map((t) => `- ${t}`),
+					"",
+				]),
 		buildStandaloneLine(HUB_STANDALONE),
 	].join("\n");
 }
@@ -1154,6 +1164,7 @@ module.exports = {
 	OWED_FLOOR_DAYS,
 	HUB_TAKES,
 	HUB_TITLE,
+	NO_OUTCOMES,
 	STAMP_ALARM_DAYS,
 	actComment,
 	actText,

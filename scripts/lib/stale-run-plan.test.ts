@@ -9,6 +9,7 @@ const {
 	failedText,
 	hubAfter,
 	hubNext,
+	NO_OUTCOMES,
 	planStaleRun,
 	reopenSteps,
 } = require("./stale-run-plan.js");
@@ -70,11 +71,10 @@ const snap = (repos: unknown[], over: Record<string, unknown> = {}) => ({
 const plan = (repos: unknown[], over: Record<string, unknown> = {}) =>
 	planStaleRun(snap(repos, over));
 
-const NO_ACTS = { done: [], failed: [] };
-const hubBody = (p: unknown) => buildHubBody(p, NO_ACTS);
+const hubBody = (p: unknown) => buildHubBody(p, NO_OUTCOMES);
 const hubOf = (repos: unknown[], over: Record<string, unknown> = {}) => {
 	const s = snap(repos, over);
-	return hubNext(planStaleRun(s), s.hub, NO_ACTS);
+	return hubNext(planStaleRun(s), s.hub, NO_OUTCOMES);
 };
 
 const texts = (p: { lines: { text: string }[] }) => p.lines.map((l) => l.text);
@@ -1029,8 +1029,9 @@ describe("planStaleRun: the hub issue", () => {
 			failed: ["discharged: o/r#3 (met) — failed: refused"],
 		});
 		expect(failed).toContain("## Restored this run\n\nNone.\n");
+		expect(failed).toContain("## Failed this run\n\nThe next run tries");
 		expect(failed).toContain(
-			"## Failed this run\n\n- discharged: o/r#3 (met) — failed: refused\n",
+			"two runs running needs a session to fix its cause.\n\n- discharged: o/r#3 (met) — failed: refused\n",
 		);
 	});
 
@@ -1056,16 +1057,32 @@ describe("planStaleRun: the hub issue", () => {
 		});
 	});
 
-	it("refreshes a hub it would close or leave unfiled when an act failed, so the failure is read", () => {
+	it("refreshes, not closes or leaves unfiled, a hub with every line disposed when an act failed (#5931)", () => {
 		const failed = { done: [], failed: ["cleared: o/r#2 — failed: `x`"] };
-		const open = snap([repo()], { hub: { number: 40, state: "open" } });
-		const p = planStaleRun(open);
-		const next = hubNext(p, open.hub, failed);
+		const disposedAll = { previous: prevRow({ disposed: ["o/r#1:C5"] }) };
+		const withOpen = snap(listed, {
+			...disposedAll,
+			hub: { number: 40, state: "open" },
+		});
+		const p = planStaleRun(withOpen);
+		expect(hubNext(p, withOpen.hub, NO_OUTCOMES)).toEqual({
+			action: "close",
+			number: 40,
+		});
+		const next = hubNext(p, withOpen.hub, failed);
 		expect(next).toEqual({ action: "refresh" });
-		expect(hubAfter(p, next, { filed: null, before: 40 }).number).toBe(40);
-		const unfiled = snap([repo()]);
-		expect(hubNext(planStaleRun(unfiled), unfiled.hub, failed)).toEqual({
-			action: "refresh",
+		expect(hubAfter(p, next, { filed: null, before: 40 })).toEqual({
+			number: 40,
+			keys: ["o/r#1:C5"],
+		});
+		const unfiled = snap(listed, disposedAll);
+		const q = planStaleRun(unfiled);
+		expect(hubNext(q, unfiled.hub, NO_OUTCOMES)).toEqual({ action: "none" });
+		const filed = hubNext(q, unfiled.hub, failed);
+		expect(filed).toEqual({ action: "refresh" });
+		expect(hubAfter(q, filed, { filed: 77, before: null })).toEqual({
+			number: 77,
+			keys: ["o/r#1:C5"],
 		});
 	});
 
