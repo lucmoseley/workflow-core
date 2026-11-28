@@ -10,6 +10,7 @@ const {
 	asWritten,
 	maskQuotes,
 	parseCommand,
+	placeSegments,
 	quotedSubstitutions,
 	walkCommands,
 } = require("./shell-parse.js");
@@ -278,7 +279,7 @@ const TIMED_TEXT = `This suite is WRAPPED IN A SHELL \`timeout\`, which kills it
 
 /**
  * @typedef {object} Timed
- * @property {string} from
+ * @property {number} segIdx
  * @property {string} to
  * @property {number[]} dropped
  * @property {Map<number, string>} respanned
@@ -343,10 +344,16 @@ function readLaunches(parsed, ctx, launchPorts) {
 		const words = wordIndices.flatMap((i) => cmd.words.slice(i, i + 1));
 		const literals = words.map((w) => literal(w, spans));
 		const body = literals.map((l) => l.text).join(" ");
-		const inner = readLaunches(parseCommand(body), ctx, launchPorts);
+		const parsedBody = parseCommand(body);
+		const inner = readLaunches(parsedBody, ctx, launchPorts);
 		if (inner.timed.length === 0) return null;
 		const untimed = putBackRequoted(
-			applyTimed(body, inner.timed, spanShift(inner.timed)),
+			applyTimed(
+				{ text: body, parsed: parsedBody },
+				inner.timed,
+				spanShift(inner.timed),
+				ctx,
+			),
 			inner.requoted,
 		);
 		const inPlace = respanFix(words, spans, body, untimed);
@@ -394,10 +401,8 @@ function readLaunches(parsed, ctx, launchPorts) {
 			)
 				requoted.push(fix.body);
 		timed.push({
-			...beforeSubstitution(
-				asWritten(cmd.segment, spans),
-				asWritten(segment, spans),
-			),
+			segIdx: cmd.segIdx,
+			to: asWritten(segment, spans),
 			dropped,
 			respanned,
 		});
@@ -429,13 +434,6 @@ function readLaunches(parsed, ctx, launchPorts) {
 	);
 	return { foundSuite, escaped, snapshot, timed, scripts, requoted };
 }
-
-// #5882
-/** @param {string} from @param {string} to */
-const beforeSubstitution = (from, to) =>
-	from.length > 1 && from.endsWith("$") && to.endsWith("$")
-		? { from: from.slice(0, -1), to: to.slice(0, -1) }
-		: { from, to };
 
 /** @param {import("./shell-words.js").Unwrapped[]} runs @returns {ScriptRun[]} */
 function distinctScripts(runs) {
@@ -508,10 +506,28 @@ function spanShift(timed) {
 	return { indexAfterDrops, respanned };
 }
 
-/** @param {string} text @param {Timed[]} timed @param {SpanShift} shift */
-function applyTimed(text, timed, { respanned }) {
+/**
+ * @param {{ text: string, parsed: import("./shell-parse.js").Parsed }} source
+ * @param {Timed[]} timed
+ * @param {SpanShift} shift
+ * @param {Pick<Ctx, "log">} ctx
+ */
+function applyTimed({ text, parsed }, timed, { respanned }, ctx) {
+	const places = placeSegments(parsed, text);
 	let fix = text;
-	for (const { from, to } of timed) fix = fix.split(from).join(to);
+	let end = text.length;
+	for (const edit of timed
+		.map((t) => placedEdit(text, places[t.segIdx] ?? null, t.to))
+		.sort((x, y) => (y?.from ?? -1) - (x?.from ?? -1))) {
+		if (edit === null || edit.to > end) {
+			ctx.log(
+				"a timed launch has no place of its own in the typed command — the deny re-issues it as typed",
+			);
+			continue;
+		}
+		fix = fix.slice(0, edit.from) + edit.put + fix.slice(edit.to);
+		end = edit.from;
+	}
 	if (respanned.size === 0) return fix;
 	const { masked, spans } = maskQuotes(fix);
 	return asWritten(
@@ -539,7 +555,7 @@ function decide(command, ctx) {
 
 	const shift = spanShift(timed);
 	const { indexAfterDrops, respanned } = shift;
-	let fix = applyTimed(hold.text, timed, shift);
+	let fix = applyTimed({ text: hold.text, parsed }, timed, shift, ctx);
 	if (detached)
 		fix = stripDetachment(
 			fix,
@@ -579,6 +595,32 @@ function decide(command, ctx) {
 	if (detached) reason += `\n${withWait(DETACHED_TEXT, overrun("detached"))}`;
 	if (timed.length > 0) reason += `\n${withWait(TIMED_TEXT, overrun("timed"))}`;
 	return { deny: ctx.corePaths(reason.replace(/\n$/, "")) };
+}
+
+/**
+ * @param {string} text
+ * @param {import("./shell-parse.js").Place | null} place
+ * @param {string} to
+ */
+function placedEdit(text, place, to) {
+	if (place === null) return null;
+	if (place.backtick && !to.endsWith("$")) return null;
+	const put = place.backtick ? to.slice(0, -1) : to;
+	const was = text.slice(place.from, place.to);
+	let head = 0;
+	while (head < Math.min(was.length, put.length) && was[head] === put[head])
+		head++;
+	let tail = 0;
+	while (
+		tail < Math.min(was.length, put.length) - head &&
+		was.at(-1 - tail) === put.at(-1 - tail)
+	)
+		tail++;
+	return {
+		from: place.from + head,
+		to: place.to - tail,
+		put: put.slice(head, put.length - tail),
+	};
 }
 
 /**

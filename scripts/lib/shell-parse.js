@@ -486,6 +486,150 @@ function liftSubstitutions(segment, spans) {
 }
 
 /**
+ * @typedef {{ from: number, to: number, backtick: boolean }} Place
+ * @typedef {Place & { map: number[] }} Hit
+ */
+
+/**
+ * @param {Parsed} parsed
+ * @param {string} [text]
+ * @returns {(Place | null)[]}
+ */
+function placeSegments(parsed, text = parsed.subject) {
+	const { segments, lifted, spans } = parsed;
+	const skips = heredocSkips(text, parsed.heredocLines);
+	/** @type {(Place | null)[]} */
+	const places = [];
+	/** @type {number | null} */
+	let cursor = 0;
+	let liftedFrom = 0;
+	segments.forEach((segment, i) => {
+		if (lifted[i]) return;
+		const owned = i - liftedFrom;
+		liftedFrom = i + 1;
+		if (segment === SCOPE_OPEN || segment === SCOPE_CLOSE) {
+			places.push(...new Array(owned + 1).fill(null));
+			return;
+		}
+		const hit =
+			cursor === null
+				? null
+				: seekSegment(asWritten(segment, spans), text, cursor, skips);
+		places.push(
+			...placeLifted(segment, { spans, text }, hit, owned),
+			hit && { from: hit.from, to: hit.to, backtick: hit.backtick },
+		);
+		cursor = hit?.to ?? null;
+	});
+	return places;
+}
+
+/** @param {string} text @param {number[]} lines @returns {Map<number, number>} */
+function heredocSkips(text, lines) {
+	/** @type {Map<number, number>} */
+	const skips = new Map();
+	let start = 0;
+	text.split("\n").forEach((line, n) => {
+		if (lines.includes(n)) skips.set(start, start + line.length);
+		start += line.length + 1;
+	});
+	return skips;
+}
+
+/**
+ * @param {string} typed
+ * @param {string} text
+ * @param {number} from
+ * @param {Map<number, number>} skips
+ * @returns {Hit | null}
+ */
+function seekSegment(typed, text, from, skips) {
+	/** @type {number | null} */
+	let at = from;
+	while (at !== null) {
+		const heredocEnd = skips.get(at);
+		if (heredocEnd !== undefined) {
+			at = heredocEnd;
+			continue;
+		}
+		const hit = matchAt(typed, text, at);
+		if (hit) return hit;
+		at = pastJoin(text, at);
+	}
+	return null;
+}
+
+/** @param {string} text @param {number} at */
+function pastJoin(text, at) {
+	if (text.startsWith("\\\n", at)) return at + 2;
+	if (text.charAt(at) === "#") {
+		const eol = text.indexOf("\n", at);
+		return eol < 0 ? text.length : eol;
+	}
+	return at < text.length && ";&|()`\n".includes(text.charAt(at))
+		? at + 1
+		: null;
+}
+
+/** @param {string} typed @param {string} text @param {number} from @returns {Hit | null} */
+function matchAt(typed, text, from) {
+	/** @type {number[]} */
+	const map = [];
+	let k = from;
+	for (let i = 0; i < typed.length; i++) {
+		while (text.startsWith("\\\n", k) && !typed.startsWith("\\\n", i)) k += 2;
+		if (typed.charAt(i) === text.charAt(k)) {
+			map.push(k++);
+			continue;
+		}
+		const opensBacktick =
+			i === typed.length - 1 &&
+			typed.charAt(i) === "$" &&
+			text.charAt(k) === "`";
+		return opensBacktick ? { from, to: k, backtick: true, map } : null;
+	}
+	return { from, to: k, backtick: false, map };
+}
+
+/**
+ * @param {string} segment
+ * @param {{ spans: string[], text: string }} source
+ * @param {Hit | null} hit
+ * @param {number} owned
+ * @returns {(Place | null)[]}
+ */
+function placeLifted(segment, { spans, text }, hit, owned) {
+	/** @type {(Place | null)[]} */
+	const unplaced = new Array(owned).fill(null);
+	if (hit === null || owned === 0) return unplaced;
+	/** @type {(Place | null)[]} */
+	const places = [];
+	let typedAt = 0;
+	readSentinels(segment, (lit, idx) => {
+		typedAt += lit.length;
+		const span = idx === null ? undefined : spans[idx];
+		if (span === undefined) return { text: "", stepPast: true };
+		for (const sub of quotedSubstitutions(span)) {
+			const inner = parseCommand(sub.text);
+			const base = hit.map[typedAt + sub.from];
+			const held = base !== undefined && text.startsWith(sub.text, base);
+			places.push(
+				null,
+				...placeSegments(inner, sub.text).map((p) =>
+					held && p
+						? { from: p.from + base, to: p.to + base, backtick: p.backtick }
+						: null,
+				),
+				null,
+			);
+		}
+		typedAt += span.length + (isBareSpan(span) ? 0 : 1);
+		return { text: "", stepPast: true };
+	});
+	return places.length === owned ? places : unplaced;
+}
+
+/**
  * @typedef {object} Substitution
  * @property {string} text
  * @property {number} from
@@ -854,6 +998,7 @@ function resolveWord(word, scope) {
 /**
  * @typedef {object} Command
  * @property {string} segment
+ * @property {number} segIdx
  * @property {string[]} words
  * @property {string[]} leading
  * @property {string} cwd
@@ -1159,6 +1304,7 @@ function walkCommands(parsed, fn, ports) {
 				absoluteIn(cwd, word, scope);
 			fn({
 				segment,
+				segIdx,
 				words: own,
 				leading,
 				cwd: cwdOf(walk),
@@ -3063,6 +3209,7 @@ module.exports = {
 	ghWords,
 	commitPathsArgs,
 	parseCommand,
+	placeSegments,
 	maskQuotes,
 	quotedSubstitutions,
 	escapeShield,

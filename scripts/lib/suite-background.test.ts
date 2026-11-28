@@ -617,6 +617,42 @@ describe("lib/suite-background.js", () => {
 			).toBe(fix);
 	});
 
+	it("drops a timeout at its launch's own place, leaving the same text elsewhere as typed (#5890)", () => {
+		for (const [command, fix] of [
+			[
+				"echo timeout 590 npm run test -- -t foo; timeout 590 npm run test -- -t $(date)",
+				"echo timeout 590 npm run test -- -t foo; npm run test -- -t $(date)",
+			],
+			[
+				"echo timeout 590 npm run test -- -t foo; timeout 590 npm run test -- -t `date`",
+				"echo timeout 590 npm run test -- -t foo; npm run test -- -t `date`",
+			],
+			[
+				"echo x # timeout 590 npm run test\ntimeout 590 npm run test",
+				"echo x # timeout 590 npm run test\nnpm run test",
+			],
+			[
+				"a \\\n&& timeout 590 npm run test; echo timeout 590 npm run test",
+				"a \\\n&& npm run test; echo timeout 590 npm run test",
+			],
+			[
+				'echo "timeout 590 npm run test $(timeout 590 npm run test)"',
+				'echo "timeout 590 npm run test $(npm run test)"',
+			],
+			[
+				'timeout 590 npm run test -- -t "$(timeout 590 npm run test)"',
+				'npm run test -- -t "$(npm run test)"',
+			],
+			["timeout 590 npm \\\nrun test", "npm run test"],
+		])
+			expect(
+				readDenyReason(command)
+					.split("\nThis suite is ")[0]
+					.replace(FIX_OPENER, ""),
+				command,
+			).toBe(fix);
+	});
+
 	it("re-issues a timed script as one single-quoted word where its own quotes cannot hold the rewrite (#5874)", () => {
 		for (const [command, fix] of [
 			[
