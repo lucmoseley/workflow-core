@@ -122,6 +122,7 @@ describe("refill-loop.js status's per-call cost (#4821)", () => {
 			"lib/inherited-roots.js",
 			"lib/is-under.js",
 			"lib/issue-gate.js",
+			"lib/issue-origin.js",
 			"lib/issue-ref.js",
 			"lib/job-paths.js",
 			"lib/jsonl.js",

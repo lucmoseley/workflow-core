@@ -2111,10 +2111,13 @@ describe("the Repos section", () => {
 		expect(boxOf(rows, "found-later")?.control?.state).toBe("unticked");
 	});
 
-	it("says beside the boxes that an unticked repo still supplies blockers", () => {
+	it("says beside the boxes that an unticked repo still supplies bumps and blockers", () => {
 		const texts = reposOf({ status: WithRepos }).map((r) => r.text);
 		const noteAt = texts.indexOf("An unticked repo still supplies");
-		expect(texts[noteAt + 1]).toBe("the blockers of served issues");
+		expect(texts.slice(noteAt + 1, noteAt + 3)).toEqual([
+			"its release bumps and the",
+			"blockers of served issues",
+		]);
 		expect(texts[noteAt - 1]).toBe("");
 	});
 
@@ -2128,7 +2131,8 @@ describe("the Repos section", () => {
 			"[ ] b",
 			"",
 			"An unticked repo still supplies",
-			"the blockers of served issues",
+			"its release bumps and the",
+			"blockers of served issues",
 			"",
 			"↑↓ move · space change",
 			"Esc leave",
