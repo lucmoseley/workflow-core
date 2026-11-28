@@ -449,6 +449,7 @@ describe("check-idle-efforts.js", () => {
 			],
 			{
 				readActsBefore: () => ({}),
+				isUntrusted: () => false,
 				resume: () => ({
 					failed: null,
 					jobId: "job1b",

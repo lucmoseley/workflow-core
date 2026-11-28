@@ -94,6 +94,7 @@ describe("refill-loop.js status's per-call cost (#4821)", () => {
 			"lib/doc-map-regions.js",
 			"lib/doc-map.js",
 			"lib/envelope-frame-keys.js",
+			"lib/exempt-markers.js",
 			"lib/file-read.js",
 			"lib/file-through.js",
 			"lib/filed-line.js",

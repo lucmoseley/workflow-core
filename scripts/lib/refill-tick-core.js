@@ -565,7 +565,8 @@ function settleRoom(
  * @param {string[]} warmed
  */
 function warmRefusedRoots(io, refused, warmed) {
-	for (const root of new Set(refused.map((r) => r.launch.root)))
+	const roots = refused.filter((r) => !r.untrusted).map((r) => r.launch.root);
+	for (const root of new Set(roots))
 		if (!warmed.includes(root) && io.hasConfig(root)) io.startWarmPass(root);
 }
 

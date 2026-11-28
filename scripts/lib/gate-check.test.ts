@@ -363,29 +363,29 @@ describe("a count gate projected from its reading history (#5861)", () => {
 		expect(judge("15 commits, set by #4925 Q2").refusals).toEqual([]);
 	});
 
-	it.each([
-		"15 commits, past #5687 Q1's week",
-		"15 commits, past #5687 Q01's week",
-		"15 commits, past lucmoseley/workflow-core-tracker#5687 Q1's week",
-	])(
-		"refuses a basis whose only round is the bound's own ruling: %s",
-		(basis) => {
-			seed(8, "0 of 15 commits");
-			expect(judge(basis).refusals).toHaveLength(1);
-		},
-	);
-
 	it("refuses a basis citing the round its own refusal names as the bound", () => {
 		seed(8, "0 of 15 commits");
-		const printed =
-			judge("15 commits, #5687").refusals[0]?.match(/#\d+ Q\d+/)?.[0];
+		const printed = judge("15 commits, #5687", false).refusals[0]?.match(
+			/#\d+ Q\d+/,
+		)?.[0];
 		expect(printed).toBeDefined();
-		expect(judge(`15 commits, past ${printed}`).refusals).toHaveLength(1);
+		expect(judge(`15 commits, past ${printed}`, false).refusals).toHaveLength(
+			1,
+		);
 	});
 
-	it("passes a round of the same number on another repo", () => {
+	it("refuses the bound's cite as an adopter's copy prints it, there too", () => {
+		const { qualifyProse } = require("./qualify-citations.js");
+		const { judgeBound } = require("./gate-projection.js");
 		seed(8, "0 of 15 commits");
-		expect(judge("15 commits, set by o/r#5687 Q1").refusals).toEqual([]);
+		const shipped = qualifyProse(judge("15 commits, #5687", false).refusals[0]);
+		const cite = shipped.match(/[\w-]+#\d+ Q\d+/)?.[0];
+		expect(cite).toBe("workflow-core#5687 Q1");
+		const rows = readHistory({ repo, issue: 1, command: COMMAND });
+		const adopter = { basis: `past ${cite}`, repo: "o/adopter", now: NOW };
+		expect(judgeBound(rows, [{ a: 1, b: 15 }], adopter).verdict).toBe(
+			"unreachable",
+		);
 	});
 
 	it("refuses a stated expected time past the bound under 7 days of history", () => {
