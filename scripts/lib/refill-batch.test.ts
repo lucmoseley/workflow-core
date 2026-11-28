@@ -15,10 +15,8 @@ import {
 	adoptLaunching,
 	batchesOf,
 	dispatchCall,
-	isTrustHold,
 	launchBatch,
 	launchOrResume,
-	untrustedRefusals,
 } from "./refill-batch.js";
 
 type LoopLaunch = import("./refill-loop.js").LoopLaunch;
@@ -447,7 +445,10 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		batch: Launch[],
 		resume: Io["resume"],
 		written = true,
-		admit: Io["admitResume"] = () => null,
+		{
+			admitResume = () => null,
+			isUntrusted = () => false,
+		}: Partial<Pick<Io, "admitResume" | "isUntrusted">> = {},
 	) {
 		const lines: string[] = [];
 		const fresh: Launch[][] = [];
@@ -460,7 +461,8 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 				actsReadAfter.push(resumed.length);
 				return { file: 1 };
 			},
-			admitResume: admit,
+			admitResume,
+			isUntrusted,
 			stagger: () => staggers.push(resumed.length),
 			resume: (l, t) => {
 				resumed.push(t);
@@ -494,15 +496,42 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		copy: false,
 	});
 
+	it("holds a member whose seat does not trust its repo, naming the act, and launches the rest (#5918)", () => {
+		const asked: string[][] = [];
+		const parked = member(1, { parkedRoute: { resume: target } });
+		const r = run([parked, member(2)], ok, true, {
+			isUntrusted: (seat, root) => {
+				asked.push([seat, root]);
+				return seat === target.seat;
+			},
+		});
+		expect(asked).toEqual([
+			[target.seat, launch.root],
+			[launch.seat, launch.root],
+		]);
+		expect(r.resumed).toEqual([]);
+		expect(r.fresh).toEqual([[member(2)]]);
+		expect(r.out.refused).toEqual([
+			{
+				launch: parked,
+				reason:
+					"workspace untrusted on /home/u/.claude2: run `cd /home/u/design-vault && CLAUDE_CONFIG_DIR=/home/u/.claude2 claude` once and accept the trust prompt",
+				untrusted: true,
+			},
+		]);
+	});
+
 	it("re-reads admission in the resumed member's own checkout (#4962)", () => {
 		const readIn: string[] = [];
 		const parked = member(1, {
 			root: "/other-repo",
 			parkedRoute: { resume: target },
 		});
-		run([parked], ok, true, (root) => {
-			readIn.push(root);
-			return null;
+		run([parked], ok, true, {
+			admitResume: (root) => {
+				readIn.push(root);
+				return null;
+			},
 		});
 		expect(readIn).toEqual(["/other-repo"]);
 	});
@@ -602,8 +631,10 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 
 	it("asks no re-read for a member routed afresh, which the dispatcher re-reads itself (#3872)", () => {
 		const afresh = member(1, { parkedRoute: { afresh: "no marker" } });
-		const { out, fresh } = run([afresh], ok, true, () => {
-			throw new Error("re-read asked");
+		const { out, fresh } = run([afresh], ok, true, {
+			admitResume: () => {
+				throw new Error("re-read asked");
+			},
 		});
 		expect(fresh).toEqual([[afresh]]);
 		expect(out.refused).toEqual([]);
@@ -824,27 +855,5 @@ describe("the members of a batch a kill cut off (#4180)", () => {
 		expect(lines).toEqual([
 			"whether parked design-vault /implement 1's resume started a job is unread: EACCES",
 		]);
-	});
-});
-
-describe("a batch held on an untrusted workspace (#5918)", () => {
-	it("refuses every member, naming the seat, the repo and the founder's act", () => {
-		const batch = [launch, { ...launch, issues: [43], prompt: "/triage 43" }];
-		const asked: string[][] = [];
-		const held = untrustedRefusals(batch, (seat, root) => {
-			asked.push([seat, root]);
-			return true;
-		});
-		expect(asked).toEqual([["/home/u/.claude3", "/home/u/design-vault"]]);
-		expect(held.map((h) => h.launch)).toEqual(batch);
-		const [first] = held;
-		expect(first?.reason).toContain(
-			"run `CLAUDE_CONFIG_DIR=/home/u/.claude3 claude` in /home/u/design-vault once and accept the trust prompt",
-		);
-		expect(isTrustHold(first?.reason ?? "")).toBe(true);
-	});
-
-	it("holds nothing on a trusted seat", () => {
-		expect(untrustedRefusals([launch], () => false)).toEqual([]);
 	});
 });

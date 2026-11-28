@@ -288,6 +288,24 @@ describe("a launch killed from outside (#5145)", () => {
 	});
 });
 
+describe("a launch the launcher refuses (#5918)", () => {
+	it("carries the launcher's own line under the member's REFUSED header", async () => {
+		stubClaude({});
+		const refusing = path.join(fx.dir, "refusing-claude");
+		fs.writeFileSync(
+			refusing,
+			`#!/bin/bash\n[[ " $* " == *" --bg "* ]] && { echo "Workspace not trusted."; exit 1; }\nexec ${shellQuote(stubPath())} "$@"\n`,
+			{ mode: 0o755 },
+		);
+		const r = await runCore(["opus", "/implement 341"], {
+			WFC_CLAUDE_BIN: refusing,
+		});
+		expect(r.stderr).toContain(
+			"REFUSED: /implement 341 — not launching this member.\n  Workspace not trusted.\n  (claude exited 1; not recorded as launched.)",
+		);
+	});
+});
+
 describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
 	it("launches through the binary WFC_CLAUDE_BIN names", async () => {
 		stubClaude({});

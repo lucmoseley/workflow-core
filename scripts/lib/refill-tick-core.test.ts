@@ -1477,6 +1477,29 @@ describe("the checkouts a live tick tends (#3284, #4247, #4248, #4318)", () => {
 		await tickOf(io);
 		expect(warmed).toEqual([WFC, outside]);
 	});
+
+	it("warms no root whose launch was held on an untrusted workspace (#5918)", async () => {
+		const outside = "/home/u/watch-digest";
+		const warmed: string[] = [];
+		const { io } = fakeIo(
+			stateOf(),
+			{
+				startWarmPass: (root) => warmed.push(root),
+				launchBatch: (batch) => ({
+					launched: [],
+					refused: batch.map((launch) => ({
+						launch,
+						reason: "workspace untrusted",
+						untrusted: true as const,
+					})),
+				}),
+				readFreeSlots: () => ({ slots: 3, admission: null }),
+			},
+			{ frontier: [{ ...row(1), root: outside }] },
+		);
+		await tickOf(io);
+		expect(warmed).toEqual([WFC]);
+	});
 });
 
 describe("an overflow session's listed id (#3701)", () => {

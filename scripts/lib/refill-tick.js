@@ -299,8 +299,6 @@ function probeDueSeats(seats, triedAt) {
 
 /** @param {import("./refill-decide.js").Launch[]} batch */
 function launchBatch(batch) {
-	const held = refillBatch.untrustedRefusals(batch, isUntrusted);
-	if (held.length > 0) return { launched: [], refused: held };
 	const r = refillBatch.launchBatch(batch, {
 		dispatcher: DISPATCHER,
 		env: process.env,
@@ -664,6 +662,7 @@ const launchOrResume = (batch, served) =>
 			});
 		},
 		admitResume,
+		isUntrusted,
 		stagger: staggerResume,
 		recordLaunch,
 		launchFresh: launchBatch,

@@ -14,11 +14,16 @@ function isUntrusted(seat, dir) {
 	} catch {
 		return false;
 	}
-	if (projects === null || typeof projects !== "object") return true;
-	for (let at = path.resolve(dir); ; at = path.dirname(at)) {
-		if (projects[at]?.hasTrustDialogAccepted === true) return false;
-		if (path.dirname(at) === at) return true;
-	}
+	if (projects === null || typeof projects !== "object") return false;
+	const isTrusted = (/** @type {string} */ from) => {
+		for (let at = from; ; at = path.dirname(at)) {
+			if (projects[at]?.hasTrustDialogAccepted === true) return true;
+			if (path.dirname(at) === at) return false;
+		}
+	};
+	const resolved = path.resolve(dir);
+	const real = fs.existsSync(resolved) ? fs.realpathSync(resolved) : resolved;
+	return !isTrusted(resolved) && !isTrusted(real);
 }
 
 module.exports = { isUntrusted };
