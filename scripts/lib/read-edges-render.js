@@ -53,6 +53,12 @@ function readIsIntentToAdd(root, head) {
 }
 
 /** @param {string} root */
+function readIntentToAdd(root) {
+	const isIntentToAdd = readIsIntentToAdd(root);
+	return gitList(root, ["ls-files", "-z"]).filter(isIntentToAdd);
+}
+
+/** @param {string} root */
 function readIndexBlobIds(root) {
 	const isIntentToAdd = readIsIntentToAdd(root);
 	/** @type {Map<string, string>} */
@@ -154,21 +160,26 @@ function readCommitTree(root, only) {
 
 /**
  * @param {string} root
- * @param {{ index: boolean, only: string[] | undefined, at: string | undefined }} source
+ * @param {{ index: boolean, only: string[] | undefined, at: string | undefined, without: string[] }} source
  */
-function readTreeFor(root, { index, only, at }) {
+function readTreeFor(root, { index, only, at, without }) {
 	if (at) return blobTree(root, readTreeBlobIds(root, at));
 	if (only) return readCommitTree(root, only);
 	if (index) return readIndexTree(root);
-	return readWorkingTree(root);
+	const tree = readWorkingTree(root);
+	for (const p of without) tree.tracked.delete(p);
+	return tree;
 }
 
 /**
  * @param {string} root
- * @param {{ index?: boolean, only?: string[], at?: string, sites?: boolean }} [opts]
+ * @param {{ index?: boolean, only?: string[], at?: string, sites?: boolean, without?: string[] }} [opts]
  */
-function render(root, { index = false, only, at, sites = false } = {}) {
-	const tree = readTreeFor(root, { index, only, at });
+function render(
+	root,
+	{ index = false, only, at, sites = false, without = [] } = {},
+) {
+	const tree = readTreeFor(root, { index, only, at, without });
 	const read = new Set();
 	const { edges, anchored, tests, warnings, unseen } = buildManifest(
 		tree.tracked,
@@ -194,4 +205,4 @@ function render(root, { index = false, only, at, sites = false } = {}) {
 const buildManifestText = (edges) =>
 	`${JSON.stringify({ $note: NOTE, edges }, null, "\t")}\n`;
 
-module.exports = { OUT, buildManifestText, hasHead, render };
+module.exports = { OUT, buildManifestText, hasHead, readIntentToAdd, render };
