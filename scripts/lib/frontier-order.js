@@ -1,7 +1,7 @@
 const { DAY_MS } = require("./retained-jsonl.js");
 
 const WAITING_LABEL = "waiting:external";
-// #5840
+// guess, #5840
 const AGE_UNIT_DAYS = 7;
 
 /**
