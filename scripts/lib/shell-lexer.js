@@ -1,7 +1,9 @@
-const { QUOTED, SENTINEL_BYTE } = require("./shell-words.js");
+const { QUOTED, SENTINEL_BYTE, MARK_BYTES } = require("./shell-words.js");
 const { endRun } = require("./trim-run.js");
 
 const SPACE = " \t\n\v\f\r";
+
+const MARK_RE = new RegExp(`[${MARK_BYTES}]`, "g");
 
 /** @param {string} s */
 const isWordStart = (s) => s === "" || `${SPACE};&|()`.includes(s.slice(-1));
@@ -142,7 +144,7 @@ class Lexer {
 		this.escaped = false;
 		const c = text.charAt(i);
 		if (this.frames) this.span += c;
-		else if (c === SENTINEL_BYTE) this.out += this.recordSpan(`\\${c}`);
+		else if (MARK_BYTES.includes(c)) this.out += this.recordSpan(`\\${c}`);
 		else if (c !== "\n") this.out += `\\${c}`;
 		return i + 1;
 	}
@@ -156,7 +158,7 @@ class Lexer {
 			i = nl;
 			this.inComment = false;
 		}
-		const j = indexOfAny(text, `'"\\#${SENTINEL_BYTE}`, i);
+		const j = indexOfAny(text, `'"\\#${MARK_BYTES}`, i);
 		if (j < 0) {
 			this.out += text.slice(i);
 			return -1;
@@ -168,7 +170,7 @@ class Lexer {
 			if (isWordStart(this.out)) this.inComment = true;
 			else this.out += "#";
 		} else if (c === "\\") this.escaped = true;
-		else if (c === SENTINEL_BYTE) this.out += this.recordSpan(c);
+		else if (MARK_BYTES.includes(c)) this.out += this.recordSpan(c);
 		else this.openQuote(c, p);
 		return j + 1;
 	}
@@ -318,7 +320,7 @@ class Lexer {
 
 	masked() {
 		if (!this.frames) return this.out;
-		const tail = this.span.replaceAll(SENTINEL_BYTE, (c) => this.recordSpan(c));
+		const tail = this.span.replace(MARK_RE, (c) => this.recordSpan(c));
 		return this.prefix + this.quote + tail;
 	}
 }

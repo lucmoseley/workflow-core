@@ -11,6 +11,7 @@ const {
 	project,
 	readHistory,
 	reachableFloor,
+	judgeBound,
 } = require("./gate-projection.js");
 
 const NOW = Date.parse("2026-11-28T00:00:00Z");
@@ -145,6 +146,51 @@ describe("a count whose series reset under a day ago", () => {
 			counts: [{ a: 0, b: 15, since: NOW - DAY_MS / 12 }],
 		});
 		expect(project(rows, [{ a: 1, b: 15 }], NOW).verdict).toBe("no-history");
+	});
+});
+
+describe("a founder round cited against the bound (#5861)", () => {
+	const Tracker = "lucmoseley/workflow-core-tracker";
+	const Adopter = "o/adopter";
+	const rows = rowsOf([[8, 0]]);
+	const counts = [{ a: 1, b: 15 }];
+	const verdictFor = (basis: string, repo = Tracker) =>
+		judgeBound(rows, counts, { basis: `15 commits, ${basis}`, repo, now: NOW })
+			.verdict;
+
+	it.each([
+		"past #5687 Q1's week",
+		"past #5687 Q01's week",
+		"past lucmoseley/workflow-core-tracker#5687 Q1's week",
+		"past lucmoseley/workflow-core#5687 Q1's week",
+		"past workflow-core#5687 Q1's week",
+		"past Workflow-Core#5687 Q1's week",
+		"past github.com/lucmoseley/workflow-core-tracker#5687 Q1's week",
+		"past#5687 Q1's week",
+		"see ruling-#5687 Q1",
+		"(see #4925)#5687 Q1",
+		"past the bound(#5687 Q1)",
+	])("does not exempt the bound's own ruling: %s", (basis) => {
+		expect(verdictFor(basis)).toBe("unreachable");
+	});
+
+	it("exempts another founder round", () => {
+		expect(verdictFor("set by #4925 Q2")).toBe("pass");
+	});
+
+	it("exempts the bound's numbers cited on another repo", () => {
+		expect(verdictFor("set by o/r#5687 Q1")).toBe("pass");
+	});
+
+	it("reads a bare cite as the bound where no tracker resolves", () => {
+		expect(verdictFor("past #5687 Q1", "")).toBe("unreachable");
+	});
+
+	it("reads a bare cite in an adopter as the adopter's own round", () => {
+		expect(verdictFor("set by #5687 Q1", Adopter)).toBe("pass");
+		expect(verdictFor("past workflow-core#5687 Q1", Adopter)).toBe(
+			"unreachable",
+		);
 	});
 });
 

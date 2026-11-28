@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { parseFileAliases } from "./git-alias.js";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
 import { noop } from "./noop.js";
+import { escapeRe } from "./regex-group.js";
 import { Lexer } from "./shell-lexer.js";
 import type {
 	Command,
@@ -25,7 +26,7 @@ import {
 	walkCommands,
 	walkGit,
 } from "./shell-parse.js";
-import { literal, QUOTED } from "./shell-words.js";
+import { literal, QUOTED, SENTINEL_BYTE } from "./shell-words.js";
 
 const braced = (inner: string) => `$\{${inner}}`;
 const DIR = "/fx";
@@ -792,19 +793,58 @@ describe("Command.cwds — every directory a doubted cd leaves the command in (#
 });
 
 describe("escapeShield — one shield for every escape-aware split (#5116)", () => {
-	const { shield, unshield } = escapeShield(";$");
+	const shieldOf = escapeShield(";$");
 
 	it("hides an escaped character of its set and restores it", () => {
-		const shielded = shield("a\\; b; \\$x \\&");
-		expect(shielded).not.toMatch(/\\[;$]/);
-		expect(shielded).toContain("b;");
-		expect(shielded).toContain("\\&");
-		expect(unshield(shielded)).toBe("a\\; b; \\$x \\&");
+		const { text, unshield } = shieldOf("a\\; b; \\$x \\&");
+		expect(text).not.toMatch(/\\[;$]/);
+		expect(text).toContain("b;");
+		expect(text).toContain("\\&");
+		expect(unshield(text)).toBe("a\\; b; \\$x \\&");
 	});
 
-	it("leaves a stand-in no escape holds as it was typed", () => {
-		const raw = "\ue000 \\\\\ue000";
-		expect(unshield(shield(raw))).toBe(raw);
+	it("holds under a stand-in the text lacks, so a typed one comes back as typed (#5920)", () => {
+		const typed = "\\\ue000 \\\ue001";
+		const raw = `\ue000 ${typed} \\;`;
+		const { text, unshield } = shieldOf(raw);
+		expect(text).not.toContain("\\;");
+		expect(text.slice(0, -1)).toBe(`\ue000 ${typed} \\`);
+		expect(unshield(text)).toBe(raw);
+	});
+});
+
+describe("parseCommand — a typed mark byte parses as typed (#5920)", () => {
+	const Neutral = "\x06";
+	const spanToken = new RegExp(
+		`${escapeRe(QUOTED)}[0-9]+${SENTINEL_BYTE}`,
+		"g",
+	);
+	const shapes = [
+		(m: string) => `echo a${m}b${m}; gh y`,
+		(m: string) => `echo \\${m} ${m}( gh y ) && gh z`,
+		(m: string) => `echo "x${m}" ${m}a${m}c${m}; gh y | gh z`,
+		(m: string) => `${m}a gh y\n${m}o gh z`,
+		(m: string) => `echo 'open ${m}`,
+	];
+	it.each([
+		["the span sentinel", "\x01"],
+		["the scope mark", "\x02"],
+		["the & hold", "\x03"],
+		["the | hold", "\x04"],
+		["the operator mark", "\x05"],
+	])("reads %s as any other byte", (_name, mark) => {
+		for (const shape of shapes) {
+			const typed = parseCommand(shape(mark));
+			const plain = parseCommand(shape(Neutral));
+			expect(typed.masked.replace(spanToken, "")).not.toContain(mark);
+			expect(typed.segments.map((s) => asWritten(s, typed.spans))).toEqual(
+				plain.segments.map((s) =>
+					asWritten(s, plain.spans).replaceAll(Neutral, mark),
+				),
+			);
+			expect(typed.joins).toEqual(plain.joins);
+			expect(asWritten(typed.masked, typed.spans)).toBe(shape(mark));
+		}
 	});
 });
 

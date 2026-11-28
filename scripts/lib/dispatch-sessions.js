@@ -1034,8 +1034,9 @@ class Dispatch {
 			);
 		}
 		if (launched.status !== 0) {
+			const said = firstLine.trim();
 			this.err(
-				`  (${launcher} exited ${launched.status}; not recorded as launched.)\n`,
+				`${memberRefused(prompt)}\n${said ? `  ${said}\n` : ""}  (${launcher} exited ${launched.status}; not recorded as launched.)\n`,
 			);
 			return false;
 		}
