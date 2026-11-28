@@ -19,7 +19,7 @@ const {
 	readStartTimeOf,
 	PART_PASS_AGE_MS,
 	turnOf,
-	readLiveRoleMarkers,
+	readLiveCharged,
 	readTestsHeldOnMemory,
 	readTestsHeldOnWindows,
 	readLiveTypechecks,
@@ -275,9 +275,6 @@ describe("the queue directory every default reads (#2889)", () => {
 
 		expect(fs.readdirSync(root)).toEqual(["wfc-suite-queue"]);
 		expect(path.dirname(file)).toBe(path.join(root, "wfc-suite-queue"));
-		expect(
-			readLiveRoleMarkers("lander").records.map((m: { pid: number }) => m.pid),
-		).toEqual([process.pid]);
 		expect(readLiveLanders().live.map((l: { pid: number }) => l.pid)).toEqual([
 			process.pid,
 		]);
@@ -310,22 +307,25 @@ describe("the queue directory every default reads (#2889)", () => {
 	});
 });
 
-describe("readLiveRoleMarkers (#2416)", () => {
+describe("readLiveCharged (#2416)", () => {
 	it("names the live markers of one role with their charge, sweeping none", () => {
 		const queueDir = qdir();
-		joined(queueDir, 11, 11, { role: "lander", chargeMb: 600 });
-		joined(queueDir, 22, 22, { role: "lander" });
+		joined(queueDir, process.pid, 11, { role: "lander", chargeMb: 600 });
+		joined(queueDir, 2 ** 30, 22, { role: "lander" });
 		joined(queueDir, 33, 33);
-		expect(
-			readLiveRoleMarkers("lander", {
-				queueDir,
-				alive: (pid: number) => pid !== 22,
-			}),
-		).toMatchObject({
-			records: [{ pid: 11, role: "lander", chargeMb: 600 }],
+		expect(readLiveCharged("lander", 500, queueDir)).toMatchObject({
+			records: [{ pid: process.pid, role: "lander", chargeMb: 600 }],
 			unread: null,
 		});
 		expect(fs.readdirSync(queueDir)).toHaveLength(3);
+	});
+
+	it("charges the default to a live marker that names no charge", () => {
+		const queueDir = qdir();
+		joined(queueDir, process.pid, 11, { role: "lander" });
+		expect(readLiveCharged("lander", 500, queueDir).records).toMatchObject([
+			{ pid: process.pid, chargeMb: 500 },
+		]);
 	});
 
 	it("says the queue would not read rather than reading it empty (#5301)", () => {
@@ -333,9 +333,12 @@ describe("readLiveRoleMarkers (#2416)", () => {
 		joined(queueDir, 11, 11, { role: "lander" });
 		fs.chmodSync(queueDir, 0o000);
 		try {
-			expect(readLiveRoleMarkers("lander", { queueDir })).toEqual({
+			expect(readLiveCharged("lander", 500, queueDir)).toEqual({
 				records: [],
-				unread: expect.stringMatching(/would not read \(EACCES/),
+				unread: {
+					why: expect.stringMatching(/would not read \(EACCES/),
+					chargeMb: 500,
+				},
 			});
 		} finally {
 			fs.chmodSync(queueDir, 0o755);
