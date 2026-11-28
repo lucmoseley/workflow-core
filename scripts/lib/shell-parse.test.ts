@@ -17,6 +17,7 @@ import {
 	escapeShield,
 	normAbs,
 	parseCommand,
+	placeSegments,
 	TEXT_ONLY_PORTS,
 	unmask,
 	unsetText,
@@ -824,6 +825,75 @@ describe("parseCommand — an escaped operator stays in its word (#5113)", () =>
 	it("sets the conditional at the first unescaped ||", () => {
 		expect(parseCommand("echo \\|| gh y || gh z").conditional).toBe(2);
 		expect(parseCommand("echo \\| gh y").conditional).toBe(-1);
+	});
+});
+
+describe("placeSegments — each segment's own place in the typed text (#5890)", () => {
+	const placed = (command: string) => {
+		const parsed = parseCommand(command);
+		return placeSegments(parsed).map((place, i) =>
+			place === null
+				? null
+				: {
+						at: place.from,
+						text: command.slice(place.from, place.to),
+						typed: asWritten(parsed.segments[i] ?? "", parsed.spans),
+						backtick: place.backtick,
+					},
+		);
+	};
+
+	it("places a segment after an earlier one holding its text", () => {
+		const command = "echo timeout 5 npm test; timeout 5 npm test";
+		expect(placed(command).filter((p) => p !== null)).toEqual([
+			{
+				at: 0,
+				text: "echo timeout 5 npm test",
+				typed: "echo timeout 5 npm test",
+				backtick: false,
+			},
+			{
+				at: 24,
+				text: " timeout 5 npm test",
+				typed: " timeout 5 npm test",
+				backtick: false,
+			},
+		]);
+	});
+
+	it("leaves the backtick a trailing `$` spells outside the place, and marks it", () => {
+		const [first] = placed("npm test -t `date`");
+		expect(first).toEqual({
+			at: 0,
+			text: "npm test -t ",
+			typed: "npm test -t $",
+			backtick: true,
+		});
+	});
+
+	it("steps past a comment, a heredoc body and a line continuation", () => {
+		for (const command of [
+			"echo x # npm test\nnpm test",
+			"cat <<EOF\nnpm test\nEOF\nnpm test",
+			"a \\\n&& npm test",
+		]) {
+			const last = placed(command).at(-1);
+			expect(command.slice(last?.at).trim(), command).toBe("npm test");
+		}
+	});
+
+	it("places a quoted substitution's segments inside their span", () => {
+		const command = 'echo "npm test $(npm test)"';
+		const parsed = parseCommand(command);
+		const places = placeSegments(parsed);
+		const inner = parsed.segments.indexOf("npm test");
+		expect(parsed.lifted[inner]).toBe(true);
+		expect(places[inner]?.from).toBe(command.lastIndexOf("npm test"));
+	});
+
+	it("places nothing past a segment the text does not hold", () => {
+		const parsed = parseCommand("a; b; c");
+		expect(placeSegments(parsed, "x; b; c")).toEqual([null, null, null]);
 	});
 });
 
